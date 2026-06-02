@@ -1,6 +1,8 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
+  (defmodule review_loop_result_contract_invalid)
+  (import std/phase :only (review-revise-loop))
   (defenum BlockerClass
     missing_resource)
   (defenum ReviewDecision

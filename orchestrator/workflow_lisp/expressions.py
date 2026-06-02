@@ -78,6 +78,18 @@ class RecordExpr:
 
 
 @dataclass(frozen=True)
+class UnionVariantExpr:
+    """One compiler-generated union-variant constructor."""
+
+    type_name: str
+    variant_name: str
+    fields: tuple[tuple[str, "ExprNode"], ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class LetStarExpr:
     """One sequential lexical binding form."""
 
@@ -313,6 +325,7 @@ class LoopRecurExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    on_exhausted_result_expr: "ExprNode | None" = None
 
 
 @dataclass(frozen=True)
@@ -344,19 +357,12 @@ class ProduceOneOfExpr:
 
 
 @dataclass(frozen=True)
-class ReviewReviseLoopExpr:
-    """One supported review/revise loop form."""
+class StdlibSpecializationExpr:
+    """One compiler-private stdlib specialization request."""
 
-    loop_name: str
-    ctx_expr: "ExprNode"
-    completed_expr: "ExprNode"
-    inputs_expr: "ExprNode"
-    review_provider: "ExprNode"
-    fix_provider: "ExprNode"
-    review_prompt: "ExprNode"
-    fix_prompt: "ExprNode"
-    max_expr: "ExprNode"
-    returns_type_name: str
+    request_kind: str
+    symbol_operands: tuple[tuple[str, str], ...]
+    expr_operands: tuple[tuple[str, "ExprNode"], ...]
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
@@ -413,6 +419,7 @@ ExprNode = (
     | LiteralExpr
     | FieldAccessExpr
     | RecordExpr
+    | UnionVariantExpr
     | LetStarExpr
     | IfExpr
     | MatchExpr
@@ -432,7 +439,7 @@ ExprNode = (
     | LoopRecurExpr
     | RunProviderPhaseExpr
     | ProduceOneOfExpr
-    | ReviewReviseLoopExpr
+    | StdlibSpecializationExpr
     | ResumeOrStartExpr
     | ResourceTransitionExpr
     | FinalizeSelectedItemExpr
@@ -735,8 +742,8 @@ def _elaborate_list(
             bound_names=bound_names,
             procedure_names=procedure_names,
         )
-    if head.resolved_name == "review-revise-loop":
-        return _elaborate_review_revise_loop(
+    if head.resolved_name == "__stdlib-specialization__":
+        return _elaborate_stdlib_specialization(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -2041,30 +2048,69 @@ def _elaborate_produce_one_of(
     )
 
 
-def _elaborate_review_revise_loop(
+def _elaborate_stdlib_specialization(
     datum: SyntaxList,
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
-) -> ReviewReviseLoopExpr:
-    if len(datum.items) < 9:
+) -> StdlibSpecializationExpr:
+    if len(datum.items) < 3:
+        _raise_error(
+            "`__stdlib-specialization__` requires a request kind and payload",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    request_kind = syntax_identifier(datum.items[1])
+    if request_kind is None:
+        _raise_error(
+            "`__stdlib-specialization__` request kind must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    if request_kind.resolved_name != "phase-review-loop":
+        _raise_error(
+            f"unknown stdlib specialization request `{request_kind.display_name}`",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    return _elaborate_phase_review_loop_specialization(
+        datum,
+        request_kind=request_kind.resolved_name,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+
+
+def _elaborate_phase_review_loop_specialization(
+    datum: SyntaxList,
+    *,
+    request_kind: str,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> StdlibSpecializationExpr:
+    if len(datum.items) < 10:
         _raise_error(
             "`review-revise-loop` requires a loop name plus :ctx, :completed, :inputs, provider, prompt, :max, and :returns",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    loop_identifier = syntax_identifier(datum.items[1])
+    loop_identifier = syntax_identifier(datum.items[2])
     if loop_identifier is None:
         _raise_error(
             "`review-revise-loop` loop name must be a symbol",
             code="review_loop_result_contract_invalid",
-            span=datum.items[1].span,
+            span=datum.items[2].span,
             form_path=form_path,
-            expansion_stack=datum.items[1].expansion_stack,
+            expansion_stack=datum.items[2].expansion_stack,
         )
-    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`review-revise-loop`")
+    sections = _keyword_sections(datum.items[3:], form_path=form_path, label="`review-revise-loop`")
     required = (
         ":ctx",
         ":completed",
@@ -2094,17 +2140,86 @@ def _elaborate_review_revise_loop(
             form_path=form_path,
             expansion_stack=sections[":returns"].expansion_stack,
         )
-    return ReviewReviseLoopExpr(
-        loop_name=loop_identifier.resolved_name,
-        ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        completed_expr=_elaborate(sections[":completed"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        inputs_expr=_elaborate(sections[":inputs"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        review_provider=_elaborate(sections[":review-provider"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        fix_provider=_elaborate(sections[":fix-provider"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        review_prompt=_elaborate(sections[":review-prompt"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        fix_prompt=_elaborate(sections[":fix-prompt"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        max_expr=_elaborate(sections[":max"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
-        returns_type_name=returns_identifier.resolved_name,
+    return StdlibSpecializationExpr(
+        request_kind=request_kind,
+        symbol_operands=(
+            ("loop-name", loop_identifier.resolved_name),
+            ("returns", returns_identifier.resolved_name),
+        ),
+        expr_operands=(
+            (
+                "ctx",
+                _elaborate(
+                    sections[":ctx"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "completed",
+                _elaborate(
+                    sections[":completed"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "inputs",
+                _elaborate(
+                    sections[":inputs"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "review-provider",
+                _elaborate(
+                    sections[":review-provider"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "fix-provider",
+                _elaborate(
+                    sections[":fix-provider"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "review-prompt",
+                _elaborate(
+                    sections[":review-prompt"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "fix-prompt",
+                _elaborate(
+                    sections[":fix-prompt"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            (
+                "max",
+                _elaborate(
+                    sections[":max"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

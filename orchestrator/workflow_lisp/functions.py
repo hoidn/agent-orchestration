@@ -31,8 +31,9 @@ from .expressions import (
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    StdlibSpecializationExpr,
+    UnionVariantExpr,
     WithPhaseExpr,
     elaborate_expression,
 )
@@ -663,7 +664,7 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "run-provider-phase"
     if isinstance(expr, ProduceOneOfExpr):
         return "produce-one-of"
-    if isinstance(expr, ReviewReviseLoopExpr):
+    if isinstance(expr, StdlibSpecializationExpr):
         return "review-revise-loop"
     if isinstance(expr, ResumeOrStartExpr):
         return "resume-or-start"
@@ -678,6 +679,12 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
     if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr):
         return None
     if isinstance(expr, RecordExpr):
+        for _, field_expr in expr.fields:
+            violation = _find_purity_violation(field_expr)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, UnionVariantExpr):
         for _, field_expr in expr.fields:
             violation = _find_purity_violation(field_expr)
             if violation is not None:

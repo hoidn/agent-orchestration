@@ -1,6 +1,8 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
+  (defmodule phase_stdlib_review_loop)
+  (import std/phase :only (review-revise-loop))
   (defenum BlockerClass
     missing_resource
     unavailable_hardware

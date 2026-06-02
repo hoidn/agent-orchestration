@@ -230,6 +230,97 @@ def test_compile_stage1_entrypoint_rejects_declaring_file_path_mismatches() -> N
     _assert_diagnostic_code(excinfo, "module_path_mismatch")
 
 
+def test_compile_stage1_entrypoint_resolves_builtin_stdlib_imports_without_manual_source_root(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "builtin_stdlib_import"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import std/phase :only (ReviewDecision))",
+                "  (export LocalDecision)",
+                "  (defrecord LocalDecision",
+                "    (decision ReviewDecision)))",
+            ]
+        ),
+    )
+
+    result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
+
+    assert "std/phase" in result.graph.modules_by_name
+    assert result.graph.modules_by_name["std/phase"].source_root != source_root
+
+
+def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "builtin_stdlib_review_loop_macro"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import std/phase :only (review-revise-loop))",
+                "  (export EntryOut)",
+                "  (defrecord EntryOut",
+                "    (report String)))",
+            ]
+        ),
+    )
+
+    result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
+
+    assert "review-revise-loop" in result.graph.export_surfaces_by_name["std/phase"].macros_by_name
+
+
+def test_compile_stage1_entrypoint_rejects_project_local_stdlib_shadowing(tmp_path: Path) -> None:
+    source_root = tmp_path / "shadowed_stdlib"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import std/phase :only (ReviewDecision))",
+                "  (export LocalDecision)",
+                "  (defrecord LocalDecision",
+                "    (decision ReviewDecision)))",
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "std" / "phase.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule std/phase)",
+                "  (export ReviewDecision)",
+                "  (defenum ReviewDecision",
+                "    APPROVE",
+                "    REVISE",
+                "    BLOCKED))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage1_entrypoint(entry_path, source_root=source_root)
+
+    _assert_diagnostic_code(excinfo, "module_import_ambiguous")
+
+
 def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: Path) -> None:
     source_root = VALID_FIXTURES / "callables"
     path = source_root / "neurips" / "entry.orc"
@@ -415,6 +506,41 @@ def test_compile_stage3_entrypoint_preserves_wrapper_behavior_for_single_file_fi
 
     assert stage1_module.definitions
     assert "provider_attempt" in stage3_result.workflow_catalog.signatures_by_name
+
+
+def test_compile_stage3_module_supports_builtin_stdlib_imports(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "builtin_stdlib_stage3" / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import std/phase :only (ReviewDecision))",
+                "  (export WorkflowOutput run)",
+                "  (defrecord WorkflowOutput",
+                "    (report String))",
+                "  (defworkflow run",
+                "    ()",
+                "    -> WorkflowOutput",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs ()",
+                "      :returns WorkflowOutput)))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert "demo/entry::run" in result.workflow_catalog.signatures_by_name
 
 def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_path: Path) -> None:
     source_root = tmp_path / "validate_shared_disabled"

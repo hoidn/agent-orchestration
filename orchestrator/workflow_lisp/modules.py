@@ -707,11 +707,21 @@ def _resolve_qualified_binding(
 
 
 def _resolve_import_path(module_name: str, *, source_roots: tuple[Path, ...]) -> Path:
-    candidates = [source_root / Path(*module_name.split("/")) for source_root in source_roots]
-    for candidate in candidates:
-        candidate = candidate.with_suffix(".orc")
-        if candidate.exists():
-            return candidate
+    candidates = [(source_root / Path(*module_name.split("/"))).with_suffix(".orc") for source_root in source_roots]
+    existing = tuple(candidate for candidate in candidates if candidate.exists())
+    if len(existing) == 1:
+        return existing[0]
+    if len(existing) > 1:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="module_import_ambiguous",
+                    message=f"module `{module_name}` resolves to multiple source files",
+                    span=_synthetic_span(f"<module:{module_name}>"),
+                    form_path=("workflow-lisp", "import"),
+                ),
+            )
+        )
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(

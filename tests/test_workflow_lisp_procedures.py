@@ -28,10 +28,9 @@ from orchestrator.workflow_lisp.expressions import (
     ProduceOneOfExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
 )
-from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings, _resolve_procedure_lowering
+from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import build_procedure_catalog, elaborate_procedure_definitions
 from orchestrator.workflow_lisp.reader import read_sexpr_file
@@ -292,21 +291,6 @@ def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, s
                 inputs=(nested_expr,),
             ),
             candidates=(),
-            span=span,
-            form_path=form_path,
-        )
-    if case_name == "review_revise_loop":
-        return ReviewReviseLoopExpr(
-            loop_name="implementation-review",
-            ctx_expr=placeholder,
-            completed_expr=placeholder,
-            inputs_expr=nested_expr,
-            review_provider=placeholder,
-            fix_provider=placeholder,
-            review_prompt=placeholder,
-            fix_prompt=placeholder,
-            max_expr=LiteralExpr(value=5, literal_kind="int", span=span, form_path=form_path),
-            returns_type_name="WorkflowOutput",
             span=span,
             form_path=form_path,
         )
@@ -731,17 +715,16 @@ def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inp
     assert procedure.definition.name == "build-checks"
     assert procedure.resolved_lowering_mode.value == "inline"
     assert procedure.generated_workflow_name is None
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
+    result = compile_stage3_module(
+        path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
 
-    rendered_diagnostics = [render_diagnostic(diagnostic) for diagnostic in excinfo.value.diagnostics]
+    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
 
-    assert all("%auto_inline_required_for_input_projection.build-checks.v1" not in rendered for rendered in rendered_diagnostics)
-    assert any("procedure call site at" in rendered for rendered in rendered_diagnostics)
+    assert lowered_names == ["first", "second"]
+    assert all(".build-checks.v1" not in name for name in lowered_names)
 
 
 def test_explicit_private_workflow_rejects_input_projection_body(tmp_path: Path) -> None:
@@ -940,13 +923,17 @@ def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_w
     )
 
 
-def test_private_workflow_review_phase_procedure_accepts_review_loop_result_projection(tmp_path: Path) -> None:
+def test_private_workflow_review_phase_procedure_rejects_review_loop_result_projection_boundary(
+    tmp_path: Path,
+) -> None:
     path = _write_module(
         tmp_path / "procedure_review_phase_private_workflow.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
+            "  (defmodule procedure_review_phase_private_workflow)",
+            "  (import std/phase :only (review-revise-loop))",
             "  (defenum BlockerClass",
             "    user_decision_required)",
             "  (defenum ReviewDecision",
@@ -988,7 +975,7 @@ def test_private_workflow_review_phase_procedure_accepts_review_loop_result_proj
             "     (completed CompletedSurface)",
             "     (inputs ReviewInputs))",
             "    -> ReviewSurfaceResult",
-            "    :effects ()",
+            "    :effects ((uses-provider providers.review) (uses-provider providers.fix))",
             "    :lowering private-workflow",
             "    (with-phase phase-ctx implementation-review",
             "      (let* ((review",
@@ -1021,36 +1008,35 @@ def test_private_workflow_review_phase_procedure_accepts_review_loop_result_proj
         ],
     )
 
-    result = compile_stage3_module(
-        path,
-        provider_externs={
-            "providers.review": "test-review-provider",
-            "providers.fix": "test-fix-provider",
-        },
-        prompt_externs={
-            "prompts.review": "prompts/review.md",
-            "prompts.fix": "prompts/fix.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            provider_externs={
+                "providers.review": "test-review-provider",
+                "providers.fix": "test-fix-provider",
+            },
+            prompt_externs={
+                "prompts.review": "prompts/review.md",
+                "prompts.fix": "prompts/fix.md",
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
 
-    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
-    private_names = [
-        name for name in lowered_names if name.endswith(".review-phase-helper.v1")
-    ]
-
-    assert private_names == ["%procedure_review_phase_private_workflow.review-phase-helper.v1"]
-    assert private_names[0] in result.validated_bundles
+    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
 
-def test_private_workflow_call_reuses_managed_write_root_allocator(tmp_path: Path) -> None:
+def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reuse(
+    tmp_path: Path,
+) -> None:
     path = _write_module(
         tmp_path / "procedure_review_phase_private_workflow_allocator.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
+            "  (defmodule procedure_review_phase_private_workflow_allocator)",
+            "  (import std/phase :only (review-revise-loop))",
             "  (defenum BlockerClass",
             "    user_decision_required)",
             "  (defenum ReviewDecision",
@@ -1092,7 +1078,7 @@ def test_private_workflow_call_reuses_managed_write_root_allocator(tmp_path: Pat
             "     (completed CompletedSurface)",
             "     (inputs ReviewInputs))",
             "    -> ReviewSurfaceResult",
-            "    :effects ()",
+            "    :effects ((uses-provider providers.review) (uses-provider providers.fix))",
             "    :lowering private-workflow",
             "    (with-phase phase-ctx implementation-review",
             "      (let* ((review",
@@ -1125,47 +1111,22 @@ def test_private_workflow_call_reuses_managed_write_root_allocator(tmp_path: Pat
         ],
     )
 
-    result = compile_stage3_module(
-        path,
-        provider_externs={
-            "providers.review": "test-review-provider",
-            "providers.fix": "test-fix-provider",
-        },
-        prompt_externs={
-            "prompts.review": "prompts/review.md",
-            "prompts.fix": "prompts/fix.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            provider_externs={
+                "providers.review": "test-review-provider",
+                "providers.fix": "test-fix-provider",
+            },
+            prompt_externs={
+                "prompts.review": "prompts/review.md",
+                "prompts.fix": "prompts/fix.md",
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
 
-    private_workflow = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "%procedure_review_phase_private_workflow_allocator.review-phase-helper.v1"
-    )
-    outer_workflow = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-review"
-    )
-    call_step = next(
-        step
-        for step in outer_workflow["steps"]
-        if step.get("call") == private_workflow.typed_workflow.definition.name
-    )
-    managed_input = next(
-        name for name in private_workflow.authored_mapping["inputs"] if name.startswith("__write_root__")
-    )
-    expected_bindings = _managed_write_root_bindings(
-        caller_workflow_name="run-review",
-        call_step_name=call_step["name"],
-        callee_name="review-phase-helper",
-        managed_inputs=(managed_input,),
-    )
-
-    assert call_step["call"] == private_workflow.typed_workflow.definition.name
-    assert call_step["with"][managed_input] == expected_bindings[managed_input]
+    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
 
 def test_private_workflow_with_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:
@@ -1790,7 +1751,6 @@ def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preser
     [
         "run_provider_phase",
         "produce_one_of",
-        "review_revise_loop",
         "resume_or_start",
         "resource_transition",
         "finalize_selected_item",

@@ -147,6 +147,67 @@ _EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
 )
 
 
+def _builtin_stdlib_source_root() -> Path:
+    """Return the repo-owned Workflow Lisp stdlib source root."""
+
+    return Path(__file__).resolve().parent / "stdlib_modules"
+
+
+def _effective_source_roots(
+    path: Path,
+    *,
+    source_roots: tuple[Path, ...] | None = None,
+) -> tuple[Path, ...]:
+    """Compute the import search roots for one compile request.
+
+    The entry module root stays authoritative for project-local modules, the
+    builtin stdlib root is always visible, and callers may append additional
+    roots. Duplicate roots collapse while preserving first-match order.
+    """
+
+    configured_roots = tuple(Path(root) for root in (source_roots or ()))
+    inferred_entry_root = _infer_entry_source_root(path)
+    entry_root = next(
+        (
+            root
+            for root in configured_roots
+            if path == root or root in path.parents
+        ),
+        inferred_entry_root,
+    )
+    ordered_roots = (entry_root, _builtin_stdlib_source_root(), *configured_roots)
+    deduped_roots: list[Path] = []
+    seen_roots: set[Path] = set()
+    for root in ordered_roots:
+        resolved_root = root.resolve()
+        if resolved_root in seen_roots:
+            continue
+        seen_roots.add(resolved_root)
+        deduped_roots.append(resolved_root)
+    return tuple(deduped_roots)
+
+
+def _syntax_module_uses_module_graph(path: Path) -> bool:
+    """Return whether single-file wrapper helpers must resolve imports."""
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    return bool(syntax_module.imports)
+
+
+def _infer_entry_source_root(path: Path) -> Path:
+    """Infer the module source root from `defmodule` when possible."""
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module_name = syntax_module.module_name
+    if module_name is None:
+        return path.parent
+    expected_parts = Path(*module_name.split("/")).with_suffix(".orc").parts
+    actual_parts = path.parts
+    if tuple(actual_parts[-len(expected_parts) :]) != expected_parts:
+        return path.parent
+    return path.parents[len(expected_parts) - 1]
+
+
 @dataclass(frozen=True)
 class LinkedStage1CompileResult:
     """Definition-only compile result for an entry module graph.
@@ -189,7 +250,7 @@ def compile_stage1_entrypoint(
     provider externs, prompt externs, command adapters, or imported workflows.
     """
 
-    graph = resolve_module_graph(path, source_roots=source_roots)
+    graph = resolve_module_graph(path, source_roots=_effective_source_roots(path, source_roots=source_roots))
     compiled_modules_by_name: dict[str, WorkflowLispModule] = {}
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -258,7 +319,7 @@ def compile_stage3_entrypoint(
 
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
-        source_roots=source_roots,
+        source_roots=_effective_source_roots(path, source_roots=source_roots),
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
@@ -292,6 +353,19 @@ def compile_stage3_module(
     lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
+
+    if _syntax_module_uses_module_graph(path):
+        linked = compile_stage3_entrypoint(
+            path,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            imported_workflow_bundles=imported_workflow_bundles,
+            command_boundaries=command_boundaries,
+            validate_shared=validate_shared,
+            workspace_root=workspace_root,
+            lint_profile=lint_profile,
+        )
+        return linked.entry_result
 
     state, results = _run_stage3_validation_pipeline(
         path,
@@ -874,6 +948,9 @@ def _run_stage3_validation_pipeline(
 
 def compile_stage1_module(path: Path) -> WorkflowLispModule:
     """Compile one `.orc` file through the definition-only frontend pipeline."""
+
+    if _syntax_module_uses_module_graph(path):
+        return compile_stage1_entrypoint(path).entry_module
 
     state, results = _run_stage1_validation_pipeline(
         path=path,
@@ -2518,8 +2595,8 @@ def _discover_proc_ref_specializations(
         RecordExpr,
         ResourceTransitionExpr,
         ResumeOrStartExpr,
-        ReviewReviseLoopExpr,
         RunProviderPhaseExpr,
+        UnionVariantExpr,
         WithPhaseExpr,
     )
 
@@ -2620,6 +2697,8 @@ def _discover_proc_ref_specializations(
             walk(node.max_iterations_expr, proc_ref_env)
             walk(node.initial_state_expr, proc_ref_env)
             walk(node.body_expr, proc_ref_env)
+            if node.on_exhausted_result_expr is not None:
+                walk(node.on_exhausted_result_expr, proc_ref_env)
             return
         if isinstance(node, ContinueExpr):
             walk(node.state_expr, proc_ref_env)
@@ -2628,6 +2707,10 @@ def _discover_proc_ref_specializations(
             walk(node.result_expr, proc_ref_env)
             return
         if isinstance(node, RecordExpr):
+            for _, field_expr in node.fields:
+                walk(field_expr, proc_ref_env)
+            return
+        if isinstance(node, UnionVariantExpr):
             for _, field_expr in node.fields:
                 walk(field_expr, proc_ref_env)
             return
@@ -2663,16 +2746,6 @@ def _discover_proc_ref_specializations(
                 for field in candidate.fields:
                     if field.target_expr is not None:
                         walk(field.target_expr, proc_ref_env)
-            return
-        if isinstance(node, ReviewReviseLoopExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.completed_expr, proc_ref_env)
-            walk(node.inputs_expr, proc_ref_env)
-            walk(node.review_provider, proc_ref_env)
-            walk(node.fix_provider, proc_ref_env)
-            walk(node.review_prompt, proc_ref_env)
-            walk(node.fix_prompt, proc_ref_env)
-            walk(node.max_expr, proc_ref_env)
             return
         if isinstance(node, ResumeOrStartExpr):
             walk(node.ctx_expr, proc_ref_env)

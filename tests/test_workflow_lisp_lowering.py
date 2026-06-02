@@ -22,8 +22,8 @@ from orchestrator.workflow_lisp.expressions import (
     ProviderResultExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    StdlibSpecializationExpr,
 )
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
@@ -150,7 +150,7 @@ def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
         CommandResultExpr,
         RunProviderPhaseExpr,
         ProduceOneOfExpr,
-        ReviewReviseLoopExpr,
+        StdlibSpecializationExpr,
         ResumeOrStartExpr,
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,

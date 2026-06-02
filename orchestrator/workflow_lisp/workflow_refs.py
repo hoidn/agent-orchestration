@@ -21,8 +21,8 @@ from .expressions import (
     ProduceOneOfExpr,
     ProviderResultExpr,
     RecordExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    UnionVariantExpr,
     WorkflowRefLiteralExpr,
 )
 from .spans import SourceSpan
@@ -289,19 +289,9 @@ def collect_workflow_extern_names(expr: Any) -> tuple[set[str], set[str]]:
             walk(node.ctx_expr)
             walk(node.inputs_expr)
             return
-        if isinstance(node, ReviewReviseLoopExpr):
-            if isinstance(node.review_provider, NameExpr):
-                providers.add(node.review_provider.name)
-            if isinstance(node.fix_provider, NameExpr):
-                providers.add(node.fix_provider.name)
-            if isinstance(node.review_prompt, NameExpr):
-                prompts.add(node.review_prompt.name)
-            if isinstance(node.fix_prompt, NameExpr):
-                prompts.add(node.fix_prompt.name)
-            walk(node.ctx_expr)
-            walk(node.completed_expr)
-            walk(node.inputs_expr)
-            walk(node.max_expr)
+        if isinstance(node, UnionVariantExpr):
+            for _, value in node.fields:
+                walk(value)
             return
         if isinstance(node, ProduceOneOfExpr):
             if isinstance(node.producer.provider_expr, NameExpr):

@@ -15,8 +15,8 @@ from .expressions import (
     ProviderResultExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    StdlibSpecializationExpr,
 )
 
 
@@ -138,7 +138,7 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
     ),
     StdlibLoweringContract(
         form_name="review-revise-loop",
-        expr_type=ReviewReviseLoopExpr,
+        expr_type=StdlibSpecializationExpr,
         family="review_reuse_control",
         backend_kinds=("provider",),
         required_statement_families=(

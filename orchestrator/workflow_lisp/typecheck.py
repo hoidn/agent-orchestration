@@ -11,6 +11,7 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
 from .conditionals import classify_condition_expr
+from .definitions import RecordDef, RecordField, UnionDef, UnionVariant
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
@@ -41,6 +42,7 @@ from .expressions import (
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
+    MatchArm,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
@@ -51,8 +53,9 @@ from .expressions import (
     ResourceTransitionExpr,
     RecordExpr,
     ResumeOrStartExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    StdlibSpecializationExpr,
+    UnionVariantExpr,
     WorkflowRefLiteralExpr,
     elaborate_expression,
     WithPhaseExpr,
@@ -619,6 +622,82 @@ def _typecheck(
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
         )
+    if isinstance(expr, UnionVariantExpr):
+        union_type = type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)
+        if not isinstance(union_type, UnionTypeRef):
+            _raise_error(
+                f"`{expr.type_name}` is not a union type",
+                code="type_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        variant_type = type_env.union_variant(
+            union_type,
+            expr.variant_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        expected_fields = {field.name: field for field in variant_type.definition.fields}
+        seen_fields: set[str] = set()
+        field_summaries: list[EffectSummary] = []
+        for field_name, field_expr in expr.fields:
+            if field_name in seen_fields:
+                _raise_error(
+                    f"duplicate field `{field_name}` in union variant expression",
+                    code="record_field_duplicate",
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
+            seen_fields.add(field_name)
+            expected_field = expected_fields.get(field_name)
+            if expected_field is None:
+                _raise_error(
+                    f"unknown field `{field_name}` for variant `{expr.variant_name}` in union `{union_type.name}`",
+                    code="record_field_unknown",
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
+            typed_field = _typecheck(
+                field_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            field_summaries.append(typed_field.effect_summary)
+            expected_type = type_env.resolve_type(
+                expected_field.type_name,
+                span=field_expr.span,
+                form_path=field_expr.form_path,
+            )
+            if typed_field.type_ref != expected_type:
+                _raise_error(
+                    f"union field `{field_name}` expected `{_type_label(expected_type)}`"
+                    f" but got `{_type_label(typed_field.type_ref)}`",
+                    code="type_mismatch",
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
+        missing_fields = [field.name for field in variant_type.definition.fields if field.name not in seen_fields]
+        if missing_fields:
+            _raise_error(
+                f"missing required field `{missing_fields[0]}` for variant `{expr.variant_name}` in union `{union_type.name}`",
+                code="record_field_missing",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return _typed(
+            expr=expr,
+            type_ref=union_type,
+            effect=merge_effect_summaries(*field_summaries),
+        )
     if isinstance(expr, ContinueExpr):
         if not _ACTIVE_LOOP_CONTEXT:
             _raise_error(
@@ -702,6 +781,7 @@ def _typecheck(
         local_value_expr_env = dict(_ACTIVE_VALUE_EXPR_ENV)
         seen_names: set[str] = set()
         binding_summaries: list[EffectSummary] = []
+        rewritten_bindings: list[tuple[str, ExprNode]] = []
         for name, binding_expr in expr.bindings:
             if name in seen_names:
                 _raise_error(
@@ -731,6 +811,7 @@ def _typecheck(
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
             local_value_expr_env[name] = typed_binding.expr
+            rewritten_bindings.append((name, typed_binding.expr))
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
                 resolved_binding = resolve_proc_ref_value(
                     binding_expr,
@@ -760,8 +841,15 @@ def _typecheck(
         )
         _ACTIVE_PROC_REF_VALUE_ENV = previous_proc_ref_env
         _ACTIVE_VALUE_EXPR_ENV = previous_value_expr_env
+        rewritten_expr = LetStarExpr(
+            bindings=tuple(rewritten_bindings),
+            body=typed_body.expr,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
         return _typed(
-            expr=expr,
+            expr=rewritten_expr,
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(*binding_summaries, typed_body.effect_summary),
         )
@@ -1060,6 +1148,38 @@ def _typecheck(
             span=expr.body_expr.span,
             form_path=expr.body_expr.form_path,
         )
+        exhaustion_summaries: list[EffectSummary] = []
+        if expr.on_exhausted_result_expr is not None:
+            typed_exhausted = _typecheck(
+                expr.on_exhausted_result_expr,
+                type_env=type_env,
+                value_env={**value_env, expr.binding_name: typed_state.type_ref},
+                proof_scope=ProofScope(facts={}),
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            if typed_exhausted.type_ref != typed_body.type_ref.result_type_ref:
+                _raise_error(
+                    f"`loop/recur` exhaustion result expected `{_type_label(typed_body.type_ref.result_type_ref)}`"
+                    f" but got `{_type_label(typed_exhausted.type_ref)}`",
+                    code="loop_recur_done_type_mismatch",
+                    span=expr.on_exhausted_result_expr.span,
+                    form_path=expr.on_exhausted_result_expr.form_path,
+                )
+            if typed_exhausted.effect_summary != EMPTY_EFFECT_SUMMARY:
+                _raise_error(
+                    "`loop/recur` exhaustion projection must be pure",
+                    code="loop_recur_contract_invalid",
+                    span=expr.on_exhausted_result_expr.span,
+                    form_path=expr.on_exhausted_result_expr.form_path,
+                )
+            exhaustion_summaries.append(typed_exhausted.effect_summary)
         return _typed(
             expr=expr,
             type_ref=typed_body.type_ref.result_type_ref,
@@ -1067,6 +1187,7 @@ def _typecheck(
                 typed_max.effect_summary,
                 typed_state.effect_summary,
                 typed_body.effect_summary,
+                *exhaustion_summaries,
             ),
         )
     if isinstance(expr, CallExpr):
@@ -1514,7 +1635,14 @@ def _typecheck(
             proc_ref_resolution_context=proc_ref_resolution_context,
         )
         return _typed(
-            expr=expr,
+            expr=WithPhaseExpr(
+                ctx_expr=typed_context.expr,
+                phase_name=expr.phase_name,
+                body=typed_body.expr,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(typed_context.effect_summary, typed_body.effect_summary),
         )
@@ -1949,9 +2077,9 @@ def _typecheck(
             span=expr.span,
             form_path=expr.form_path,
         )
-        if not isinstance(return_type, UnionTypeRef):
+        if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
             _raise_error(
-                "`run-provider-phase` requires a union `:returns` type",
+                "`run-provider-phase` requires a record or union `:returns` type",
                 code="run_provider_phase_return_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
@@ -2205,21 +2333,9 @@ def _typecheck(
             type_ref=return_type,
             effect=merge_effect_summaries(*input_summaries),
         )
-    if isinstance(expr, ReviewReviseLoopExpr):
-        return_type = type_env.resolve_type(
-            expr.returns_type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        if not isinstance(return_type, UnionTypeRef):
-            _raise_error(
-                "`review-revise-loop` requires a union `:returns` type",
-                code="review_loop_result_contract_invalid",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        typed_ctx = _typecheck(
-            expr.ctx_expr,
+    if isinstance(expr, StdlibSpecializationExpr):
+        return _typecheck_stdlib_specialization_expr(
+            expr,
             type_env=type_env,
             value_env=value_env,
             proof_scope=proof_scope,
@@ -2231,142 +2347,6 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        _require_normative_phase_ctx_type(
-            typed_ctx.type_ref,
-            span=expr.ctx_expr.span,
-            form_path=expr.ctx_expr.form_path,
-        )
-        _require_phase_scope_name_match(
-            active_phase_scope,
-            authored_name=expr.loop_name,
-            form_name="review-revise-loop",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-        typed_completed = _typecheck(
-            expr.completed_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        typed_inputs = _typecheck(
-            expr.inputs_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        typed_review_provider = _typecheck_expected_extern_operand(
-            expr.review_provider,
-            expected_primitive="Provider",
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        typed_fix_provider = _typecheck_expected_extern_operand(
-            expr.fix_provider,
-            expected_primitive="Provider",
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        typed_review_prompt = _typecheck_expected_extern_operand(
-            expr.review_prompt,
-            expected_primitive="Prompt",
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        typed_fix_prompt = _typecheck_expected_extern_operand(
-            expr.fix_prompt,
-            expected_primitive="Prompt",
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        typed_max = _typecheck(
-            expr.max_expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
-            _raise_error(
-                "`review-revise-loop :max` must resolve to `Int`",
-                code="type_mismatch",
-                span=expr.max_expr.span,
-                form_path=expr.max_expr.form_path,
-            )
-        _validate_review_loop_result_contract(return_type, type_env=type_env, span=expr.span, form_path=expr.form_path)
-        return _typed(
-            expr=expr,
-            type_ref=return_type,
-            effect=merge_effect_summaries(
-                typed_ctx.effect_summary,
-                typed_completed.effect_summary,
-                typed_inputs.effect_summary,
-                typed_review_provider.effect_summary,
-                typed_fix_provider.effect_summary,
-                typed_review_prompt.effect_summary,
-                typed_fix_prompt.effect_summary,
-                typed_max.effect_summary,
-            ),
         )
     if isinstance(expr, ResumeOrStartExpr):
         return_type = type_env.resolve_type(
@@ -2561,14 +2541,6 @@ def _typecheck(
         if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
             _raise_error(
                 f"`provider-result` must return a record or union type, got `{expr.returns_type_name}`",
-                code="provider_result_return_type_invalid",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-        if active_phase_scope is not None and not is_implementation_attempt_result_type(return_type):
-            _raise_error(
-                "the bounded `with-phase` slice requires `provider-result` to return `ImplementationAttempt`",
                 code="provider_result_return_type_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
@@ -2838,6 +2810,1135 @@ def _validate_review_loop_result_contract(
                 span=span,
                 form_path=form_path,
             )
+
+def _typecheck_stdlib_specialization_expr(
+    expr: StdlibSpecializationExpr,
+    *,
+    type_env: FrontendTypeEnvironment,
+    value_env: dict[str, TypeRef],
+    proof_scope: ProofScope,
+    workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: "ProcedureCatalog | None",
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
+    active_phase_scope: PhaseScope | None,
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
+) -> TypedExpr:
+    if expr.request_kind != "phase-review-loop":
+        _raise_error(
+            f"unknown stdlib specialization request `{expr.request_kind}`",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    loop_name = _stdlib_specialization_symbol(expr, "loop-name")
+    returns_type_name = _stdlib_specialization_symbol(expr, "returns")
+    ctx_expr = _stdlib_specialization_operand(expr, "ctx")
+    completed_expr = _stdlib_specialization_operand(expr, "completed")
+    inputs_expr = _stdlib_specialization_operand(expr, "inputs")
+    review_provider_expr = _stdlib_specialization_operand(expr, "review-provider")
+    fix_provider_expr = _stdlib_specialization_operand(expr, "fix-provider")
+    review_prompt_expr = _stdlib_specialization_operand(expr, "review-prompt")
+    fix_prompt_expr = _stdlib_specialization_operand(expr, "fix-prompt")
+    max_expr = _stdlib_specialization_operand(expr, "max")
+
+    return_type = type_env.resolve_type(
+        returns_type_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    if not isinstance(return_type, UnionTypeRef):
+        _raise_error(
+            "`review-revise-loop` requires a union `:returns` type",
+            code="review_loop_result_contract_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    typed_ctx = _typecheck(
+        ctx_expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    _require_normative_phase_ctx_type(
+        typed_ctx.type_ref,
+        span=ctx_expr.span,
+        form_path=ctx_expr.form_path,
+    )
+    _require_phase_scope_name_match(
+        active_phase_scope,
+        authored_name=loop_name,
+        form_name="review-revise-loop",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    typed_completed = _typecheck(
+        completed_expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    typed_inputs = _typecheck(
+        inputs_expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    typed_review_provider = _typecheck_expected_extern_operand(
+        review_provider_expr,
+        expected_primitive="Provider",
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    typed_fix_provider = _typecheck_expected_extern_operand(
+        fix_provider_expr,
+        expected_primitive="Provider",
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    typed_review_prompt = _typecheck_expected_extern_operand(
+        review_prompt_expr,
+        expected_primitive="Prompt",
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    typed_fix_prompt = _typecheck_expected_extern_operand(
+        fix_prompt_expr,
+        expected_primitive="Prompt",
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    typed_max = _typecheck(
+        max_expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
+        _raise_error(
+            "`review-revise-loop :max` must resolve to `Int`",
+            code="type_mismatch",
+            span=max_expr.span,
+            form_path=max_expr.form_path,
+        )
+    _validate_review_loop_result_contract(return_type, type_env=type_env, span=expr.span, form_path=expr.form_path)
+    if procedure_catalog is None:
+        raise TypeError("procedure_catalog is required for stdlib specialization")
+    rewritten = _specialize_phase_review_loop_request(
+        expr,
+        loop_name=loop_name,
+        ctx_expr=ctx_expr,
+        completed_expr=completed_expr,
+        inputs_expr=inputs_expr,
+        review_provider_expr=review_provider_expr,
+        fix_provider_expr=fix_provider_expr,
+        review_prompt_expr=review_prompt_expr,
+        fix_prompt_expr=fix_prompt_expr,
+        max_expr=max_expr,
+        phase_ctx_type=typed_ctx.type_ref,
+        completed_type=typed_completed.type_ref,
+        inputs_type=typed_inputs.type_ref,
+        return_type=return_type,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    return replace(
+        rewritten,
+        effect_summary=merge_effect_summaries(
+            typed_ctx.effect_summary,
+            typed_completed.effect_summary,
+            typed_inputs.effect_summary,
+            typed_review_provider.effect_summary,
+            typed_fix_provider.effect_summary,
+            typed_review_prompt.effect_summary,
+            typed_fix_prompt.effect_summary,
+            typed_max.effect_summary,
+            rewritten.effect_summary,
+        ),
+    )
+
+
+def _specialize_phase_review_loop_request(
+    expr: StdlibSpecializationExpr,
+    *,
+    loop_name: str,
+    ctx_expr: ExprNode,
+    completed_expr: ExprNode,
+    inputs_expr: ExprNode,
+    review_provider_expr: ExprNode,
+    fix_provider_expr: ExprNode,
+    review_prompt_expr: ExprNode,
+    fix_prompt_expr: ExprNode,
+    max_expr: ExprNode,
+    phase_ctx_type: TypeRef,
+    completed_type: TypeRef,
+    inputs_type: TypeRef,
+    return_type: UnionTypeRef,
+    type_env: FrontendTypeEnvironment,
+    value_env: dict[str, TypeRef],
+    proof_scope: ProofScope,
+    workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: ProcedureCatalog,
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
+    active_phase_scope: PhaseScope | None,
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
+) -> TypedExpr:
+    generated_span = _generated_expr_span(expr)
+    generated_prefix = _review_loop_generated_prefix(expr)
+    type_prefix = f"{generated_prefix}__types"
+    review_wrapper_name = _review_loop_generated_procedure_name(expr, "review")
+    fix_wrapper_name = _review_loop_generated_procedure_name(expr, "fix")
+    helper_name = _review_loop_generated_procedure_name(expr, "helper")
+    approved_variant = type_env.union_variant(return_type, "APPROVED", span=expr.span, form_path=expr.form_path)
+    blocked_variant = type_env.union_variant(return_type, "BLOCKED", span=expr.span, form_path=expr.form_path)
+    exhausted_variant = type_env.union_variant(return_type, "EXHAUSTED", span=expr.span, form_path=expr.form_path)
+    review_result_type_name = f"{type_prefix}__review_result"
+    state_type_name = f"{type_prefix}__state"
+    last_review_report_type = type_env.record_field(
+        exhausted_variant,
+        "last_review_report",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    _register_generated_union_type(
+        type_env,
+        name=review_result_type_name,
+        variants=(
+            (
+                "APPROVED",
+                (
+                    ("checks_report", _variant_field_type(type_env, approved_variant, "checks_report", expr)),
+                    ("review_report", _variant_field_type(type_env, approved_variant, "review_report", expr)),
+                    ("review_decision", _variant_field_type(type_env, approved_variant, "review_decision", expr)),
+                ),
+            ),
+            (
+                "BLOCKED",
+                (
+                    ("progress_report", _variant_field_type(type_env, blocked_variant, "progress_report", expr)),
+                    ("blocker_class", _variant_field_type(type_env, blocked_variant, "blocker_class", expr)),
+                ),
+            ),
+            (
+                "REVISE",
+                (("revise_review_report", _variant_field_type(type_env, approved_variant, "review_report", expr)),),
+            ),
+        ),
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    _register_generated_record_type(
+        type_env,
+        name=state_type_name,
+        fields=(
+            ("completed", completed_type),
+            ("last_review_report", last_review_report_type),
+        ),
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+    ctx_param = NameExpr(name="ctx", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+    completed_param = NameExpr(
+        name="completed",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    inputs_param = NameExpr(
+        name="inputs",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    max_param = NameExpr(name="max", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+    review_report_param = NameExpr(
+        name="review_report",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    review_proc_param = NameExpr(
+        name="review_proc",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    fix_proc_param = NameExpr(
+        name="fix_proc",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    state_ref = NameExpr(
+        name="__review_loop_state",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    review_ref = NameExpr(
+        name="__review_loop_review",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    review_result_ref = NameExpr(
+        name="__review_loop_review_result",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    fixed_ref = NameExpr(
+        name="__review_loop_fixed",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    approved_ref = NameExpr(name="approved", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+    blocked_ref = NameExpr(name="blocked", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+    revise_ref = NameExpr(name="revise", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+    review_wrapper_approved_ref = NameExpr(
+        name="review_wrapper_approved",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    review_wrapper_blocked_ref = NameExpr(
+        name="review_wrapper_blocked",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    review_wrapper_revise_ref = NameExpr(
+        name="review_wrapper_revise",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    state_completed_ref = FieldAccessExpr(
+        base=state_ref,
+        fields=("completed",),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    last_review_report_ref = FieldAccessExpr(
+        base=state_ref,
+        fields=("last_review_report",),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    initial_last_review_report_expr = _initial_review_loop_report_expr(
+        expr,
+        completed_expr=completed_param,
+        completed_type=completed_type,
+        inputs_expr=inputs_param,
+        inputs_type=inputs_type,
+        last_review_report_type=last_review_report_type,
+        generated_span=generated_span,
+    )
+    review_signature = _generated_procedure_signature(
+        name=review_wrapper_name,
+        params=(
+            ("completed", completed_type),
+            ("inputs", inputs_type),
+        ),
+        return_type=type_env.resolve_type(review_result_type_name, span=expr.span, form_path=expr.form_path),
+        requested_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
+        span=generated_span,
+        form_path=expr.form_path,
+    )
+    review_definition = _generated_procedure_definition(
+        name=review_wrapper_name,
+        signature=review_signature,
+        body=LetStarExpr(
+            bindings=(
+                (
+                    "__review_loop_review_result",
+                    ProviderResultExpr(
+                        provider=review_provider_expr,
+                        prompt=review_prompt_expr,
+                        inputs=(completed_param, inputs_param),
+                        returns_type_name=review_result_type_name,
+                        span=generated_span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+            ),
+            body=MatchExpr(
+                subject=review_result_ref,
+                arms=(
+                    MatchArm(
+                        variant_name="APPROVED",
+                        binding_name="review_wrapper_approved",
+                        body=UnionVariantExpr(
+                            type_name=review_result_type_name,
+                            variant_name="APPROVED",
+                            fields=(
+                                (
+                                    "checks_report",
+                                    _field_ref(review_wrapper_approved_ref, "checks_report", expr),
+                                ),
+                                (
+                                    "review_report",
+                                    _field_ref(review_wrapper_approved_ref, "review_report", expr),
+                                ),
+                                (
+                                    "review_decision",
+                                    _field_ref(review_wrapper_approved_ref, "review_decision", expr),
+                                ),
+                            ),
+                            span=generated_span,
+                            form_path=expr.form_path,
+                            expansion_stack=expr.expansion_stack,
+                        ),
+                        span=generated_span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                    MatchArm(
+                        variant_name="BLOCKED",
+                        binding_name="review_wrapper_blocked",
+                        body=UnionVariantExpr(
+                            type_name=review_result_type_name,
+                            variant_name="BLOCKED",
+                            fields=(
+                                (
+                                    "progress_report",
+                                    _field_ref(review_wrapper_blocked_ref, "progress_report", expr),
+                                ),
+                                (
+                                    "blocker_class",
+                                    _field_ref(review_wrapper_blocked_ref, "blocker_class", expr),
+                                ),
+                            ),
+                            span=generated_span,
+                            form_path=expr.form_path,
+                            expansion_stack=expr.expansion_stack,
+                        ),
+                        span=generated_span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                    MatchArm(
+                        variant_name="REVISE",
+                        binding_name="review_wrapper_revise",
+                        body=UnionVariantExpr(
+                            type_name=review_result_type_name,
+                            variant_name="REVISE",
+                            fields=(
+                                (
+                                    "revise_review_report",
+                                    _field_ref(
+                                        review_wrapper_revise_ref,
+                                        "revise_review_report",
+                                        expr,
+                                    ),
+                                ),
+                            ),
+                            span=generated_span,
+                            form_path=expr.form_path,
+                            expansion_stack=expr.expansion_stack,
+                        ),
+                        span=generated_span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                ),
+                span=generated_span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            span=generated_span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    generated_catalog = _temporary_procedure_catalog(
+        procedure_catalog,
+        definition=review_definition,
+        signature=review_signature,
+    )
+    typed_review = _typecheck_generated_procedure(
+        review_definition,
+        review_signature,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=generated_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    fix_signature = _generated_procedure_signature(
+        name=fix_wrapper_name,
+        params=(
+            ("completed", completed_type),
+            ("inputs", inputs_type),
+            ("review_report", last_review_report_type),
+        ),
+        return_type=completed_type,
+        requested_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
+        span=generated_span,
+        form_path=expr.form_path,
+    )
+    fix_definition = _generated_procedure_definition(
+        name=fix_wrapper_name,
+        signature=fix_signature,
+        body=ProviderResultExpr(
+            provider=fix_provider_expr,
+            prompt=fix_prompt_expr,
+            inputs=(completed_param, inputs_param, review_report_param),
+            returns_type_name=_type_name(completed_type),
+            span=generated_span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    generated_catalog = _temporary_procedure_catalog(
+        generated_catalog,
+        definition=fix_definition,
+        signature=fix_signature,
+    )
+    typed_fix = _typecheck_generated_procedure(
+        fix_definition,
+        fix_signature,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=generated_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+
+    helper_signature = _generated_procedure_signature(
+        name=helper_name,
+        params=(
+            ("ctx", phase_ctx_type),
+            ("completed", completed_type),
+            ("inputs", inputs_type),
+            ("max", PrimitiveTypeRef(name="Int")),
+        ),
+        return_type=return_type,
+        requested_lowering_mode=ProcedureLoweringMode.INLINE,
+        span=generated_span,
+        form_path=expr.form_path,
+    )
+    helper_definition = _generated_procedure_definition(
+        name=helper_name,
+        signature=helper_signature,
+        body=WithPhaseExpr(
+            ctx_expr=ctx_param,
+            phase_name=loop_name,
+            body=LoopRecurExpr(
+                max_iterations_expr=max_param,
+                initial_state_expr=RecordExpr(
+                    type_name=state_type_name,
+                    fields=(
+                        ("completed", completed_param),
+                        ("last_review_report", initial_last_review_report_expr),
+                    ),
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                binding_name="__review_loop_state",
+                body_expr=LetStarExpr(
+                    bindings=(
+                        (
+                            "__review_loop_review",
+                            ProcedureCallExpr(
+                                callee_name=review_wrapper_name,
+                                args=(state_completed_ref, inputs_param),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
+                            ),
+                        ),
+                    ),
+                    body=MatchExpr(
+                        subject=review_ref,
+                        arms=(
+                            MatchArm(
+                                variant_name="APPROVED",
+                                binding_name="approved",
+                                body=DoneExpr(
+                                    result_expr=UnionVariantExpr(
+                                        type_name=return_type.name,
+                                        variant_name="APPROVED",
+                                        fields=(
+                                            ("checks_report", _field_ref(approved_ref, "checks_report", expr)),
+                                            ("review_report", _field_ref(approved_ref, "review_report", expr)),
+                                            ("review_decision", _field_ref(approved_ref, "review_decision", expr)),
+                                        ),
+                                        span=generated_span,
+                                        form_path=expr.form_path,
+                                        expansion_stack=expr.expansion_stack,
+                                    ),
+                                    span=generated_span,
+                                    form_path=expr.form_path,
+                                    expansion_stack=expr.expansion_stack,
+                                ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
+                            ),
+                            MatchArm(
+                                variant_name="BLOCKED",
+                                binding_name="blocked",
+                                body=DoneExpr(
+                                    result_expr=UnionVariantExpr(
+                                        type_name=return_type.name,
+                                        variant_name="BLOCKED",
+                                        fields=(
+                                            ("progress_report", _field_ref(blocked_ref, "progress_report", expr)),
+                                            ("blocker_class", _field_ref(blocked_ref, "blocker_class", expr)),
+                                        ),
+                                        span=generated_span,
+                                        form_path=expr.form_path,
+                                        expansion_stack=expr.expansion_stack,
+                                    ),
+                                    span=generated_span,
+                                    form_path=expr.form_path,
+                                    expansion_stack=expr.expansion_stack,
+                                ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
+                            ),
+                            MatchArm(
+                                variant_name="REVISE",
+                                binding_name="revise",
+                                body=LetStarExpr(
+                                    bindings=(
+                                        (
+                                            "__review_loop_fixed",
+                                            ProcedureCallExpr(
+                                                callee_name=fix_wrapper_name,
+                                                args=(
+                                                    state_completed_ref,
+                                                    inputs_param,
+                                                    _field_ref(revise_ref, "revise_review_report", expr),
+                                                ),
+                                                span=generated_span,
+                                                form_path=expr.form_path,
+                                                expansion_stack=expr.expansion_stack,
+                                            ),
+                                        ),
+                                    ),
+                                    body=ContinueExpr(
+                                        state_expr=RecordExpr(
+                                            type_name=state_type_name,
+                                            fields=(
+                                                ("completed", fixed_ref),
+                                                (
+                                                    "last_review_report",
+                                                    _field_ref(revise_ref, "revise_review_report", expr),
+                                                ),
+                                            ),
+                                            span=generated_span,
+                                            form_path=expr.form_path,
+                                            expansion_stack=expr.expansion_stack,
+                                        ),
+                                        span=generated_span,
+                                        form_path=expr.form_path,
+                                        expansion_stack=expr.expansion_stack,
+                                    ),
+                                    span=generated_span,
+                                    form_path=expr.form_path,
+                                    expansion_stack=expr.expansion_stack,
+                                ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
+                            ),
+                        ),
+                        span=generated_span,
+                        form_path=expr.form_path,
+                        expansion_stack=expr.expansion_stack,
+                    ),
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                on_exhausted_result_expr=UnionVariantExpr(
+                    type_name=return_type.name,
+                    variant_name="EXHAUSTED",
+                    fields=(
+                        ("last_review_report", last_review_report_ref),
+                        (
+                            "reason",
+                            LiteralExpr(
+                                value="max_iterations_reached",
+                                literal_kind="string",
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
+                            ),
+                        ),
+                    ),
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                span=generated_span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            span=generated_span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    generated_catalog = _temporary_procedure_catalog(
+        generated_catalog,
+        definition=helper_definition,
+        signature=helper_signature,
+    )
+    typed_helper = _typecheck_generated_procedure(
+        helper_definition,
+        helper_signature,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=generated_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    helper_effects = merge_effect_summaries(
+        typed_helper.typed_body.effect_summary,
+        typed_review.transitive_effect_summary,
+        typed_fix.transitive_effect_summary,
+    )
+    typed_helper = replace(
+        typed_helper,
+        direct_effect_summary=helper_effects,
+        transitive_effect_summary=helper_effects,
+    )
+    _ACTIVE_GENERATED_LOCAL_PROCEDURES[review_wrapper_name] = typed_review
+    _ACTIVE_GENERATED_LOCAL_PROCEDURES[fix_wrapper_name] = typed_fix
+    _ACTIVE_GENERATED_LOCAL_PROCEDURES[helper_name] = typed_helper
+
+    rewritten_expr = ProcedureCallExpr(
+        callee_name=helper_name,
+        args=(
+            ctx_expr,
+            completed_expr,
+            inputs_expr,
+            max_expr,
+        ),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    generated_effects = dict(procedure_effects_by_name)
+    generated_effects[review_wrapper_name] = typed_review.transitive_effect_summary
+    generated_effects[fix_wrapper_name] = typed_fix.transitive_effect_summary
+    generated_effects[helper_name] = typed_helper.transitive_effect_summary
+    return _typecheck(
+        rewritten_expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=generated_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=generated_effects,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+
+
+def _review_loop_generated_prefix(expr: StdlibSpecializationExpr) -> str:
+    start = expr.span.start
+    return f"rl{start.line}_{start.column}"
+
+
+def _review_loop_generated_procedure_name(expr: StdlibSpecializationExpr, suffix: str) -> str:
+    short_suffix = {
+        "review": "r",
+        "fix": "f",
+        "helper": "h",
+    }.get(suffix, suffix)
+    return f"%rl.{_review_loop_generated_prefix(expr)}.{short_suffix}"
+
+
+def _generated_expr_span(expr: StdlibSpecializationExpr) -> SourceSpan:
+    for frame in expr.expansion_stack:
+        call_span = getattr(frame, "call_span", None)
+        if isinstance(call_span, SourceSpan):
+            return call_span
+    return expr.span
+
+
+def _first_record_field_name_with_type(record_type: RecordTypeRef, target_type: TypeRef) -> str | None:
+    for field in record_type.definition.fields:
+        if record_type.field_types.get(field.name) == target_type:
+            return field.name
+    return None
+
+
+def _type_name(type_ref: TypeRef) -> str:
+    return type_ref.name
+
+
+def _variant_field_type(
+    type_env: FrontendTypeEnvironment,
+    variant_type,
+    field_name: str,
+    expr: StdlibSpecializationExpr,
+) -> TypeRef:
+    return type_env.record_field(
+        variant_type,
+        field_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _field_ref(base: NameExpr, field_name: str, expr: StdlibSpecializationExpr) -> FieldAccessExpr:
+    return FieldAccessExpr(
+        base=base,
+        fields=(field_name,),
+        span=_generated_expr_span(expr),
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+
+
+def _stdlib_specialization_symbol(expr: StdlibSpecializationExpr, name: str) -> str:
+    symbols = dict(expr.symbol_operands)
+    value = symbols.get(name)
+    if value is None:
+        _raise_error(
+            f"missing stdlib specialization symbol operand `{name}`",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    return value
+
+
+def _stdlib_specialization_operand(expr: StdlibSpecializationExpr, name: str) -> ExprNode:
+    operands = dict(expr.expr_operands)
+    value = operands.get(name)
+    if value is None:
+        _raise_error(
+            f"missing stdlib specialization operand `{name}`",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    return value
+
+
+def _initial_review_loop_report_expr(
+    expr: StdlibSpecializationExpr,
+    *,
+    completed_expr: NameExpr,
+    completed_type: TypeRef,
+    inputs_expr: NameExpr,
+    inputs_type: TypeRef,
+    last_review_report_type: TypeRef,
+    generated_span: SourceSpan,
+) -> ExprNode:
+    if isinstance(completed_type, RecordTypeRef) and (
+        (
+            "execution_report_path" in completed_type.field_types
+            and completed_type.field_types["execution_report_path"] == last_review_report_type
+        )
+        or _first_record_field_name_with_type(completed_type, last_review_report_type) is not None
+    ):
+        field_name = (
+            "execution_report_path"
+            if completed_type.field_types.get("execution_report_path") == last_review_report_type
+            else _first_record_field_name_with_type(completed_type, last_review_report_type)
+        )
+        assert field_name is not None
+        return FieldAccessExpr(
+            base=completed_expr,
+            fields=(field_name,),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(inputs_type, RecordTypeRef) and (
+        field_name := _first_record_field_name_with_type(inputs_type, last_review_report_type)
+    ) is not None:
+        return FieldAccessExpr(
+            base=inputs_expr,
+            fields=(field_name,),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    return PhaseTargetExpr(
+        target_name="execution-report",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+
+
+def _generated_procedure_signature(
+    *,
+    name: str,
+    params: tuple[tuple[str, TypeRef], ...],
+    return_type: TypeRef,
+    requested_lowering_mode: ProcedureLoweringMode,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> ProcedureSignature:
+    return ProcedureSignature(
+        name=name,
+        params=params,
+        return_type_ref=return_type,
+        declared_effects=frozenset(),
+        requested_lowering_mode=requested_lowering_mode,
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _generated_procedure_definition(
+    *,
+    name: str,
+    signature: ProcedureSignature,
+    body: ExprNode,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack,
+) -> ProcedureDef:
+    return ProcedureDef(
+        name=name,
+        params=tuple(
+            ProcedureParam(
+                name=param_name,
+                type_name=_type_name(param_type),
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+            for param_name, param_type in signature.params
+        ),
+        return_type_name=_type_name(signature.return_type_ref),
+        declared_effects=frozenset(),
+        requested_lowering_mode=signature.requested_lowering_mode,
+        body=body,
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+
+
+def _typecheck_generated_procedure(
+    definition: ProcedureDef,
+    signature: ProcedureSignature,
+    *,
+    type_env: FrontendTypeEnvironment,
+    workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: ProcedureCatalog,
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
+) -> TypedProcedureDef:
+    from .workflows import ProviderExtern
+
+    local_value_env = {name: type_ref for name, type_ref in signature.params}
+    if extern_environment is not None:
+        for extern_name, binding in extern_environment.bindings_by_name.items():
+            local_value_env[extern_name] = (
+                type_env.resolve_type("Provider", span=definition.span, form_path=definition.form_path)
+                if isinstance(binding, ProviderExtern)
+                else type_env.resolve_type("Prompt", span=definition.span, form_path=definition.form_path)
+            )
+    typed_body = typecheck_expression(
+        definition.body,
+        type_env=type_env,
+        value_env=local_value_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
+    return TypedProcedureDef(
+        definition=definition,
+        signature=signature,
+        typed_body=typed_body,
+        direct_effect_summary=typed_body.effect_summary,
+        transitive_effect_summary=typed_body.effect_summary,
+        resolved_lowering_mode=signature.requested_lowering_mode,
+    )
+
+
+def _register_generated_record_type(
+    type_env: FrontendTypeEnvironment,
+    *,
+    name: str,
+    fields: tuple[tuple[str, TypeRef], ...],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if type_env._type_refs.get(name) is not None:
+        return
+    definition = RecordDef(
+        name=name,
+        fields=tuple(
+            RecordField(
+                name=field_name,
+                type_name=_type_name(field_type),
+                span=span,
+            )
+            for field_name, field_type in fields
+        ),
+        span=span,
+    )
+    type_env._type_refs[name] = RecordTypeRef(
+        name=name,
+        definition=definition,
+        field_types={field_name: field_type for field_name, field_type in fields},
+    )
+
+
+def _register_generated_union_type(
+    type_env: FrontendTypeEnvironment,
+    *,
+    name: str,
+    variants: tuple[tuple[str, tuple[tuple[str, TypeRef], ...]], ...],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if type_env._type_refs.get(name) is not None:
+        return
+    definition = UnionDef(
+        name=name,
+        variants=tuple(
+            UnionVariant(
+                name=variant_name,
+                fields=tuple(
+                    RecordField(
+                        name=field_name,
+                        type_name=_type_name(field_type),
+                        span=span,
+                    )
+                    for field_name, field_type in fields
+                ),
+                span=span,
+            )
+            for variant_name, fields in variants
+        ),
+        span=span,
+    )
+    type_env._type_refs[name] = UnionTypeRef(
+        name=name,
+        definition=definition,
+        variant_field_types={
+            variant_name: {field_name: field_type for field_name, field_type in fields}
+            for variant_name, fields in variants
+        },
+    )
 
 
 def _require_resume_binding(

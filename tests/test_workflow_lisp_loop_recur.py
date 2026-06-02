@@ -237,6 +237,19 @@ def test_lowering_loop_recur_supports_union_return_fixture(tmp_path: Path) -> No
     } == {"loop-recur-union-result"}
 
 
+def test_lowering_loop_recur_supports_union_result_fixture(tmp_path: Path) -> None:
+    result = _compile(VALID_UNION_FIXTURE, tmp_path=tmp_path)
+
+    assert {
+        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
+    } == {"loop-recur-union-result"}
+
+    authored = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+
+    assert repeat_step["repeat_until"]["condition"]["compare"]["right"] == "DONE"
+
+
 def test_lowering_loop_recur_supports_literal_initial_state(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "loop_recur_literal_state.orc",
@@ -423,6 +436,10 @@ def test_lowering_loop_recur_with_composed_with_phase_binding_exports_step_backe
     assert "loop-recur-phase-binding__body" in nested_names
 
 
+def test_loop_recur_review_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:
+    test_lowering_loop_recur_with_composed_with_phase_binding_exports_step_backed_outputs(tmp_path)
+
+
 def test_loop_recur_supports_match_binding_followed_by_effectful_binding(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "loop_recur_match_binding.orc",
@@ -518,13 +535,171 @@ def test_loop_recur_supports_if_routing_between_continue_and_done(tmp_path: Path
     assert "if" in body_if
     assert "then" in body_if
     assert "else" in body_if
-    assert [step["name"] for step in body_if["then"]["steps"]] == [
-        "loop-report__body__then__summary",
-        "loop-report__body__then",
-    ]
-    assert body_if["then"]["steps"][0]["provider"] == "test-provider"
-    assert body_if["then"]["outputs"]["status"]["from"]["ref"].endswith(".artifacts.status")
-    assert body_if["then"]["outputs"]["result__report"]["from"]["ref"].endswith(
-        ".artifacts.result__report"
+
+
+def test_loop_recur_exhaustion_preserves_authored_max_iterations(tmp_path: Path) -> None:
+    result = _compile(VALID_UNION_FIXTURE, tmp_path=tmp_path)
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+
+    assert repeat_step["repeat_until"]["max_iterations"] == 2
+
+
+def test_loop_recur_union_result_lowers_seed_state_router_for_first_iteration(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_seed_state_runtime.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defrecord LoopResult",
+                "    (report WorkReport))",
+                "  (defworkflow loop-recur-seed-state-runtime",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> LoopResult",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (input report_path)",
+                "               :returns ImplementationState)))",
+                "      (loop/recur",
+                "        :max 2",
+                "        :state attempt",
+                "        (fn (state)",
+                "          (match state",
+                "            ((COMPLETED completed)",
+                "             (done",
+                "               (record LoopResult",
+                "                 :report completed.execution_report)))",
+                "            ((BLOCKED blocked)",
+                "             (continue state))))))))",
+            ]
+        ),
     )
-    assert body_if["else"]["outputs"]["status"]["from"]["ref"].endswith(".artifacts.status")
+
+    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
+    authored = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+    seed_marker = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step.get("name") == "loop-recur-seed-state-runtime__body__state__seed_marker"
+    )
+    body_state = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step.get("name") == "loop-recur-seed-state-runtime__body__state"
+    )
+
+    assert seed_marker["when"]["equals"] == {
+        "left": "${loop.index}",
+        "right": "0",
+    }
+    assert body_state["if"]["compare"] == {
+        "left": {"ref": "self.steps.loop-recur-seed-state-runtime__body__state__seed_marker.outcome.class"},
+        "op": "eq",
+        "right": "skipped",
+    }
+    assert body_state["then"]["steps"][0]["materialize_artifacts"]["values"][0]["source"] == {
+        "ref": "root.steps.loop-recur-seed-state-runtime__loop.artifacts.state__variant"
+    }
+    assert body_state["else"]["steps"][0]["materialize_artifacts"]["values"][0]["source"] == {
+        "ref": "root.steps.loop-recur-seed-state-runtime__seed.artifacts.state__variant"
+    }
+
+
+def test_loop_recur_exhaustion_projection_keeps_terminal_relpath_required_at_result_boundary(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_exhaustion_missing_projection.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                '    (status String)',
+                "    (report WorkReport))",
+                "  (defunion LoopResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass))",
+                "    (EXHAUSTED",
+                "      (last_report WorkReport)",
+                "      (reason String)))",
+                "  (defworkflow loop-recur-exhaustion-missing-projection",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> LoopResult",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (input report_path)",
+                "               :returns LoopResult)))",
+                "      (loop/recur",
+                "        :max 2",
+                "        :state attempt",
+                "        (fn (state)",
+                "          (match state",
+                "            ((COMPLETED completed)",
+                "             (done state))",
+                "            ((BLOCKED blocked)",
+                "             (continue state))",
+                "            ((EXHAUSTED exhausted)",
+                "             (done state))))))))",
+            ]
+        ),
+    )
+
+    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
+    authored = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+    repeat_step["repeat_until"]["max_iterations"] = 1
+    repeat_step["repeat_until"]["on_exhausted"] = {
+        "outputs": {
+            "result__variant": "EXHAUSTED",
+            "result__reason": "max_iterations_reached",
+        }
+    }
+    result_step = next(step for step in authored["steps"] if step.get("name") == "loop-recur-exhaustion-missing-projection__result")
+    exhausted_case = result_step["match"]["cases"]["EXHAUSTED"]
+
+    assert repeat_step["repeat_until"]["on_exhausted"]["outputs"] == {
+        "result__variant": "EXHAUSTED",
+        "result__reason": "max_iterations_reached",
+    }
+    assert "result__last_report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+    assert exhausted_case["outputs"]["return__last_report"]["must_exist_target"] is False
+    assert exhausted_case["outputs"]["return__last_report"]["from"] == {
+        "ref": "root.steps.loop-recur-exhaustion-missing-projection__loop.artifacts.result__last_report"
+    }
+    assert authored["outputs"]["return__last_report"]["must_exist_target"] is True

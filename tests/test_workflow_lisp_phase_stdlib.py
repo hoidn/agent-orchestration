@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.expressions import StdlibSpecializationExpr
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
@@ -155,22 +157,11 @@ def _command_boundary_environment() -> CommandBoundaryEnvironment:
 
 
 def _typecheck_fixture(path: Path):
-    module = _compile_definition_module(path)
-    type_env = FrontendTypeEnvironment.from_module(module)
-    syntax_module = _build_syntax_module(path)
-    workflow_defs = elaborate_workflow_definitions(syntax_module)
-    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
-    command_boundary_environment = _augment_resume_command_boundaries(
-        _command_boundary_environment(),
-        expressions=tuple(workflow.body for workflow in workflow_defs),
-    )
-    return typecheck_workflow_definitions(
-        workflow_defs,
-        type_env=type_env,
-        workflow_catalog=workflow_catalog,
-        extern_environment=_extern_environment(),
-        command_boundary_environment=command_boundary_environment,
-    )
+    return _compile(
+        path,
+        tmp_path=path.parent,
+        validate_shared=False,
+    ).typed_workflows
 
 
 def _compile(
@@ -214,6 +205,44 @@ def _compile(
         validate_shared=validate_shared,
         workspace_root=tmp_path,
     )
+
+
+def _walk_nodes(node):
+    if is_dataclass(node):
+        yield node
+        for field in fields(node):
+            yield from _walk_nodes(getattr(node, field.name))
+        return
+    if isinstance(node, tuple):
+        for item in node:
+            yield from _walk_nodes(item)
+        return
+    if isinstance(node, list):
+        for item in node:
+            yield from _walk_nodes(item)
+        return
+    if isinstance(node, dict):
+        for item in node.values():
+            yield from _walk_nodes(item)
+
+
+def _iter_nested_steps(steps):
+    for step in steps:
+        yield step
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            for case in match_block.get("cases", {}).values():
+                if isinstance(case, dict):
+                    yield from _iter_nested_steps(case.get("steps", ()))
+        repeat_block = step.get("repeat_until")
+        if isinstance(repeat_block, dict):
+            yield from _iter_nested_steps(repeat_block.get("steps", ()))
+        conditional = step.get("if")
+        if isinstance(conditional, dict):
+            for branch_name in ("then", "else"):
+                branch = step.get(branch_name)
+                if isinstance(branch, dict):
+                    yield from _iter_nested_steps(branch.get("steps", ()))
 
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
@@ -270,6 +299,21 @@ def _assert_contract_source_map_expectations(
         for generated_path in generated_paths:
             assert generated_path in lowered.origin_map.generated_path_spans
 
+
+def _lowered_workflow_by_name(result, workflow_name: str):
+    return next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == workflow_name
+    )
+
+
+def _lowered_workflow_with_provider(result, provider_name: str):
+    return next(
+        workflow
+        for workflow in result.lowered_workflows
+        if any(step.get("provider") == provider_name for step in workflow.authored_mapping["steps"])
+    )
 
 
 def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) -> None:
@@ -537,7 +581,7 @@ def test_shared_validation_accepts_run_provider_phase_and_produce_one_of(tmp_pat
     } >= {"run-provider-phase-demo", "produce-one-of-demo"}
 
 
-def test_reusable_phase_state_with_composed_with_phase_preserves_generated_write_root_inputs(
+def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_review_loop_boundary(
     tmp_path: Path,
 ) -> None:
     path = _write_module(
@@ -547,6 +591,8 @@ def test_reusable_phase_state_with_composed_with_phase_preserves_generated_write
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
+                "  (defmodule reusable_composed_with_phase_review_loop)",
+                "  (import std/phase :only (review-revise-loop))",
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware",
@@ -592,21 +638,26 @@ def test_reusable_phase_state_with_composed_with_phase_preserves_generated_write
                 "    ((phase-ctx PhaseCtx)",
                 "     (completed CompletedSurface)",
                 "     (inputs ReviewInputs))",
-                "    -> ReviewSurfaceResult",
-                "    :effects ()",
+                "    -> ReviewLoopResult",
+                "    :effects ((uses-provider providers.review) (uses-provider providers.fix))",
                 "    :lowering private-workflow",
-                "    (let* ((review",
-                "             (with-phase phase-ctx implementation-review",
-                "               (review-revise-loop implementation-review",
-                "                 :ctx phase-ctx",
-                "                 :completed completed",
-                "                 :inputs inputs",
-                "                 :review-provider providers.review",
-                "                 :fix-provider providers.fix",
-                "                 :review-prompt prompts.implementation.review",
-                "                 :fix-prompt prompts.implementation.fix",
-                "                 :max 3",
-                "                 :returns ReviewLoopResult))))",
+                "    (with-phase phase-ctx implementation-review",
+                "      (review-revise-loop implementation-review",
+                "        :ctx phase-ctx",
+                "        :completed completed",
+                "        :inputs inputs",
+                "        :review-provider providers.review",
+                "        :fix-provider providers.fix",
+                "        :review-prompt prompts.implementation.review",
+                "        :fix-prompt prompts.implementation.fix",
+                "        :max 3",
+                "        :returns ReviewLoopResult)))",
+                "  (defworkflow run-review",
+                "    ((phase-ctx PhaseCtx)",
+                "     (completed CompletedSurface)",
+                "     (inputs ReviewInputs))",
+                "    -> ReviewSurfaceResult",
+                "    (let* ((review (review-phase-helper phase-ctx completed inputs)))",
                 "      (match review",
                 "        ((APPROVED approved)",
                 "         (record ReviewSurfaceResult",
@@ -616,47 +667,27 @@ def test_reusable_phase_state_with_composed_with_phase_preserves_generated_write
                 "           :report_path blocked.progress_report))",
                 "        ((EXHAUSTED exhausted)",
                 "         (record ReviewSurfaceResult",
-                "           :report_path exhausted.last_review_report)))))",
-                "  (defworkflow run-review",
-                "    ((phase-ctx PhaseCtx)",
-                "     (completed CompletedSurface)",
-                "     (inputs ReviewInputs))",
-                "    -> ReviewSurfaceResult",
-                "    (review-phase-helper phase-ctx completed inputs)))",
+                "           :report_path exhausted.last_review_report))))))",
             ]
         ),
     )
 
-    result = compile_stage3_module(
-        path,
-        provider_externs={
-            "providers.review": "fake-review",
-            "providers.fix": "fake-fix",
-        },
-        prompt_externs={
-            "prompts.implementation.review": "prompts/implementation/review.md",
-            "prompts.implementation.fix": "prompts/implementation/fix.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            provider_externs={
+                "providers.review": "fake-review",
+                "providers.fix": "fake-fix",
+            },
+            prompt_externs={
+                "prompts.implementation.review": "prompts/implementation/review.md",
+                "prompts.implementation.fix": "prompts/implementation/fix.md",
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
 
-    private_workflow = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.endswith(".review-phase-helper.v1")
-    )
-    outer_workflow = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-review"
-    )
-    call_step = next(
-        step for step in outer_workflow["steps"] if step.get("call") == private_workflow.typed_workflow.definition.name
-    )
-
-    assert any(name.startswith("__write_root__") for name in private_workflow.authored_mapping["inputs"])
-    assert any(name.startswith("__write_root__") for name in call_step["with"])
+    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
 
 def test_typecheck_rejects_invalid_review_loop_result_contract() -> None:
@@ -671,7 +702,7 @@ def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tm
         VALID_REVIEW_LOOP_FIXTURE,
         replacements=(("review-revise-loop implementation-review", "review-revise-loop wrong-loop"),),
         tmp_path=tmp_path,
-        filename="review_revise_loop_name_mismatch.orc",
+        filename="phase_stdlib_review_loop.orc",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -680,38 +711,118 @@ def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tm
     _assert_diagnostic_code(excinfo, "phase_scope_name_mismatch")
 
 
+def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface(tmp_path: Path) -> None:
+    path = _rewrite_fixture(
+        VALID_REVIEW_LOOP_FIXTURE,
+        replacements=(("  (import std/phase :only (review-revise-loop))\n", ""),),
+        tmp_path=tmp_path,
+        filename="phase_stdlib_review_loop.orc",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(path)
+
+    _assert_diagnostic_code(excinfo, "procedure_call_unknown")
+
+
+def test_review_loop_specializes_to_ordinary_typed_forms(tmp_path: Path) -> None:
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+
+    surviving = [
+        node
+        for workflow in result.typed_workflows
+        for node in _walk_nodes(workflow.typed_body.expr)
+        if isinstance(node, StdlibSpecializationExpr)
+    ]
+    surviving.extend(
+        node
+        for procedure in result.typed_procedures
+        for node in _walk_nodes(procedure.typed_body.expr)
+        if isinstance(node, StdlibSpecializationExpr)
+    )
+
+    assert not surviving
+
+
+def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_phase_provider_result.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule generic_phase_provider_result)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ReviewSurfaceResult",
+                "    (report_path WorkReport))",
+                "  (defworkflow run-review",
+                "    ((phase-ctx PhaseCtx))",
+                "    -> ReviewSurfaceResult",
+                "    (with-phase phase-ctx implementation-review",
+                "      (provider-result providers.execute",
+                "        :prompt prompts.implementation.execute",
+                "        :inputs ()",
+                "        :returns ReviewSurfaceResult))))",
+            ]
+        ),
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+
+    assert any(workflow.definition.name.endswith("run-review") for workflow in result.typed_workflows)
+
+
 def test_lowering_review_loop_carries_last_review_report_through_loop_outputs(tmp_path: Path) -> None:
     result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
 
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "review-revise-loop-demo"
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
     )
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     loop_outputs = repeat_step["repeat_until"]["outputs"]
     on_exhausted = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
 
-    assert "last_review_report" in loop_outputs
-    assert "last_review_report" not in on_exhausted
+    assert "state__last_review_report" in loop_outputs
+    assert "result__last_review_report" in loop_outputs
+    assert "result__last_review_report" not in on_exhausted
     assert repeat_step["repeat_until"]["steps"]
 
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
+    review_workflow = _lowered_workflow_with_provider(result, "fake-review")
+    fix_workflow = _lowered_workflow_with_provider(result, "fake-fix")
+    review_call = next(step for step in body_steps if step.get("call") == review_workflow.typed_workflow.definition.name)
+    fix_call = next(step for step in body_steps if step.get("call") == fix_workflow.typed_workflow.definition.name)
 
-    assert any(step.get("provider") == "fake-review" for step in body_steps)
-    assert any(step.get("provider") == "fake-fix" for step in body_steps)
+    assert any(step.get("provider") == "fake-review" for step in review_workflow.authored_mapping["steps"])
+    assert any(step.get("provider") == "fake-fix" for step in fix_workflow.authored_mapping["steps"])
     assert any("match" in step for step in body_steps)
 
     normalization_step = next(
         step
         for step in authored["steps"]
-        if step.get("match", {}).get("ref")
-        == "root.steps.review-revise-loop-demo__result__loop.artifacts.variant"
+        if step.get("match", {}).get("ref", "").endswith(".artifacts.result__variant")
     )
-    assert normalization_step["match"]["ref"] == "root.steps.review-revise-loop-demo__result__loop.artifacts.variant"
-    assert set(normalization_step["match"]["cases"]) == {"APPROVED", "BLOCKED", "EXHAUSTED", "REVISE"}
-    revise_case = normalization_step["match"]["cases"]["REVISE"]
-    assert revise_case["outputs"]["variant"]["from"]["ref"] == "self.steps.NormalizeReviseVariant.artifacts.variant"
+    assert normalization_step["match"]["ref"].endswith(".artifacts.result__variant")
+    assert set(normalization_step["match"]["cases"]) == {"APPROVED", "BLOCKED", "EXHAUSTED"}
+    exhausted_case = normalization_step["match"]["cases"]["EXHAUSTED"]
+    assert exhausted_case["outputs"]["return__last_review_report"]["from"]["ref"].endswith(
+        "__loop.artifacts.state__last_review_report"
+    )
 
 
 def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path: Path) -> None:
@@ -720,28 +831,43 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "review-revise-loop-demo"
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
     )
     materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
-    review_step = next(step for step in body_steps if step.get("name") == "ReviewDecision")
-    fix_step = next(step for step in body_steps if step.get("name") == "ApplyFix")
+    review_workflow = _lowered_workflow_with_provider(result, "fake-review")
+    fix_workflow = _lowered_workflow_with_provider(result, "fake-fix")
+    review_call = next(step for step in body_steps if step.get("call") == review_workflow.typed_workflow.definition.name)
+    fix_call = next(step for step in body_steps if step.get("call") == fix_workflow.typed_workflow.definition.name)
+    review_step = next(step for step in review_workflow.authored_mapping["steps"] if step.get("provider") == "fake-review")
+    fix_step = next(step for step in fix_workflow.authored_mapping["steps"] if step.get("provider") == "fake-fix")
 
     assert [value["name"] for value in materialize_step["materialize_artifacts"]["values"]] == [
-        "completed__execution_report_path",
-        "design_review_prompt",
-        "fix_plan_prompt",
+        "state__completed__execution_report_path",
+        "state__last_review_report",
     ]
-    expected_consumes = [
+    review_inputs = list(review_workflow.authored_mapping["inputs"])
+    fix_inputs = list(fix_workflow.authored_mapping["inputs"])
+    assert review_inputs[:3] == [
         "completed__execution_report_path",
-        "design_review_prompt",
-        "fix_plan_prompt",
+        "inputs__design_review_prompt",
+        "inputs__fix_plan_prompt",
     ]
-    assert [consume["artifact"] for consume in review_step["consumes"]] == expected_consumes
-    assert review_step["prompt_consumes"] == expected_consumes
-    assert [consume["artifact"] for consume in fix_step["consumes"]] == expected_consumes
-    assert fix_step["prompt_consumes"] == expected_consumes
+    assert len(review_inputs) == 4
+    assert review_inputs[3].startswith("__write_root__")
+    assert fix_inputs[:4] == [
+        "completed__execution_report_path",
+        "inputs__design_review_prompt",
+        "inputs__fix_plan_prompt",
+        "review_report",
+    ]
+    assert len(fix_inputs) == 5
+    assert fix_inputs[4].startswith("__write_root__")
+    assert "consumes" not in review_step
+    assert "prompt_consumes" not in review_step
+    assert "consumes" not in fix_step
+    assert "prompt_consumes" not in fix_step
 
 
 def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:
@@ -751,9 +877,10 @@ def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:
         validate_shared=True,
     )
 
-    assert {
-        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
-    } >= {"review-revise-loop-demo"}
+    assert any(
+        workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+        for workflow in result.lowered_workflows
+    )
 
 
 def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path: Path) -> None:
@@ -766,26 +893,95 @@ def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path:
     lowered = next(
         workflow
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "review-revise-loop-demo"
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
     )
     authored = lowered.authored_mapping
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
-    review_step = next(
+    review_workflow = _lowered_workflow_with_provider(result, "fake-review")
+    review_call = next(
         step
         for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"])
-        if step.get("name") == "ReviewDecision"
+        if step.get("call") == review_workflow.typed_workflow.definition.name
     )
+    review_step = next(step for step in review_workflow.authored_mapping["steps"] if step.get("provider") == "fake-review")
 
-    review_path = review_step["output_bundle"]["path"]
+    review_path = review_step["variant_output"]["path"]
     hidden_input = review_path.removeprefix("${inputs.").removesuffix("}")
+    binding_ref = review_call["with"][hidden_input]
+    binding_step_name = binding_ref["ref"].split(".artifacts.", 1)[0].removeprefix("self.steps.")
+    binding_step = next(
+        step
+        for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"])
+        if step.get("name") == binding_step_name
+    )
 
     assert review_path.startswith("${inputs.__write_root__")
     assert review_path.endswith("__result_bundle}")
-    assert hidden_input in authored["inputs"]
-    assert {
+    assert binding_ref == {
+        "ref": f"self.steps.{binding_step_name}.artifacts.{hidden_input}",
+    }
+    assert binding_step["output_bundle"]["path"].endswith("__managed_write_roots.json")
+    assert "${loop.index}" in binding_step["output_bundle"]["path"]
+    generated_inputs = {
         item.generated_name: item.reason
         for item in lowered.boundary_projection.generated_internal_inputs
-    }[hidden_input] == "managed_write_root"
+    }
+    assert hidden_input not in authored["inputs"]
+    assert hidden_input.startswith("__write_root__")
+    assert hidden_input not in generated_inputs
+
+
+def test_review_revise_loop_generated_review_workflow_normalizes_union_outputs(tmp_path: Path) -> None:
+    result = _compile(
+        VALID_REVIEW_LOOP_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    review_workflow = _lowered_workflow_with_provider(result, "fake-review")
+    match_step = next(step for step in review_workflow.authored_mapping["steps"] if "match" in step)
+    outputs = review_workflow.authored_mapping["outputs"]
+
+    assert set(match_step["match"]["cases"]) == {"APPROVED", "BLOCKED", "REVISE"}
+    assert outputs["return__checks_report"]["from"]["ref"].startswith(
+        f"root.steps.{match_step['name']}.artifacts.return__checks_report"
+    )
+    assert outputs["return__review_report"]["from"]["ref"].startswith(
+        f"root.steps.{match_step['name']}.artifacts.return__review_report"
+    )
+    assert outputs["return__revise_review_report"]["from"]["ref"].startswith(
+        f"root.steps.{match_step['name']}.artifacts.return__revise_review_report"
+    )
+
+
+def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path: Path) -> None:
+    result = _compile(
+        VALID_REVIEW_LOOP_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+    )
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+
+    scoped_materialize_refs: list[tuple[str, str, str]] = []
+    for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"]):
+        materialize = step.get("materialize_artifacts")
+        if not isinstance(materialize, dict):
+            continue
+        for value in materialize.get("values", ()):
+            if not isinstance(value, dict):
+                continue
+            source = value.get("source")
+            ref = source.get("ref") if isinstance(source, dict) else None
+            if isinstance(ref, str) and ref.startswith(("self.steps.", "parent.steps.")):
+                scoped_materialize_refs.append((step.get("name", "<unnamed>"), value.get("name", "<unnamed>"), ref))
+
+    assert scoped_materialize_refs == []
 
 
 def test_lowering_resume_or_start_registers_generated_loader_binding(tmp_path: Path) -> None:
@@ -1219,17 +1415,23 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
         "generated_hidden_input_span",
         "generated_hidden_path_span",
     )
-    review_loop_lowered = review_by_name["review-revise-loop-demo"]
+    review_loop_lowered = next(
+        workflow
+        for workflow in review_by_name.values()
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+    )
     review_repeat_step = next(
         step for step in review_loop_lowered.authored_mapping["steps"] if "repeat_until" in step
     )
-    review_step = next(
+    review_workflow = _lowered_workflow_with_provider(review_loop_result, "fake-review")
+    review_call = next(
         step
         for step in _iter_nested_steps(review_repeat_step["repeat_until"]["steps"])
-        if step.get("name") == "ReviewDecision"
+        if step.get("call") == review_workflow.typed_workflow.definition.name
     )
-    review_path = review_step["output_bundle"]["path"]
-    review_hidden_input = review_path.removeprefix("${inputs.").removesuffix("}")
+    review_workflow = review_by_name[review_call["call"]]
+    review_step = next(step for step in review_workflow.authored_mapping["steps"] if step.get("provider") == "fake-review")
+    review_path = review_step["variant_output"]["path"]
     _assert_contract_matches_observed_families(
         review_loop_contract,
         steps=review_loop_lowered.authored_mapping["steps"],
@@ -1237,7 +1439,6 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     _assert_contract_source_map_expectations(
         review_loop_contract,
         review_loop_lowered,
-        hidden_inputs=(review_hidden_input,),
         generated_paths=(review_path,),
     )
 

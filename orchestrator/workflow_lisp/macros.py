@@ -55,7 +55,7 @@ _RESERVED_MACRO_NAMES = frozenset(
         "phase-target",
         "run-provider-phase",
         "produce-one-of",
-        "review-revise-loop",
+        "__stdlib-specialization__",
         "resume-or-start",
         "resource-transition",
         "finalize-selected-item",

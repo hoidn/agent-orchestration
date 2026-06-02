@@ -83,14 +83,15 @@ from .expressions import (
     ResourceTransitionExpr,
     RecordExpr,
     ResumeOrStartExpr,
-    ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    UnionVariantExpr,
     WorkflowRefLiteralExpr,
     WithPhaseExpr,
 )
 from .loops import (
     LOOP_STATUS_ALLOWED,
     LOOP_STATUS_OUTPUT_NAME,
+    LoopLoweringPlan,
     LoopValueProjection,
     build_loop_lowering_plan,
     internal_loop_contract,
@@ -101,7 +102,6 @@ from .phase import (
     IMPLEMENTATION_ATTEMPT_PHASE_NAME,
     PHASE_TARGET_SPECS,
     PhaseScope,
-    is_implementation_attempt_result_type,
 )
 from .macros import collect_macro_catalog, expand_module_forms
 from .reader import read_sexpr_file
@@ -514,6 +514,13 @@ def _lower_one_workflow(
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
+    if (
+        isinstance(typed_workflow.signature.return_type_ref, UnionTypeRef)
+        and _is_generated_private_workflow_name(typed_workflow.definition.name)
+    ):
+        for definition in authored_outputs.values():
+            if isinstance(definition, dict) and definition.get("type") == "relpath":
+                definition["must_exist_target"] = False
     workflow_origin = _origin_for_workflow(typed_workflow, typed_procedures=typed_procedures)
     origin_inputs = {name: workflow_origin for name in authored_inputs}
     origin_outputs = {name: workflow_origin for name in authored_outputs}
@@ -787,6 +794,7 @@ class _LoweringContext:
     return_output_contracts: Mapping[str, Mapping[str, Any]]
     local_type_bindings: Mapping[str, TypeRef]
     phase_scope: "_ActivePhaseScope | None" = None
+    iteration_scope: str | None = None
     active_procedure_calls: frozenset[str] = frozenset()
 
 
@@ -1229,8 +1237,6 @@ def _lower_expression(
         return _lower_run_provider_phase(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProduceOneOfExpr):
         return _lower_produce_one_of(typed_expr, context=context, local_values=local_values)
-    if isinstance(expr, ReviewReviseLoopExpr):
-        return _lower_review_revise_loop(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ResumeOrStartExpr):
         return _lower_resume_or_start(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ResourceTransitionExpr):
@@ -1245,6 +1251,8 @@ def _lower_expression(
         return _lower_call_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProcedureCallExpr):
         return _lower_procedure_call_expr(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, UnionVariantExpr):
+        return _lower_union_variant_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, RecordExpr):
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, MatchExpr):
@@ -1416,43 +1424,70 @@ def _lower_provider_result(
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
     }
-    if context.phase_scope is not None and is_implementation_attempt_result_type(result_type):
-        authored_contract["path"] = _template_for_ref(context.phase_scope.bundle_path_ref)
-        generated_steps.extend(
-            _build_phase_prompt_input_prelude(
-                expr,
+    if context.phase_scope is not None:
+        use_active_phase_bundle = False
+        if not _is_generated_private_workflow_name(context.workflow_name):
+            use_active_phase_bundle = _phase_prompt_inputs_are_direct(
+                (("inputs", tuple(expr.inputs)),),
                 context=context,
                 local_values=local_values,
             )
-        )
-        provider_step["consumes"] = [
-            {
-                "artifact": "design",
-                "policy": "latest_successful",
-                "freshness": "any",
-            },
-            {
-                "artifact": "plan",
-                "policy": "latest_successful",
-                "freshness": "any",
-            },
-            {
-                "artifact": "execution_report_target",
-                "policy": "latest_successful",
-                "freshness": "any",
-            },
-            {
-                "artifact": "progress_report_target",
-                "policy": "latest_successful",
-                "freshness": "any",
-            },
-        ]
-        provider_step["prompt_consumes"] = [
-            "design",
-            "plan",
-            "execution_report_target",
-            "progress_report_target",
-        ]
+            if _uses_legacy_phase_prompt_input_prelude(expr):
+                use_active_phase_bundle = True
+        if use_active_phase_bundle:
+            authored_contract["path"] = _template_for_ref(context.phase_scope.bundle_path_ref)
+        else:
+            authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
+            hidden_inputs[hidden_input_name] = _origin_from_context_source(context, expr)
+        if _uses_legacy_phase_prompt_input_prelude(expr):
+            generated_steps.extend(
+                _build_phase_prompt_input_prelude(
+                    expr,
+                    context=context,
+                    local_values=local_values,
+                )
+            )
+            provider_step["consumes"] = [
+                {
+                    "artifact": "design",
+                    "policy": "latest_successful",
+                    "freshness": "any",
+                },
+                {
+                    "artifact": "plan",
+                    "policy": "latest_successful",
+                    "freshness": "any",
+                },
+                {
+                    "artifact": "execution_report_target",
+                    "policy": "latest_successful",
+                    "freshness": "any",
+                },
+                {
+                    "artifact": "progress_report_target",
+                    "policy": "latest_successful",
+                    "freshness": "any",
+                },
+            ]
+            provider_step["prompt_consumes"] = [
+                "design",
+                "plan",
+                "execution_report_target",
+                "progress_report_target",
+            ]
+        else:
+            phase_steps, consumes, prompt_consumes, phase_hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
+                (("inputs", tuple(expr.inputs)),),
+                context=context,
+                local_values=local_values,
+                source_expr=expr,
+            )
+            generated_steps.extend(phase_steps)
+            hidden_inputs.update(phase_hidden_inputs)
+            if consumes:
+                provider_step["consumes"] = consumes
+            if prompt_consumes:
+                provider_step["prompt_consumes"] = prompt_consumes
     else:
         authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
         hidden_inputs[hidden_input_name] = _origin_from_context_source(context, expr)
@@ -1813,544 +1848,6 @@ def _lower_produce_one_of(
     )
 
 
-def _lower_review_revise_loop(
-    typed_expr: TypedExpr,
-    *,
-    context: _LoweringContext,
-    local_values: Mapping[str, Any],
-) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    """Lower `review-revise-loop` to a generated `repeat_until` review workflow.
-
-    The helper builds review, fix, and terminal projection steps while keeping
-    the public result as a typed union. Markdown reports stay artifacts; the
-    structured provider result is the authority for the review decision.
-    """
-
-    expr = typed_expr.expr
-    assert isinstance(expr, ReviewReviseLoopExpr)
-    if context.phase_scope is None:
-        raise _compile_error(
-            code="phase_translation_body_invalid",
-            message="`review-revise-loop` lowering requires an active phase scope",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    _require_phase_scope_name_match(
-        context.phase_scope,
-        authored_name=expr.loop_name,
-        form_name="review-revise-loop",
-        span=expr.span,
-        form_path=expr.form_path,
-    )
-    repeat_step_name = f"{context.step_name_prefix}__loop"
-    repeat_step_id = _normalize_generated_step_id(repeat_step_name)
-    result_step_name = context.step_name_prefix
-    result_step_id = _normalize_generated_step_id(result_step_name)
-    _record_step_origin(context, step_name=repeat_step_name, step_id=repeat_step_id, source=expr)
-    _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=expr)
-    review_hidden_input = f"__write_root__{repeat_step_id}__review_decision__result_bundle"
-    review_contract_path = f"${{inputs.{review_hidden_input}}}"
-    context.generated_path_spans[review_contract_path] = _origin_from_context_source(context, expr)
-    review_output_bundle = {
-        "path": review_contract_path,
-        "fields": [
-            {
-                "name": "review_decision",
-                "json_pointer": "/review_decision",
-                "type": "enum",
-                "allowed": ["APPROVE", "REVISE", "BLOCKED"],
-            },
-            {
-                "name": "checks_report",
-                "json_pointer": "/checks_report",
-                "type": "relpath",
-                "under": "artifacts/work",
-                "must_exist_target": True,
-            },
-            {
-                "name": "review_report",
-                "json_pointer": "/review_report",
-                "type": "relpath",
-                "under": "artifacts/work",
-                "must_exist_target": True,
-            },
-            {
-                "name": "progress_report",
-                "json_pointer": "/progress_report",
-                "type": "relpath",
-                "under": "artifacts/work",
-                "must_exist_target": True,
-            },
-            {
-                "name": "blocker_class",
-                "json_pointer": "/blocker_class",
-                "type": "enum",
-                "allowed": [
-                    "missing_resource",
-                    "unavailable_hardware",
-                    "roadmap_conflict",
-                    "external_dependency_outside_authority",
-                    "user_decision_required",
-                    "unrecoverable_after_fix_attempt",
-                ],
-            },
-        ],
-    }
-    review_provider = context.extern_environment.bindings_by_name.get(expr.review_provider.name)
-    fix_provider = context.extern_environment.bindings_by_name.get(expr.fix_provider.name)
-    review_prompt = context.extern_environment.bindings_by_name.get(expr.review_prompt.name)
-    fix_prompt = context.extern_environment.bindings_by_name.get(expr.fix_prompt.name)
-    if not isinstance(review_provider, ProviderExtern) or not isinstance(fix_provider, ProviderExtern):
-        raise _compile_error(
-            code="provider_result_provider_invalid",
-            message="review-revise-loop lowering requires validated provider externs",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if not isinstance(review_prompt, PromptExtern) or not isinstance(fix_prompt, PromptExtern):
-        raise _compile_error(
-            code="provider_result_provider_invalid",
-            message="review-revise-loop lowering requires validated prompt externs",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
-        (
-            ("completed", expr.completed_expr),
-            ("inputs", expr.inputs_expr),
-        ),
-        context=context,
-        local_values=local_values,
-        source_expr=expr,
-    )
-    hidden_inputs[review_hidden_input] = _origin_from_context_source(context, expr)
-    review_result_ref = "parent.steps.ReviewDecision.artifacts"
-    route_output_contracts = {
-        "variant": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["APPROVED", "BLOCKED", "REVISE", "EXHAUSTED"],
-        },
-        "review_decision": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["APPROVE", "REVISE", "BLOCKED"],
-        },
-        "checks_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-        "review_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-        "progress_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-        "blocker_class": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": [
-                "missing_resource",
-                "unavailable_hardware",
-                "roadmap_conflict",
-                "external_dependency_outside_authority",
-                "user_decision_required",
-                "unrecoverable_after_fix_attempt",
-            ],
-        },
-        "last_review_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-        },
-        "reason": {
-            "kind": "scalar",
-            "type": "string",
-        },
-    }
-
-    def _route_case_outputs(*, variant_step: str, reason_step: str) -> dict[str, Any]:
-        return {
-            "variant": {
-                **route_output_contracts["variant"],
-                "from": {"ref": f"self.steps.{variant_step}.artifacts.variant"},
-            },
-            "review_decision": {
-                **route_output_contracts["review_decision"],
-                "from": {"ref": f"{review_result_ref}.review_decision"},
-            },
-            "checks_report": {
-                **route_output_contracts["checks_report"],
-                "from": {"ref": f"{review_result_ref}.checks_report"},
-            },
-            "review_report": {
-                **route_output_contracts["review_report"],
-                "from": {"ref": f"{review_result_ref}.review_report"},
-            },
-            "progress_report": {
-                **route_output_contracts["progress_report"],
-                "from": {"ref": f"{review_result_ref}.progress_report"},
-            },
-            "blocker_class": {
-                **route_output_contracts["blocker_class"],
-                "from": {"ref": f"{review_result_ref}.blocker_class"},
-            },
-            "last_review_report": {
-                **route_output_contracts["last_review_report"],
-                "from": {"ref": f"{review_result_ref}.review_report"},
-            },
-            "reason": {
-                **route_output_contracts["reason"],
-                "from": {"ref": f"self.steps.{reason_step}.artifacts.reason"},
-            },
-        }
-
-    loop_outputs = {
-        "variant": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["APPROVED", "BLOCKED", "REVISE", "EXHAUSTED"],
-            "from": {"ref": "self.steps.RouteDecision.artifacts.variant"},
-        },
-        "review_decision": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["APPROVE", "REVISE", "BLOCKED"],
-            "from": {"ref": "self.steps.RouteDecision.artifacts.review_decision"},
-        },
-        "checks_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-            "from": {"ref": "self.steps.RouteDecision.artifacts.checks_report"},
-        },
-        "review_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-            "from": {"ref": "self.steps.RouteDecision.artifacts.review_report"},
-        },
-        "progress_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-            "from": {"ref": "self.steps.RouteDecision.artifacts.progress_report"},
-        },
-        "blocker_class": {
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": [
-                "missing_resource",
-                "unavailable_hardware",
-                "roadmap_conflict",
-                "external_dependency_outside_authority",
-                "user_decision_required",
-                "unrecoverable_after_fix_attempt",
-            ],
-            "from": {"ref": "self.steps.RouteDecision.artifacts.blocker_class"},
-        },
-        "last_review_report": {
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "artifacts/work",
-            "must_exist_target": True,
-            "from": {"ref": "self.steps.RouteDecision.artifacts.last_review_report"},
-        },
-        "reason": {
-            "kind": "scalar",
-            "type": "string",
-            "from": {"ref": "self.steps.RouteDecision.artifacts.reason"},
-        },
-    }
-    repeat_step = {
-        "name": repeat_step_name,
-        "id": repeat_step_id,
-        "repeat_until": {
-            "id": "review_loop_iteration",
-            "max_iterations": int(_render_scalar_expr(expr.max_expr, local_values=local_values)),
-            "outputs": loop_outputs,
-            "condition": {
-                "compare": {
-                    "left": {"ref": "self.outputs.variant"},
-                    "op": "ne",
-                    "right": "REVISE",
-                }
-            },
-            "on_exhausted": {
-                "outputs": {
-                    "variant": "EXHAUSTED",
-                    "reason": "max_iterations_reached",
-                }
-            },
-            "steps": [
-                {
-                    "name": "ReviewDecision",
-                    "id": "review_decision",
-                    "provider": review_provider.provider_id,
-                    "asset_file": review_prompt.asset_file,
-                    "consumes": consumes,
-                    "prompt_consumes": prompt_consumes,
-                    "inject_output_contract": True,
-                    "output_bundle": review_output_bundle,
-                },
-                {
-                    "name": "RouteDecision",
-                    "id": "route_decision",
-                    "match": {
-                        "ref": "self.steps.ReviewDecision.artifacts.review_decision",
-                        "cases": {
-                            "APPROVE": {
-                                "id": "approved_case",
-                                "outputs": _route_case_outputs(
-                                    variant_step="MarkApproved",
-                                    reason_step="WriteApprovedReason",
-                                ),
-                                "steps": [
-                                    {
-                                        "name": "MarkApproved",
-                                        "id": "mark_approved",
-                                        "materialize_artifacts": {
-                                            "values": [
-                                                {
-                                                    "name": "variant",
-                                                    "source": {"literal": "APPROVED"},
-                                                    "contract": dict(route_output_contracts["variant"]),
-                                                }
-                                            ],
-                                        },
-                                    },
-                                    {
-                                        "name": "WriteApprovedReason",
-                                        "id": "write_approved_reason",
-                                        "materialize_artifacts": {
-                                            "values": [
-                                                {
-                                                    "name": "reason",
-                                                    "source": {"literal": "approved"},
-                                                    "contract": dict(route_output_contracts["reason"]),
-                                                }
-                                            ],
-                                        },
-                                    },
-                                ],
-                            },
-                            "BLOCKED": {
-                                "id": "blocked_case",
-                                "outputs": _route_case_outputs(
-                                    variant_step="MarkBlocked",
-                                    reason_step="WriteBlockedReason",
-                                ),
-                                "steps": [
-                                    {
-                                        "name": "MarkBlocked",
-                                        "id": "mark_blocked",
-                                        "materialize_artifacts": {
-                                            "values": [
-                                                {
-                                                    "name": "variant",
-                                                    "source": {"literal": "BLOCKED"},
-                                                    "contract": dict(route_output_contracts["variant"]),
-                                                }
-                                            ],
-                                        },
-                                    },
-                                    {
-                                        "name": "WriteBlockedReason",
-                                        "id": "write_blocked_reason",
-                                        "materialize_artifacts": {
-                                            "values": [
-                                                {
-                                                    "name": "reason",
-                                                    "source": {"literal": "blocked"},
-                                                    "contract": dict(route_output_contracts["reason"]),
-                                                }
-                                            ],
-                                        },
-                                    },
-                                ],
-                            },
-                            "REVISE": {
-                                "id": "revise_case",
-                                "outputs": _route_case_outputs(
-                                    variant_step="MarkRevise",
-                                    reason_step="WriteReviseReason",
-                                ),
-                                "steps": [
-                                    {
-                                        "name": "ApplyFix",
-                                        "id": "apply_fix",
-                                        "provider": fix_provider.provider_id,
-                                        "asset_file": fix_prompt.asset_file,
-                                        "consumes": consumes,
-                                        "prompt_consumes": prompt_consumes,
-                                    },
-                                    {
-                                        "name": "MarkRevise",
-                                        "id": "mark_revise",
-                                        "materialize_artifacts": {
-                                            "values": [
-                                                {
-                                                    "name": "variant",
-                                                    "source": {"literal": "REVISE"},
-                                                    "contract": dict(route_output_contracts["variant"]),
-                                                }
-                                            ],
-                                        },
-                                    },
-                                    {
-                                        "name": "WriteReviseReason",
-                                        "id": "write_revise_reason",
-                                        "materialize_artifacts": {
-                                            "values": [
-                                                {
-                                                    "name": "reason",
-                                                    "source": {"literal": "revise_requested"},
-                                                    "contract": dict(route_output_contracts["reason"]),
-                                                }
-                                            ],
-                                        },
-                                    },
-                                ],
-                            },
-                        },
-                    },
-                },
-            ],
-        },
-    }
-    result_output_contracts = _review_loop_result_output_contracts(
-        typed_expr.type_ref,
-        context=context,
-        span=expr.span,
-        form_path=expr.form_path,
-    )
-
-    def _result_case_outputs(*, variant_ref: str) -> dict[str, Any]:
-        return {
-            field_name: {
-                **definition,
-                "from": {"ref": variant_ref if field_name == "variant" else f"root.steps.{repeat_step_name}.artifacts.{field_name}"},
-            }
-            for field_name, definition in result_output_contracts.items()
-        }
-
-    result_cases = {
-        "APPROVED": {
-            "id": _normalize_generated_step_id(f"{result_step_name}__approved"),
-            "outputs": _result_case_outputs(
-                variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
-            ),
-            "steps": [
-                _build_match_projection_anchor_step(
-                    match_step_name=result_step_name,
-                    variant_name="APPROVED",
-                    case_outputs=_result_case_outputs(
-                        variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
-                    ),
-                    context=context,
-                    span=expr.span,
-                )
-            ],
-        },
-        "BLOCKED": {
-            "id": _normalize_generated_step_id(f"{result_step_name}__blocked"),
-            "outputs": _result_case_outputs(
-                variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
-            ),
-            "steps": [
-                _build_match_projection_anchor_step(
-                    match_step_name=result_step_name,
-                    variant_name="BLOCKED",
-                    case_outputs=_result_case_outputs(
-                        variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
-                    ),
-                    context=context,
-                    span=expr.span,
-                )
-            ],
-        },
-        "EXHAUSTED": {
-            "id": _normalize_generated_step_id(f"{result_step_name}__exhausted"),
-            "outputs": _result_case_outputs(
-                variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
-            ),
-            "steps": [
-                _build_match_projection_anchor_step(
-                    match_step_name=result_step_name,
-                    variant_name="EXHAUSTED",
-                    case_outputs=_result_case_outputs(
-                        variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
-                    ),
-                    context=context,
-                    span=expr.span,
-                )
-            ],
-        },
-        "REVISE": {
-            "id": _normalize_generated_step_id(f"{result_step_name}__revise"),
-            "outputs": _result_case_outputs(
-                variant_ref="self.steps.NormalizeReviseVariant.artifacts.variant",
-            ),
-            "steps": [
-                {
-                    "name": "NormalizeReviseVariant",
-                    "id": "normalize_revise_variant",
-                    "materialize_artifacts": {
-                        "values": [
-                            {
-                                "name": "variant",
-                                "source": {"literal": "EXHAUSTED"},
-                                "contract": dict(result_output_contracts["variant"]),
-                            }
-                        ],
-                    },
-                },
-                _build_match_projection_anchor_step(
-                    match_step_name=result_step_name,
-                    variant_name="REVISE",
-                    case_outputs=_result_case_outputs(
-                        variant_ref="self.steps.NormalizeReviseVariant.artifacts.variant",
-                    ),
-                    context=context,
-                    span=expr.span,
-                ),
-            ],
-        },
-    }
-    result_step = {
-        "name": result_step_name,
-        "id": result_step_id,
-        "match": {
-            "ref": f"root.steps.{repeat_step_name}.artifacts.variant",
-            "cases": result_cases,
-        },
-    }
-    generated_steps.extend([repeat_step, result_step])
-    _record_missing_step_origins(context, generated_steps, source=expr)
-    return generated_steps, _TerminalResult(
-        step_name=result_step_name,
-        step_id=result_step_id,
-        output_refs={
-            f"return__{field_name}": f"root.steps.{result_step_name}.artifacts.{field_name}"
-            for field_name in result_output_contracts
-        },
-        output_kind="match",
-        hidden_inputs=hidden_inputs,
-    )
-
-
 def _lower_resume_or_start(
     typed_expr: TypedExpr,
     *,
@@ -2699,7 +2196,7 @@ def _lower_loop_recur(
     _record_step_origin(context, step_name=plan.seed_step_name, step_id=seed_step_id, source=expr)
     current_state_step_name = f"{plan.body_projection_step_name}__state"
     current_state_step_id = _normalize_generated_step_id(current_state_step_name)
-    current_state_step = _build_loop_current_state_step(
+    current_state_steps = _build_loop_current_state_steps(
         current_state_step_name=current_state_step_name,
         current_state_step_id=current_state_step_id,
         current_state_projection=plan.state_projection,
@@ -2722,6 +2219,10 @@ def _lower_loop_recur(
         context,
         binding_name=expr.binding_name,
         binding_type=state_type,
+    )
+    loop_body_context = _copy_context_with_iteration_scope(
+        loop_body_context,
+        iteration_scope="${loop.index}",
     )
     loop_local_values = dict(local_values)
     loop_local_values[expr.binding_name] = _loop_projection_local_value(
@@ -2781,7 +2282,7 @@ def _lower_loop_recur(
                 expr.max_iterations_expr,
                 local_values=local_values,
             ),
-            "steps": [current_state_step, *body_steps],
+            "steps": [*current_state_steps, *body_steps],
             "outputs": {
                 name: {
                     **definition,
@@ -2798,6 +2299,24 @@ def _lower_loop_recur(
             },
         },
     }
+    if expr.on_exhausted_result_expr is not None:
+        exhaustion_local_values = dict(local_values)
+        exhaustion_local_values[expr.binding_name] = _loop_projection_local_value(
+            plan.state_projection,
+            {
+                field.generated_name: f"root.steps.{plan.repeat_step_name}.artifacts.{field.generated_name}"
+                for field in plan.state_projection.flattened_fields
+            },
+        )
+        repeat_step["repeat_until"]["on_exhausted"] = {
+            "outputs": _loop_on_exhausted_outputs(
+                expr.on_exhausted_result_expr,
+                plan=plan,
+                result_type=result_type,
+                context=context,
+                local_values=exhaustion_local_values,
+            )
+        }
     _record_step_origin(context, step_name=plan.repeat_step_name, step_id=repeat_step_id, source=expr)
 
     normalized_result_fields = derive_workflow_boundary_fields(
@@ -2835,12 +2354,28 @@ def _lower_loop_recur(
         )
     elif isinstance(result_type, UnionTypeRef):
         union_cases: dict[str, Any] = {}
+        result_projection_fields = {
+            field.generated_name: field
+            for field in plan.result_projection.flattened_fields
+        }
+        allow_missing_result_fields = _loop_result_optional_relpath_fields(plan.result_projection)
         for variant in result_type.definition.variants:
             case_outputs = {
                 field.generated_name: {
-                    **dict(field.contract_definition),
+                    **internal_loop_contract(
+                        result_projection_fields[
+                            _loop_projection_field_name(plan.result_projection, field.source_path[1:])
+                        ],
+                        allow_missing_target_fields=allow_missing_result_fields,
+                    ),
                     "from": {
-                        "ref": f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
+                        "ref": _loop_result_case_output_ref(
+                            loop_expr=expr,
+                            plan=plan,
+                            variant_name=variant.name,
+                            field_path=field.source_path[1:],
+                        )
+                        or f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
                     },
                 }
                 for field in normalized_result_fields
@@ -2894,7 +2429,7 @@ def _lower_loop_recur(
     return [seed_step, repeat_step, result_step], result_terminal
 
 
-def _build_loop_current_state_step(
+def _build_loop_current_state_steps(
     *,
     current_state_step_name: str,
     current_state_step_id: str,
@@ -2902,13 +2437,16 @@ def _build_loop_current_state_step(
     plan: Any,
     expr: LoopRecurExpr,
     context: _LoweringContext,
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     """Build the body-local state router used by generated loop bodies."""
 
+    seed_marker_name = f"{current_state_step_name}__seed_marker"
+    seed_marker_id = _normalize_generated_step_id(seed_marker_name)
     carried_copy_name = f"{current_state_step_name}__use_carried_state"
     seed_copy_name = f"{current_state_step_name}__use_seed_state"
     carried_copy_id = _normalize_generated_step_id(f"{current_state_step_name}__carry")
     seed_copy_id = _normalize_generated_step_id(f"{current_state_step_name}__seed")
+    _record_step_origin(context, step_name=seed_marker_name, step_id=seed_marker_id, source=expr)
     _record_step_origin(context, step_name=carried_copy_name, step_id=carried_copy_id, source=expr)
     _record_step_origin(context, step_name=seed_copy_name, step_id=seed_copy_id, source=expr)
     carried_values = [
@@ -2935,47 +2473,68 @@ def _build_loop_current_state_step(
         }
         for field in current_state_projection.flattened_fields
     ]
-    return {
-        "name": current_state_step_name,
-        "id": current_state_step_id,
-        "if": {
-            "compare": {
-                "left": {"ref": f"root.steps.{plan.repeat_step_name}.artifacts.{LOOP_STATUS_OUTPUT_NAME}"},
-                "op": "eq",
-                "right": "CONTINUE",
-            }
+    return [
+        {
+            "name": seed_marker_name,
+            "id": seed_marker_id,
+            "when": {
+                "equals": {
+                    "left": "${loop.index}",
+                    "right": "0",
+                }
+            },
+            "materialize_artifacts": {
+                "values": [
+                    {
+                        "name": "seed_iteration",
+                        "source": {"literal": "seed"},
+                        "contract": {"kind": "scalar", "type": "string"},
+                    }
+                ]
+            },
         },
-        "then": {
-            "id": carried_copy_id,
-            "outputs": _loop_case_outputs_from_projection(
-                current_state_projection,
-                source_step_name=carried_copy_name,
-                allow_missing_target_fields=current_state_projection.optional_relpath_fields,
-            ),
-            "steps": [
-                _materialize_values_step(
-                    step_name=carried_copy_name,
-                    step_id=carried_copy_id,
-                    values=carried_values,
-                )
-            ],
+        {
+            "name": current_state_step_name,
+            "id": current_state_step_id,
+            "if": {
+                "compare": {
+                    "left": {"ref": f"self.steps.{seed_marker_name}.outcome.class"},
+                    "op": "eq",
+                    "right": "skipped",
+                }
+            },
+            "then": {
+                "id": carried_copy_id,
+                "outputs": _loop_case_outputs_from_projection(
+                    current_state_projection,
+                    source_step_name=carried_copy_name,
+                    allow_missing_target_fields=current_state_projection.optional_relpath_fields,
+                ),
+                "steps": [
+                    _materialize_values_step(
+                        step_name=carried_copy_name,
+                        step_id=carried_copy_id,
+                        values=carried_values,
+                    )
+                ],
+            },
+            "else": {
+                "id": seed_copy_id,
+                "outputs": _loop_case_outputs_from_projection(
+                    current_state_projection,
+                    source_step_name=seed_copy_name,
+                    allow_missing_target_fields=current_state_projection.optional_relpath_fields,
+                ),
+                "steps": [
+                    _materialize_values_step(
+                        step_name=seed_copy_name,
+                        step_id=seed_copy_id,
+                        values=seed_values,
+                    )
+                ],
+            },
         },
-        "else": {
-            "id": seed_copy_id,
-            "outputs": _loop_case_outputs_from_projection(
-                current_state_projection,
-                source_step_name=seed_copy_name,
-                allow_missing_target_fields=current_state_projection.optional_relpath_fields,
-            ),
-            "steps": [
-                _materialize_values_step(
-                    step_name=seed_copy_name,
-                    step_id=seed_copy_id,
-                    values=seed_values,
-                )
-            ],
-        },
-    }
+    ]
 
 
 def _build_loop_seed_step(
@@ -3103,7 +2662,11 @@ def _lower_loop_body_expr(
         )
         loop_local_values = dict(local_values)
         if normalized_binding.local_value is not None:
-            loop_local_values[binding_name] = normalized_binding.local_value
+            loop_local_values[binding_name] = (
+                _loop_body_scope_value(normalized_binding.local_value)
+                if normalized_binding.terminal is not None
+                else normalized_binding.local_value
+            )
         body_steps, body_terminal = _lower_loop_body_expr(
             body_expr,
             loop_binding_name=loop_binding_name,
@@ -3163,9 +2726,14 @@ def _lower_loop_body_expr(
                 for name, value in local_values.items()
             }
             arm_local_values[arm.binding_name] = _loop_parent_scope_value(local_values.get(expr.subject.name))
+            next_loop_binding_name = (
+                arm.binding_name
+                if expr.subject.name == loop_binding_name
+                else loop_binding_name
+            )
             arm_steps, arm_terminal = _lower_loop_body_expr(
                 arm.body,
-                loop_binding_name=arm.binding_name,
+                loop_binding_name=next_loop_binding_name,
                 state_projection=state_projection,
                 result_projection=result_projection,
                 result_type=result_type,
@@ -3366,7 +2934,7 @@ def _lower_loop_terminal_expr(
     """Lower one terminal continue/done body branch to projected loop outputs."""
 
     step_id = _normalize_generated_step_id(body_step_name)
-    values = [
+    projected_values = [
         {
             "name": LOOP_STATUS_OUTPUT_NAME,
             "source": {"literal": status_value},
@@ -3377,7 +2945,7 @@ def _lower_loop_terminal_expr(
             },
         }
     ]
-    values.extend(
+    projected_values.extend(
         _loop_projection_materialize_values(
             state_expr,
             projection=state_projection,
@@ -3391,14 +2959,14 @@ def _lower_loop_terminal_expr(
         )
     )
     if result_expr is None:
-        values.extend(
+        projected_values.extend(
             _loop_placeholder_values(
                 result_projection,
                 allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
             )
         )
     else:
-        values.extend(
+        projected_values.extend(
             _loop_projection_materialize_values(
                 result_expr,
                 projection=result_projection,
@@ -3411,6 +2979,23 @@ def _lower_loop_terminal_expr(
                 ),
             )
         )
+    values: list[dict[str, Any]] = []
+    output_refs: dict[str, str] = {}
+    for value in projected_values:
+        source = value.get("source")
+        if not isinstance(source, dict):
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message="`loop/recur` terminal projection emitted an invalid materialization source",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        source_ref = source.get("ref")
+        if isinstance(source_ref, str):
+            output_refs[value["name"]] = source_ref
+            continue
+        values.append(value)
+        output_refs[value["name"]] = f"root.steps.{body_step_name}.artifacts.{value['name']}"
     _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
     return [
         _materialize_values_step(
@@ -3421,13 +3006,7 @@ def _lower_loop_terminal_expr(
     ], _TerminalResult(
         step_name=body_step_name,
         step_id=step_id,
-        output_refs={
-            name: f"root.steps.{body_step_name}.artifacts.{name}"
-            for name in _loop_output_contracts(
-                state_projection=state_projection,
-                result_projection=result_projection,
-            )
-        },
+        output_refs=output_refs,
         output_kind="step",
         hidden_inputs={},
     )
@@ -3481,6 +3060,24 @@ def _loop_projection_materialize_values(
     """Project one expression into flattened materialized loop outputs."""
 
     resolved_value = _resolve_inline_expr_value(expr, local_values=local_values)
+
+    def current_value_for(field_path: tuple[str, ...]) -> Any:
+        if isinstance(expr, UnionVariantExpr):
+            return _inline_expr_field_value(
+                expr,
+                field_path=field_path,
+                local_values=local_values,
+                context=context,
+            )
+        current_value = resolved_value
+        if field_path:
+            current_value = _resolve_inline_field_value(
+                resolved_value,
+                field_path=field_path,
+                local_values=local_values,
+            )
+        return current_value
+
     values: list[dict[str, Any]] = []
     if active_variant_name is not None and projection.union_projection is not None:
         active_variant_fields = {
@@ -3496,14 +3093,8 @@ def _loop_projection_materialize_values(
             if field.generated_name == discriminant_name:
                 source: dict[str, Any] = {"literal": active_variant_name}
             elif field.generated_name in shared_field_names or field.generated_name in active_variant_fields:
-                current_value = resolved_value
                 relative_path = field.source_path[1:]
-                if relative_path:
-                    current_value = _resolve_inline_field_value(
-                        resolved_value,
-                        field_path=relative_path,
-                        local_values=local_values,
-                    )
+                current_value = current_value_for(relative_path)
                 if isinstance(current_value, LiteralExpr):
                     source = {"literal": current_value.value}
                 elif isinstance(current_value, str):
@@ -3534,13 +3125,7 @@ def _loop_projection_materialize_values(
         return values
     for field in projection.flattened_fields:
         relative_path = field.source_path[1:]
-        current_value = resolved_value
-        if relative_path:
-            current_value = _resolve_inline_field_value(
-                resolved_value,
-                field_path=relative_path,
-                local_values=local_values,
-            )
+        current_value = current_value_for(relative_path)
         if isinstance(current_value, LiteralExpr):
             source = {"literal": current_value.value}
         elif isinstance(current_value, str):
@@ -3592,10 +3177,68 @@ def _loop_placeholder_values(
     return values
 
 
+def _loop_on_exhausted_outputs(
+    expr: Any,
+    *,
+    plan: LoopLoweringPlan,
+    result_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    active_variant_name = expr.variant_name if isinstance(expr, UnionVariantExpr) else None
+    outputs: dict[str, Any] = {}
+    for value in _loop_projection_materialize_values(
+        expr,
+        projection=plan.result_projection,
+        local_values=local_values,
+        context=context,
+        active_variant_name=active_variant_name,
+        allow_missing_target_fields=_loop_result_optional_relpath_fields(plan.result_projection),
+    ):
+        if value.get("contract", {}).get("kind") != "scalar":
+            continue
+        source = value["source"]
+        if "literal" in source:
+            outputs[value["name"]] = source["literal"]
+        elif "ref" in source:
+            outputs[value["name"]] = {"ref": source["ref"]}
+        else:
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message="`loop/recur` exhaustion projection emitted an unsupported source",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+    return outputs
+
+
 def _loop_result_optional_relpath_fields(projection: LoopValueProjection) -> frozenset[str]:
     """Result relpaths may be deferred until `done`, so internal loop steps must tolerate placeholders."""
 
     return projection_relpath_fields(projection)
+
+
+def _loop_result_case_output_ref(
+    *,
+    loop_expr: LoopRecurExpr,
+    plan: LoopLoweringPlan,
+    variant_name: str,
+    field_path: tuple[str, ...],
+) -> str | None:
+    """Allow exhausted result projection to reuse loop-carried state fields."""
+
+    on_exhausted = loop_expr.on_exhausted_result_expr
+    if not isinstance(on_exhausted, UnionVariantExpr) or on_exhausted.variant_name != variant_name:
+        return None
+    field_value = _union_variant_expr_value_at_path(on_exhausted, field_path)
+    if not isinstance(field_value, FieldAccessExpr):
+        return None
+    if not isinstance(field_value.base, NameExpr) or field_value.base.name != loop_expr.binding_name:
+        return None
+    return (
+        f"root.steps.{plan.repeat_step_name}.artifacts."
+        f"{_loop_projection_field_name(plan.state_projection, tuple(field_value.fields))}"
+    )
 
 
 def _loop_case_ref(ref: str) -> str:
@@ -3669,9 +3312,23 @@ def _loop_parent_scope_value(value: Any) -> Any:
     if isinstance(value, str):
         if value.startswith("self.steps."):
             return "parent.steps." + value.removeprefix("self.steps.")
+        if value.startswith("root.steps."):
+            return "parent.steps." + value.removeprefix("root.steps.")
         return value
     if isinstance(value, Mapping):
         return {name: _loop_parent_scope_value(item) for name, item in value.items()}
+    return value
+
+
+def _loop_body_scope_value(value: Any) -> Any:
+    """Localize one loop-body binding value to the current repeat_until scope."""
+
+    if isinstance(value, str):
+        if value.startswith("root.steps."):
+            return "self.steps." + value.removeprefix("root.steps.")
+        return value
+    if isinstance(value, Mapping):
+        return {name: _loop_body_scope_value(item) for name, item in value.items()}
     return value
 
 
@@ -3778,14 +3435,14 @@ def _lower_call_expr(
         span=expr.span,
         form_path=expr.form_path,
     )
-    with_bindings.update(
-        _managed_write_root_bindings(
-            caller_workflow_name=context.workflow_name,
-            call_step_name=step_name,
-            callee_name=canonical_name,
-            managed_inputs=managed_inputs,
-        )
+    binding_steps, managed_bindings = _managed_write_root_binding_step(
+        context=context,
+        source_expr=expr,
+        call_step_name=step_name,
+        callee_name=canonical_name,
+        managed_inputs=managed_inputs,
     )
+    with_bindings.update(managed_bindings)
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
@@ -3793,7 +3450,7 @@ def _lower_call_expr(
         "call": canonical_name,
         "with": with_bindings,
     }
-    return [step], _TerminalResult(
+    return [*binding_steps, step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
         output_refs={
@@ -3988,21 +3645,21 @@ def _lower_procedure_call_expr(
                 )
             else:
                 with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
-        with_bindings.update(
-            _managed_write_root_bindings(
-                caller_workflow_name=context.workflow_name,
-                call_step_name=step_name,
-                callee_name=canonical_name,
-                managed_inputs=_managed_write_root_requirements_for_callable(
-                    lowered_callee=callee,
-                    imported_bundle=None,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                ),
-            )
+        binding_steps, managed_bindings = _managed_write_root_binding_step(
+            context=context,
+            source_expr=expr,
+            call_step_name=step_name,
+            callee_name=canonical_name,
+            managed_inputs=_managed_write_root_requirements_for_callable(
+                lowered_callee=callee,
+                imported_bundle=None,
+                span=expr.span,
+                form_path=expr.form_path,
+            ),
         )
+        with_bindings.update(managed_bindings)
         _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-        return [{"name": step_name, "id": step_id, "call": procedure.generated_workflow_name, "with": with_bindings}], _TerminalResult(
+        return [*binding_steps, {"name": step_name, "id": step_id, "call": procedure.generated_workflow_name, "with": with_bindings}], _TerminalResult(
             step_name=step_name,
             step_id=step_id,
             output_refs={
@@ -4025,7 +3682,12 @@ def _lower_procedure_call_expr(
         child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
     child_context = _LoweringContext(
         workflow_name=context.workflow_name,
-        step_name_prefix=f"{context.step_name_prefix}__{expr.callee_name}_{prefix_ordinal}",
+        step_name_prefix=_inline_procedure_step_prefix(
+            context=context,
+            callee_name=expr.callee_name,
+            procedure=procedure,
+            ordinal=prefix_ordinal,
+        ),
         workflow_path=context.workflow_path,
         signature=context.signature,
         authored_input_contracts=context.authored_input_contracts,
@@ -4051,11 +3713,35 @@ def _lower_procedure_call_expr(
         origin_notes=_procedure_provenance_notes(expr, procedure),
         boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
-        local_type_bindings=context.local_type_bindings,
+        local_type_bindings={
+            **context.local_type_bindings,
+            **_procedure_signature_local_type_bindings(procedure),
+        },
         phase_scope=context.phase_scope,
+        iteration_scope=context.iteration_scope,
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
     )
     return _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)
+
+
+def _inline_procedure_step_prefix(
+    *,
+    context: _LoweringContext,
+    callee_name: str,
+    procedure: TypedProcedureDef,
+    ordinal: int,
+) -> str:
+    """Choose the step prefix for one inlined procedure body.
+
+    Generated review-loop helpers live under nested repeat/call frame ids. A
+    compact internal prefix keeps those runtime-owned paths below filesystem
+    component limits without changing the public workflow contract.
+    """
+
+    if procedure.definition.name.startswith("%rl."):
+        compact_name = procedure.definition.name.removeprefix("%").replace(".", "_").replace("-", "_")
+        return f"{compact_name}_{ordinal}"
+    return f"{context.step_name_prefix}__{callee_name}_{ordinal}"
 
 
 def _lower_let_star(
@@ -4146,6 +3832,7 @@ def _is_inline_let_binding_expr(expr: Any) -> bool:
             FieldAccessExpr,
             LiteralExpr,
             RecordExpr,
+            UnionVariantExpr,
             ProcRefLiteralExpr,
             BindProcExpr,
         ),
@@ -4328,17 +4015,21 @@ def _lower_match_expr(
         "name": match_step_name,
         "id": match_step_id,
         "match": {
-            "ref": binding_terminal.output_refs["return__variant"],
+            "ref": _conditional_case_ref(
+                binding_terminal.output_refs["return__variant"],
+                terminal_step_name=binding_terminal.step_name,
+            ),
             "cases": cases,
         },
     }
     return [match_step], _TerminalResult(
         step_name=match_step_name,
         step_id=match_step_id,
-        output_refs={
-            output_name: f"root.steps.{match_step_name}.artifacts.{output_name}"
-            for output_name in output_contracts
-        },
+        output_refs=_conditional_output_refs(
+            step_name=match_step_name,
+            output_contracts=output_contracts,
+            result_type=result_type,
+        ),
         output_kind="match",
         hidden_inputs=hidden_inputs,
     )
@@ -4498,10 +4189,11 @@ def _lower_if_expr(
     ], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
-        output_refs={
-            output_name: f"root.steps.{step_name}.artifacts.{output_name}"
-            for output_name in output_contracts
-        },
+        output_refs=_conditional_output_refs(
+            step_name=step_name,
+            output_contracts=output_contracts,
+            result_type=typed_expr.type_ref,
+        ),
         output_kind="if",
         hidden_inputs={**then_terminal.hidden_inputs, **else_terminal.hidden_inputs},
     )
@@ -4624,7 +4316,7 @@ def _lower_finalize_selected_item(
                     "source": {"ref": queue_transition_id_ref},
                     "contract": {"kind": "scalar", "type": "string"},
                 }
-            ]
+            ],
         },
     }
     queue_transition_when = _when_from_value(selected_active_value)
@@ -6205,18 +5897,6 @@ def _workflow_extern_requirements(
             walk(expr.ctx_expr)
             walk(expr.inputs_expr)
             return
-        if isinstance(expr, ReviewReviseLoopExpr):
-            if isinstance(expr.review_provider, NameExpr):
-                provider_names.add(expr.review_provider.name)
-            if isinstance(expr.fix_provider, NameExpr):
-                provider_names.add(expr.fix_provider.name)
-            if isinstance(expr.review_prompt, NameExpr):
-                prompt_names.add(expr.review_prompt.name)
-            if isinstance(expr.fix_prompt, NameExpr):
-                prompt_names.add(expr.fix_prompt.name)
-            for value in expr.inputs:
-                walk(value)
-            return
         if isinstance(expr, ProduceOneOfExpr):
             if isinstance(expr.producer.provider_expr, NameExpr):
                 provider_names.add(expr.producer.provider_expr.name)
@@ -6467,6 +6147,80 @@ def _managed_write_root_bindings(
     base_path = "/".join(base_segments)
     return {
         managed_input: f"{base_path}/{managed_input}.json"
+        for managed_input in sorted(managed_inputs)
+    }
+
+
+def _managed_write_root_binding_step(
+    *,
+    context: _LoweringContext,
+    source_expr: Any,
+    call_step_name: str,
+    callee_name: str,
+    managed_inputs: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Resolve loop-scoped managed write roots through a sibling command step."""
+
+    if not managed_inputs:
+        return [], {}
+
+    bindings = _managed_write_root_bindings(
+        caller_workflow_name=context.workflow_name,
+        call_step_name=call_step_name,
+        callee_name=callee_name,
+        managed_inputs=managed_inputs,
+        iteration_scope=context.iteration_scope,
+    )
+    if context.iteration_scope is None:
+        return [], bindings
+
+    prepare_step_name = f"{call_step_name}__managed_write_roots"
+    prepare_step_id = _normalize_generated_step_id(prepare_step_name)
+    bundle_path = "/".join(
+        (
+            ".orchestrate/workflow_lisp/call_bindings",
+            context.workflow_name,
+            call_step_name,
+            context.iteration_scope,
+            callee_name,
+            "__managed_write_roots.json",
+        )
+    )
+    command = [
+        "python",
+        "-c",
+        (
+            "import json, pathlib, sys; "
+            "out = pathlib.Path(sys.argv[1]); "
+            "out.parent.mkdir(parents=True, exist_ok=True); "
+            "args = sys.argv[2:]; "
+            "payload = {args[i]: args[i + 1] for i in range(0, len(args), 2)}; "
+            "out.write_text(json.dumps(payload, sort_keys=True) + '\\n', encoding='utf-8')"
+        ),
+        bundle_path,
+    ]
+    for managed_input, value in bindings.items():
+        command.extend((managed_input, value))
+
+    step = {
+        "name": prepare_step_name,
+        "id": prepare_step_id,
+        "command": command,
+        "output_bundle": {
+            "path": bundle_path,
+            "fields": [
+                {
+                    "name": managed_input,
+                    "json_pointer": f"/{managed_input}",
+                    "type": "relpath",
+                }
+                for managed_input in sorted(managed_inputs)
+            ],
+        },
+    }
+    _record_step_origin(context, step_name=prepare_step_name, step_id=prepare_step_id, source=source_expr)
+    return [step], {
+        managed_input: {"ref": f"self.steps.{prepare_step_name}.artifacts.{managed_input}"}
         for managed_input in sorted(managed_inputs)
     }
 
@@ -6948,7 +6702,7 @@ def _resolve_inline_field_value(
 
     current = value
     for field_name in field_path:
-        if current is not None and not isinstance(current, (Mapping, RecordExpr)):
+        if current is not None and not isinstance(current, (Mapping, RecordExpr, UnionVariantExpr)):
             next_current = _resolve_inline_expr_value(current, local_values=local_values)
             if next_current is current:
                 return None
@@ -6958,6 +6712,10 @@ def _resolve_inline_field_value(
             continue
         if isinstance(current, RecordExpr):
             current = _record_field_value(current, field_name)
+            current = _resolve_inline_expr_value(current, local_values=local_values)
+            continue
+        if isinstance(current, UnionVariantExpr):
+            current = _union_variant_expr_value_at_path(current, (field_name,))
             current = _resolve_inline_expr_value(current, local_values=local_values)
             continue
         return None
@@ -7066,6 +6824,57 @@ def _build_phase_prompt_input_prelude(
     ]
 
 
+def _uses_legacy_phase_prompt_input_prelude(expr: ProviderResultExpr) -> bool:
+    """Return whether one phase-scoped provider-result uses the retained four-input surface."""
+
+    if len(expr.inputs) != 4:
+        return False
+    report_targets = expr.inputs[2:]
+    return {
+        target_expr.target_name
+        for target_expr in report_targets
+        if isinstance(target_expr, PhaseTargetExpr)
+    } == {"execution-report", "progress-report"}
+
+
+def _is_generated_private_workflow_name(workflow_name: str) -> bool:
+    """Return whether one lowering context targets a compiler-generated private workflow."""
+
+    return workflow_name.startswith("%") and ".v1" in workflow_name
+
+
+def _phase_prompt_inputs_are_direct(
+    prompt_input_specs: tuple[tuple[str, Any], ...],
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> bool:
+    """Return whether prompt inputs come directly from workflow inputs or approved targets."""
+
+    for base_name, prompt_input in prompt_input_specs:
+        for artifact_name, input_expr in _flatten_phase_stdlib_prompt_inputs(
+            prompt_input,
+            base_name=base_name,
+            local_values=local_values,
+        ):
+            source_node, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+                input_expr,
+                artifact_name=artifact_name,
+                context=context,
+                local_values=local_values,
+            )
+            if extra_hidden_inputs:
+                return False
+            input_name = source_node.get("input")
+            if isinstance(input_name, str):
+                continue
+            source_ref = source_node.get("ref")
+            if isinstance(source_ref, str) and source_ref.startswith("inputs."):
+                continue
+            return False
+    return True
+
+
 def _build_phase_stdlib_prompt_input_prelude(
     prompt_input_specs: tuple[tuple[str, Any], ...],
     *,
@@ -7107,13 +6916,24 @@ def _build_phase_stdlib_prompt_input_prelude(
         pointer_path = _phase_prompt_input_pointer_path(context.workflow_name, artifact_name)
         if contract_input_name is None or contract_input_name.startswith("__phase_prompt__"):
             if not isinstance(input_expr, PhaseTargetExpr):
-                raise _compile_error(
-                    code="phase_translation_body_invalid",
-                    message="phase stdlib prompt inputs must lower from flattened workflow inputs or approved phase targets",
+                value_contract = _phase_prompt_local_value_contract(
+                    artifact_name,
+                    context=context,
                     span=source_expr.span,
                     form_path=source_expr.form_path,
                 )
-            value_contract = _phase_target_prompt_input_contract(input_expr)
+                if value_contract is None:
+                    raise _compile_error(
+                        code="phase_translation_body_invalid",
+                        message=(
+                            "phase stdlib prompt inputs must lower from flattened workflow inputs, "
+                            "approved phase targets, or typed step-backed state"
+                        ),
+                        span=source_expr.span,
+                        form_path=source_expr.form_path,
+                    )
+            else:
+                value_contract = _phase_target_prompt_input_contract(input_expr)
         else:
             value_contract = (
                 {"inherit": "source"}
@@ -7168,6 +6988,42 @@ def _build_phase_stdlib_prompt_input_prelude(
         artifact_names,
         hidden_inputs,
     )
+
+
+def _phase_prompt_local_value_contract(
+    artifact_name: str,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any] | None:
+    """Infer one prompt-input contract from flattened local type bindings."""
+
+    field_path = tuple(segment for segment in artifact_name.split("__") if segment)
+    if not field_path:
+        return None
+    current_type = context.local_type_bindings.get(field_path[0])
+    if current_type is None:
+        return None
+    for field_name in field_path[1:]:
+        if not isinstance(current_type, RecordTypeRef):
+            return None
+        current_type = context.type_env.record_field(
+            current_type,
+            field_name,
+            span=span,
+            form_path=form_path,
+        )
+    fields = derive_workflow_boundary_fields(
+        current_type,
+        generated_name=artifact_name,
+        source_path=(artifact_name,),
+        span=span,
+        form_path=form_path,
+    )
+    if len(fields) != 1:
+        return None
+    return dict(fields[0].contract_definition)
 
 
 def _flatten_phase_stdlib_prompt_inputs(
@@ -7547,9 +7403,13 @@ def _match_arm_local_values(
 ) -> dict[str, Any]:
     """Expose one matched structured value inside a match arm."""
 
+    localized_output_refs = {
+        output_name: _conditional_case_ref(output_ref, terminal_step_name=binding_terminal.step_name)
+        for output_name, output_ref in binding_terminal.output_refs.items()
+    }
     return {
         **local_values,
-        binding_name: _build_output_step_local_value(binding_terminal.output_refs),
+        binding_name: _build_output_step_local_value(localized_output_refs),
     }
 
 
@@ -7695,6 +7555,39 @@ def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, .
     return current
 
 
+def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: tuple[str, ...]) -> Any:
+    """Read a field from one compiler-generated union variant literal."""
+
+    if not field_path:
+        return union_expr
+    field_name = field_path[0]
+    if field_name == "variant":
+        return LiteralExpr(
+            value=union_expr.variant_name,
+            literal_kind="string",
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+            expansion_stack=union_expr.expansion_stack,
+        )
+    for current_name, current_value in union_expr.fields:
+        if current_name != field_name:
+            continue
+        if len(field_path) == 1:
+            return current_value
+        if isinstance(current_value, RecordExpr):
+            return _record_expr_value_at_path(current_value, field_path[1:])
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message=(
+                f"union return field `{'__'.join(field_path)}` must lower from nested record expressions "
+                "when the workflow return type contains nested records"
+            ),
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+        )
+    return None
+
+
 def _render_provider_artifact_ref(provider_step_name: str, field_access: FieldAccessExpr) -> str | None:
     """Render a provider result field access as a step artifact ref."""
 
@@ -7789,18 +7682,21 @@ def _output_contracts_for_type(
     """Flatten one return-like type into shared output contracts."""
 
     if isinstance(type_ref, UnionTypeRef):
-        return _union_output_contracts(
-            type_ref,
-            payload=derive_structured_result_contract(
+        return {
+            f"return__{output_name}": definition
+            for output_name, definition in _union_output_contracts(
                 type_ref,
-                workflow_name=context.workflow_name,
-                step_id=context.step_name_prefix,
+                payload=derive_structured_result_contract(
+                    type_ref,
+                    workflow_name=context.workflow_name,
+                    step_id=context.step_name_prefix,
+                    span=span,
+                    form_path=form_path,
+                ).payload,
                 span=span,
                 form_path=form_path,
-            ).payload,
-            span=span,
-            form_path=form_path,
-        )
+            ).items()
+        }
     return {
         field.generated_name: dict(field.contract_definition)
         for field in derive_workflow_boundary_fields(
@@ -7870,6 +7766,7 @@ def _inline_output_refs_for_expr(
             expr,
             field_path=field.source_path[1:],
             local_values=local_values,
+            context=context,
         )
         if not isinstance(leaf_value, str):
             return None
@@ -7882,16 +7779,48 @@ def _inline_expr_field_value(
     *,
     field_path: tuple[str, ...],
     local_values: Mapping[str, Any],
+    context: _LoweringContext | None = None,
 ) -> Any:
     """Resolve one projected leaf from an inline branch expression."""
 
     if isinstance(expr, RecordExpr):
         value = _record_expr_value_at_path(expr, field_path)
+        if isinstance(value, PhaseTargetExpr) and context is not None:
+            return _phase_target_inline_ref(value, context=context)
         return _resolve_inline_expr_value(value, local_values=local_values)
+    if isinstance(expr, UnionVariantExpr):
+        value = _union_variant_expr_value_at_path(expr, field_path)
+        if isinstance(value, PhaseTargetExpr) and context is not None:
+            return _phase_target_inline_ref(value, context=context)
+        return _resolve_inline_expr_value(value, local_values=local_values)
+    if isinstance(expr, PhaseTargetExpr) and context is not None:
+        return _phase_target_inline_ref(expr, context=context)
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if field_path:
         return _resolve_nested_local_value(value, field_path)
     return value
+
+
+def _phase_target_inline_ref(expr: PhaseTargetExpr, *, context: _LoweringContext) -> str:
+    """Resolve a direct phase-target projection to the active phase reference."""
+
+    phase_scope = context.phase_scope
+    if phase_scope is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="phase-target lowering requires an active phase scope",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    target_ref = phase_scope.target_refs.get(expr.target_name)
+    if target_ref is None:
+        raise _compile_error(
+            code="phase_target_unknown",
+            message=f"`phase-target` does not support `{expr.target_name}` in this slice",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    return target_ref
 
 
 def _conditional_case_outputs(
@@ -7906,6 +7835,8 @@ def _conditional_case_outputs(
     outputs: dict[str, Any] = {}
     for output_name, contract_definition in output_contracts.items():
         output_ref = terminal.output_refs.get(output_name)
+        if output_ref is None and not output_name.startswith("return__"):
+            output_ref = terminal.output_refs.get(f"return__{output_name}")
         if not isinstance(output_ref, str):
             raise _compile_error(
                 code="workflow_return_not_exportable",
@@ -7918,6 +7849,29 @@ def _conditional_case_outputs(
             "from": {"ref": _conditional_case_ref(output_ref, terminal_step_name=terminal.step_name)},
         }
     return outputs
+
+
+def _conditional_output_refs(
+    *,
+    step_name: str,
+    output_contracts: Mapping[str, Mapping[str, Any]],
+    result_type: TypeRef,
+) -> dict[str, str]:
+    """Build conditional terminal refs, preserving workflow-boundary union names."""
+
+    output_refs = {
+        output_name: f"root.steps.{step_name}.artifacts.{output_name}"
+        for output_name in output_contracts
+    }
+    if isinstance(result_type, UnionTypeRef):
+        output_refs.update(
+            {
+                output_name.removeprefix("return__"): ref
+                for output_name, ref in output_refs.items()
+                if output_name.startswith("return__")
+            }
+        )
+    return output_refs
 
 
 def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[str, Any]:
@@ -8049,7 +8003,10 @@ def _union_output_contracts(
         outputs[field["name"]] = _surface_contract_from_structured_field(field)
     for variant_payload in payload["variants"].values():
         for field in variant_payload["fields"]:
-            outputs.setdefault(field["name"], _surface_contract_from_structured_field(field))
+            definition = _surface_contract_from_structured_field(field)
+            if definition.get("type") == "relpath":
+                definition["must_exist_target"] = False
+            outputs.setdefault(field["name"], definition)
     return outputs
 
 
@@ -8461,7 +8418,7 @@ def _lower_record_expr(
     values: list[dict[str, Any]] = []
     for field_name in context.return_output_contracts:
         value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
-        source_ref = _render_existing_output_ref(value, local_values=local_values)
+        source_ref = _render_existing_output_ref(value, local_values=local_values, context=context)
         if source_ref is None:
             raise _compile_error(
                 code="workflow_return_not_exportable",
@@ -8490,9 +8447,95 @@ def _lower_record_expr(
     )
 
 
-def _render_existing_output_ref(expr: Any, *, local_values: Mapping[str, Any]) -> str | None:
+def _lower_union_variant_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Materialize one compiler-generated union variant through workflow outputs."""
+
+    union_expr = typed_expr.expr
+    assert isinstance(union_expr, UnionVariantExpr)
+    assert isinstance(typed_expr.type_ref, UnionTypeRef)
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    values: list[dict[str, Any]] = []
+    placeholders = _boundary_placeholder_literals(typed_expr.type_ref, span=union_expr.span, form_path=union_expr.form_path)
+    active_field_names = {name for name, _ in union_expr.fields}
+    active_values = {name: value for name, value in union_expr.fields}
+    for field in derive_workflow_boundary_fields(
+        typed_expr.type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=union_expr.span,
+        form_path=union_expr.form_path,
+    ):
+        field_path = field.source_path[1:]
+        field_name = field_path[0] if field_path else ""
+        contract = dict(field.contract_definition)
+        if field_name == "variant":
+            source = {"literal": union_expr.variant_name}
+        elif field_name in active_field_names:
+            leaf_expr = active_values[field_name]
+            leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
+            if isinstance(leaf_value, LiteralExpr):
+                source = {"literal": leaf_value.value}
+            elif isinstance(leaf_value, str):
+                source = {"ref": leaf_value}
+            else:
+                raise _compile_error(
+                    code="workflow_return_not_exportable",
+                    message=(
+                        f"union return field `{field.generated_name}` must lower from an existing step artifact "
+                        "or literal in this Stage 3 slice"
+                    ),
+                    span=leaf_expr.span,
+                    form_path=leaf_expr.form_path,
+                )
+        else:
+            source = {"literal": placeholders[field.generated_name]}
+            if contract.get("type") == "relpath":
+                contract["must_exist_target"] = False
+        values.append(
+            {
+                "name": field.generated_name,
+                "source": source,
+                "contract": contract,
+            }
+        )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
+    step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)
+    return [step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs={
+            field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+            for field in derive_workflow_boundary_fields(
+                typed_expr.type_ref,
+                generated_name="return",
+                source_path=("return",),
+                span=union_expr.span,
+                form_path=union_expr.form_path,
+            )
+        },
+        output_kind="step",
+        hidden_inputs={},
+    )
+
+
+def _render_existing_output_ref(
+    expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+    context: _LoweringContext | None = None,
+) -> str | None:
     """Return a shared runtime ref when an expression already names one."""
 
+    if isinstance(expr, PhaseTargetExpr):
+        if context is None or context.phase_scope is None:
+            return None
+        return context.phase_scope.target_refs.get(expr.target_name)
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if not isinstance(value, str):
         return None
@@ -8507,6 +8550,37 @@ def _template_for_ref(ref: str) -> str:
     if ref.startswith("${"):
         return ref
     return "${" + ref + "}"
+
+
+def _boundary_placeholder_literals(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    placeholders: dict[str, Any] = {}
+    for field in derive_workflow_boundary_fields(
+        type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=span,
+        form_path=form_path,
+    ):
+        definition = field.contract_definition
+        field_type = definition.get("type")
+        if field_type == "bool":
+            placeholders[field.generated_name] = False
+        elif field_type == "integer":
+            placeholders[field.generated_name] = 0
+        elif field_type == "enum":
+            allowed = definition.get("allowed", [])
+            placeholders[field.generated_name] = allowed[0] if isinstance(allowed, list) and allowed else ""
+        elif field_type == "relpath":
+            under = definition.get("under", "artifacts")
+            placeholders[field.generated_name] = f"{under}/placeholder.txt"
+        else:
+            placeholders[field.generated_name] = ""
+    return placeholders
 
 
 def _resolve_active_phase_scope(
@@ -8623,6 +8697,8 @@ def _copy_context_with_phase_scope(
         return_output_contracts=context.return_output_contracts,
         local_type_bindings=context.local_type_bindings,
         phase_scope=phase_scope,
+        iteration_scope=context.iteration_scope,
+        active_procedure_calls=context.active_procedure_calls,
     )
 
 
@@ -8659,6 +8735,8 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         return_output_contracts=context.return_output_contracts,
         local_type_bindings=context.local_type_bindings,
         phase_scope=context.phase_scope,
+        iteration_scope=context.iteration_scope,
+        active_procedure_calls=context.active_procedure_calls,
     )
 
 
@@ -8702,6 +8780,50 @@ def _context_with_local_type_binding(
         return_output_contracts=context.return_output_contracts,
         local_type_bindings={**dict(context.local_type_bindings), binding_name: binding_type},
         phase_scope=context.phase_scope,
+        iteration_scope=context.iteration_scope,
+        active_procedure_calls=context.active_procedure_calls,
+    )
+
+
+def _copy_context_with_iteration_scope(
+    context: _LoweringContext,
+    *,
+    iteration_scope: str | None,
+) -> _LoweringContext:
+    """Clone context state while changing the active loop-iteration scope."""
+
+    return _LoweringContext(
+        workflow_name=context.workflow_name,
+        step_name_prefix=context.step_name_prefix,
+        workflow_path=context.workflow_path,
+        signature=context.signature,
+        authored_input_contracts=context.authored_input_contracts,
+        workflow_catalog=context.workflow_catalog,
+        imported_workflow_bundles=context.imported_workflow_bundles,
+        extern_environment=context.extern_environment,
+        command_boundary_environment=context.command_boundary_environment,
+        lowered_callees=context.lowered_callees,
+        typed_procedures=context.typed_procedures,
+        workflows_by_name=context.workflows_by_name,
+        ensure_workflow_lowered=context.ensure_workflow_lowered,
+        specialize_workflow=context.specialize_workflow,
+        type_env=context.type_env,
+        step_spans=context.step_spans,
+        generated_input_spans=context.generated_input_spans,
+        authored_generated_inputs=context.authored_generated_inputs,
+        internal_generated_input_reasons=context.internal_generated_input_reasons,
+        generated_output_spans=context.generated_output_spans,
+        generated_path_spans=context.generated_path_spans,
+        generated_semantic_effects=context.generated_semantic_effects,
+        top_level_artifacts=context.top_level_artifacts,
+        inline_call_counters=context.inline_call_counters,
+        origin_notes=context.origin_notes,
+        boundary_projection=context.boundary_projection,
+        return_output_contracts=context.return_output_contracts,
+        local_type_bindings=context.local_type_bindings,
+        phase_scope=context.phase_scope,
+        iteration_scope=iteration_scope,
+        active_procedure_calls=context.active_procedure_calls,
     )
 
 
@@ -8807,6 +8929,12 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, UnionVariantExpr):
+        return context.type_env.resolve_type(
+            expr.type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     if isinstance(
         expr,
         (
@@ -8814,7 +8942,6 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             CommandResultExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
-            ReviewReviseLoopExpr,
             ResumeOrStartExpr,
         ),
     ):
@@ -8918,13 +9045,21 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
         state_type = _resolve_lowering_expr_type(expr.initial_state_expr, context=context)
         if state_type is None:
             return None
+        loop_context = _context_with_local_type_binding(
+            context,
+            binding_name=expr.binding_name,
+            binding_type=state_type,
+        )
+        if expr.on_exhausted_result_expr is not None:
+            exhausted_type = _resolve_lowering_expr_type(
+                expr.on_exhausted_result_expr,
+                context=loop_context,
+            )
+            if exhausted_type is not None:
+                return exhausted_type
         return _resolve_lowering_expr_type(
             expr.body_expr,
-            context=_context_with_local_type_binding(
-                context,
-                binding_name=expr.binding_name,
-                binding_type=state_type,
-            ),
+            context=loop_context,
         )
     if isinstance(expr, WithPhaseExpr):
         return _resolve_lowering_expr_type(expr.body, context=context)
@@ -9152,9 +9287,13 @@ def _procedure_private_call_site_analysis(
 def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
     """Return whether a procedure signature can become a private workflow."""
 
-    if not isinstance(procedure.signature.return_type_ref, RecordTypeRef):
+    if not isinstance(procedure.signature.return_type_ref, (RecordTypeRef, UnionTypeRef)):
         return False
-    if not analyze_workflow_boundary_type(procedure.signature.return_type_ref, source_path=("return",)).lowerable:
+    if not analyze_workflow_boundary_type(
+        procedure.signature.return_type_ref,
+        source_path=("return",),
+        allow_union=True,
+    ).lowerable:
         return False
     return all(
         analyze_workflow_boundary_type(
@@ -9223,6 +9362,12 @@ def _private_workflow_result_type_for_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, UnionVariantExpr):
+        return type_env.resolve_type(
+            expr.type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     if isinstance(
         expr,
         (
@@ -9230,7 +9375,6 @@ def _private_workflow_result_type_for_expr(
             CommandResultExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
-            ReviewReviseLoopExpr,
             ResumeOrStartExpr,
         ),
     ):
@@ -9417,7 +9561,7 @@ def _private_workflow_binding_local_value(
             active_procedures=active_procedures,
         ):
             return None
-    elif not isinstance(expr, (CallExpr, CommandResultExpr, ProviderResultExpr, RunProviderPhaseExpr, ProduceOneOfExpr, ReviewReviseLoopExpr, ResumeOrStartExpr, ResourceTransitionExpr, FinalizeSelectedItemExpr, BacklogDrainExpr)):
+    elif not isinstance(expr, (CallExpr, CommandResultExpr, ProviderResultExpr, RunProviderPhaseExpr, ProduceOneOfExpr, ResumeOrStartExpr, ResourceTransitionExpr, FinalizeSelectedItemExpr, BacklogDrainExpr)):
         return None
     return _private_workflow_local_value_for_type(
         binding_type,
@@ -9473,7 +9617,6 @@ def _private_workflow_body_exports_step_backed_outputs(
             CallExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
-            ReviewReviseLoopExpr,
             ResumeOrStartExpr,
             ResourceTransitionExpr,
             FinalizeSelectedItemExpr,
@@ -9563,6 +9706,12 @@ def _private_workflow_body_exports_step_backed_outputs(
             return_type_ref=return_type_ref,
             local_values=local_values,
         )
+    if isinstance(expr, UnionVariantExpr):
+        return _union_variant_outputs_are_step_backed(
+            expr,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+        )
     return False
 
 
@@ -9634,6 +9783,28 @@ def _record_outputs_are_step_backed(
         source_ref = _render_existing_output_ref(value, local_values=local_values)
         if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.")):
             return False
+    return True
+
+
+def _union_variant_outputs_are_step_backed(
+    union_expr: UnionVariantExpr,
+    *,
+    return_type_ref: TypeRef,
+    local_values: Mapping[str, Any],
+) -> bool:
+    """Return whether one union variant can lower through a private workflow seam."""
+
+    if not isinstance(return_type_ref, UnionTypeRef):
+        return False
+    active_values = dict(union_expr.fields)
+    for field_name, value in active_values.items():
+        source_ref = _render_existing_output_ref(value, local_values=local_values)
+        if source_ref is not None and source_ref.startswith(("root.steps.", "self.steps.")):
+            continue
+        resolved = _resolve_inline_expr_value(value, local_values=local_values)
+        if isinstance(resolved, LiteralExpr):
+            continue
+        return False
     return True
 
 
@@ -9755,7 +9926,7 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
     """Synthesize a typed private workflow wrapper for a procedure body."""
 
     assert procedure.generated_workflow_name is not None
-    assert isinstance(procedure.signature.return_type_ref, RecordTypeRef)
+    assert isinstance(procedure.signature.return_type_ref, (RecordTypeRef, UnionTypeRef))
     definition = WorkflowDef(
         name=procedure.generated_workflow_name,
         params=tuple(
