@@ -4,7 +4,7 @@
 
 **Goal:** Reduce maintenance cost in `orchestrator/workflow_lisp` through behavior-preserving, low-risk refactors.
 
-**Architecture:** Keep the existing pass-oriented compiler architecture. First add characterization coverage, then extract read-only helpers and coherent lowering helper clusters without changing `.orc` syntax, generated workflow behavior, diagnostics, source maps, or runtime contracts.
+**Architecture:** Keep the existing pass-oriented compiler architecture. First add characterization coverage, then decide whether `lowering.py` should become a `lowering/` package before extracting read-only helpers and coherent lowering helper clusters. Preserve the `orchestrator.workflow_lisp.lowering` import facade and do not change `.orc` syntax, generated workflow behavior, diagnostics, source maps, or runtime contracts.
 
 **Tech Stack:** Python, pytest, Workflow Lisp frontend, existing orchestrator workflow loader/runtime.
 
@@ -30,6 +30,7 @@ The low-hanging debt is accretive complexity:
 
 - repeated expression-tree walkers;
 - helper clusters embedded in `lowering.py`;
+- no explicit package boundary for very large modules such as `lowering.py`;
 - fixture-only code in the production package;
 - an overly broad package-root public API.
 
@@ -49,12 +50,20 @@ The low-hanging debt is accretive complexity:
   must survive refactors.
 - `orchestrator/workflow_lisp/expression_traversal.py`: shared, small expression
   traversal helpers.
-- `orchestrator/workflow_lisp/lowering_externs.py`: provider/prompt extern
-  discovery for lowered workflows.
-- `orchestrator/workflow_lisp/lowering_types.py`: lowering-time type inference
-  helpers.
-- `orchestrator/workflow_lisp/lowering.py`: remains the facade for workflow
-  dictionary emission and operation-specific lowerers not yet extracted.
+- `orchestrator/workflow_lisp/lowering.py`: current lowering module. This plan
+  must decide whether to keep it as a file for this tranche or convert it to a
+  package facade.
+- `orchestrator/workflow_lisp/lowering/__init__.py`: package facade if the
+  package split is chosen. It must preserve existing imports from
+  `orchestrator.workflow_lisp.lowering`.
+- `orchestrator/workflow_lisp/lowering/externs.py`: provider/prompt extern
+  discovery for lowered workflows if the package split is chosen.
+- `orchestrator/workflow_lisp/lowering/types.py`: lowering-time type inference
+  helpers if the package split is chosen.
+- `orchestrator/workflow_lisp/lowering_externs.py`: interim sibling-module
+  fallback only if the package split is explicitly deferred.
+- `orchestrator/workflow_lisp/lowering_types.py`: interim sibling-module
+  fallback only if the package split is explicitly deferred.
 - `orchestrator/workflow_lisp/__init__.py`: stable public package facade.
 - `tests/support/workflow_lisp/runtime_closure_design_fixtures.py`: fixture-only
   runtime-closure rejection harness, if moved.
@@ -119,12 +128,96 @@ git add tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_structured
 git commit -m "test: characterize workflow lisp refactor surfaces"
 ```
 
-## Task 2: Introduce Shared Expression Traversal Utility
+## Task 2: Decide And Establish Lowering Package Boundary
+
+**Files:**
+- Move or Modify: `orchestrator/workflow_lisp/lowering.py`
+- Create if chosen: `orchestrator/workflow_lisp/lowering/__init__.py`
+- Test: import and focused Workflow Lisp lowering tests
+
+Python cannot have both `orchestrator/workflow_lisp/lowering.py` and an
+`orchestrator/workflow_lisp/lowering/` package with the same import path. This
+task makes the structure decision before helper extraction so later tasks do not
+create sibling modules that immediately need to be moved again.
+
+Default decision: convert `lowering.py` into a package if the pure move is
+low-risk. Defer only if import inventory shows a concrete blocker.
+
+- [ ] **Step 1: Inventory lowering imports**
+
+Run:
+
+```bash
+rg -n "workflow_lisp\\.lowering|from \\.lowering|import \\.lowering|from orchestrator\\.workflow_lisp import .*lower" orchestrator tests
+```
+
+Record whether callers import only the module facade or reach for file-local
+details that need compatibility exports.
+
+- [ ] **Step 2: Choose package or sibling-module fallback**
+
+Choose one:
+
+1. **Preferred:** convert `lowering.py` to a package facade.
+2. **Fallback:** keep `lowering.py` for this tranche and use sibling helper
+   modules such as `lowering_externs.py` and `lowering_types.py`.
+
+Use the fallback only if the package conversion causes import instability that
+would distract from the low-hanging refactor.
+
+- [ ] **Step 3A: If package is chosen, perform a pure move**
+
+Run:
+
+```bash
+mkdir -p orchestrator/workflow_lisp/lowering
+git mv orchestrator/workflow_lisp/lowering.py orchestrator/workflow_lisp/lowering/__init__.py
+```
+
+Do not extract helpers in this step. Preserve every existing public symbol from
+`orchestrator.workflow_lisp.lowering`.
+
+- [ ] **Step 3B: If fallback is chosen, document the deferral**
+
+Add a short note to this plan's implementation log or the final commit message
+explaining why the package split was deferred. Continue with sibling modules in
+Tasks 4 and 5.
+
+- [ ] **Step 4: Run import checks**
+
+Run:
+
+```bash
+python -m compileall orchestrator/workflow_lisp
+pytest tests/test_workflow_lisp_lowering.py -q
+```
+
+Expected: imports and lowering tests pass with no behavior changes.
+
+- [ ] **Step 5: Commit**
+
+If package split was chosen:
+
+```bash
+git add orchestrator/workflow_lisp/lowering
+git commit -m "refactor: make workflow lisp lowering a package facade"
+```
+
+If fallback was chosen:
+
+```bash
+git add docs/plans/2026-06-02-workflow-lisp-low-hanging-refactor-plan.md
+git commit -m "docs: defer workflow lisp lowering package split"
+```
+
+## Task 3: Introduce Shared Expression Traversal Utility
 
 **Files:**
 - Create: `orchestrator/workflow_lisp/expression_traversal.py`
 - Modify: `orchestrator/workflow_lisp/functions.py`
-- Modify: `orchestrator/workflow_lisp/lowering.py`
+- Modify: `orchestrator/workflow_lisp/lowering/__init__.py` if package split
+  was chosen
+- Modify: `orchestrator/workflow_lisp/lowering.py` if package split was deferred
 - Modify: `orchestrator/workflow_lisp/compiler.py`
 - Test: `tests/test_workflow_lisp_expressions.py` or nearest existing test file
 
@@ -179,7 +272,7 @@ must not import compiler, typecheck, lowering, or workflows.
 Use `iter_child_exprs` first in:
 
 - function dependency scanning in `functions.py`;
-- provider/prompt extern collection in `lowering.py`;
+- provider/prompt extern collection in the lowering facade;
 - ProcRef specialization discovery in `compiler.py`, only where it preserves
   current ProcRef environment handling.
 
@@ -202,23 +295,34 @@ Expected: all selected tests pass.
 
 - [ ] **Step 6: Commit**
 
+If package split was chosen:
+
+```bash
+git add orchestrator/workflow_lisp/expression_traversal.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/lowering orchestrator/workflow_lisp/compiler.py tests/test_workflow_lisp_expressions.py
+git commit -m "refactor: share workflow lisp expression traversal"
+```
+
+If package split was deferred:
+
 ```bash
 git add orchestrator/workflow_lisp/expression_traversal.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/lowering.py orchestrator/workflow_lisp/compiler.py tests/test_workflow_lisp_expressions.py
 git commit -m "refactor: share workflow lisp expression traversal"
 ```
 
-## Task 3: Extract Lowering Extern Collection
+## Task 4: Extract Lowering Extern Collection
 
 **Files:**
-- Create: `orchestrator/workflow_lisp/lowering_externs.py`
-- Modify: `orchestrator/workflow_lisp/lowering.py`
+- Create if package split was chosen: `orchestrator/workflow_lisp/lowering/externs.py`
+- Create if package split was deferred: `orchestrator/workflow_lisp/lowering_externs.py`
+- Modify if package split was chosen: `orchestrator/workflow_lisp/lowering/__init__.py`
+- Modify if package split was deferred: `orchestrator/workflow_lisp/lowering.py`
 - Test: existing lowering/structured-result tests
 
 - [ ] **Step 1: Move extern collection helpers**
 
-Move provider and prompt discovery out of `lowering.py`, including the helper
-currently responsible for collecting required provider and prompt extern names
-from typed workflows and procedures.
+Move provider and prompt discovery out of the lowering facade, including the
+helper currently responsible for collecting required provider and prompt extern
+names from typed workflows and procedures.
 
 The new module should expose a narrow function, for example:
 
@@ -242,7 +346,7 @@ Preserve:
 
 - [ ] **Step 3: Update imports**
 
-Update `lowering.py` to call the new helper. Avoid creating import cycles.
+Update the lowering facade to call the new helper. Avoid creating import cycles.
 
 - [ ] **Step 4: Run focused tests**
 
@@ -260,16 +364,27 @@ Expected: all selected tests pass.
 
 - [ ] **Step 5: Commit**
 
+If package split was chosen:
+
+```bash
+git add orchestrator/workflow_lisp/lowering
+git commit -m "refactor: extract workflow lisp lowering extern discovery"
+```
+
+If package split was deferred:
+
 ```bash
 git add orchestrator/workflow_lisp/lowering_externs.py orchestrator/workflow_lisp/lowering.py
 git commit -m "refactor: extract workflow lisp lowering extern discovery"
 ```
 
-## Task 4: Extract Lowering-Time Type Helpers
+## Task 5: Extract Lowering-Time Type Helpers
 
 **Files:**
-- Create: `orchestrator/workflow_lisp/lowering_types.py`
-- Modify: `orchestrator/workflow_lisp/lowering.py`
+- Create if package split was chosen: `orchestrator/workflow_lisp/lowering/types.py`
+- Create if package split was deferred: `orchestrator/workflow_lisp/lowering_types.py`
+- Modify if package split was chosen: `orchestrator/workflow_lisp/lowering/__init__.py`
+- Modify if package split was deferred: `orchestrator/workflow_lisp/lowering.py`
 - Test: existing lowering/variant proof tests
 
 - [ ] **Step 1: Move coherent helper cluster**
@@ -307,12 +422,21 @@ Expected: all selected tests pass.
 
 - [ ] **Step 4: Commit**
 
+If package split was chosen:
+
+```bash
+git add orchestrator/workflow_lisp/lowering
+git commit -m "refactor: extract workflow lisp lowering type helpers"
+```
+
+If package split was deferred:
+
 ```bash
 git add orchestrator/workflow_lisp/lowering_types.py orchestrator/workflow_lisp/lowering.py
 git commit -m "refactor: extract workflow lisp lowering type helpers"
 ```
 
-## Task 5: Narrow Package Root Public API
+## Task 6: Narrow Package Root Public API
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/__init__.py`
@@ -373,7 +497,7 @@ git add orchestrator/workflow_lisp/__init__.py tests
 git commit -m "refactor: narrow workflow lisp package facade"
 ```
 
-## Task 6: Move Fixture-Only Runtime Closure Harness
+## Task 7: Move Fixture-Only Runtime Closure Harness
 
 **Files:**
 - Move: `orchestrator/workflow_lisp/runtime_closure_design_fixtures.py`
@@ -429,7 +553,7 @@ git add orchestrator/workflow_lisp tests/support tests/test_workflow_lisp_runtim
 git commit -m "refactor: move workflow lisp runtime closure fixtures to tests"
 ```
 
-## Task 7: Update Refactor Documentation
+## Task 8: Update Refactor Documentation
 
 **Files:**
 - Modify: `orchestrator/workflow_lisp/README.md`
@@ -440,9 +564,12 @@ git commit -m "refactor: move workflow lisp runtime closure fixtures to tests"
 Document the new module ownership:
 
 - `expression_traversal.py`: shared expression walking;
-- `lowering_externs.py`: provider/prompt extern discovery;
-- `lowering_types.py`: lowering-time type inference;
-- `lowering.py`: workflow dictionary step emission and remaining lowering
+- `lowering/`: package facade and extracted lowering helpers, if the package
+  split was chosen;
+- `lowering/externs.py` or `lowering_externs.py`: provider/prompt extern
+  discovery;
+- `lowering/types.py` or `lowering_types.py`: lowering-time type inference;
+- `lowering.py` or `lowering/__init__.py`: workflow dictionary step emission
   facade.
 
 - [ ] **Step 2: Update backlog status**
@@ -494,7 +621,10 @@ At the end of this tranche:
 
 - repeated expression-tree walking is centralized enough to reduce missed-form
   risk;
-- `lowering.py` is smaller and has clearer helper ownership;
+- `lowering.py` is either converted to a package facade or has a documented
+  deferral reason;
+- lowering helper ownership is clearer, with extern discovery and type
+  inference separated from step emission;
 - fixture-only runtime-closure code is no longer in the production package;
 - package-root imports expose a narrower stable facade;
 - the existing compiler behavior, diagnostics, source maps, and generated
