@@ -419,6 +419,16 @@ deterministic macro expansion, effectful procedure/workflow specialization,
 compile-time reference specialization, hygienic generated names and paths,
 source-map propagation, typechecking, and lowering of ordinary Core AST nodes.
 
+The compiler must maintain a formal extension boundary for recognized heads.
+Each recognized head should be classified as a core language form, core effect
+bridge, standard-library extension, or temporary compiler intrinsic with an
+owner, rationale, and removal condition when temporary. Macro reserved-name
+rules, expression elaboration dispatch, lint/denylist checks, and intrinsic
+documentation should derive from that boundary rather than from parallel
+hand-maintained lists. `review-revise-loop` is a standard-library extension,
+not a core language form; temporary compiler intrinsics must be explicit debt,
+not accidental neighbors in the expression union.
+
 The frontend AST should represent language concepts: procedure calls, matches,
 loops, records, union variants, projections, provider and command results,
 materialization, and compile-time `ProcRef` specialization. It should not grow
@@ -448,6 +458,9 @@ generated-name/path allocator identity, expansion stack, and source-map
 provenance. It must not contain review-loop-specific fields such as
 `review_provider`, `fix_provider`, `checks_report`, or `progress_report`; those
 belong in `.orc` records, unions, procedure parameters, and library definitions.
+If an internal wrapper is needed during expansion, it should be eliminated
+before ordinary typechecking/lowering or have no semantic dispatch behavior of
+its own.
 
 ### Required Generic `.orc` Support
 
@@ -695,6 +708,12 @@ The `review-revise-loop` `.orc` definition must compile through those generic
 capabilities to the same executable families a hand-authored workflow would
 use: `repeat_until`, provider steps, structured output bundles, `match`, and
 materialization.
+
+Future high-level `.orc` abstractions should normally be added by adding an
+imported `.orc` definition, tests, and optionally an exported macro. They
+should not require edits to expression node unions, typechecker branches,
+lowerer branches, compiler visitors, or reserved-head lists unless the form is
+being explicitly accepted as a core form or temporary compiler intrinsic.
 
 Canonical generated executable shape for this migration slice:
 
