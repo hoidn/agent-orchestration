@@ -419,12 +419,28 @@ deterministic macro expansion, effectful procedure/workflow specialization,
 compile-time reference specialization, hygienic generated names and paths,
 source-map propagation, typechecking, and lowering of ordinary Core AST nodes.
 
+The frontend AST should represent language concepts: procedure calls, matches,
+loops, records, union variants, projections, provider and command results,
+materialization, and compile-time `ProcRef` specialization. It should not grow
+domain nodes for product workflow idioms. A node whose fields are
+`review_provider`, `fix_provider`, `review_prompt`, `fix_prompt`,
+`checks_report`, or `progress_report` is evidence that review-loop semantics
+have crossed the language boundary. Those fields belong in `.orc` records,
+unions, procedure parameters, and imported definitions.
+
 Compiler Python must not encode review-loop domain control flow. Large Python
 blocks that directly construct a review-loop-shaped tree of `MatchExpr`,
 `MatchArm`, `DoneExpr`, `UnionVariantExpr`, and field projections are acceptable
 only if they are part of a generic typed-template or expansion engine used by
 arbitrary `.orc` definitions. They are not acceptable as the semantic route for
 `review-revise-loop` itself.
+
+The typechecker must validate declared records, unions, procedure signatures,
+variant proof, and structured refs generically. It must not contain a private
+contract for `APPROVED`, `BLOCKED`, `EXHAUSTED`, or expected review-loop fields
+unless `review-revise-loop` has been explicitly accepted as a language
+primitive. The lowerer may dispatch on language AST constructs, but not on the
+domain name `review-revise-loop`.
 
 A generic expansion representation may record parsed expansion AST, authored
 call-site source, library definition source, specialization bindings,
@@ -655,6 +671,14 @@ Generic effectful composition must:
   paths;
 - keep generated effects visible in Semantic IR and the effect graph;
 - reject runtime transport of procedure/provider/prompt refs.
+
+Consumed evidence identities such as `checks_report` are loop inputs, consumed
+artifacts, or workflow/materializer outputs. Review providers inspect and judge
+evidence; they do not become the authority that authors consumed evidence paths
+unless their declared contract actually produces those artifacts. Route and
+final projection steps must carry evidence refs from input/state/materializer
+authority, and validation must catch lowerings where provider output replaces
+consumed evidence identity.
 
 Reusable control forms lower by specializing imported `.orc` definitions before
 Core DSL lowering. For this migration slice, the `std/phase.orc`
@@ -1215,10 +1239,14 @@ Workflow Lisp integration tests:
   fixture.
 - regression guards reject or flag review-loop-specific compiler artifacts as
   the semantic route, including `ReviewReviseLoopExpr`,
-  `_elaborate_review_revise_loop`, `__review-revise-loop__`, or typechecker and
-  lowerer branches keyed directly to `review-revise-loop`.
+  `_elaborate_review_revise_loop`, `__review-revise-loop__`,
+  `_lower_review_revise_loop`, `_validate_review_loop_result_contract`, or
+  typechecker and lowerer branches keyed directly to `review-revise-loop`.
 - expansion fixtures prove at least one non-review-loop `.orc` form uses the
   same generic expansion representation and source-map path.
+- generic source-map fixtures prove generated nodes identify the authored call
+  site, imported `.orc` definition, macro expansion if any, allocator identity,
+  and generated node provenance.
 - imported `review-revise-loop` does not require procedure type
   parameters or runtime-carried type erasure to accept caller-specific
   `completed` and `inputs` record shapes.

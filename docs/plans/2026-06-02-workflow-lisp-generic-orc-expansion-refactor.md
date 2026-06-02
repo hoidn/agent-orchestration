@@ -72,6 +72,76 @@ The decisive review question is:
 
 If the answer is the latter, the refactor has not achieved the architecture.
 
+## Boundary Smells To Remove
+
+Domain AST node:
+
+```text
+ReviewReviseLoopExpr(
+  review_provider=...,
+  fix_provider=...,
+  review_prompt=...,
+  fix_prompt=...,
+  checks_report=...,
+  progress_report=...
+)
+```
+
+Language AST nodes:
+
+```text
+ProcedureCall
+Match
+Loop / repeat_until
+UnionVariant
+Record
+Projection
+ProviderResult / CommandResult
+Materialize
+ProcRef specialization
+```
+
+The language should know about the second set. It should not know that a review
+provider and a fix provider form a particular product workflow.
+
+Other smells:
+
+- lowerer code hand-authors review-loop semantics instead of lowering ordinary
+  AST;
+- typechecker branches encode `APPROVED`, `BLOCKED`, `EXHAUSTED`, or
+  review-loop field requirements as a private schema;
+- macro expansion becomes the hook for Python-authored review-loop semantics;
+- generated names, bundle paths, or write roots are allocated locally for one
+  feature instead of through a generic allocator;
+- source maps identify only the user call site, with no real imported `.orc`
+  definition provenance;
+- review provider outputs can replace consumed evidence identities such as
+  `checks_report`.
+
+The target dependency direction is:
+
+```text
+public syntax
+  -> optional thin macro
+  -> imported std/phase.orc definition
+  -> generic macro/procedure expansion
+  -> generic typechecking
+  -> ordinary Core AST
+  -> shared validation
+  -> executable workflow DSL
+```
+
+not:
+
+```text
+public syntax
+  -> parser recognizes review-revise-loop
+  -> ReviewReviseLoopExpr
+  -> review-loop-specific typechecker branch
+  -> review-loop-specific lowerer hand-builds match/loop/projection tree
+  -> executable workflow DSL
+```
+
 ## Refactoring Approach
 
 1. Add regression guards that fail if review-loop-specific compiler artifacts
@@ -79,10 +149,15 @@ If the answer is the latter, the refactor has not achieved the architecture.
    - `ReviewReviseLoopExpr`;
    - `_elaborate_review_revise_loop`;
    - `__review-revise-loop__`;
+   - `_lower_review_revise_loop`;
+   - `_validate_review_loop_result_contract`;
    - typechecker or lowerer branches keyed directly to `review-revise-loop`.
 
-2. Introduce a generic expansion representation, such as
-   `ExpandedOrcExpr` or `StdlibExpansionExpr`, with fields for:
+   The old branch may remain temporarily only as a shape oracle for golden
+   fixtures. It must not be the accepted semantic route.
+
+2. Introduce a generic expansion representation, such as `ExpandedOrcExpr` or
+   `OrcExpansionExpr`, with fields for:
    - parsed expansion AST;
    - authored call-site source;
    - library definition source;
@@ -97,10 +172,10 @@ If the answer is the latter, the refactor has not achieved the architecture.
 
 3. Move the review-loop control structure into `.orc` source.
 
-   The `std/phase.orc` definition should express the loop in ordinary language terms:
-   provider/procedure calls, `match`, `repeat_until` or the accepted typed loop
-   form, revise/fix routing, exhaustion projection, and final typed result
-   projection.
+   The `std/phase.orc` definition should express the loop in ordinary language
+   terms: provider/procedure calls, `match`, `repeat_until` or the accepted
+   typed loop form, revise/fix routing, exhaustion projection, and final typed
+   result projection.
 
 4. Keep public syntax ergonomic through a thin macro only if needed.
 
@@ -110,8 +185,9 @@ If the answer is the latter, the refactor has not achieved the architecture.
    (review-revise-loop ...)
    ```
 
-   into an explicit call to an imported `.orc` procedure or workflow. It must not hide
-   effects or cause the compiler to synthesize review-loop semantics in Python.
+   into an explicit call to an imported `.orc` procedure or workflow. It must
+   not hide effects or cause the compiler to synthesize review-loop semantics
+   in Python.
 
 5. Implement generic capabilities only as they are needed by the `.orc` route:
    - compile-time `ProcRef` hook specialization;
@@ -129,6 +205,15 @@ If the answer is the latter, the refactor has not achieved the architecture.
    - an imported `.orc` procedure accepting compile-time procedure refs;
    - finally, `review-revise-loop`.
 
+7. Delete or quarantine the old semantic branch after the generic route passes:
+   - `ReviewReviseLoopExpr`;
+   - `_elaborate_review_revise_loop`;
+   - review-loop-specific typechecker branches;
+   - review-loop-specific lowerer branches;
+   - review-loop-specific compiler visitor logic;
+   - reserved macro treatment that prevents a real `.orc` implementation;
+   - orphaned review-loop helpers.
+
 ## Acceptance Checks
 
 - Public `(review-revise-loop ...)` syntax still works for supported examples.
@@ -136,14 +221,38 @@ If the answer is the latter, the refactor has not achieved the architecture.
   `.orc` route.
 - Generated workflow nodes are ordinary Core AST nodes accepted by shared
   validation.
+- The lowerer dispatches on Core language constructs, not on the domain name
+  `review-revise-loop`.
+- The typechecker validates declared record/union/procedure contracts
+  generically, not a hardcoded review-loop result schema.
 - Source maps identify the authored call site, imported definition, macro
   expansion if any, and generated nodes.
 - Effects introduced by the imported definition are visible to validation and
   runtime planning.
 - No caller-visible generated write-root input is required for promoted
   entrypoints.
+- Review provider output cannot replace consumed evidence identities such as
+  `checks_report`; those refs must come from loop input, state, or a declared
+  materializer/producer.
 - Review-loop tests cover approve, revise-then-approve, blocked, and exhausted
   paths through the generic route.
+
+Concrete fixture ladder:
+
+- static denylist for semantic use of review-loop-specific compiler artifacts;
+- tiny imported `.orc` procedure with source maps for call site and imported
+  definition;
+- imported `.orc` procedure that emits provider or command effects visible to
+  validation;
+- imported `.orc` procedure that matches a union and uses ordinary variant
+  proof;
+- imported `.orc` procedure that uses the accepted loop form and terminal
+  exhaustion projection;
+- imported `.orc` procedure accepting compile-time `ProcRef` hooks without
+  runtime closures;
+- evidence-identity negative test;
+- no public hidden write-root input test;
+- public `(review-revise-loop ...)` parity suite through the generic route.
 
 ## Non-Goals
 
