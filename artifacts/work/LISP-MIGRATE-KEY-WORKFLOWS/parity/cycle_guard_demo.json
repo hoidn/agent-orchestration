@@ -1,0 +1,223 @@
+{
+  "accepted_differences": [
+    {
+      "description": "Bridge evidence uses a bounded command-result surface rather than a promotable high-level workflow replacement.",
+      "id": "bounded-command-bridge"
+    }
+  ],
+  "candidate": "workflows/examples/cycle_guard_demo.orc",
+  "command_logs": {
+    "artifact_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/artifact_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/artifact_parity.stdout.log"
+    },
+    "compile": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/compile.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/compile.stdout.log"
+    },
+    "dry_run": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/dry_run.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/dry_run.stdout.log"
+    },
+    "output_contract_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/output_contract_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/output_contract_parity.stdout.log"
+    },
+    "resume_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/resume_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/resume_parity.stdout.log"
+    },
+    "smoke_or_integration": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/smoke_or_integration.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/smoke_or_integration.stdout.log"
+    },
+    "terminal_state_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/terminal_state_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/cycle_guard_demo/terminal_state_parity.stdout.log"
+    }
+  },
+  "compile_artifacts": {
+    "optional": {
+      "expanded_debug_yaml": {
+        "path": null,
+        "status": "not_implemented"
+      }
+    },
+    "required": {
+      "core_workflow_ast": {
+        "path": ".orchestrate/build/48b2e2abdce5c28f/core_workflow_ast.json",
+        "status": "pass"
+      },
+      "semantic_ir": {
+        "path": ".orchestrate/build/48b2e2abdce5c28f/semantic_ir.json",
+        "status": "pass"
+      },
+      "source_map": {
+        "path": ".orchestrate/build/48b2e2abdce5c28f/source_map.json",
+        "status": "pass"
+      }
+    }
+  },
+  "compiler_version": "workflow_lisp_migration_parity.v1",
+  "deprecated_yaml_mechanics": [
+    {
+      "mechanic": "manual markdown parity summary",
+      "replacement": "machine-readable parity JSON report"
+    }
+  ],
+  "dsl_version": "2.14",
+  "evidence": {
+    "artifact_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "cycle_guard_demo_orc_runtime_materializes_output_bundle",
+        "-q"
+      ],
+      "elapsed_seconds": 0.409,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "baseline_characterization": {
+      "artifacts": [
+        "runtime-owned command-result bundle path"
+      ],
+      "inputs": [
+        "terminal_status",
+        "guard_cycles"
+      ],
+      "outputs": [
+        "terminal_status",
+        "guard_cycles"
+      ],
+      "resume_behavior": [
+        "single-step command bridge with no reusable phase-state promotion"
+      ],
+      "status": "pass",
+      "terminal_states": [
+        "completed with structured guard summary"
+      ]
+    },
+    "compile": {
+      "argv": [
+        "python",
+        "-m",
+        "orchestrator",
+        "compile",
+        "workflows/examples/cycle_guard_demo.orc",
+        "--entry-workflow",
+        "cycle-guard-demo",
+        "--command-boundaries-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json"
+      ],
+      "build_root": ".orchestrate/build/48b2e2abdce5c28f",
+      "elapsed_seconds": 0.247,
+      "exit_code": 0,
+      "manifest_path": ".orchestrate/build/48b2e2abdce5c28f/manifest.json",
+      "status": "pass"
+    },
+    "dry_run": {
+      "argv": [
+        "python",
+        "-m",
+        "orchestrator",
+        "run",
+        "workflows/examples/cycle_guard_demo.orc",
+        "--entry-workflow",
+        "cycle-guard-demo",
+        "--command-boundaries-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/cycle_guard_demo.commands.json",
+        "--input",
+        "terminal_status=FAILED_CLOSED_BY_GUARD",
+        "--input",
+        "guard_cycles=2",
+        "--dry-run"
+      ],
+      "elapsed_seconds": 0.234,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "output_contract_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "cycle_guard_demo_orc_runtime_materializes_output_bundle",
+        "-q"
+      ],
+      "elapsed_seconds": 0.403,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "resume_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "cycle_guard_demo_orc_runtime_materializes_output_bundle",
+        "-q"
+      ],
+      "elapsed_seconds": 0.394,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "shared_validation": {
+      "status": "pass"
+    },
+    "smoke_or_integration": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "cycle_guard_demo_orc_runtime_materializes_output_bundle",
+        "-q"
+      ],
+      "elapsed_seconds": 0.41,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "terminal_state_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "cycle_guard_demo_orc_runtime_materializes_output_bundle",
+        "-q"
+      ],
+      "elapsed_seconds": 0.41,
+      "exit_code": 0,
+      "status": "pass"
+    }
+  },
+  "generated_at": "2026-06-02T13:53:48Z",
+  "generated_by": [
+    "python",
+    "-m",
+    "orchestrator",
+    "migration-parity",
+    "--targets-file",
+    "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+    "--output-root",
+    "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity"
+  ],
+  "non_regressive": true,
+  "promotion_eligibility": {
+    "blocked_reason": "demo-only until native bounded-loop parity is intentionally designed later",
+    "eligible_for_primary_surface": false
+  },
+  "report_path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/cycle_guard_demo.json",
+  "schema_version": "workflow_lisp_migration_parity_report.v1",
+  "workflow_family": "cycle_guard_demo",
+  "yaml_primary": "workflows/examples/cycle_guard_demo.yaml"
+}

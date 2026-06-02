@@ -7,6 +7,7 @@ from .resume import resume_workflow
 from .report import report_workflow
 from .dashboard import dashboard_workflow
 from .monitor import monitor_workflows
+from .migration_parity import migration_parity_workflow
 
 __all__ = [
     'compile_workflow',
@@ -16,4 +17,5 @@ __all__ = [
     'report_workflow',
     'dashboard_workflow',
     'monitor_workflows',
+    'migration_parity_workflow',
 ]

@@ -1,0 +1,260 @@
+{
+  "accepted_differences": [
+    {
+      "description": "Markdown parity summaries are derived from authoritative JSON reports.",
+      "id": "derived-markdown"
+    }
+  ],
+  "candidate": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+  "command_logs": {
+    "artifact_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/artifact_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/artifact_parity.stdout.log"
+    },
+    "compile": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/compile.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/compile.stdout.log"
+    },
+    "dry_run": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/dry_run.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/dry_run.stdout.log"
+    },
+    "output_contract_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/output_contract_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/output_contract_parity.stdout.log"
+    },
+    "resume_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/resume_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/resume_parity.stdout.log"
+    },
+    "smoke_or_integration": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/smoke_or_integration.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/smoke_or_integration.stdout.log"
+    },
+    "terminal_state_parity": {
+      "stderr": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/terminal_state_parity.stderr.log",
+      "stdout": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/logs/design_plan_impl_stack/terminal_state_parity.stdout.log"
+    }
+  },
+  "compile_artifacts": {
+    "optional": {
+      "expanded_debug_yaml": {
+        "path": null,
+        "status": "not_implemented"
+      }
+    },
+    "required": {
+      "core_workflow_ast": {
+        "path": ".orchestrate/build/f6252aa012fa214e/core_workflow_ast.json",
+        "status": "pass"
+      },
+      "semantic_ir": {
+        "path": ".orchestrate/build/f6252aa012fa214e/semantic_ir.json",
+        "status": "pass"
+      },
+      "source_map": {
+        "path": ".orchestrate/build/f6252aa012fa214e/source_map.json",
+        "status": "pass"
+      }
+    }
+  },
+  "compiler_version": "workflow_lisp_migration_parity.v1",
+  "deprecated_yaml_mechanics": [
+    {
+      "mechanic": "manual markdown parity summary",
+      "replacement": "machine-readable parity JSON report"
+    },
+    {
+      "mechanic": "full YAML review-revise loop with carried findings extraction"
+    }
+  ],
+  "dsl_version": "2.14",
+  "evidence": {
+    "artifact_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "review_loop_parity_fixture",
+        "-q"
+      ],
+      "elapsed_seconds": 0.42,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "baseline_characterization": {
+      "artifacts": [
+        "design report target",
+        "plan report target",
+        "implementation execution report target",
+        "implementation review report target"
+      ],
+      "inputs": [
+        "brief_path",
+        "design_target_path",
+        "design_review_report_target_path",
+        "plan_target_path",
+        "plan_review_report_target_path",
+        "execution_report_target_path",
+        "implementation_review_report_target_path"
+      ],
+      "outputs": [
+        "design_path",
+        "design_review_report_path",
+        "design_review_decision",
+        "plan_path",
+        "plan_review_report_path",
+        "plan_review_decision",
+        "execution_report_path",
+        "implementation_review_report_path",
+        "implementation_review_decision"
+      ],
+      "resume_behavior": [
+        "resume-or-start reusable phase-state validation remains part of parity evidence"
+      ],
+      "status": "pass",
+      "terminal_states": [
+        "design review decision surfaced",
+        "plan review decision surfaced",
+        "implementation review decision surfaced"
+      ]
+    },
+    "compile": {
+      "argv": [
+        "python",
+        "-m",
+        "orchestrator",
+        "compile",
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "--entry-workflow",
+        "design-plan-impl-review-stack",
+        "--provider-externs-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.providers.json",
+        "--prompt-externs-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.prompts.json",
+        "--command-boundaries-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json"
+      ],
+      "build_root": ".orchestrate/build/f6252aa012fa214e",
+      "elapsed_seconds": 0.312,
+      "exit_code": 0,
+      "manifest_path": ".orchestrate/build/f6252aa012fa214e/manifest.json",
+      "status": "pass"
+    },
+    "dry_run": {
+      "argv": [
+        "python",
+        "-m",
+        "orchestrator",
+        "run",
+        "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+        "--entry-workflow",
+        "design-plan-impl-review-stack",
+        "--provider-externs-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.providers.json",
+        "--prompt-externs-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.prompts.json",
+        "--command-boundaries-file",
+        "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json",
+        "--input",
+        "brief_path=workflows/examples/inputs/major_project_brief.md",
+        "--input",
+        "design_target_path=docs/plans/parity-design.md",
+        "--input",
+        "design_review_report_target_path=artifacts/review/parity-design-review.md",
+        "--input",
+        "plan_target_path=docs/plans/parity-plan.md",
+        "--input",
+        "plan_review_report_target_path=artifacts/review/parity-plan-review.md",
+        "--input",
+        "execution_report_target_path=artifacts/work/parity-execution.md",
+        "--input",
+        "implementation_review_report_target_path=artifacts/review/parity-implementation-review.md",
+        "--dry-run"
+      ],
+      "elapsed_seconds": 0.32,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "output_contract_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "review_loop_parity_fixture",
+        "-q"
+      ],
+      "elapsed_seconds": 0.419,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "resume_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "resume_or_start_plan_gate_reusable_state_parity_path",
+        "-q"
+      ],
+      "elapsed_seconds": 0.363,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "shared_validation": {
+      "status": "pass"
+    },
+    "smoke_or_integration": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "review_loop_parity_fixture",
+        "-q"
+      ],
+      "elapsed_seconds": 0.418,
+      "exit_code": 0,
+      "status": "pass"
+    },
+    "terminal_state_parity": {
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_workflow_lisp_key_migrations.py",
+        "-k",
+        "review_loop_parity_fixture",
+        "-q"
+      ],
+      "elapsed_seconds": 0.419,
+      "exit_code": 0,
+      "status": "pass"
+    }
+  },
+  "generated_at": "2026-06-02T13:53:51Z",
+  "generated_by": [
+    "python",
+    "-m",
+    "orchestrator",
+    "migration-parity",
+    "--targets-file",
+    "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+    "--output-root",
+    "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity"
+  ],
+  "non_regressive": false,
+  "promotion_eligibility": {
+    "eligible_for_primary_surface": true
+  },
+  "report_path": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.json",
+  "schema_version": "workflow_lisp_migration_parity_report.v1",
+  "workflow_family": "design_plan_impl_stack",
+  "yaml_primary": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml"
+}

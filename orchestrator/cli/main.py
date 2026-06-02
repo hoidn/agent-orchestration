@@ -457,6 +457,26 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override notification ledger path'
     )
 
+    migration_parity_parser = subparsers.add_parser(
+        'migration-parity',
+        help='Generate Workflow Lisp migration parity reports',
+    )
+    migration_parity_parser.add_argument(
+        '--targets-file',
+        required=True,
+        help='Path to migration parity target manifest JSON'
+    )
+    migration_parity_parser.add_argument(
+        '--output-root',
+        required=True,
+        help='Directory where parity reports and logs will be written'
+    )
+    migration_parity_parser.add_argument(
+        '--target',
+        action='append',
+        help='Optional workflow_family filter; repeatable'
+    )
+
     return parser
 
 
@@ -504,6 +524,9 @@ def main(args: Optional[list] = None) -> int:
             dry_run_mark_sent=parsed_args.dry_run_mark_sent,
             ledger=parsed_args.ledger,
         )
+    elif parsed_args.command == 'migration-parity':
+        from orchestrator.cli.commands import migration_parity_workflow
+        return migration_parity_workflow(parsed_args)
     else:
         parser.print_help()
         return 1

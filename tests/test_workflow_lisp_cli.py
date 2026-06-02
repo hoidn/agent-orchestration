@@ -10,7 +10,7 @@ import pytest
 from orchestrator.cli.commands.compile import compile_workflow
 from orchestrator.cli.commands.explain import explain_workflow
 from orchestrator.cli.commands.run import run_workflow
-from orchestrator.cli.main import create_parser
+from orchestrator.cli.main import create_parser, main
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
@@ -323,6 +323,104 @@ def test_parser_accepts_orc_specific_run_flags() -> None:
     assert args.imported_workflow_bundles_file == str(CLI_FIXTURES / "imported_workflow_bundles.json")
     assert args.command_boundaries_file == str(CLI_FIXTURES / "commands.json")
     assert args.dry_run is True
+
+
+def test_parser_supports_migration_parity_subcommand() -> None:
+    parser = create_parser()
+
+    args = parser.parse_args(
+        [
+            "migration-parity",
+            "--targets-file",
+            "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+            "--output-root",
+            "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity",
+            "--target",
+            "cycle_guard_demo",
+            "--target",
+            "design_plan_impl_stack",
+        ]
+    )
+
+    assert args.command == "migration-parity"
+    assert args.targets_file == "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+    assert args.output_root == "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity"
+    assert args.target == ["cycle_guard_demo", "design_plan_impl_stack"]
+
+
+def test_migration_parity_cli_rejects_manifest_override(
+    tmp_path: Path,
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    targets_file = tmp_path / "parity_targets.json"
+    targets_file.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_migration_parity_targets.v1",
+                "targets": [
+                    {
+                        "workflow_family": "design_plan_impl_stack",
+                        "candidate": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
+                        "yaml_primary": "workflows/examples/design_plan_impl_review_stack_v2_call.yaml",
+                        "entry_workflow": "design-plan-impl-stack",
+                        "baseline_characterization": {
+                            "inputs": ["progress_report"],
+                            "outputs": ["execution_report"],
+                            "terminal_states": ["completed"],
+                            "artifacts": ["execution_report.md"],
+                            "resume_behavior": ["resume reuses approved upstream artifacts"],
+                        },
+                        "accepted_differences": [],
+                        "deprecated_yaml_mechanics": [],
+                        "promotion_eligibility": {
+                            "eligible_for_primary_surface": True,
+                        },
+                        "compile_artifacts": {
+                            "required": ["core_workflow_ast"],
+                            "optional": [],
+                        },
+                        "evidence_commands": {
+                            role: ["python", "-m", "pytest", "-q"]
+                            for role in (
+                                "compile",
+                                "dry_run",
+                                "smoke_or_integration",
+                                "output_contract_parity",
+                                "terminal_state_parity",
+                                "artifact_parity",
+                                "resume_parity",
+                            )
+                        },
+                        "non_regressive": False,
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def _unexpected_run(*args, **kwargs):
+        raise AssertionError("evidence commands should not run for invalid manifests")
+
+    monkeypatch.setattr("subprocess.run", _unexpected_run)
+
+    result = main(
+        [
+            "migration-parity",
+            "--targets-file",
+            str(targets_file),
+            "--output-root",
+            str(tmp_path / "parity"),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert "non_regressive" in captured.err
 
 
 def test_build_service_infers_single_exported_entry_workflow(tmp_path: Path) -> None:
