@@ -207,6 +207,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, parametric, specialization, type-parameters, procref, generic-orc
 **Use this when:** Evaluating how reusable `.orc` definitions should handle caller-specific record and union shapes without macro-generated semantic control flow.
 
+### [Workflow Lisp Structural Parametric Constraints](design/workflow_lisp_structural_parametric_constraints.md)
+**Description:** Focused type-system direction for structural record/union constraints on parametric `.orc` definitions, intended to retire review-loop-specific compiler validation without runtime type values.
+**Keywords:** lisp-frontend, structural-constraints, parametric, unions, records, specialization, review-loop
+**Use this when:** Designing or reviewing generic `.orc` library definitions that need caller-specific records or unions with required fields, variants, or proof behavior.
+
 ### [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 **Description:** Deferred runtime-semantics boundary for principled closures, including sealed closure families, checked dynamic invocation, typed captures, capabilities, source maps, and replay/resume constraints.
 **Keywords:** lisp-frontend, closures, runtime-callable, executable-ir, replay, resume
