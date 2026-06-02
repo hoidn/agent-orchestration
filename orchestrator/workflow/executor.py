@@ -3588,7 +3588,14 @@ class WorkflowExecutor:
                 return result
 
         if execution_kind is ExecutableNodeKind.COMMAND:
-            result = self._execute_command_with_context(step, context, state)
+            result = self._execute_command_with_context(
+                step,
+                context,
+                state,
+                parent_steps=scope.get("parent_steps"),
+                self_steps=scope.get("self_steps"),
+                root_steps=scope.get("root_steps"),
+            )
         elif execution_kind is ExecutableNodeKind.PROVIDER:
             result = self._execute_provider_with_context(
                 step,
@@ -3610,7 +3617,7 @@ class WorkflowExecutor:
         elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             result = self._execute_increment_scalar(step, state)
         elif execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
-            result = self._execute_materialize_artifacts(step, state)
+            result = self._execute_materialize_artifacts(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.SELECT_VARIANT_OUTPUT:
             result = self._execute_select_variant_output(step, state)
         elif execution_kind is ExecutableNodeKind.WAIT_FOR:
@@ -3924,7 +3931,11 @@ class WorkflowExecutor:
         self,
         step: Dict[str, Any],
         context: Dict[str, Any],
-        state: Dict[str, Any]
+        state: Dict[str, Any],
+        *,
+        parent_steps: Optional[Dict[str, Any]] = None,
+        self_steps: Optional[Dict[str, Any]] = None,
+        root_steps: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Execute a command step with variable substitution context.
@@ -3941,7 +3952,21 @@ class WorkflowExecutor:
         """
         # Substitute variables in command
         command = step['command']
-        runtime_context = self._runtime_context(context, state)
+        runtime_context = RuntimeContext.from_mapping(
+            context,
+            default_context=self.workflow_context_defaults,
+            parent_steps=parent_steps,
+            root_steps=root_steps or state.get("steps", {}),
+        )
+        if isinstance(self_steps, dict):
+            runtime_context = RuntimeContext(
+                values=runtime_context.values,
+                workflow_context=runtime_context.workflow_context,
+                self_steps=self_steps,
+                explicit_steps=True,
+                parent_steps=runtime_context.parent_steps,
+                root_steps=runtime_context.root_steps,
+            )
         variables = runtime_context.build_variables(self.variable_substitutor, state)
         snapshots, snapshot_error = self._capture_pre_snapshot(step, state)
         if snapshot_error is not None:
@@ -6859,9 +6884,22 @@ class WorkflowExecutor:
                         return discriminant_name, str(variant_name)
         return discriminant_name, None
 
-    def _resolve_variant_ref_guard(self, ref: str, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        steps = state.get("steps", {})
-        if not isinstance(steps, dict) or ".artifacts." not in ref:
+    def _resolve_variant_ref_guard(
+        self,
+        ref: str,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if ".artifacts." not in ref:
+            return None
+        if ref.startswith("self.steps."):
+            steps = scope.get("self_steps") if isinstance(scope, dict) else None
+        elif ref.startswith("parent.steps."):
+            steps = scope.get("parent_steps") if isinstance(scope, dict) else None
+        else:
+            steps = state.get("steps", {})
+        if not isinstance(steps, dict):
             return None
         try:
             target = parse_structured_ref(ref, steps.keys())
@@ -6895,13 +6933,82 @@ class WorkflowExecutor:
             },
         )
 
-    def _resolve_ref_value(self, ref: str, state: Dict[str, Any]) -> tuple[Any, Optional[Dict[str, Any]]]:
-        variant_guard_error = self._resolve_variant_ref_guard(ref, state)
+    @staticmethod
+    def _rewrite_scoped_ref_for_nested_projection(
+        ref: str,
+        *,
+        scope_name: str,
+        step_results: Dict[str, Any],
+    ) -> str | None:
+        prefix = f"{scope_name}.steps."
+        if not ref.startswith(prefix) or not isinstance(step_results, dict):
+            return None
+
+        remainder = ref[len(prefix):]
+        step_name: str | None = None
+        suffix = ""
+        for marker in (".artifacts.", ".snapshots.", ".outcome.", ".exit_code"):
+            if marker in remainder:
+                step_name, trailing = remainder.split(marker, 1)
+                suffix = marker + trailing
+                break
+        if step_name is None:
+            return None
+
+        candidates = [
+            key
+            for key in step_results
+            if key == step_name or key.endswith(f".{step_name}")
+        ]
+        if len(candidates) != 1:
+            return None
+        return f"{prefix}{candidates[0]}{suffix}"
+
+    def _resolve_ref_value(
+        self,
+        ref: str,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        variant_guard_error = self._resolve_variant_ref_guard(ref, state, scope=scope)
         if variant_guard_error is not None:
             return None, variant_guard_error
         try:
-            return self.reference_resolver.resolve(ref, state).value, None
+            return self.reference_resolver.resolve(ref, state, scope=scope).value, None
         except ReferenceResolutionError as exc:
+            if (
+                ref.startswith("parent.steps.")
+                and isinstance(scope, dict)
+                and isinstance(scope.get("self_steps"), dict)
+            ):
+                retry_scope = dict(scope)
+                retry_scope["parent_steps"] = scope["self_steps"]
+                try:
+                    return self.reference_resolver.resolve(ref, state, scope=retry_scope).value, None
+                except ReferenceResolutionError:
+                    pass
+            scope_name = "self" if ref.startswith("self.steps.") else "parent" if ref.startswith("parent.steps.") else None
+            if scope_name is not None:
+                candidate_step_maps: list[dict[str, Any]] = []
+                if isinstance(scope, dict) and isinstance(scope.get(f"{scope_name}_steps"), dict):
+                    candidate_step_maps.append(scope[f"{scope_name}_steps"])
+                if isinstance(state.get("steps"), dict):
+                    candidate_step_maps.append(state["steps"])
+                for step_results in candidate_step_maps:
+                    rewritten_ref = self._rewrite_scoped_ref_for_nested_projection(
+                        ref,
+                        scope_name=scope_name,
+                        step_results=step_results,
+                    )
+                    if not isinstance(rewritten_ref, str):
+                        continue
+                    retry_scope = dict(scope) if isinstance(scope, dict) else {}
+                    retry_scope.setdefault(f"{scope_name}_steps", step_results)
+                    try:
+                        return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
+                    except ReferenceResolutionError:
+                        continue
             return None, self._v214_failure_result(
                 "materialize_ref_unresolved",
                 "Structured ref could not be resolved",
@@ -7317,6 +7424,8 @@ class WorkflowExecutor:
         self,
         step: Dict[str, Any],
         state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         config = step.get("materialize_artifacts")
         if not isinstance(config, dict):
@@ -7365,7 +7474,7 @@ class WorkflowExecutor:
                         "Materialization ref source must be a structured ref",
                         context={"name": name},
                     )
-                raw_value, resolve_error = self._resolve_ref_value(ref, state)
+                raw_value, resolve_error = self._resolve_ref_value(ref, state, scope=scope)
                 if resolve_error is not None:
                     return resolve_error
             elif "literal" in source:

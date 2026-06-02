@@ -13,12 +13,14 @@ scope this compiler coordinates.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.workflow.executable_ir import validate_executable_workflow
+from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
 from .contracts import derive_union_workflow_boundary_projection
@@ -126,6 +128,7 @@ from .validation import (
 )
 from .workflows import (
     CertifiedAdapterBinding,
+    CommandBoundaryEnvironment,
     ExternalToolBinding,
     Stage3CompileResult,
     TypedWorkflowDef,
@@ -780,6 +783,16 @@ def _run_stage3_validation_pipeline(
             expressions=tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs),
         )
+        reusable_state_producer_context = _derive_reusable_state_producer_context(
+            definition_module=module,
+            source_file_digests={
+                module.module_name or path.stem: _sha256_path(path),
+            },
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            command_boundary_environment=command_boundary_environment,
+            imported_workflow_bundles=effective_imported_workflow_bundles,
+        )
         typed_functions = typecheck_function_definitions(
             function_defs,
             type_env=type_env,
@@ -804,6 +817,7 @@ def _run_stage3_validation_pipeline(
                 proc_ref_resolution_context=ProcRefResolutionContext(
                     local_raw_names=frozenset(procedure.name for procedure in procedure_defs),
                 ),
+                reusable_state_producer_context=reusable_state_producer_context,
             )
         )
         typed_functions_by_name = {
@@ -1131,6 +1145,98 @@ def _selected_stage3_entry_workflow_name(
     return compile_result.graph.entry_module_name
 
 
+def _sha256_path(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _stable_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _stable_json(item)
+            for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+    if isinstance(value, tuple):
+        return [_stable_json(item) for item in value]
+    if isinstance(value, list):
+        return [_stable_json(item) for item in value]
+    return value
+
+
+def _stable_json_digest(value: object) -> str:
+    encoded = json.dumps(_stable_json(value), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _command_boundary_fingerprint_payload(
+    binding: ExternalToolBinding | CertifiedAdapterBinding,
+) -> Mapping[str, object]:
+    payload: dict[str, object] = {
+        "name": binding.name,
+        "stable_command": list(binding.stable_command),
+    }
+    if isinstance(binding, CertifiedAdapterBinding):
+        payload.update(
+            {
+                "kind": "certified_adapter",
+                "output_type_name": binding.output_type_name,
+                "effects": list(binding.effects),
+                "path_safety": dict(binding.path_safety),
+                "source_map_behavior": binding.source_map_behavior,
+            }
+        )
+    else:
+        payload["kind"] = "external_tool"
+    return payload
+
+
+def _imported_workflow_bundle_fingerprint(bundle: LoadedWorkflowBundle) -> str:
+    return _stable_json_digest(workflow_executable_ir_to_json(bundle.ir))
+
+
+def _derive_reusable_state_producer_context(
+    *,
+    definition_module: WorkflowLispModule,
+    source_file_digests: Mapping[str, str],
+    provider_externs: Mapping[str, str] | None,
+    prompt_externs: Mapping[str, str] | None,
+    command_boundary_environment: CommandBoundaryEnvironment,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+) -> Mapping[str, object]:
+    provider_extern_bindings = dict(sorted((provider_externs or {}).items()))
+    prompt_extern_bindings = dict(sorted((prompt_externs or {}).items()))
+    command_boundary_bindings = {
+        name: _command_boundary_fingerprint_payload(binding)
+        for name, binding in sorted(command_boundary_environment.bindings_by_name.items())
+    }
+    imported_workflow_fingerprints = {
+        workflow_name: _imported_workflow_bundle_fingerprint(bundle)
+        for workflow_name, bundle in sorted(imported_workflow_bundles.items())
+    }
+    lowering_options = {
+        "language_version": definition_module.language_version,
+        "target_dsl_version": definition_module.target_dsl_version,
+    }
+    compile_inputs_fingerprint = _stable_json_digest(
+        {
+            "source_file_digests": source_file_digests,
+            "provider_extern_bindings": provider_extern_bindings,
+            "prompt_extern_bindings": prompt_extern_bindings,
+            "command_boundary_bindings": command_boundary_bindings,
+            "imported_workflow_fingerprints": imported_workflow_fingerprints,
+            "lowering_options": lowering_options,
+        }
+    )
+    return {
+        "source_file_digests": source_file_digests,
+        "provider_extern_bindings": provider_extern_bindings,
+        "prompt_extern_bindings": prompt_extern_bindings,
+        "command_boundary_bindings": command_boundary_bindings,
+        "imported_workflow_fingerprints": imported_workflow_fingerprints,
+        "lowering_options": lowering_options,
+        "compile_inputs_fingerprint": compile_inputs_fingerprint,
+    }
+
+
 def _compile_stage3_graph(
     graph: LinkedModuleGraph,
     *,
@@ -1305,6 +1411,17 @@ def _compile_stage3_graph(
             expressions=tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs),
         )
+        reusable_state_producer_context = _derive_reusable_state_producer_context(
+            definition_module=definition_module,
+            source_file_digests={
+                imported_module_name: _sha256_path(imported_module_source.path)
+                for imported_module_name, imported_module_source in sorted(graph.modules_by_name.items())
+            },
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            command_boundary_environment=command_boundary_environment,
+            imported_workflow_bundles=effective_imported_bundles,
+        )
         local_function_resolver = _function_name_resolver(
             module_name,
             import_scope,
@@ -1372,6 +1489,7 @@ def _compile_stage3_graph(
                 local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs),
                 visible_procedure_names_by_module=visible_procedure_names_by_module,
             ),
+            reusable_state_producer_context=reusable_state_producer_context,
         )
         typed_procedures = tuple(
             replace(
@@ -1846,6 +1964,20 @@ def _augment_resume_command_boundaries(
             "resume_state_pointer_authority_forbidden",
             "resume_state_contract_fingerprint_mismatch",
             "resume_state_bundle_schema_invalid",
+        ),
+    )
+    bindings["write_reusable_phase_state_v1"] = CertifiedAdapterBinding(
+        name="write_reusable_phase_state_v1",
+        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
+        input_contract={"type": "object"},
+        output_type_name="ReusablePhaseStateWriteAck",
+        effects=("resume_state_reuse", "structured_result"),
+        path_safety={"kind": "workspace_relpath"},
+        source_map_behavior="step",
+        fixture_ids=("resume_state_write_v1",),
+        negative_fixture_ids=(
+            "resume_state_path_unsafe",
+            "resume_state_required_artifact_missing",
         ),
     )
     for return_type_name in sorted(
@@ -2876,6 +3008,7 @@ def _infer_stage3_effect_summaries(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
+    reusable_state_producer_context: Mapping[str, object] | None = None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
@@ -2953,6 +3086,7 @@ def _infer_stage3_effect_summaries(
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
                 proc_ref_resolution_context=proc_ref_resolution_context,
+                reusable_state_producer_context=reusable_state_producer_context,
             )
             generated_from_workflows = {
                 procedure.definition.name: procedure
@@ -3014,6 +3148,7 @@ def _infer_stage3_effect_summaries(
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            reusable_state_producer_context=reusable_state_producer_context,
         )
         generated_from_workflows = {
             procedure.definition.name: procedure

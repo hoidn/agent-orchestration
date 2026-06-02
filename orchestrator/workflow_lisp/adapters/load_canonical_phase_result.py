@@ -12,6 +12,9 @@ from orchestrator.contracts.output_contract import (
     validate_output_bundle,
     validate_variant_output_bundle,
 )
+from orchestrator.workflow_lisp.adapters.reusable_phase_state_common import (
+    emit_structured_result,
+)
 
 
 def _emit_error(error_type: str) -> int:
@@ -144,9 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         if _is_unsafe_path_contract_error(error):
             return _emit_error("resume_state_path_unsafe")
         return _emit_error("resume_state_loader_schema_invalid")
-    json.dump(bundle, sys.stdout)
-    sys.stdout.write("\n")
-    return 0
+    return emit_structured_result(bundle)
 
 
 if __name__ == "__main__":

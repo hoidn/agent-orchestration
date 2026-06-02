@@ -9,8 +9,10 @@ import pytest
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -234,6 +236,43 @@ def _workflow_runtime_input_contracts(bundle):
         loaded_bundle_helpers.workflow_input_contracts,
     )
     return helper(bundle)
+
+
+def _compile_resume_fixture(tmp_path: Path):
+    fixture = FIXTURES / "valid" / "phase_stdlib_resume_or_start.orc"
+    return compile_stage3_module(
+        fixture,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
 
 
 def _assert_no_runtime_closure_markers(serialized: str) -> None:
@@ -935,6 +974,40 @@ def test_build_frontend_bundle_emits_authored_defaults_via_public_inputs_and_bou
     assert flattened_inputs["enabled"]["default"] is True
     assert flattened_inputs["status"]["default"] == "ready"
     assert flattened_inputs["report_path"]["default"] == "default.md"
+
+
+def test_resume_or_start_generated_internal_inputs_keep_reusable_state_paths_runtime_only(
+    tmp_path: Path,
+) -> None:
+    result = _compile_resume_fixture(tmp_path)
+
+    bundle = result.validated_bundles["resume-record-phase"]
+    runtime_inputs = _workflow_runtime_input_contracts(bundle)
+    public_inputs = _workflow_public_input_contracts(bundle)
+    managed_inputs = workflow_managed_write_root_inputs(bundle)
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "resume-record-phase"
+    )
+    branch_step = lowered.authored_mapping["steps"][1]
+    start_steps = branch_step["match"]["cases"]["START"]["steps"]
+    writer_step = next(
+        step
+        for step in start_steps
+        if step.get("command", [])[:3]
+        == [
+            "python",
+            "-m",
+            "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
+        ]
+    )
+    writer_hidden_input = writer_step["output_bundle"]["path"].removeprefix("${inputs.").removesuffix("}")
+
+    assert writer_hidden_input in managed_inputs
+    assert writer_hidden_input in runtime_inputs
+    assert writer_hidden_input not in public_inputs
+    assert writer_step["output_bundle"]["path"] in lowered.origin_map.generated_path_spans
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

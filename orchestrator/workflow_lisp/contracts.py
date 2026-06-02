@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from orchestrator import __version__ as ORCHESTRATOR_VERSION
 from orchestrator.workflow.surface_ast import SurfaceContract
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -29,6 +30,11 @@ from .type_env import (
     UnionTypeRef,
 )
 from .workflows import WorkflowParamDefault, WorkflowSignature
+
+REUSABLE_PHASE_STATE_SCHEMA = "ReusablePhaseState.v1"
+REUSABLE_PHASE_STATE_VERSION = "v1"
+REUSABLE_PHASE_STATE_SIDECAR_SUFFIX = ".reusable_state.json"
+REUSABLE_PHASE_STATE_CANONICAL_BUNDLE_DIGEST_FIELD = "canonical_bundle_sha256"
 
 
 def is_review_findings_type(type_ref: TypeRef) -> bool:
@@ -448,6 +454,72 @@ def derive_reusable_state_contract_metadata(
         form_path=form_path,
     )
     return structured_contract_kind, fingerprint, artifact_requirements, structured_contract
+
+
+def derive_reusable_state_public_input_hash_basis(signature: WorkflowSignature) -> tuple[str, ...]:
+    """Return the flattened public workflow input names that feed reuse hashing."""
+
+    _, _, projection = derive_workflow_signature_contracts(signature)
+    return tuple(
+        field.generated_name
+        for field in projection.flattened_inputs
+        if not _exclude_reusable_state_hash_field(field.source_path)
+    )
+
+
+def _exclude_reusable_state_hash_field(source_path: tuple[str, ...]) -> bool:
+    """Exclude run-local and compiler-managed root fields from reuse hashing."""
+
+    if len(source_path) < 2:
+        return False
+    suffix = source_path[1:]
+    return suffix in {
+        ("state-root",),
+        ("artifact-root",),
+        ("run", "run-id"),
+        ("run", "state-root"),
+        ("run", "artifact-root"),
+    }
+
+
+def derive_reusable_state_producer_fingerprint_basis(
+    *,
+    signature: WorkflowSignature,
+    return_type_name: str,
+    structured_contract_kind: str,
+    expected_contract_fingerprint: str,
+    target_dsl_version: str,
+    reusable_variants: tuple[str, ...],
+    producer_context: Mapping[str, object] | None = None,
+) -> Mapping[str, Any]:
+    """Return the compiler-owned producer identity basis for reusable-state summaries."""
+
+    basis = {
+        "workflow_name": signature.name,
+        "return_type_name": return_type_name,
+        "structured_contract_kind": structured_contract_kind,
+        "expected_contract_fingerprint": expected_contract_fingerprint,
+        "target_dsl_version": target_dsl_version,
+        "compiler_version": ORCHESTRATOR_VERSION,
+        "reusable_variants": list(reusable_variants),
+        "public_input_hash_basis": list(derive_reusable_state_public_input_hash_basis(signature)),
+    }
+    if producer_context is not None:
+        basis.update(producer_context)
+    return basis
+
+
+def derive_reusable_phase_state_compatibility(
+    *,
+    target_dsl_version: str,
+    summary_version: str,
+) -> Mapping[str, str]:
+    """Return the required compatibility metadata for reusable-state sidecars."""
+
+    return {
+        "dsl_version": target_dsl_version,
+        "state_schema_version": summary_version,
+    }
 
 
 def derive_workflow_boundary_fields(

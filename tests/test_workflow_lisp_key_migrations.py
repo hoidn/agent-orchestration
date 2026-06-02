@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -11,6 +12,11 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_input_contracts, workflow_managed_write_root_inputs
+from orchestrator.workflow_lisp.adapters import (
+    load_canonical_phase_result,
+    validate_reusable_phase_state,
+    write_reusable_phase_state_v1,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
@@ -38,6 +44,18 @@ def _workflow_public_input_contracts(bundle):
         loaded_bundle_helpers.workflow_input_contracts,
     )
     return helper(bundle)
+
+
+def _structured_contract_fingerprint(
+    *,
+    structured_contract_kind: str,
+    structured_contract: dict[str, object],
+    return_type_name: str,
+) -> str:
+    digest = hashlib.sha256(
+        json.dumps(structured_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"2.14:{return_type_name}:{structured_contract_kind}:{digest}"
 
 
 def test_cycle_guard_demo_orc_compiles_with_bounded_loop(tmp_path: Path) -> None:
@@ -118,6 +136,70 @@ def test_cycle_guard_demo_orc_runtime_materializes_output_bundle(tmp_path: Path)
         "terminal_status": "FAILED_CLOSED_BY_GUARD",
         "guard_cycles": 2,
     }
+
+
+def test_cycle_guard_demo_orc_runtime_rejects_stdout_only_structured_command(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        EXAMPLES / "cycle_guard_demo.orc",
+        command_boundaries={
+            "emit_cycle_guard_summary": ExternalToolBinding(
+                name="emit_cycle_guard_summary",
+                stable_command=("python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["cycle-guard-demo"]
+    hidden_inputs = workflow_managed_write_root_inputs(bundle)
+    assert len(hidden_inputs) == 1
+
+    adapter_source = REPO_ROOT / "scripts" / "workflow_lisp_migrations" / "emit_cycle_guard_summary.py"
+    adapter_dest = tmp_path / "scripts" / "workflow_lisp_migrations" / "emit_cycle_guard_summary.py"
+    adapter_dest.parent.mkdir(parents=True, exist_ok=True)
+    adapter_text = adapter_source.read_text(encoding="utf-8").replace(
+        '\n    if bundle_path_raw:\n        bundle_path = Path(bundle_path_raw)\n        if bundle_path.is_absolute() or ".." in bundle_path.parts:\n            raise SystemExit("unsafe ORCHESTRATOR_OUTPUT_BUNDLE_PATH")\n        bundle_path.parent.mkdir(parents=True, exist_ok=True)\n        bundle_path.write_text(json.dumps(payload) + "\\n", encoding="utf-8")',
+        "",
+        1,
+    )
+    adapter_dest.write_text(adapter_text, encoding="utf-8")
+
+    state_manager = StateManager(workspace=tmp_path, run_id="cycle-guard-orc-stdout-only")
+    state_manager.initialize(
+        (EXAMPLES / "cycle_guard_demo.orc").as_posix(),
+        bound_inputs={
+            "terminal_status": "FAILED_CLOSED_BY_GUARD",
+            "guard_cycles": 2,
+        },
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+    step_state = state["steps"]["cycle-guard-demo__emit_cycle_guard_summary"]
+
+    assert state["status"] == "failed"
+    assert step_state["error"]["type"] == "contract_violation"
+    assert step_state["error"]["context"]["violations"] == [
+        {
+            "context": {
+                "path": (
+                    ".orchestrate/workflow_lisp/entry/cycle-guard-orc-stdout-only/"
+                    "cycle-guard-demo/"
+                    f"{hidden_inputs[0]}.json"
+                )
+            },
+            "message": "Expected output bundle file was not created",
+            "type": "missing_bundle_file",
+        }
+    ]
+    assert not (
+        tmp_path
+        / ".orchestrate"
+        / "workflow_lisp"
+        / "entry"
+        / "cycle-guard-orc-stdout-only"
+        / "cycle-guard-demo"
+        / f"{hidden_inputs[0]}.json"
+    ).exists()
 
 
 def test_cycle_guard_demo_orc_rejects_user_override_of_runtime_owned_write_root(tmp_path: Path) -> None:
@@ -236,6 +318,176 @@ def test_library_orc_variants_compile_independently(tmp_path: Path) -> None:
             for workflow in result.lowered_workflows
         }
         assert lowered_names == {expected[target.name]}
+
+
+def test_resume_or_start_plan_gate_reusable_state_parity_path(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    design_path = tmp_path / "docs" / "design" / "selected-item-design.md"
+    plan_path = tmp_path / "docs" / "plans" / "selected-item-plan.md"
+    report_path = tmp_path / "artifacts" / "work" / "selected-item-execution.md"
+    for target in (design_path, plan_path, report_path):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("seed\n", encoding="utf-8")
+
+    bundle_path = tmp_path / "state" / "selected-item" / "plan-gate.json"
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    bundle = {
+        "variant": "APPROVED",
+        "execution_report_path": "artifacts/work/selected-item-execution.md",
+    }
+    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+
+    structured_contract = {
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED"],
+        },
+        "shared_fields": [],
+        "variants": {
+            "APPROVED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "blocker_class",
+                        "json_pointer": "/blocker_class",
+                        "type": "string",
+                    },
+                ]
+            },
+        },
+    }
+    payload = {
+        "bundle_path": "state/selected-item/plan-gate.json",
+        "resume_from": "state/selected-item/plan-gate.json",
+        "target_dsl_version": "2.14",
+        "return_type_name": "PlanGateResult",
+        "structured_contract_kind": "union",
+        "expected_contract_fingerprint": _structured_contract_fingerprint(
+            structured_contract_kind="union",
+            structured_contract=structured_contract,
+            return_type_name="PlanGateResult",
+        ),
+        "structured_contract": structured_contract,
+        "summary_schema": "ReusablePhaseState.v1",
+        "summary_version": "v1",
+        "sidecar_suffix": ".reusable_state.json",
+        "canonical_bundle_digest_field": "canonical_bundle_sha256",
+        "reusable_variants": ["APPROVED"],
+        "artifact_requirements": {
+            "APPROVED": [
+                {
+                    "field_path": ["execution_report_path"],
+                    "under": "artifacts/work",
+                }
+            ]
+        },
+        "public_input_hash_basis": [
+            "inputs__design",
+            "inputs__plan",
+            "inputs__report_path",
+        ],
+        "current_public_inputs": {
+            "inputs__design": "docs/design/selected-item-design.md",
+            "inputs__plan": "docs/plans/selected-item-plan.md",
+            "inputs__report_path": "artifacts/work/selected-item-execution.md",
+        },
+        "producer_fingerprint_basis": {
+            "workflow_name": "selected-item::plan-gate",
+            "return_type_name": "PlanGateResult",
+            "structured_contract_kind": "union",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="union",
+                structured_contract=structured_contract,
+                return_type_name="PlanGateResult",
+            ),
+            "target_dsl_version": "2.14",
+            "compiler_version": "0.1.0",
+            "reusable_variants": ["APPROVED"],
+            "public_input_hash_basis": [
+                "inputs__design",
+                "inputs__plan",
+                "inputs__report_path",
+            ],
+        },
+        "source_run_id": "selected-item-run",
+        "source_step_id": "plan-gate",
+        "source_call_frame_id": "root",
+        "phase_id": "plan-gate",
+        "created_at": "2026-06-02T00:00:00Z",
+    }
+    payload_path = tmp_path / "state" / "payloads" / "selected_item_plan_gate.json"
+    payload_path.parent.mkdir(parents=True, exist_ok=True)
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", payload_path.as_posix()]) == 0
+    capsys.readouterr()
+
+    reusable_exit = validate_reusable_phase_state.main(["validate_reusable_phase_state", payload_path.as_posix()])
+    reusable_payload = json.loads(capsys.readouterr().out)
+    assert reusable_exit == 0
+    assert reusable_payload["variant"] == "REUSABLE"
+
+    load_exit = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": reusable_payload["source_bundle_path"],
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "PlanGateResult",
+                    "expected_contract_fingerprint": payload["expected_contract_fingerprint"],
+                    "structured_contract_kind": "union",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": reusable_payload["source_bundle_sha256"],
+                }
+            ),
+        ]
+    )
+    loaded = json.loads(capsys.readouterr().out)
+    assert load_exit == 0
+    assert loaded == bundle
+
+    stale_payload = dict(payload)
+    stale_payload["current_public_inputs"] = {
+        "inputs__design": "docs/design/selected-item-design-v2.md",
+        "inputs__plan": "docs/plans/selected-item-plan.md",
+        "inputs__report_path": "artifacts/work/selected-item-execution.md",
+    }
+    stale_payload_path = tmp_path / "state" / "payloads" / "selected_item_plan_gate_stale.json"
+    stale_payload_path.write_text(json.dumps(stale_payload), encoding="utf-8")
+    stale_exit = validate_reusable_phase_state.main(["validate_reusable_phase_state", stale_payload_path.as_posix()])
+    stale_result = json.loads(capsys.readouterr().out)
+    assert stale_exit == 0
+    assert stale_result == {"variant": "STALE"}
+
+    report_path.unlink()
+    missing_exit = validate_reusable_phase_state.main(["validate_reusable_phase_state", payload_path.as_posix()])
+    missing_result = json.loads(capsys.readouterr().out)
+    assert missing_exit == 0
+    assert missing_result == {"variant": "MISSING_ARTIFACT"}
 
 
 def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imported_stdlib_route(

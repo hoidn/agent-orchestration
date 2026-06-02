@@ -61,6 +61,20 @@ artifacts/work/implementation/execution-report.md
 
 Exact paths are design choices, not frontend syntax.
 
+## Generated Path Identity
+
+Generated bundle and temporary paths are run-isolated by default unless an
+authored contract explicitly requests a stable workspace artifact.
+
+Stable semantic identity belongs to source maps, debug/explain projections, and
+generated-name manifests. Concrete private write paths should include the
+runtime run root or another collision-proof generated namespace so parallel or
+repeated runs cannot write the same compiler-owned bundle by accident.
+
+Resume must reconstruct the same concrete generated path for the same run and
+call-frame/loop identity. A new run may receive a different private concrete
+path while preserving the same semantic identity in debug output.
+
 ## Validation Responsibilities
 
 State layout validation checks:
@@ -71,15 +85,17 @@ State layout validation checks:
   required
 - pointer paths do not conflict with canonical artifact pointers
 - generated names are stable across compile/resume where required
+- generated private write paths are collision-proof across parallel/repeated
+  runs unless explicitly authored as stable workspace artifacts
 
 ## Required Invariants
 
-- State layout is deterministic.
+- State layout has deterministic semantic identity.
+- Private generated write paths are run-isolated by default.
 - State paths are source-mapped when generated from frontend forms.
 - Pointer files remain representations, not authority.
 
 ## Open Questions
 
-- Whether state layout is compile-time only or may depend on runtime run id.
 - Which generated paths need stable public names for debugging versus private
   generated names.

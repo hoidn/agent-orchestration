@@ -148,6 +148,8 @@ _ACTIVE_VALUE_EXPR_ENV: Mapping[str, ExprNode] = {}
 _ACTIVE_LOOP_CONTEXT: list["LoopTypecheckContext"] = []
 _ACTIVE_GENERATED_LOCAL_PROCEDURES: dict[str, TypedProcedureDef] = {}
 _ACTIVE_LET_PROC_REWRITE_RESULTS: dict[int, ExprNode] = {}
+_ACTIVE_WORKFLOW_SIGNATURE = None
+_ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT: Mapping[str, object] | None = None
 
 
 def consume_generated_local_procedures() -> tuple[TypedProcedureDef, ...]:
@@ -167,6 +169,38 @@ def reset_generated_local_procedure_state() -> None:
 
     _ACTIVE_GENERATED_LOCAL_PROCEDURES = {}
     _ACTIVE_LET_PROC_REWRITE_RESULTS = {}
+
+
+def set_active_workflow_signature(signature) -> None:
+    """Record the current workflow signature for nested typecheck helpers."""
+
+    global _ACTIVE_WORKFLOW_SIGNATURE
+
+    _ACTIVE_WORKFLOW_SIGNATURE = signature
+
+
+def clear_active_workflow_signature() -> None:
+    """Clear the active workflow signature after finishing one workflow body."""
+
+    global _ACTIVE_WORKFLOW_SIGNATURE
+
+    _ACTIVE_WORKFLOW_SIGNATURE = None
+
+
+def set_active_reusable_state_producer_context(context: Mapping[str, object] | None) -> None:
+    """Record compiler-owned reuse identity inputs for the active workflow body."""
+
+    global _ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT
+
+    _ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT = context
+
+
+def clear_active_reusable_state_producer_context() -> None:
+    """Clear the active compiler-owned reuse identity inputs."""
+
+    global _ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT
+
+    _ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT = None
 
 
 def _effect_subject(value: str) -> tuple[str, ...]:
@@ -2479,11 +2513,19 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         validator_binding_name = "validate_reusable_phase_state"
+        writer_binding_name = "write_reusable_phase_state_v1"
         loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
         _require_resume_binding(
             command_boundary_environment=command_boundary_environment,
             binding_name=validator_binding_name,
             expected_output_type_name="ResumeReuseDecision",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_resume_binding(
+            command_boundary_environment=command_boundary_environment,
+            binding_name=writer_binding_name,
+            expected_output_type_name="ReusablePhaseStateWriteAck",
             span=expr.span,
             form_path=expr.form_path,
         )
@@ -2515,14 +2557,29 @@ def _typecheck(
             span=expr.span,
             form_path=expr.form_path,
         )
+        public_input_hash_basis = _derive_resume_public_input_hash_basis()
+        producer_fingerprint_basis = _derive_resume_producer_fingerprint_basis(
+            return_type_name=expr.returns_type_name,
+            structured_contract_kind=structured_contract_kind,
+            expected_contract_fingerprint=expected_contract_fingerprint,
+            target_dsl_version="2.14",
+            reusable_variants=valid_variants,
+        )
         validation_spec = ReusableStateValidationSpec(
             resume_from_expr=expr.resume_from_expr,
             return_type_ref=return_type,
+            summary_schema="ReusablePhaseState.v1",
+            summary_version="v1",
+            sidecar_suffix=".reusable_state.json",
             structured_contract_kind=structured_contract_kind,
             expected_contract_fingerprint=expected_contract_fingerprint,
             reusable_variants=valid_variants,
+            public_input_hash_basis=public_input_hash_basis,
+            producer_fingerprint_basis=producer_fingerprint_basis,
             artifact_requirements=artifact_requirements,
+            canonical_bundle_digest_field="canonical_bundle_sha256",
             validator_binding_name=validator_binding_name,
+            writer_binding_name=writer_binding_name,
             loader_binding_name=loader_binding_name,
             source_map_behavior="step",
         )
@@ -4353,6 +4410,52 @@ def _derive_resume_metadata(
         reusable_variants=reusable_variants,
         span=span,
         form_path=form_path,
+    )
+
+
+def _derive_resume_public_input_hash_basis() -> tuple[str, ...]:
+    from .contracts import derive_reusable_state_public_input_hash_basis
+
+    if _ACTIVE_WORKFLOW_SIGNATURE is None:
+        return ()
+    return derive_reusable_state_public_input_hash_basis(_ACTIVE_WORKFLOW_SIGNATURE)
+
+
+def _derive_resume_producer_fingerprint_basis(
+    *,
+    return_type_name: str,
+    structured_contract_kind: str,
+    expected_contract_fingerprint: str,
+    target_dsl_version: str,
+    reusable_variants: tuple[str, ...],
+):
+    from .contracts import derive_reusable_state_producer_fingerprint_basis
+
+    if _ACTIVE_WORKFLOW_SIGNATURE is None:
+        return {
+            "workflow_name": "<unknown>",
+            "return_type_name": return_type_name,
+            "structured_contract_kind": structured_contract_kind,
+            "expected_contract_fingerprint": expected_contract_fingerprint,
+            "target_dsl_version": target_dsl_version,
+            "compiler_version": "0.1.0",
+            "reusable_variants": list(reusable_variants),
+            "public_input_hash_basis": [],
+            "source_file_digests": {},
+            "provider_extern_bindings": {},
+            "prompt_extern_bindings": {},
+            "command_boundary_bindings": {},
+            "imported_workflow_fingerprints": {},
+            "compile_inputs_fingerprint": "<unknown>",
+        }
+    return derive_reusable_state_producer_fingerprint_basis(
+        signature=_ACTIVE_WORKFLOW_SIGNATURE,
+        return_type_name=return_type_name,
+        structured_contract_kind=structured_contract_kind,
+        expected_contract_fingerprint=expected_contract_fingerprint,
+        target_dsl_version=target_dsl_version,
+        reusable_variants=reusable_variants,
+        producer_context=_ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT,
     )
 
 

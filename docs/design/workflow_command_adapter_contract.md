@@ -166,6 +166,20 @@ This maps to current and planned surfaces:
 Prose-only provider output may be tolerated only behind a legacy adapter during
 migration.
 
+## Structured Validator Adapters
+
+Certified validators that publish or prove structured workflow state are command
+adapters, not loopholes for hidden glue. This includes schema validators for
+review findings and validator/projection adapters that turn raw command bundles
+into variant-proof-compatible results.
+
+When invoked as command steps, these validators must use the command structured
+bundle contract: declared inputs, declared `output_bundle` or `variant_output`
+outputs, path-safe bundle targets, stable error taxonomy, source maps, and
+negative fixtures for malformed inputs. They must not establish workflow
+meaning by parsing markdown reports, rewriting ad hoc JSON in place, or relying
+on stdout as semantic authority.
+
 ## Versioned Lint Policy
 
 Recommended lints:

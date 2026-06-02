@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .type_env import RecordTypeRef, UnionTypeRef
 
@@ -55,10 +55,17 @@ class ReusableStateValidationSpec:
 
     resume_from_expr: "ExprNode"
     return_type_ref: RecordTypeRef | UnionTypeRef
+    summary_schema: str
+    summary_version: str
+    sidecar_suffix: str
     structured_contract_kind: str
     expected_contract_fingerprint: str
     reusable_variants: tuple[str, ...]
+    public_input_hash_basis: tuple[str, ...]
+    producer_fingerprint_basis: Mapping[str, Any]
     artifact_requirements: Mapping[str, tuple[ReusableArtifactRequirement, ...]]
+    canonical_bundle_digest_field: str
     validator_binding_name: str
+    writer_binding_name: str
     loader_binding_name: str
     source_map_behavior: str

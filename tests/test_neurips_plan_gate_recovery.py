@@ -9,6 +9,7 @@ import pytest
 from orchestrator.workflow_lisp.adapters import (
     load_canonical_phase_result,
     validate_reusable_phase_state,
+    write_reusable_phase_state_v1,
 )
 
 
@@ -138,6 +139,7 @@ def _plan_gate_payload_path(workspace: Path, *, resume_from: str) -> Path:
     return _write_json(
         workspace / "state" / "payloads" / "plan_gate_validate.json",
         {
+            "bundle_path": resume_from,
             "resume_from": resume_from,
             "target_dsl_version": "2.14",
             "return_type_name": "PlanGateResult",
@@ -148,6 +150,10 @@ def _plan_gate_payload_path(workspace: Path, *, resume_from: str) -> Path:
                 return_type_name="PlanGateResult",
             ),
             "structured_contract": structured_contract,
+            "summary_schema": "ReusablePhaseState.v1",
+            "summary_version": "v1",
+            "sidecar_suffix": ".reusable_state.json",
+            "canonical_bundle_digest_field": "canonical_bundle_sha256",
             "reusable_variants": ["APPROVED"],
             "artifact_requirements": {
                 "APPROVED": [
@@ -167,6 +173,41 @@ def _plan_gate_payload_path(workspace: Path, *, resume_from: str) -> Path:
                     }
                 ],
             },
+            "public_input_hash_basis": [
+                "phase-ctx__phase-name",
+                "inputs__selected_item_path",
+                "inputs__recovery_report_target_path",
+            ],
+            "current_public_inputs": {
+                "phase-ctx__phase-name": "plan-gate",
+                "inputs__selected_item_path": "docs/backlog/in_progress/item.md",
+                "inputs__recovery_report_target_path": (
+                    "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md"
+                ),
+            },
+            "producer_fingerprint_basis": {
+                "workflow_name": "resume-plan-gate",
+                "return_type_name": "PlanGateResult",
+                "structured_contract_kind": "union",
+                "expected_contract_fingerprint": _structured_contract_fingerprint(
+                    structured_contract_kind="union",
+                    structured_contract=structured_contract,
+                    return_type_name="PlanGateResult",
+                ),
+                "target_dsl_version": "2.14",
+                "compiler_version": "0.1.0",
+                "reusable_variants": ["APPROVED"],
+                "public_input_hash_basis": [
+                    "phase-ctx__phase-name",
+                    "inputs__selected_item_path",
+                    "inputs__recovery_report_target_path",
+                ],
+            },
+            "source_run_id": "test-run",
+            "source_step_id": "plan-gate",
+            "source_call_frame_id": "root",
+            "phase_id": "plan-gate",
+            "created_at": "2026-06-02T00:00:00Z",
         },
     )
 
@@ -282,6 +323,21 @@ def test_plan_gate_recovery_resume_validator_distinguishes_start_from_hard_failu
     )
     blocked = json.loads(capsys.readouterr().out)
 
+    shared_report = tmp_path / "artifacts" / "work" / "shared-approved.md"
+    execution_report = tmp_path / "artifacts" / "work" / "execution-approved.md"
+    shared_report.parent.mkdir(parents=True, exist_ok=True)
+    shared_report.write_text("shared", encoding="utf-8")
+    execution_report.write_text("execution", encoding="utf-8")
+    _write_json(
+        tmp_path / "state" / "item" / "plan-gate" / "final_plan_gate.json",
+        {
+            "variant": "APPROVED",
+            "shared_report_path": "artifacts/work/shared-approved.md",
+            "execution_report_path": "artifacts/work/execution-approved.md",
+        },
+    )
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", payload_path.as_posix()]) == 0
+    capsys.readouterr()
     blocked_bundle_path.write_text("state/item/plan-gate/pointer.txt\n", encoding="utf-8")
     invalid_exit = validate_reusable_phase_state.main(
         ["validate_reusable_phase_state", payload_path.as_posix()]
@@ -289,9 +345,9 @@ def test_plan_gate_recovery_resume_validator_distinguishes_start_from_hard_failu
     invalid = json.loads(capsys.readouterr().out)
 
     assert missing_exit == 0
-    assert missing == {"variant": "START", "reason_code": "MISSING_BUNDLE"}
+    assert missing == {"variant": "START"}
     assert blocked_exit == 0
-    assert blocked == {"variant": "START", "reason_code": "VARIANT_NOT_REUSABLE"}
+    assert blocked == {"variant": "FAILED_PRIOR_STATE"}
     assert invalid_exit == 1
     assert invalid == {"error": {"type": "resume_state_pointer_authority_forbidden"}}
 
@@ -303,25 +359,30 @@ def test_plan_gate_recovery_resume_validator_reports_missing_required_shared_art
 ) -> None:
     monkeypatch.chdir(tmp_path)
     payload_path = _plan_gate_payload_path(tmp_path, resume_from="state/item/plan-gate/final_plan_gate.json")
+    shared_report = tmp_path / "artifacts" / "work" / "shared.md"
     execution_report = tmp_path / "artifacts" / "work" / "execution.md"
     execution_report.parent.mkdir(parents=True, exist_ok=True)
+    shared_report.write_text("shared", encoding="utf-8")
     execution_report.write_text("execution", encoding="utf-8")
     _write_json(
         tmp_path / "state" / "item" / "plan-gate" / "final_plan_gate.json",
         {
             "variant": "APPROVED",
-            "shared_report_path": "artifacts/work/missing-shared.md",
+            "shared_report_path": "artifacts/work/shared.md",
             "execution_report_path": "artifacts/work/execution.md",
         },
     )
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", payload_path.as_posix()]) == 0
+    capsys.readouterr()
+    shared_report.unlink()
 
     exit_code = validate_reusable_phase_state.main(
         ["validate_reusable_phase_state", payload_path.as_posix()]
     )
     payload = json.loads(capsys.readouterr().out)
 
-    assert exit_code == 1
-    assert payload == {"error": {"type": "resume_state_required_artifact_missing"}}
+    assert exit_code == 0
+    assert payload == {"variant": "MISSING_ARTIFACT"}
 
 
 def test_plan_gate_recovery_loader_preserves_plan_gate_result_shape(

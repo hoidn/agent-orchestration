@@ -1,17 +1,28 @@
-"""Validate whether a canonical phase bundle can be reused."""
+"""Validate whether a canonical phase bundle can be reused via sidecar summary."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
-from orchestrator.contracts.output_contract import (
-    OutputContractError,
-    validate_output_bundle,
-    validate_variant_output_bundle,
+from .reusable_phase_state_common import (
+    build_artifact_refs,
+    current_producer_fingerprint,
+    current_public_input_hash,
+    emit_error,
+    emit_structured_result,
+    load_artifact_requirements,
+    load_bundle,
+    load_payload,
+    reusable_state_sidecar_path,
+    selected_requirements,
+    sha256_path,
+    structured_contract_payload,
+    validate_bundle_against_contract,
+    validate_contract_fingerprint,
+    workspace_relpath,
 )
 
 
@@ -20,230 +31,58 @@ HARD_FAILURE_CODES = {
     "resume_state_pointer_authority_forbidden",
     "resume_state_contract_fingerprint_mismatch",
     "resume_state_bundle_schema_invalid",
-    "resume_state_required_artifact_missing",
     "resume_state_contract_invalid",
 }
 
 
-def _load_payload(argv: list[str]) -> dict[str, object]:
-    if len(argv) > 1:
-        try:
-            candidate = Path(argv[1])
-            if candidate.is_file():
-                return json.loads(candidate.read_text(encoding="utf-8"))
-        except OSError:
-            pass
-        return json.loads(argv[1])
-    raw = sys.stdin.read().strip()
-    if not raw:
-        return {}
-    return json.loads(raw)
+def _emit_variant(variant: str, **fields: Any) -> int:
+    return emit_structured_result({"variant": variant, **fields})
 
 
-def _workspace_relpath(path_value: object) -> str:
-    if not isinstance(path_value, str) or not path_value:
-        raise ValueError("resume_state_contract_invalid")
-    path = Path(path_value)
-    if path.is_absolute() or ".." in path.parts:
-        raise ValueError("resume_state_path_unsafe")
-    return path_value
-
-
-def _load_bundle(bundle_path: Path) -> dict[str, object]:
+def _load_summary(summary_path: Path) -> dict[str, object] | None:
     try:
-        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        if error.pos == 0:
-            raise ValueError("resume_state_pointer_authority_forbidden") from error
-        raise ValueError("resume_state_bundle_schema_invalid") from error
-    if isinstance(bundle, str):
-        raise ValueError("resume_state_pointer_authority_forbidden")
-    if not isinstance(bundle, dict):
-        raise ValueError("resume_state_bundle_schema_invalid")
-    return bundle
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    if isinstance(summary, dict):
+        return summary
+    return None
 
 
-def _structured_contract_payload(
-    payload: dict[str, object],
-) -> tuple[str, str, str, dict[str, object], str]:
-    target_dsl_version = payload.get("target_dsl_version")
-    return_type_name = payload.get("return_type_name")
-    structured_contract_kind = payload.get("structured_contract_kind")
-    structured_contract = payload.get("structured_contract")
-    expected_contract_fingerprint = payload.get("expected_contract_fingerprint")
+def _summary_variant(
+    summary: dict[str, object],
+    *,
+    expected_schema: str,
+    expected_summary_version: str,
+    expected_dsl_version: str,
+) -> str | None:
+    schema = summary.get("schema")
+    if not isinstance(schema, str) or not schema:
+        return "SCHEMA_MISMATCH"
+    if schema != expected_schema:
+        if schema.startswith("ReusablePhaseState."):
+            return "UNSUPPORTED_VERSION"
+        return "SCHEMA_MISMATCH"
+    summary_version = summary.get("summary_version")
+    if not isinstance(summary_version, str) or not summary_version:
+        return "SCHEMA_MISMATCH"
+    if summary_version != expected_summary_version:
+        return "UNSUPPORTED_VERSION"
+    compatibility = summary.get("compatibility")
+    if not isinstance(compatibility, dict):
+        return "SCHEMA_MISMATCH"
+    dsl_version = compatibility.get("dsl_version")
+    state_schema_version = compatibility.get("state_schema_version")
     if (
-        not isinstance(target_dsl_version, str)
-        or not target_dsl_version
-        or not isinstance(return_type_name, str)
-        or not return_type_name
-        or structured_contract_kind not in {"record", "union"}
-        or not isinstance(structured_contract, dict)
-        or not isinstance(expected_contract_fingerprint, str)
-        or not expected_contract_fingerprint
+        not isinstance(dsl_version, str)
+        or not dsl_version
+        or not isinstance(state_schema_version, str)
+        or not state_schema_version
     ):
-        raise ValueError("resume_state_contract_invalid")
-    return (
-        target_dsl_version,
-        return_type_name,
-        str(structured_contract_kind),
-        structured_contract,
-        expected_contract_fingerprint,
-    )
-
-
-def _validate_contract_fingerprint(
-    *,
-    target_dsl_version: str,
-    return_type_name: str,
-    structured_contract_kind: str,
-    structured_contract: dict[str, object],
-    expected_contract_fingerprint: str,
-) -> None:
-    parts = expected_contract_fingerprint.split(":", 3)
-    if (
-        len(parts) != 4
-        or parts[0] != target_dsl_version
-        or parts[1] != return_type_name
-        or parts[2] != structured_contract_kind
-    ):
-        raise ValueError("resume_state_contract_fingerprint_mismatch")
-    digest = hashlib.sha256(
-        json.dumps(
-            structured_contract,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-    if parts[3] != digest:
-        raise ValueError("resume_state_contract_fingerprint_mismatch")
-
-
-def _validate_bundle_against_contract(
-    *,
-    bundle_path: Path,
-    structured_contract_kind: str,
-    structured_contract: dict[str, object],
-) -> dict[str, object]:
-    runtime_contract = {
-        "path": bundle_path.as_posix(),
-        **_relax_contract_artifact_existence(structured_contract_kind, structured_contract),
-    }
-    try:
-        if structured_contract_kind == "record":
-            return validate_output_bundle(runtime_contract, workspace=Path.cwd())
-        return validate_variant_output_bundle(runtime_contract, workspace=Path.cwd())
-    except OutputContractError as error:
-        if _is_unsafe_path_contract_error(error):
-            raise ValueError("resume_state_path_unsafe") from error
-        raise ValueError("resume_state_bundle_schema_invalid") from error
-
-
-def _is_unsafe_path_contract_error(error: OutputContractError) -> bool:
-    violation_types = {violation["type"] for violation in error.violations}
-    return bool(
-        violation_types
-        & {
-            "invalid_bundle_path",
-            "path_escape",
-            "outside_under_root",
-            "invalid_under_root",
-        }
-    )
-
-
-def _relax_contract_artifact_existence(
-    structured_contract_kind: str,
-    structured_contract: dict[str, object],
-) -> dict[str, object]:
-    relaxed = json.loads(json.dumps(structured_contract))
-    if structured_contract_kind == "record":
-        _relax_field_specs(relaxed.get("fields"))
-        return relaxed
-
-    _relax_field_specs(relaxed.get("shared_fields"))
-    variants = relaxed.get("variants")
-    if isinstance(variants, dict):
-        for variant_spec in variants.values():
-            if isinstance(variant_spec, dict):
-                _relax_field_specs(variant_spec.get("fields"))
-    return relaxed
-
-
-def _relax_field_specs(field_specs: object) -> None:
-    if not isinstance(field_specs, list):
-        return
-    for spec in field_specs:
-        if isinstance(spec, dict) and spec.get("type") == "relpath":
-            spec["must_exist_target"] = False
-
-
-def _load_artifact_requirements(
-    payload: dict[str, object],
-) -> dict[str, tuple[tuple[tuple[str, ...], str], ...]]:
-    raw_requirements = payload.get("artifact_requirements", {})
-    if not isinstance(raw_requirements, dict):
-        raise ValueError("resume_state_contract_invalid")
-    requirements: dict[str, tuple[tuple[tuple[str, ...], str], ...]] = {}
-    for key, entries in raw_requirements.items():
-        if not isinstance(key, str) or not isinstance(entries, list):
-            raise ValueError("resume_state_contract_invalid")
-        parsed_entries: list[tuple[tuple[str, ...], str]] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                raise ValueError("resume_state_contract_invalid")
-            field_path = entry.get("field_path")
-            under = entry.get("under")
-            if (
-                not isinstance(field_path, list)
-                or not field_path
-                or any(not isinstance(part, str) or not part for part in field_path)
-                or not isinstance(under, str)
-                or not under
-            ):
-                raise ValueError("resume_state_contract_invalid")
-            parsed_entries.append((tuple(field_path), under))
-        requirements[key] = tuple(parsed_entries)
-    return requirements
-
-
-def _lookup_field_path(bundle: dict[str, object], field_path: tuple[str, ...]) -> object:
-    current: object = bundle
-    for part in field_path:
-        if not isinstance(current, dict) or part not in current:
-            raise ValueError("resume_state_bundle_schema_invalid")
-        current = current[part]
-    return current
-
-
-def _is_within(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
-def _validate_required_artifacts(
-    *,
-    bundle: dict[str, object],
-    requirements: tuple[tuple[tuple[str, ...], str], ...],
-) -> None:
-    workspace = Path.cwd().resolve()
-    for field_path, under in requirements:
-        raw_value = _lookup_field_path(bundle, field_path)
-        relpath = _workspace_relpath(raw_value)
-        target = (workspace / relpath).resolve()
-        if not _is_within(target, workspace):
-            raise ValueError("resume_state_path_unsafe")
-        under_root = (workspace / under).resolve()
-        if not _is_within(under_root, workspace) or not _is_within(target, under_root):
-            raise ValueError("resume_state_path_unsafe")
-        if not target.exists():
-            raise ValueError("resume_state_required_artifact_missing")
-
-
-def _bundle_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+        return "SCHEMA_MISMATCH"
+    if dsl_version != expected_dsl_version or state_schema_version != expected_summary_version:
+        return "UNSUPPORTED_VERSION"
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -251,71 +90,120 @@ def main(argv: list[str] | None = None) -> int:
 
     args = argv or sys.argv
     try:
-        payload = _load_payload(args)
-        resume_from = _workspace_relpath(payload.get("resume_from"))
+        payload = load_payload(args)
+        resume_from = workspace_relpath(payload.get("resume_from"))
         (
             target_dsl_version,
             return_type_name,
             structured_contract_kind,
             structured_contract,
             expected_contract_fingerprint,
-        ) = _structured_contract_payload(payload)
-        artifact_requirements = _load_artifact_requirements(payload)
-        reusable_variants = {
-            variant for variant in payload.get("reusable_variants", []) if isinstance(variant, str)
-        }
-        bundle_path = Path(resume_from)
-        if not bundle_path.exists():
-            json.dump({"variant": "START", "reason_code": "MISSING_BUNDLE"}, sys.stdout)
-            sys.stdout.write("\n")
-            return 0
-        bundle = _load_bundle(bundle_path)
-        _validate_contract_fingerprint(
+        ) = structured_contract_payload(payload)
+        validate_contract_fingerprint(
             target_dsl_version=target_dsl_version,
             return_type_name=return_type_name,
             structured_contract_kind=structured_contract_kind,
             structured_contract=structured_contract,
             expected_contract_fingerprint=expected_contract_fingerprint,
         )
-        _validate_bundle_against_contract(
+        artifact_requirements = load_artifact_requirements(payload)
+        reusable_variants = {
+            variant for variant in payload.get("reusable_variants", []) if isinstance(variant, str)
+        }
+        sidecar_suffix = payload.get("sidecar_suffix")
+        summary_schema = payload.get("summary_schema")
+        summary_version = payload.get("summary_version")
+        canonical_bundle_digest_field = payload.get("canonical_bundle_digest_field")
+        if (
+            not isinstance(sidecar_suffix, str)
+            or not sidecar_suffix
+            or not isinstance(summary_schema, str)
+            or not summary_schema
+            or not isinstance(summary_version, str)
+            or not summary_version
+            or not isinstance(canonical_bundle_digest_field, str)
+            or not canonical_bundle_digest_field
+        ):
+            raise ValueError("resume_state_contract_invalid")
+        bundle_path = Path(resume_from)
+        summary_relpath = reusable_state_sidecar_path(resume_from, sidecar_suffix)
+        summary_path = Path(summary_relpath)
+        if not bundle_path.exists() and not summary_path.exists():
+            return _emit_variant("START")
+        if not bundle_path.exists() or not summary_path.exists():
+            return _emit_variant("FAILED_PRIOR_STATE")
+        bundle = load_bundle(bundle_path)
+        validate_bundle_against_contract(
             bundle_path=bundle_path,
             structured_contract_kind=structured_contract_kind,
             structured_contract=structured_contract,
         )
-        matched_variant = None
-        selected_requirements: tuple[tuple[tuple[str, ...], str], ...] = ()
-        if structured_contract_kind == "union":
-            variant = bundle.get("variant")
-            if not isinstance(variant, str):
-                raise ValueError("resume_state_bundle_schema_invalid")
-            matched_variant = variant
-            if variant not in reusable_variants:
-                json.dump({"variant": "START", "reason_code": "VARIANT_NOT_REUSABLE"}, sys.stdout)
-                sys.stdout.write("\n")
-                return 0
-            selected_requirements = artifact_requirements.get(variant, ())
-        else:
-            selected_requirements = artifact_requirements.get(return_type_name, ())
-        _validate_required_artifacts(
-            bundle=bundle,
-            requirements=selected_requirements,
+        summary = _load_summary(summary_path)
+        if summary is None:
+            return _emit_variant("SCHEMA_MISMATCH")
+        summary_result = _summary_variant(
+            summary,
+            expected_schema=summary_schema,
+            expected_summary_version=summary_version,
+            expected_dsl_version=target_dsl_version,
         )
+        if summary_result is not None:
+            return _emit_variant(summary_result)
+        matched_variant, requirements, reusable_terminal = selected_requirements(
+            bundle=bundle,
+            structured_contract_kind=structured_contract_kind,
+            return_type_name=return_type_name,
+            reusable_variants=reusable_variants,
+            artifact_requirements=artifact_requirements,
+        )
+        if not reusable_terminal:
+            return _emit_variant("FAILED_PRIOR_STATE")
+        if summary.get("result_type") != return_type_name:
+            return _emit_variant("STALE")
+        if summary.get("workflow_checksum") != expected_contract_fingerprint:
+            return _emit_variant("STALE")
+        if summary.get(canonical_bundle_digest_field) != sha256_path(bundle_path):
+            return _emit_variant("STALE")
+        if summary.get("source_inputs_hash") != current_public_input_hash(payload):
+            return _emit_variant("STALE")
+        if summary.get("producer_fingerprint") != current_producer_fingerprint(payload):
+            return _emit_variant("STALE")
+        terminal = summary.get("terminal")
+        if not isinstance(terminal, dict) or terminal.get("variant") != (matched_variant or return_type_name):
+            return _emit_variant("STALE")
+        summary_artifact_refs = summary.get("artifact_refs")
+        if not isinstance(summary_artifact_refs, list):
+            return _emit_variant("SCHEMA_MISMATCH")
+        current_artifact_refs = build_artifact_refs(bundle=bundle, requirements=requirements)
+        for index, current_ref in enumerate(current_artifact_refs):
+            if index >= len(summary_artifact_refs):
+                return _emit_variant("SCHEMA_MISMATCH")
+            summary_ref = summary_artifact_refs[index]
+            if not isinstance(summary_ref, dict):
+                return _emit_variant("SCHEMA_MISMATCH")
+            if summary_ref.get("relpath") != current_ref["relpath"] or summary_ref.get("under") != current_ref["under"]:
+                return _emit_variant("STALE")
+            if summary_ref.get("sha256") != current_ref["sha256"]:
+                target = Path(current_ref["relpath"])
+                if not target.exists():
+                    return _emit_variant("MISSING_ARTIFACT")
+                return _emit_variant("STALE")
+        if len(summary_artifact_refs) != len(current_artifact_refs):
+            return _emit_variant("SCHEMA_MISMATCH")
         result: dict[str, Any] = {
-            "variant": "REUSE",
+            "variant": "REUSABLE",
             "source_bundle_path": resume_from,
-            "source_bundle_sha256": _bundle_sha256(bundle_path),
+            "source_bundle_sha256": sha256_path(bundle_path),
         }
         if matched_variant is not None:
             result["matched_variant"] = matched_variant
-        json.dump(result, sys.stdout)
-        sys.stdout.write("\n")
-        return 0
+        return emit_structured_result(result)
     except ValueError as error:
         code = str(error)
+        if code == "resume_state_required_artifact_missing":
+            return _emit_variant("MISSING_ARTIFACT")
         if code in HARD_FAILURE_CODES:
-            json.dump({"error": {"type": code}}, sys.stdout)
-            sys.stdout.write("\n")
-            return 1
+            return emit_error(code)
         raise
 
 

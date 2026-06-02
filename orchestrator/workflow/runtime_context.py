@@ -60,6 +60,9 @@ class RuntimeContext:
             loop_vars=self.values.get("loop"),
             item=self.values.get("item"),
         )
+        variables["self"] = {"steps": dict(self.self_steps)}
+        variables["parent"] = {"steps": dict(self.parent_steps)}
+        variables["root"] = {"steps": dict(self.root_steps)}
         for key, value in self.values.items():
             if key not in _CONTEXT_RESERVED_KEYS:
                 variables[key] = value

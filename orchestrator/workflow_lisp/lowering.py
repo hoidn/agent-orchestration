@@ -1871,8 +1871,10 @@ def _lower_resume_or_start(
     expr = typed_expr.expr
     assert isinstance(expr, ResumeOrStartExpr)
     validator_binding_name = "validate_reusable_phase_state"
+    writer_binding_name = "write_reusable_phase_state_v1"
     loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
     validator_binding = context.command_boundary_environment.bindings_by_name.get(validator_binding_name)
+    writer_binding = context.command_boundary_environment.bindings_by_name.get(writer_binding_name)
     loader_binding = context.command_boundary_environment.bindings_by_name.get(loader_binding_name)
     if context.phase_scope is not None:
         _require_phase_scope_name_match(
@@ -1889,6 +1891,13 @@ def _lower_resume_or_start(
             span=expr.span,
             form_path=expr.form_path,
         )
+    if not isinstance(writer_binding, CertifiedAdapterBinding):
+        raise _compile_error(
+            code="resume_or_start_uncertified_backend",
+            message="`resume-or-start` lowering requires the certified reusable-state writer binding",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     if not isinstance(loader_binding, CertifiedAdapterBinding):
         raise _compile_error(
             code="resume_or_start_uncertified_backend",
@@ -1896,10 +1905,18 @@ def _lower_resume_or_start(
             span=expr.span,
             form_path=expr.form_path,
         )
+    validation_spec = getattr(expr, "validation_spec", None)
+    if validation_spec is None:
+        raise _compile_error(
+            code="resume_or_start_contract_invalid",
+            message="`resume-or-start` lowering requires typed reusable-state validation metadata",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     (
         structured_contract_kind,
         expected_contract_fingerprint,
-        artifact_requirements,
+        _,
         structured_contract,
     ) = derive_reusable_state_contract_metadata(
         typed_expr.type_ref,
@@ -1928,6 +1945,10 @@ def _lower_resume_or_start(
             form_path=expr.resume_from_expr.form_path,
         )
     validator_hidden_input = f"__write_root__{validator_step_id}__result_bundle"
+    public_input_templates = {
+        name: f"${{inputs.{name}}}"
+        for name in validation_spec.public_input_hash_basis
+    }
     validator_payload = json.dumps(
         {
             "resume_from": _template_for_ref(resume_from_ref),
@@ -1936,6 +1957,10 @@ def _lower_resume_or_start(
             "structured_contract_kind": structured_contract_kind,
             "expected_contract_fingerprint": expected_contract_fingerprint,
             "structured_contract": structured_contract,
+            "summary_schema": validation_spec.summary_schema,
+            "summary_version": validation_spec.summary_version,
+            "sidecar_suffix": validation_spec.sidecar_suffix,
+            "canonical_bundle_digest_field": validation_spec.canonical_bundle_digest_field,
             "reusable_variants": list(expr.valid_when),
             "artifact_requirements": {
                 key: [
@@ -1945,8 +1970,11 @@ def _lower_resume_or_start(
                     }
                     for requirement in requirements
                 ]
-                for key, requirements in artifact_requirements.items()
+                for key, requirements in validation_spec.artifact_requirements.items()
             },
+            "public_input_hash_basis": list(validation_spec.public_input_hash_basis),
+            "current_public_inputs": public_input_templates,
+            "producer_fingerprint_basis": dict(validation_spec.producer_fingerprint_basis),
         }
     )
     reuse_fields = [
@@ -1980,41 +2008,125 @@ def _lower_resume_or_start(
                 "name": "variant",
                 "json_pointer": "/variant",
                 "type": "enum",
-                "allowed": ["REUSE", "START"],
+                "allowed": [
+                    "REUSABLE",
+                    "START",
+                    "STALE",
+                    "MISSING_ARTIFACT",
+                    "FAILED_PRIOR_STATE",
+                ],
             },
             "shared_fields": [],
             "variants": {
-                "REUSE": {
+                "REUSABLE": {
                     "fields": reuse_fields
                 },
                 "START": {
-                    "fields": [
-                        {
-                            "name": "reason_code",
-                            "json_pointer": "/reason_code",
-                            "type": "enum",
-                            "allowed": ["MISSING_BUNDLE", "VARIANT_NOT_REUSABLE"],
-                        }
-                    ]
+                    "fields": []
                 },
+                "STALE": {"fields": []},
+                "MISSING_ARTIFACT": {"fields": []},
+                "FAILED_PRIOR_STATE": {"fields": []},
             },
         },
     }
     context.generated_path_spans[validator_step["variant_output"]["path"]] = _origin_from_context_source(context, expr)
-    start_context = _copy_context_with_step_prefix(
-        context,
-        step_name_prefix=f"{context.step_name_prefix}__start",
-    )
-    start_steps, start_terminal = _lower_expression(
-        TypedExpr(
-            expr=expr.start_expr,
-            type_ref=typed_expr.type_ref,
-            span=expr.start_expr.span,
-            form_path=expr.start_expr.form_path,
-        ),
-        context=start_context,
-        local_values=local_values,
-    )
+    fresh_case_variants = ("START", "STALE", "MISSING_ARTIFACT", "FAILED_PRIOR_STATE")
+
+    def _build_fresh_case(variant_name: str) -> tuple[list[dict[str, Any]], _TerminalResult, str]:
+        case_prefix = f"{context.step_name_prefix}__{variant_name.lower()}"
+        case_context = _copy_context_with_step_prefix(
+            context,
+            step_name_prefix=case_prefix,
+        )
+        case_steps, case_terminal = _lower_expression(
+            TypedExpr(
+                expr=expr.start_expr,
+                type_ref=typed_expr.type_ref,
+                span=expr.start_expr.span,
+                form_path=expr.start_expr.form_path,
+            ),
+            context=case_context,
+            local_values=local_values,
+        )
+        case_writer_step_name = f"{case_prefix}__write_reusable_state"
+        case_writer_step_id = _normalize_generated_step_id(case_writer_step_name)
+        _record_step_origin(context, step_name=case_writer_step_name, step_id=case_writer_step_id, source=expr)
+        case_bundle_ref = _resume_start_bundle_ref(
+            expr.start_expr,
+            start_terminal=case_terminal,
+            context=case_context,
+        )
+        case_writer_hidden_input = f"__write_root__{case_writer_step_id}__result_bundle"
+        case_writer_payload = json.dumps(
+            {
+                "bundle_path": _template_for_ref(case_bundle_ref),
+                "target_dsl_version": "2.14",
+                "return_type_name": typed_expr.type_ref.name,
+                "structured_contract_kind": structured_contract_kind,
+                "expected_contract_fingerprint": expected_contract_fingerprint,
+                "structured_contract": structured_contract,
+                "summary_schema": validation_spec.summary_schema,
+                "summary_version": validation_spec.summary_version,
+                "sidecar_suffix": validation_spec.sidecar_suffix,
+                "canonical_bundle_digest_field": validation_spec.canonical_bundle_digest_field,
+                "reusable_variants": list(expr.valid_when),
+                "artifact_requirements": {
+                    key: [
+                        {
+                            "field_path": list(requirement.field_path),
+                            "under": requirement.under,
+                        }
+                        for requirement in requirements
+                    ]
+                    for key, requirements in validation_spec.artifact_requirements.items()
+                },
+                "public_input_hash_basis": list(validation_spec.public_input_hash_basis),
+                "current_public_inputs": public_input_templates,
+                "producer_fingerprint_basis": dict(validation_spec.producer_fingerprint_basis),
+                "source_run_id": public_input_templates.get("phase-ctx__run__run-id", "workflow-lisp-run"),
+                "source_step_id": case_writer_step_name,
+                "source_call_frame_id": "root",
+                "phase_id": expr.resume_name,
+                "created_at": f"{context.workflow_name}:{case_writer_step_name}",
+            }
+        )
+        case_writer_step = {
+            "name": case_writer_step_name,
+            "id": case_writer_step_id,
+            "command": [*writer_binding.stable_command, case_writer_payload],
+            "output_bundle": {
+                "path": f"${{inputs.{case_writer_hidden_input}}}",
+                "fields": [
+                    {
+                        "name": "status",
+                        "json_pointer": "/status",
+                        "type": "string",
+                    },
+                    {
+                        "name": "bundle_path",
+                        "json_pointer": "/bundle_path",
+                        "type": "relpath",
+                    },
+                    {
+                        "name": "summary_path",
+                        "json_pointer": "/summary_path",
+                        "type": "relpath",
+                    },
+                    {
+                        "name": "schema",
+                        "json_pointer": "/schema",
+                        "type": "string",
+                    },
+                ],
+            },
+        }
+        context.generated_path_spans[f"${{inputs.{case_writer_hidden_input}}}"] = _origin_from_context_source(context, expr)
+        return [*case_steps, case_writer_step], case_terminal, case_writer_hidden_input
+
+    fresh_case_data = {
+        variant_name: _build_fresh_case(variant_name) for variant_name in fresh_case_variants
+    }
     loader_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -2081,40 +2193,42 @@ def _lower_resume_or_start(
         hidden_inputs={loader_hidden_input: _origin_from_context_source(context, expr)},
     )
     reuse_case_outputs = _case_outputs(reuse_terminal)
-    start_case_outputs = _case_outputs(start_terminal)
     result_step = {
         "name": result_step_name,
         "id": result_step_id,
         "match": {
             "ref": f"root.steps.{validator_step_name}.artifacts.variant",
             "cases": {
-                "REUSE": {
+                "REUSABLE": {
                     "id": _normalize_generated_step_id(f"{context.step_name_prefix}__reuse"),
                     "outputs": reuse_case_outputs,
                     "steps": [
                         loader_step,
                         _build_match_projection_anchor_step(
                             match_step_name=result_step_name,
-                            variant_name="REUSE",
+                            variant_name="REUSABLE",
                             case_outputs=reuse_case_outputs,
                             context=context,
                             span=expr.span,
                         ),
                     ],
                 },
-                "START": {
-                    "id": _normalize_generated_step_id(f"{context.step_name_prefix}__start"),
-                    "outputs": start_case_outputs,
-                    "steps": [
-                        *start_steps,
-                        _build_match_projection_anchor_step(
-                            match_step_name=result_step_name,
-                            variant_name="START",
-                            case_outputs=start_case_outputs,
-                            context=context,
-                            span=expr.span,
-                        ),
-                    ],
+                **{
+                    variant_name: {
+                        "id": _normalize_generated_step_id(f"{context.step_name_prefix}__{variant_name.lower()}"),
+                        "outputs": _case_outputs(fresh_case_data[variant_name][1]),
+                        "steps": [
+                            *fresh_case_data[variant_name][0],
+                            _build_match_projection_anchor_step(
+                                match_step_name=result_step_name,
+                                variant_name=variant_name,
+                                case_outputs=_case_outputs(fresh_case_data[variant_name][1]),
+                                context=context,
+                                span=expr.span,
+                            ),
+                        ],
+                    }
+                    for variant_name in fresh_case_variants
                 },
             },
         },
@@ -2123,7 +2237,9 @@ def _lower_resume_or_start(
         validator_hidden_input: _origin_from_context_source(context, expr),
     }
     hidden_inputs.update(reuse_terminal.hidden_inputs)
-    hidden_inputs.update(start_terminal.hidden_inputs)
+    for _, case_terminal, case_writer_hidden_input in fresh_case_data.values():
+        hidden_inputs.update(case_terminal.hidden_inputs)
+        hidden_inputs[case_writer_hidden_input] = _origin_from_context_source(context, expr)
     _record_missing_step_origins(context, [validator_step, result_step], source=expr)
     return [validator_step, result_step], _TerminalResult(
         step_name=result_step_name,

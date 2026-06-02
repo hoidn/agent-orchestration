@@ -1,6 +1,6 @@
 """
 Variable substitution implementation.
-Handles ${var} resolution with namespaces: run, loop, steps, context, inputs.
+Handles ${var} resolution with namespaces: run, loop, steps, self, parent, root, context, inputs.
 Per specs/variables.md.
 """
 
@@ -16,6 +16,7 @@ class VariableSubstitutor:
     - run: ${run.id}, ${run.root}, ${run.timestamp_utc}
     - loop: ${item}, ${loop.index}, ${loop.total}
     - steps: ${steps.<name>.exit_code}, ${steps.<name>.output|lines|json}
+    - self|parent|root: ${self.steps.<name>.artifacts.foo}
     - context: ${context.<key>}
     - inputs: ${inputs.<name>}
     """
@@ -143,6 +144,18 @@ class VariableSubstitutor:
             return self._resolve_path(variables.get('inputs', {}), parts[1:])
         elif namespace == 'steps':
             return self._resolve_steps_variable(variables.get('steps', {}), parts[1:])
+        elif namespace in {'self', 'parent', 'root'}:
+            scoped = variables.get(namespace, {})
+            if not isinstance(scoped, dict):
+                return None
+            if len(parts) >= 2 and parts[1] == 'steps':
+                resolved = self._resolve_steps_variable(scoped.get('steps', {}), parts[2:])
+                if resolved is None and namespace == 'parent':
+                    fallback = variables.get('self', {})
+                    if isinstance(fallback, dict):
+                        return self._resolve_steps_variable(fallback.get('steps', {}), parts[2:])
+                return resolved
+            return self._resolve_path(scoped, parts[1:])
         elif namespace == 'item':
             # Special case: ${item} references the loop item directly
             return variables.get('item')
@@ -185,18 +198,25 @@ class VariableSubstitutor:
         if not path:
             return None
 
-        step_name = path[0]
-        if step_name not in steps:
+        step_name = None
+        remainder: List[str] = []
+        for index in range(len(path), 0, -1):
+            candidate = ".".join(path[:index])
+            if candidate in steps:
+                step_name = candidate
+                remainder = path[index:]
+                break
+        if step_name is None:
             return None
 
         step_result = steps[step_name]
 
-        if len(path) == 1:
+        if not remainder:
             # Return entire step result
             return step_result
 
         # Navigate into step result
-        return self._resolve_path(step_result, path[1:])
+        return self._resolve_path(step_result, remainder)
 
     def build_variables(
         self,

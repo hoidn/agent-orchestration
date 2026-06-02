@@ -188,6 +188,7 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
         helper_owner_modules=("phase_stdlib", "typecheck", "lowering", "compiler"),
         adapter_binding_names=(
             "validate_reusable_phase_state",
+            "write_reusable_phase_state_v1",
             "load_canonical_phase_result__<ReturnType>",
         ),
         test_surfaces=("tests.test_workflow_lisp_phase_stdlib",),

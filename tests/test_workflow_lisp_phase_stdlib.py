@@ -10,6 +10,7 @@ import pytest
 from orchestrator.workflow_lisp.adapters import (
     load_canonical_phase_result,
     validate_reusable_phase_state,
+    write_reusable_phase_state_v1,
 )
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
@@ -104,6 +105,137 @@ def _structured_contract_fingerprint(
         json.dumps(structured_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return f"2.14:{return_type_name}:{structured_contract_kind}:{digest}"
+
+
+def _checks_structured_contract() -> dict[str, object]:
+    return {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+
+
+def _plan_gate_structured_contract() -> dict[str, object]:
+    return {
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED"],
+        },
+        "shared_fields": [
+            {
+                "name": "shared_report_path",
+                "json_pointer": "/shared_report_path",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ],
+        "variants": {
+            "APPROVED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "blocker_class",
+                        "json_pointer": "/blocker_class",
+                        "type": "string",
+                    },
+                ]
+            },
+        },
+    }
+
+
+def _reusable_state_sidecar_relpath(bundle_relpath: str) -> str:
+    bundle_path = Path(bundle_relpath)
+    if bundle_path.suffix:
+        return bundle_path.with_suffix("").as_posix() + ".reusable_state.json"
+    return bundle_path.as_posix() + ".reusable_state.json"
+
+
+def _resume_state_payload(
+    *,
+    bundle_relpath: str,
+    return_type_name: str,
+    structured_contract_kind: str,
+    structured_contract: dict[str, object],
+    artifact_requirements: dict[str, list[dict[str, object]]],
+    reusable_variants: list[str],
+    current_public_inputs: dict[str, object],
+    producer_fingerprint_basis: dict[str, object] | None = None,
+    summary_schema: str = "ReusablePhaseState.v1",
+    summary_version: str = "v1",
+) -> dict[str, object]:
+    fingerprint = _structured_contract_fingerprint(
+        structured_contract_kind=structured_contract_kind,
+        structured_contract=structured_contract,
+        return_type_name=return_type_name,
+    )
+    public_input_hash_basis = list(current_public_inputs)
+    return {
+        "bundle_path": bundle_relpath,
+        "resume_from": bundle_relpath,
+        "target_dsl_version": "2.14",
+        "return_type_name": return_type_name,
+        "structured_contract_kind": structured_contract_kind,
+        "expected_contract_fingerprint": fingerprint,
+        "structured_contract": structured_contract,
+        "summary_schema": summary_schema,
+        "summary_version": summary_version,
+        "sidecar_suffix": ".reusable_state.json",
+        "canonical_bundle_digest_field": "canonical_bundle_sha256",
+        "reusable_variants": reusable_variants,
+        "artifact_requirements": artifact_requirements,
+        "public_input_hash_basis": public_input_hash_basis,
+        "current_public_inputs": current_public_inputs,
+        "producer_fingerprint_basis": producer_fingerprint_basis
+        or {
+            "workflow_name": "resume-test",
+            "return_type_name": return_type_name,
+            "structured_contract_kind": structured_contract_kind,
+            "expected_contract_fingerprint": fingerprint,
+            "target_dsl_version": "2.14",
+            "compiler_version": "0.1.0",
+            "reusable_variants": reusable_variants,
+            "public_input_hash_basis": public_input_hash_basis,
+            "source_file_digests": {"resume-test.orc": "abc123"},
+            "provider_extern_bindings": {"providers.execute": "fake-execute"},
+            "prompt_extern_bindings": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            "command_boundary_bindings": {"run_checks": {"kind": "external_tool", "stable_command": ["python", "scripts/run_checks.py"]}},
+            "imported_workflow_fingerprints": {},
+            "lowering_options": {"language_version": "0.1", "target_dsl_version": "2.14"},
+            "compile_inputs_fingerprint": "compile-inputs-fingerprint",
+        },
+        "source_run_id": "test-run",
+        "source_step_id": "resume-step",
+        "source_call_frame_id": "root",
+        "phase_id": "checks" if return_type_name == "ChecksResult" else "plan-gate",
+        "created_at": "2026-06-02T00:00:00Z",
+    }
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -1156,12 +1288,18 @@ def test_lowering_resume_or_start_registers_generated_loader_binding(tmp_path: P
     bindings = result.command_boundary_environment.bindings_by_name
 
     assert isinstance(bindings["validate_reusable_phase_state"], CertifiedAdapterBinding)
+    assert isinstance(bindings["write_reusable_phase_state_v1"], CertifiedAdapterBinding)
     assert isinstance(bindings["load_canonical_phase_result__ChecksResult"], CertifiedAdapterBinding)
     assert isinstance(bindings["load_canonical_phase_result__PlanGateResult"], CertifiedAdapterBinding)
     assert bindings["validate_reusable_phase_state"].stable_command == (
         "python",
         "-m",
         "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
+    )
+    assert bindings["write_reusable_phase_state_v1"].stable_command == (
+        "python",
+        "-m",
+        "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
     )
     assert bindings["load_canonical_phase_result__ChecksResult"].stable_command == (
         "python",
@@ -1190,6 +1328,19 @@ def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
     assert record_validator_payload["return_type_name"] == "ChecksResult"
     assert record_validator_payload["structured_contract_kind"] == "record"
     assert record_validator_payload["expected_contract_fingerprint"].startswith("2.14:ChecksResult:record:")
+    assert record_validator_payload["summary_schema"] == "ReusablePhaseState.v1"
+    assert record_validator_payload["summary_version"] == "v1"
+    assert record_validator_payload["sidecar_suffix"] == ".reusable_state.json"
+    assert record_validator_payload["canonical_bundle_digest_field"] == "canonical_bundle_sha256"
+    assert "inputs__report_path" in record_validator_payload["public_input_hash_basis"]
+    assert "phase-ctx__run__run-id" not in record_validator_payload["public_input_hash_basis"]
+    assert "phase-ctx__run__state-root" not in record_validator_payload["public_input_hash_basis"]
+    assert "phase-ctx__run__artifact-root" not in record_validator_payload["public_input_hash_basis"]
+    assert "phase-ctx__state-root" not in record_validator_payload["public_input_hash_basis"]
+    assert "phase-ctx__artifact-root" not in record_validator_payload["public_input_hash_basis"]
+    assert record_validator_payload["producer_fingerprint_basis"]["return_type_name"] == "ChecksResult"
+    assert record_validator_payload["producer_fingerprint_basis"]["source_file_digests"]
+    assert record_validator_payload["producer_fingerprint_basis"]["compile_inputs_fingerprint"]
     assert record_validator_payload["artifact_requirements"] == {
         "ChecksResult": [
             {
@@ -1201,7 +1352,7 @@ def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
     record_loader_payload = json.loads(
         next(
             step["command"][3]
-            for step in authored_by_name["resume-record-phase"]["steps"][1]["match"]["cases"]["REUSE"]["steps"]
+            for step in authored_by_name["resume-record-phase"]["steps"][1]["match"]["cases"]["REUSABLE"]["steps"]
             if step.get("command", [])[:3]
             == [
                 "python",
@@ -1213,12 +1364,30 @@ def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
     assert record_loader_payload["target_dsl_version"] == "2.14"
     assert record_loader_payload["return_type_name"] == "ChecksResult"
     assert record_loader_payload["expected_contract_fingerprint"].startswith("2.14:ChecksResult:record:")
+    record_writer_payload = json.loads(
+        next(
+            step["command"][3]
+            for step in authored_by_name["resume-record-phase"]["steps"][1]["match"]["cases"]["START"]["steps"]
+            if step.get("command", [])[:3]
+            == [
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
+            ]
+        )
+    )
+    assert record_writer_payload["summary_schema"] == "ReusablePhaseState.v1"
+    assert record_writer_payload["summary_version"] == "v1"
+    assert record_writer_payload["bundle_path"].startswith("${inputs.__write_root__")
 
     union_validator_payload = json.loads(authored_by_name["resume-plan-gate"]["steps"][0]["command"][3])
     assert union_validator_payload["target_dsl_version"] == "2.14"
     assert union_validator_payload["return_type_name"] == "PlanGateResult"
     assert union_validator_payload["structured_contract_kind"] == "union"
     assert union_validator_payload["expected_contract_fingerprint"].startswith("2.14:PlanGateResult:union:")
+    assert union_validator_payload["summary_schema"] == "ReusablePhaseState.v1"
+    assert union_validator_payload["producer_fingerprint_basis"]["return_type_name"] == "PlanGateResult"
+    assert union_validator_payload["producer_fingerprint_basis"]["compile_inputs_fingerprint"]
     assert union_validator_payload["artifact_requirements"] == {
         "APPROVED": [
             {
@@ -1234,7 +1403,7 @@ def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
     union_loader_payload = json.loads(
         next(
             step["command"][3]
-            for step in authored_by_name["resume-plan-gate"]["steps"][1]["match"]["cases"]["REUSE"]["steps"]
+            for step in authored_by_name["resume-plan-gate"]["steps"][1]["match"]["cases"]["REUSABLE"]["steps"]
             if step.get("command", [])[:3]
             == [
                 "python",
@@ -1246,6 +1415,63 @@ def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
     assert union_loader_payload["target_dsl_version"] == "2.14"
     assert union_loader_payload["return_type_name"] == "PlanGateResult"
     assert union_loader_payload["expected_contract_fingerprint"].startswith("2.14:PlanGateResult:union:")
+    union_writer_payload = json.loads(
+        next(
+            step["command"][3]
+            for step in authored_by_name["resume-plan-gate"]["steps"][1]["match"]["cases"]["START"]["steps"]
+            if step.get("command", [])[:3]
+            == [
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
+            ]
+        )
+    )
+    assert union_writer_payload["summary_schema"] == "ReusablePhaseState.v1"
+    assert union_writer_payload["summary_version"] == "v1"
+    assert union_writer_payload["phase_id"] == "plan-gate"
+
+
+def test_typecheck_resume_or_start_derives_summary_metadata_contract(tmp_path: Path) -> None:
+    result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
+
+    resume_exprs = [
+        node
+        for workflow in result.typed_workflows
+        for node in _walk_nodes(workflow.typed_body)
+        if type(node).__name__ == "ResumeOrStartExpr"
+    ]
+
+    assert {expr.resume_name for expr in resume_exprs} == {"checks", "plan-gate"}
+
+    checks_spec = next(expr.validation_spec for expr in resume_exprs if expr.resume_name == "checks")
+    assert checks_spec is not None
+    assert checks_spec.summary_schema == "ReusablePhaseState.v1"
+    assert checks_spec.summary_version == "v1"
+    assert checks_spec.sidecar_suffix == ".reusable_state.json"
+    assert checks_spec.canonical_bundle_digest_field == "canonical_bundle_sha256"
+    assert checks_spec.writer_binding_name == "write_reusable_phase_state_v1"
+    assert "phase-ctx__phase-name" in checks_spec.public_input_hash_basis
+    assert "inputs__report_path" in checks_spec.public_input_hash_basis
+    assert "phase-ctx__run__run-id" not in checks_spec.public_input_hash_basis
+    assert "phase-ctx__run__state-root" not in checks_spec.public_input_hash_basis
+    assert "phase-ctx__run__artifact-root" not in checks_spec.public_input_hash_basis
+    assert "phase-ctx__state-root" not in checks_spec.public_input_hash_basis
+    assert "phase-ctx__artifact-root" not in checks_spec.public_input_hash_basis
+    assert not any(name.startswith("__write_root__") for name in checks_spec.public_input_hash_basis)
+    assert checks_spec.producer_fingerprint_basis["target_dsl_version"] == "2.14"
+    assert checks_spec.producer_fingerprint_basis["return_type_name"] == "ChecksResult"
+    assert checks_spec.producer_fingerprint_basis["source_file_digests"]
+    assert checks_spec.producer_fingerprint_basis["compile_inputs_fingerprint"]
+
+    plan_gate_spec = next(expr.validation_spec for expr in resume_exprs if expr.resume_name == "plan-gate")
+    assert plan_gate_spec is not None
+    assert plan_gate_spec.summary_schema == "ReusablePhaseState.v1"
+    assert plan_gate_spec.writer_binding_name == "write_reusable_phase_state_v1"
+    assert plan_gate_spec.producer_fingerprint_basis["return_type_name"] == "PlanGateResult"
+    assert plan_gate_spec.producer_fingerprint_basis["compile_inputs_fingerprint"]
+    assert plan_gate_spec.artifact_requirements["APPROVED"][0].field_path == ("shared_report_path",)
+    assert plan_gate_spec.artifact_requirements["APPROVED"][1].field_path == ("execution_report_path",)
 
 
 def test_resume_or_start_reserved_adapter_names_cannot_be_shadowed(tmp_path: Path) -> None:
@@ -1274,6 +1500,10 @@ def test_resume_or_start_reserved_adapter_names_cannot_be_shadowed(tmp_path: Pat
                 name="validate_reusable_phase_state",
                 stable_command=("python", "scripts/not_certified_validator.py"),
             ),
+            "write_reusable_phase_state_v1": ExternalToolBinding(
+                name="write_reusable_phase_state_v1",
+                stable_command=("python", "scripts/not_certified_writer.py"),
+            ),
             "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
                 name="load_canonical_phase_result__ChecksResult",
                 stable_command=("python", "scripts/not_certified_loader.py"),
@@ -1286,11 +1516,17 @@ def test_resume_or_start_reserved_adapter_names_cannot_be_shadowed(tmp_path: Pat
     bindings = result.command_boundary_environment.bindings_by_name
 
     assert isinstance(bindings["validate_reusable_phase_state"], CertifiedAdapterBinding)
+    assert isinstance(bindings["write_reusable_phase_state_v1"], CertifiedAdapterBinding)
     assert isinstance(bindings["load_canonical_phase_result__ChecksResult"], CertifiedAdapterBinding)
     assert bindings["validate_reusable_phase_state"].stable_command == (
         "python",
         "-m",
         "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
+    )
+    assert bindings["write_reusable_phase_state_v1"].stable_command == (
+        "python",
+        "-m",
+        "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
     )
     assert bindings["load_canonical_phase_result__ChecksResult"].stable_command == (
         "python",
@@ -1409,7 +1645,7 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
             }
         ]
     }
-    assert validator_step["variant_output"]["variants"]["REUSE"]["fields"] == [
+    assert validator_step["variant_output"]["variants"]["REUSABLE"]["fields"] == [
         {
             "name": "source_bundle_path",
             "json_pointer": "/source_bundle_path",
@@ -1422,8 +1658,14 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
         },
     ]
     branch_step = record_workflow["steps"][1]
-    assert set(branch_step["match"]["cases"]) == {"REUSE", "START"}
-    reuse_steps = branch_step["match"]["cases"]["REUSE"]["steps"]
+    assert set(branch_step["match"]["cases"]) == {
+        "REUSABLE",
+        "START",
+        "STALE",
+        "MISSING_ARTIFACT",
+        "FAILED_PRIOR_STATE",
+    }
+    reuse_steps = branch_step["match"]["cases"]["REUSABLE"]["steps"]
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
     assert any(
         step.get("command", [])[:3]
@@ -1435,6 +1677,15 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
         for step in reuse_steps
     )
     assert any(step.get("command", [])[:2] == ["python", "scripts/run_checks.py"] for step in start_steps)
+    assert any(
+        step.get("command", [])[:3]
+        == [
+            "python",
+            "-m",
+            "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
+        ]
+        for step in start_steps
+    )
 
     plan_gate_workflow = by_name["resume-plan-gate"]
     assert len(plan_gate_workflow["steps"]) == 3
@@ -1453,8 +1704,14 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
         if step.get("match", {}).get("ref")
         == f"root.steps.{validator_step['name']}.artifacts.variant"
     )
-    assert set(branch_step["match"]["cases"]) == {"REUSE", "START"}
-    reuse_steps = branch_step["match"]["cases"]["REUSE"]["steps"]
+    assert set(branch_step["match"]["cases"]) == {
+        "REUSABLE",
+        "START",
+        "STALE",
+        "MISSING_ARTIFACT",
+        "FAILED_PRIOR_STATE",
+    }
+    reuse_steps = branch_step["match"]["cases"]["REUSABLE"]["steps"]
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
     assert any(
         step.get("command", [])[:3]
@@ -1466,6 +1723,15 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
         for step in reuse_steps
     )
     assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
+    assert any(
+        step.get("command", [])[:3]
+        == [
+            "python",
+            "-m",
+            "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
+        ]
+        for step in _iter_nested_steps(start_steps)
+    )
 
 
 def test_shared_validation_accepts_resume_or_start(tmp_path: Path) -> None:
@@ -1643,6 +1909,7 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     )
     assert resume_contract.adapter_binding_names == (
         "validate_reusable_phase_state",
+        "write_reusable_phase_state_v1",
         "load_canonical_phase_result__<ReturnType>",
     )
 
@@ -1987,39 +2254,32 @@ def test_validate_reusable_phase_state_reuses_record_bundle_without_variant(
         encoding="utf-8",
     )
     expected_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
-    structured_contract = {
-        "fields": [
-            {
-                "name": "checks_report",
-                "json_pointer": "/checks_report",
-                "type": "relpath",
-                "under": "artifacts/work",
-                "must_exist_target": True,
-            }
-        ]
-    }
-    payload_path = _write_payload_file(
-        tmp_path,
-        "validate_ok.json",
-        {
-            "resume_from": "checks-state.json",
-            "target_dsl_version": "2.14",
-            "return_type_name": "ChecksResult",
-            "structured_contract_kind": "record",
-            "expected_contract_fingerprint": _structured_contract_fingerprint(
-                structured_contract_kind="record",
-                structured_contract=structured_contract,
-                return_type_name="ChecksResult",
-            ),
-            "structured_contract": structured_contract,
-            "reusable_variants": [],
-            "artifact_requirements": {
-                "ChecksResult": [
-                    {"field_path": ["checks_report"], "under": "artifacts/work"}
-                ]
-            },
+    structured_contract = _checks_structured_contract()
+    payload = _resume_state_payload(
+        bundle_relpath="checks-state.json",
+        return_type_name="ChecksResult",
+        structured_contract_kind="record",
+        structured_contract=structured_contract,
+        artifact_requirements={
+            "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
         },
+        reusable_variants=[],
+        current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
     )
+    writer_payload_path = _write_payload_file(
+        tmp_path,
+        "write_reusable_state_ok.json",
+        payload,
+    )
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", writer_payload_path]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "OK",
+        "bundle_path": "checks-state.json",
+        "summary_path": "checks-state.reusable_state.json",
+        "schema": "ReusablePhaseState.v1",
+    }
+
+    payload_path = _write_payload_file(tmp_path, "validate_ok.json", payload)
 
     exit_code = validate_reusable_phase_state.main(
         [
@@ -2032,10 +2292,468 @@ def test_validate_reusable_phase_state_reuses_record_bundle_without_variant(
 
     assert exit_code == 0
     assert json.loads(captured.out) == {
-        "variant": "REUSE",
+        "variant": "REUSABLE",
         "source_bundle_path": "checks-state.json",
         "source_bundle_sha256": expected_sha256,
     }
+
+
+def test_write_reusable_phase_state_writes_sidecar_summary(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    payload_path = _write_payload_file(
+        tmp_path,
+        "write_summary.json",
+        _resume_state_payload(
+            bundle_relpath="checks-state.json",
+            return_type_name="ChecksResult",
+            structured_contract_kind="record",
+            structured_contract=_checks_structured_contract(),
+            artifact_requirements={
+                "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+            },
+            reusable_variants=[],
+            current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+        ),
+    )
+
+    exit_code = write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", payload_path])
+    response = json.loads(capsys.readouterr().out)
+    sidecar_path = tmp_path / "checks-state.reusable_state.json"
+    summary = json.loads(sidecar_path.read_text(encoding="utf-8"))
+
+    assert exit_code == 0
+    assert response == {
+        "status": "OK",
+        "bundle_path": "checks-state.json",
+        "summary_path": "checks-state.reusable_state.json",
+        "schema": "ReusablePhaseState.v1",
+    }
+    assert sidecar_path.is_file()
+    assert summary["schema"] == "ReusablePhaseState.v1"
+    assert summary["summary_version"] == "v1"
+    assert summary["result_type"] == "ChecksResult"
+    assert summary["compatibility"] == {
+        "dsl_version": "2.14",
+        "state_schema_version": "v1",
+        "reusable": True,
+        "status": "REUSABLE",
+    }
+    assert summary["canonical_bundle_sha256"] == hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    assert summary["artifact_refs"] == [
+        {
+            "field_path": ["checks_report"],
+            "relpath": "artifacts/work/checks-report.md",
+            "under": "artifacts/work",
+            "sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+        }
+    ]
+
+
+def test_write_reusable_phase_state_writes_declared_output_bundle_when_env_path_set(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "state/adapter-results/write_reusable_state.json")
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    payload_path = _write_payload_file(
+        tmp_path,
+        "write_summary_env.json",
+        _resume_state_payload(
+            bundle_relpath="checks-state.json",
+            return_type_name="ChecksResult",
+            structured_contract_kind="record",
+            structured_contract=_checks_structured_contract(),
+            artifact_requirements={
+                "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+            },
+            reusable_variants=[],
+            current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+        ),
+    )
+
+    exit_code = write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", payload_path])
+    stdout_payload = json.loads(capsys.readouterr().out)
+    declared_bundle = tmp_path / "state" / "adapter-results" / "write_reusable_state.json"
+
+    assert exit_code == 0
+    assert declared_bundle.is_file()
+    assert json.loads(declared_bundle.read_text(encoding="utf-8")) == stdout_payload
+
+
+def test_validate_reusable_phase_state_writes_declared_variant_output_when_env_path_set(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    payload = _resume_state_payload(
+        bundle_relpath="checks-state.json",
+        return_type_name="ChecksResult",
+        structured_contract_kind="record",
+        structured_contract=_checks_structured_contract(),
+        artifact_requirements={
+            "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+        },
+        reusable_variants=[],
+        current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+    )
+    writer_payload_path = _write_payload_file(tmp_path, "write_validate_env_state.json", payload)
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", writer_payload_path]) == 0
+    capsys.readouterr()
+    monkeypatch.setenv("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "state/adapter-results/validate_reusable_state.json")
+    validate_payload_path = _write_payload_file(tmp_path, "validate_env_state.json", payload)
+
+    exit_code = validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", validate_payload_path]
+    )
+    stdout_payload = json.loads(capsys.readouterr().out)
+    declared_bundle = tmp_path / "state" / "adapter-results" / "validate_reusable_state.json"
+
+    assert exit_code == 0
+    assert declared_bundle.is_file()
+    assert json.loads(declared_bundle.read_text(encoding="utf-8")) == stdout_payload
+
+
+def test_validate_reusable_phase_state_ignores_run_local_public_inputs_outside_hash_basis(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    payload = _resume_state_payload(
+        bundle_relpath="checks-state.json",
+        return_type_name="ChecksResult",
+        structured_contract_kind="record",
+        structured_contract=_checks_structured_contract(),
+        artifact_requirements={
+            "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+        },
+        reusable_variants=[],
+        current_public_inputs={
+            "phase-ctx__phase-name": "checks",
+            "inputs__report_path": "artifacts/work/checks-report.md",
+            "phase-ctx__run__run-id": "run-1",
+            "phase-ctx__run__state-root": "state/run-1",
+            "phase-ctx__run__artifact-root": "artifacts/run-1",
+            "phase-ctx__state-root": "state/checks/run-1",
+            "phase-ctx__artifact-root": "artifacts/checks/run-1",
+        },
+    )
+    payload["public_input_hash_basis"] = [
+        "phase-ctx__phase-name",
+        "inputs__report_path",
+    ]
+    writer_payload_path = _write_payload_file(tmp_path, "write_run_local_filtered_state.json", payload)
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", writer_payload_path]) == 0
+    capsys.readouterr()
+
+    validate_payload = dict(payload)
+    validate_payload["current_public_inputs"] = {
+        **payload["current_public_inputs"],
+        "phase-ctx__run__run-id": "run-2",
+        "phase-ctx__run__state-root": "state/run-2",
+        "phase-ctx__run__artifact-root": "artifacts/run-2",
+        "phase-ctx__state-root": "state/checks/run-2",
+        "phase-ctx__artifact-root": "artifacts/checks/run-2",
+    }
+    validate_payload_path = _write_payload_file(tmp_path, "validate_run_local_filtered_state.json", validate_payload)
+
+    exit_code = validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", validate_payload_path]
+    )
+    payload_out = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload_out["variant"] == "REUSABLE"
+
+
+def test_load_canonical_phase_result_writes_declared_output_bundle_when_env_path_set(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "state/adapter-results/load_canonical_phase_result.json")
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
+    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    bundle_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "checks-state.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract=structured_contract,
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": bundle_sha256,
+                }
+            ),
+        ]
+    )
+    stdout_payload = json.loads(capsys.readouterr().out)
+    declared_bundle = tmp_path / "state" / "adapter-results" / "load_canonical_phase_result.json"
+
+    assert exit_code == 0
+    assert declared_bundle.is_file()
+    assert json.loads(declared_bundle.read_text(encoding="utf-8")) == stdout_payload
+
+
+def test_validate_reusable_phase_state_classifies_bundle_without_sidecar_as_failed_prior_state(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    (tmp_path / "checks-state.json").write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_failed_prior_state.json",
+        _resume_state_payload(
+            bundle_relpath="checks-state.json",
+            return_type_name="ChecksResult",
+            structured_contract_kind="record",
+            structured_contract=_checks_structured_contract(),
+            artifact_requirements={
+                "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+            },
+            reusable_variants=[],
+            current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+        ),
+    )
+
+    exit_code = validate_reusable_phase_state.main(["validate_reusable_phase_state", payload_path])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"variant": "FAILED_PRIOR_STATE"}
+
+
+def test_validate_reusable_phase_state_classifies_stale_public_inputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    writer_payload = _resume_state_payload(
+        bundle_relpath="checks-state.json",
+        return_type_name="ChecksResult",
+        structured_contract_kind="record",
+        structured_contract=_checks_structured_contract(),
+        artifact_requirements={
+            "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+        },
+        reusable_variants=[],
+        current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+    )
+    writer_payload_path = _write_payload_file(tmp_path, "write_stale_state.json", writer_payload)
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", writer_payload_path]) == 0
+    capsys.readouterr()
+    validate_payload = dict(writer_payload)
+    validate_payload["current_public_inputs"] = {
+        "phase-ctx__phase-name": "checks",
+        "inputs__report_path": "artifacts/work/changed-report.md",
+    }
+    validate_payload_path = _write_payload_file(tmp_path, "validate_stale_state.json", validate_payload)
+
+    exit_code = validate_reusable_phase_state.main(["validate_reusable_phase_state", validate_payload_path])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"variant": "STALE"}
+
+
+def test_validate_reusable_phase_state_classifies_schema_mismatch_summary(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    (tmp_path / "checks-state.json").write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    sidecar_path = tmp_path / "checks-state.reusable_state.json"
+    sidecar_path.write_text("{bad", encoding="utf-8")
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_schema_mismatch.json",
+        _resume_state_payload(
+            bundle_relpath="checks-state.json",
+            return_type_name="ChecksResult",
+            structured_contract_kind="record",
+            structured_contract=_checks_structured_contract(),
+            artifact_requirements={
+                "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+            },
+            reusable_variants=[],
+            current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+        ),
+    )
+
+    exit_code = validate_reusable_phase_state.main(["validate_reusable_phase_state", payload_path])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"variant": "SCHEMA_MISMATCH"}
+
+
+def test_validate_reusable_phase_state_classifies_unsupported_version_summary(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    writer_payload = _resume_state_payload(
+        bundle_relpath="checks-state.json",
+        return_type_name="ChecksResult",
+        structured_contract_kind="record",
+        structured_contract=_checks_structured_contract(),
+        artifact_requirements={
+            "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+        },
+        reusable_variants=[],
+        current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+    )
+    writer_payload_path = _write_payload_file(tmp_path, "write_unsupported_state.json", writer_payload)
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", writer_payload_path]) == 0
+    capsys.readouterr()
+    sidecar_path = tmp_path / "checks-state.reusable_state.json"
+    summary = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    summary["schema"] = "ReusablePhaseState.v9"
+    sidecar_path.write_text(json.dumps(summary), encoding="utf-8")
+    payload_path = _write_payload_file(tmp_path, "validate_unsupported_state.json", writer_payload)
+
+    exit_code = validate_reusable_phase_state.main(["validate_reusable_phase_state", payload_path])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"variant": "UNSUPPORTED_VERSION"}
+
+
+def test_validate_reusable_phase_state_classifies_unsupported_compatibility_metadata(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    writer_payload = _resume_state_payload(
+        bundle_relpath="checks-state.json",
+        return_type_name="ChecksResult",
+        structured_contract_kind="record",
+        structured_contract=_checks_structured_contract(),
+        artifact_requirements={
+            "ChecksResult": [{"field_path": ["checks_report"], "under": "artifacts/work"}]
+        },
+        reusable_variants=[],
+        current_public_inputs={"phase-ctx__phase-name": "checks", "inputs__report_path": "artifacts/work/checks-report.md"},
+    )
+    writer_payload_path = _write_payload_file(tmp_path, "write_incompatible_state.json", writer_payload)
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", writer_payload_path]) == 0
+    capsys.readouterr()
+    sidecar_path = tmp_path / "checks-state.reusable_state.json"
+    summary = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    summary["compatibility"]["dsl_version"] = "2.99"
+    sidecar_path.write_text(json.dumps(summary), encoding="utf-8")
+    payload_path = _write_payload_file(tmp_path, "validate_incompatible_state.json", writer_payload)
+
+    exit_code = validate_reusable_phase_state.main(["validate_reusable_phase_state", payload_path])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload == {"variant": "UNSUPPORTED_VERSION"}
 
 
 def test_validate_reusable_phase_state_rejects_contract_fingerprint_mismatch(
@@ -2348,12 +3066,15 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    execution_report = tmp_path / "artifacts" / "work" / "execution.md"
+    execution_report.parent.mkdir(parents=True, exist_ok=True)
+    execution_report.write_text("execution", encoding="utf-8")
     bundle_path = tmp_path / "plan-gate-state.json"
     bundle_path.write_text(
         json.dumps(
             {
                 "variant": "APPROVED",
-                "execution_report_path": "artifacts/work/missing-execution.md",
+                "execution_report_path": "artifacts/work/execution.md",
             }
         ),
         encoding="utf-8",
@@ -2396,12 +3117,35 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
             },
         },
     }
-    payload_path = _write_payload_file(
-        tmp_path,
-        "validate_union_missing_artifact.json",
-        {
-            "resume_from": "plan-gate-state.json",
-            "target_dsl_version": "2.14",
+    payload = {
+        "bundle_path": "plan-gate-state.json",
+        "resume_from": "plan-gate-state.json",
+        "target_dsl_version": "2.14",
+        "return_type_name": "PlanGateResult",
+        "structured_contract_kind": "union",
+        "expected_contract_fingerprint": _structured_contract_fingerprint(
+            structured_contract_kind="union",
+            structured_contract=structured_contract,
+            return_type_name="PlanGateResult",
+        ),
+        "structured_contract": structured_contract,
+        "summary_schema": "ReusablePhaseState.v1",
+        "summary_version": "v1",
+        "sidecar_suffix": ".reusable_state.json",
+        "canonical_bundle_digest_field": "canonical_bundle_sha256",
+        "reusable_variants": ["APPROVED"],
+        "artifact_requirements": {
+            "APPROVED": [
+                {
+                    "field_path": ["execution_report_path"],
+                    "under": "artifacts/work",
+                }
+            ]
+        },
+        "public_input_hash_basis": ["phase-ctx__phase-name"],
+        "current_public_inputs": {"phase-ctx__phase-name": "plan-gate"},
+        "producer_fingerprint_basis": {
+            "workflow_name": "resume-test",
             "return_type_name": "PlanGateResult",
             "structured_contract_kind": "union",
             "expected_contract_fingerprint": _structured_contract_fingerprint(
@@ -2409,18 +3153,25 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
                 structured_contract=structured_contract,
                 return_type_name="PlanGateResult",
             ),
-            "structured_contract": structured_contract,
+            "target_dsl_version": "2.14",
+            "compiler_version": "0.1.0",
             "reusable_variants": ["APPROVED"],
-            "artifact_requirements": {
-                "APPROVED": [
-                    {
-                        "field_path": ["execution_report_path"],
-                        "under": "artifacts/work",
-                    }
-                ]
-            },
+            "public_input_hash_basis": ["phase-ctx__phase-name"],
         },
+        "source_run_id": "test-run",
+        "source_step_id": "resume-step",
+        "source_call_frame_id": "root",
+        "phase_id": "plan-gate",
+        "created_at": "2026-06-02T00:00:00Z",
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_union_missing_artifact.json",
+        payload,
     )
+    assert write_reusable_phase_state_v1.main(["write_reusable_phase_state_v1", payload_path]) == 0
+    capsys.readouterr()
+    execution_report.unlink()
 
     exit_code = validate_reusable_phase_state.main(
         [
@@ -2431,10 +3182,8 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
 
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert json.loads(captured.out) == {
-        "error": {"type": "resume_state_required_artifact_missing"}
-    }
+    assert exit_code == 0
+    assert json.loads(captured.out) == {"variant": "MISSING_ARTIFACT"}
 
 
 def test_validate_reusable_phase_state_rejects_symlinked_external_bundle_path(

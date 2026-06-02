@@ -58,7 +58,14 @@ from .type_env import (
     UnionTypeRef,
     WorkflowRefTypeRef,
 )
-from .typecheck import TypedExpr, typecheck_expression
+from .typecheck import (
+    TypedExpr,
+    clear_active_reusable_state_producer_context,
+    clear_active_workflow_signature,
+    set_active_reusable_state_producer_context,
+    set_active_workflow_signature,
+    typecheck_expression,
+)
 
 if TYPE_CHECKING:
     from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
@@ -1017,6 +1024,7 @@ def typecheck_workflow_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
+    reusable_state_producer_context: Mapping[str, object] | None = None,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -1065,20 +1073,26 @@ def typecheck_workflow_definitions(
             )
         else:
             body_expr = workflow_def.body
-        typed_body = typecheck_expression(
-            body_expr,
-            type_env=type_env,
-            value_env=value_env,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            function_catalog=function_catalog,
-            extern_environment=externs,
-            command_boundary_environment=command_boundaries,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
+        set_active_workflow_signature(signature)
+        set_active_reusable_state_producer_context(reusable_state_producer_context)
+        try:
+            typed_body = typecheck_expression(
+                body_expr,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                function_catalog=function_catalog,
+                extern_environment=externs,
+                command_boundary_environment=command_boundaries,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+        finally:
+            clear_active_reusable_state_producer_context()
+            clear_active_workflow_signature()
         if typed_body.type_ref != signature.return_type_ref:
             raise LispFrontendCompileError(
                 (
