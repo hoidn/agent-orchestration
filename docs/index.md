@@ -202,6 +202,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, let-proc, procref, lexical-procedure, compile-time
 **Use this when:** Reviewing local procedure authoring ergonomics without runtime closures or a second lowering path.
 
+### [Workflow Lisp Compile-Time Parametric Specialization](design/workflow_lisp_compile_time_parametric_specialization.md)
+**Description:** Draft future-direction design for Julia-inspired compile-time parametric `.orc` definitions that specialize into monomorphic helpers without runtime dispatch, runtime type values, or runtime procedure values.
+**Keywords:** lisp-frontend, parametric, specialization, type-parameters, procref, generic-orc
+**Use this when:** Evaluating how reusable `.orc` definitions should handle caller-specific record and union shapes without macro-generated semantic control flow.
+
 ### [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 **Description:** Deferred runtime-semantics boundary for principled closures, including sealed closure families, checked dynamic invocation, typed captures, capabilities, source maps, and replay/resume constraints.
 **Keywords:** lisp-frontend, closures, runtime-callable, executable-ir, replay, resume

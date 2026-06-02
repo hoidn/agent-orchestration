@@ -25,8 +25,10 @@ Related docs:
 - `docs/design/lisp_frontend_review_fix_loops.md`
 - `docs/design/workflow_lisp_state_layout.md`
 - `docs/design/workflow_command_adapter_contract.md`
+- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
 - `docs/plans/2026-05-29-lisp-migrate-key-workflows-execution-summary.md`
 - `docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`
+- `docs/plans/2026-06-02-workflow-lisp-generic-orc-expansion-refactor.md`
 - Generated run evidence:
   `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json`
 
@@ -50,14 +52,20 @@ structured refs, call frames, and runtime state. Workflow Lisp also already has
 important composition substrate: pure `defun`, effectful `defproc`,
 `WorkflowRef`, `ProcRef`, `bind-proc`, `let-proc`, and `loop/recur`. The main
 work is to complete and generalize that substrate enough that recurring
-patterns such as `review-revise-loop` can be defined as ordinary library
-workflows/procedures, not compiler-special forms. After that, the remaining
-work is to specify the few runtime behaviors that are currently implementation
-details and add a machine-checked promotion gate that prevents `.orc` workflows
-from replacing YAML while parity remains regressive. The main runtime/spec
-exceptions are command bundle-path injection, command-produced union bundle
-handling, generated write-root policy, review-loop exhaustion projection, and
-machine-checked promotion evidence.
+patterns such as `review-revise-loop` can be defined as ordinary `.orc` code,
+not compiler-special forms. For this migration slice, ordinary `.orc` code may
+include a thin macro that specializes caller-specific record shapes into
+monomorphic helper definitions before ordinary lowering, because the current
+language does not yet provide polymorphic imported `defproc` signatures. That
+macro or helper must itself be parsed from grammar-accepted `.orc` source and
+expanded through the same generic pipeline available to any user, project,
+generated, or standard-library `.orc`; it must not be a Python hand-built
+review-loop AST. After that, the remaining work is to specify the few runtime
+behaviors that are currently implementation details and add a machine-checked
+promotion gate that prevents `.orc` workflows from replacing YAML while parity
+remains regressive. The main runtime/spec exceptions are command bundle-path
+injection, command-produced union bundle handling, generated write-root policy,
+review-loop exhaustion projection, and machine-checked promotion evidence.
 
 No runtime closures or runtime-transported procedure values are required for
 this migration tranche.
@@ -72,11 +80,11 @@ carried review context, resume safety, input defaults, and observable migration
 evidence.
 
 The goal of this design is to identify the smallest principled set of
-DSL/compiler/runtime and stdlib changes needed to reach that parity without
-recreating YAML-era glue. In particular, recurring orchestration patterns should
-be expressible as ordinary `.orc` stdlib workflows/procedures over generic
-effectful composition, while the runtime continues to enforce validated
-artifacts and state rather than learning workflow-specific concepts.
+DSL/compiler/runtime and `.orc` library changes needed to reach that parity without
+recreating YAML-era glue. In particular, recurring orchestration patterns
+should be expressible as ordinary `.orc` surfaces over generic effectful
+composition, while the runtime continues to enforce validated artifacts and
+state rather than learning workflow-specific concepts.
 
 ## Context And Authority
 
@@ -121,7 +129,7 @@ leave important behavior implicit:
   absence of procedures, references, or loops; it is that `ProcRef` review/fix
   hooks inside generic loop bodies, compiler-owned result paths, typed
   exhaustion projection, carried evidence identities, typed review findings, and
-  source-map-preserving stdlib expansion are not yet proven outside a
+  source-map-preserving generic `.orc` expansion are not yet proven outside a
   compiler-specific branch.
 - Review findings are still entangled with report/pointer extraction in legacy
   YAML patterns instead of being typed state that revise/fix steps consume.
@@ -146,7 +154,7 @@ Lisp is intended to remove.
 - Keep structured state and validated artifacts as authority.
 - Make generated state paths, bundle paths, and source maps deterministic.
 - Support real review/revise/fix loops with typed terminal outcomes.
-- Make review/revise/fix loops ordinary `.orc` stdlib code rather than
+- Make review/revise/fix loops ordinary `.orc` code rather than
   compiler-special language forms.
 - Support carried review findings without markdown report parsing as semantic
   authority.
@@ -166,6 +174,8 @@ Lisp is intended to remove.
 - Do not introduce a new DSL version solely to rename existing v2.14 surfaces.
 - Do not add or preserve a compiler-special `review-revise-loop` implementation
   as the migration path.
+- Do not require imported-procedure polymorphism or type parameters in this
+  migration slice solely to express `review-revise-loop`.
 
 ## Decision
 
@@ -179,15 +189,21 @@ The recommended approach is:
    library abstractions over provider calls, command calls, typed loops,
    matches, generated result paths, source maps, and compile-time
    provider/prompt/workflow/procedure references.
-3. Define `review-revise-loop` as ordinary `.orc` stdlib code on top of those
-   generic capabilities.
+3. Define `review-revise-loop` as ordinary `.orc` code on top of those generic
+   capabilities. For this migration slice, the exported surface from
+   `std/phase.orc` may be a thin macro that specializes caller-specific record
+   types into a monomorphic helper definition or generated private workflow
+   before ordinary lowering, as long as effects remain explicit after expansion
+   and the compiler does not recognize `review-revise-loop` by name. The
+   expansion source must be grammar-accepted `.orc`, not a
+   review-loop-shaped Python AST constructor.
 4. Finalize Workflow Lisp contracts for `command-result`, `resume-or-start`,
    state layout, and workflow input defaults.
 5. Specify and implement normative command structured-output behavior:
    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` is the command's authoritative bundle
    target for command steps with deterministic structured bundle contracts.
-6. Introduce generic structured dataflow guidance for stdlib review-result and
-   finding records.
+6. Introduce generic structured dataflow guidance for review-result and finding
+   records.
 7. Add a machine-validated migration promotion gate that keeps YAML primary
    until parity evidence is non-regressive. `non_regressive` is computed by the
    promotion command from evidence; authors must not assert it by hand.
@@ -200,12 +216,14 @@ composition feature before migration can continue. A key workflow may attempt
 
 1. `command-result` lowers to authoritative generated bundle contracts with
    compiler-owned paths and runtime bundle-path injection.
-2. Imported `.orc` stdlib definitions can generate provider steps, command
+2. Imported `.orc` definitions can generate provider steps, command
    steps, `match`, and one resume-safe typed loop form with stable source maps.
-3. `review-revise-loop` is a stdlib `defproc` over compile-time `ProcRef`
-   review/fix hooks. Caller-owned review/fix procedures may use provider and
-   prompt externs, but the loop does not carry provider or prompt refs as
-   runtime state.
+3. `review-revise-loop` is an exported `.orc` surface over compile-time `ProcRef`
+   review/fix hooks. It may lower through an imported monomorphic
+   `defproc`/workflow or through a thin macro that specializes concrete
+   caller types into an equivalent generated helper. Caller-owned review/fix
+   procedures may use provider and prompt externs, but the loop does not carry
+   provider or prompt refs as runtime state.
 4. Generic `loop/recur` supports typed exhaustion projection through current
    `repeat_until.on_exhausted` scalar overrides plus final projection from the
    last loop-frame state.
@@ -214,7 +232,7 @@ composition feature before migration can continue. A key workflow may attempt
 6. Parity evidence proves the generated executable shape matches the YAML
    baseline.
 
-Generic macros, broader stdlib packaging, and arbitrary nested effectful
+Generic macros, broader `.orc` packaging, and arbitrary nested effectful
 composition remain follow-on work unless this review-loop implementation
 requires them.
 
@@ -223,11 +241,17 @@ Feasibility proof status:
 - `docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`
   records the current proof. The architecture is conditionally feasible, but
   not proven by the current checkout.
-- The viable route is a stdlib `defproc` over compile-time `ProcRef` review and
-  fix hooks, plus generic `loop/recur` exhaustion projection. The current
-  compiler-special `ReviewReviseLoopExpr` path is useful evidence for the
-  generated shape, but it does not satisfy this architecture.
-- Promotion work must first add fixtures proving imported stdlib usage lowers
+- The prior viable route assumed a single imported `defproc` over
+  compile-time `ProcRef` review and fix hooks, plus generic `loop/recur`
+  exhaustion projection. The blocker report shows that assumption is too strong
+  for the current language because imported `defproc` parameters are
+  monomorphic and the retained review-loop surface passes caller-specific
+  `completed` and `inputs` record types. The accepted route for this migration
+  slice is therefore a thin macro or equivalent compile-time
+  specialization layer that produces monomorphic helpers before ordinary
+  lowering. The current compiler-special `ReviewReviseLoopExpr` path is useful
+  evidence for the generated shape, but it does not satisfy this architecture.
+- Promotion work must first add fixtures proving imported `.orc` usage lowers
   without recognizing the literal `review-revise-loop` name in typecheck or
   lowering.
 
@@ -242,20 +266,27 @@ Alternatives considered:
   steps. This may be expedient, but it bakes one workflow idiom into the
   compiler and delays the more important `.orc` composition model. Reject as the
   migration path.
+- **Polymorphic imported `defproc`.** Add procedure type parameters or
+  equivalent imported-procedure polymorphism so one imported `defproc` can accept
+  arbitrary caller `completed` and `inputs` record shapes. This may still be a
+  valid future language extension, but it is not the minimum change needed to
+  unblock migration parity. Reject for this tranche.
 - **Legacy adapter migration.** Wrap missing behavior in certified adapters and
   preserve YAML-era pointer/report conventions. Useful only for explicitly
   allowlisted compatibility. Reject as the primary architecture.
 - **Language-foundation-first stdlib.** Complete generic effectful composition
   and source-map-preserving library expansion first, then implement review loops
-  as ordinary `.orc` stdlib code. This is the selected approach.
+  as ordinary `.orc` code, allowing a thin macro specialization
+  layer where the current monomorphic procedure type system requires it. This
+  is the selected approach.
 
 ## Required Changes By Gap
 
 | Gap | Required extension | Primary owner | DSL/spec impact | Promotion evidence |
 | --- | --- | --- | --- | --- |
 | Command-result structured return materialization | Final `command-result` lowering contract and runtime bundle-path contract | Workflow Lisp lowering + runtime executor | Normative command bundle-path behavior in `specs/dsl.md` and `specs/io.md` | Real command smoke proves env injection, bundle validation, and missing-bundle failure |
-| Review/revise loop parity | Complete generic effectful `.orc` library composition, then implement `review-revise-loop` in stdlib `.orc` | Workflow Lisp language/compiler + stdlib | No new YAML DSL construct if v2.7/v2.12 semantics plus final projection suffice | REVISE/fix/APPROVE and exhaustion tests |
-| Carried findings/review state | Generic structured output/dataflow support, with concrete review-result and findings schemas owned by the `.orc` stdlib loop | `.orc` stdlib + Workflow Lisp generic validation | No new YAML DSL construct; use declared structured bundles | Findings schema validation and revise/fix consumption |
+| Review/revise loop parity | Complete generic effectful `.orc` library composition, then implement `review-revise-loop` as `.orc` code, allowing thin compile-time specialization for caller-specific record types | Workflow Lisp language/compiler + `.orc` libraries | No new YAML DSL construct if v2.7/v2.12 semantics plus final projection suffice | REVISE/fix/APPROVE and exhaustion tests |
+| Carried findings/review state | Generic structured output/dataflow support, with concrete review-result and findings schemas owned by the `.orc` review loop | `.orc` library definitions + Workflow Lisp generic validation | No new YAML DSL construct; use declared structured bundles | Findings schema validation and revise/fix consumption |
 | Resume/state semantics | State layout and `resume-or-start` reusable-state validation contract | Workflow Lisp state layout + runtime/adapters | Clarify reusable state shape and failure taxonomy | Reusable, stale, missing artifact, failed, and schema-mismatch cases |
 | Default input parity | `.orc` boundary syntax and lowering for workflow input defaults | Workflow Lisp parser/typecheck/lowering | Existing DSL input default support | Compile/lower/default override tests |
 | Real smoke coverage | Migration promotion checklist and parity report schema | Migration policy/tests | New machine-readable migration report schema | Computed `non_regressive`, not manually asserted |
@@ -279,7 +310,7 @@ The architecture has four layers.
 ```text
 .orc authoring
   -> Workflow Lisp parser/typecheck/effectful library composition
-  -> .orc stdlib workflows/procedures
+  -> .orc workflows/procedures/macros
   -> Core Workflow AST / Semantic IR / Executable IR
   -> existing DSL runtime primitives
   -> migration parity evidence
@@ -327,8 +358,7 @@ Before this design is accepted rather than draft, align the dependent authoring
 and lowering docs:
 
 - `docs/lisp_workflow_drafting_guide.md`: label `review-revise-loop` as
-  stdlib-pending for primary migrations unless the ordinary stdlib
-  implementation exists.
+  primary-migration-pending unless the ordinary `.orc` implementation exists.
 - `docs/design/workflow_lisp_stdlib_lowering.md`: record that
   review-loop-specific compiler lowering is rejected for this tranche.
 - `docs/design/lisp_frontend_review_fix_loops.md`: map YAML terminal statuses
@@ -356,10 +386,52 @@ Library abstractions include:
 Authors should express typed workflow behavior. They should not write hidden
 bundle paths, pointer files, markdown extraction, or loop routing glue.
 
-`review-revise-loop` must be authored in `.orc` stdlib, imported like any other
-library workflow/procedure, and compiled through the same generic machinery as
-project-authored code. The compiler may know about the primitive forms it uses,
-but it must not contain a review-loop-specific lowering branch.
+`review-revise-loop` currently lives in `std/phase.orc`, but the required
+machinery is not stdlib-specific. It must compile through the same generic
+machinery as project-authored `.orc` code. For this migration slice, the
+imported surface may be a workflow, procedure, or thin macro that specializes
+caller-specific record types into monomorphic helpers before lowering. The
+compiler may know about the primitive forms that expanded `.orc` uses, but it
+must not contain a review-loop-specific lowering branch or a special-case on
+the literal `review-revise-loop` name.
+
+### Generic `.orc` Expansion Contract
+
+The expansion contract applies to all `.orc` source: user modules, project
+modules, generated/private modules, and standard-library modules.
+`review-revise-loop` is only the motivating migration case.
+
+The required pipeline is:
+
+```text
+user .orc / project .orc / generated .orc / standard-library .orc
+  -> grammar parser
+  -> frontend AST
+  -> macro/procedure expansion
+  -> compile-time ref and type specialization
+  -> ordinary Core AST
+  -> shared validation
+  -> executable workflow DSL
+```
+
+Compiler Python may implement generic language machinery: parsing,
+deterministic macro expansion, effectful procedure/workflow specialization,
+compile-time reference specialization, hygienic generated names and paths,
+source-map propagation, typechecking, and lowering of ordinary Core AST nodes.
+
+Compiler Python must not encode review-loop domain control flow. Large Python
+blocks that directly construct a review-loop-shaped tree of `MatchExpr`,
+`MatchArm`, `DoneExpr`, `UnionVariantExpr`, and field projections are acceptable
+only if they are part of a generic typed-template or expansion engine used by
+arbitrary `.orc` definitions. They are not acceptable as the semantic route for
+`review-revise-loop` itself.
+
+A generic expansion representation may record parsed expansion AST, authored
+call-site source, library definition source, specialization bindings,
+generated-name/path allocator identity, expansion stack, and source-map
+provenance. It must not contain review-loop-specific fields such as
+`review_provider`, `fix_provider`, `checks_report`, or `progress_report`; those
+belong in `.orc` records, unions, procedure parameters, and library definitions.
 
 ### Required Generic `.orc` Support
 
@@ -368,25 +440,28 @@ library definition. This is completion work on the current language model, not
 a restart. Current support already includes pure `defun`, effectful `defproc`,
 `WorkflowRef`, `ProcRef`, `bind-proc`, `let-proc`, and `loop/recur`.
 
-1. **Effectful library procedures or workflows.** A reusable `.orc` definition
-   can already be represented with `defproc` and workflow/procedure refs. The
-   remaining requirement is to make that path sufficient for stdlib control
-   combinators: imported library definitions must preserve sequencing,
-   artifacts, output refs, validation, source maps, and effect graph entries
-   across nested provider calls, command calls, `match`, typed loops, and calls
-   to other workflows/procedures.
+1. **Effectful library procedures, workflows, or macro-specialized helpers.** A
+   reusable `.orc` definition can already be represented with `defproc` and
+   workflow/procedure refs. The remaining requirement is to make that path
+   sufficient for reusable control combinators, including the case where a thin
+   macro must specialize caller-specific record shapes into monomorphic helpers
+   before lowering: imported `.orc` definitions must preserve
+   sequencing, artifacts, output refs, validation, source maps, and effect
+   graph entries across nested provider calls, command calls, `match`, typed
+   loops, and calls to other workflows/procedures.
 
 2. **Compile-time procedure hooks for review and fix behavior.** Workflow and
    procedure refs already have a static authoring model. The review-loop proof
    uses `ProcRef` review/fix hooks: caller-owned procedures bind or directly use
-   provider and prompt externs, then the stdlib loop receives only specialized
-   procedure refs. Provider and prompt refs may still need better compile-time
-   parameter support for broader stdlib ergonomics, but the migration proof must
-   not depend on carrying provider or prompt refs through loop state.
+   provider and prompt externs, then the loop receives only specialized
+   procedure refs or macro-specialized monomorphic helper parameters. Provider
+   and prompt refs may still need better compile-time parameter support for
+   broader `.orc` library ergonomics, but the migration proof must not depend on
+   carrying provider or prompt refs through loop state.
 
 3. **Composable typed loops.** `loop/recur` already provides typed iterative
    control. The remaining requirement is to prove and, where needed, complete
-   its use inside imported stdlib procedures/workflows, with typed loop
+   its use inside imported `.orc` procedures/workflows, with typed loop
    outputs, a typed terminal result, explicit exhaustion, source maps, and
    resume-safe lowering.
 
@@ -397,26 +472,27 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
    checks.
 
 5. **Hygienic source-map-preserving expansion.** Existing macro hygiene must
-   either be kept out of effectful stdlib control flow or extended with explicit
+   either be kept out of effectful macro control flow or extended with explicit
    effect introduction. If macros are used to make the library ergonomic,
    expansion must preserve authored origin, library origin, generated step
    origin, generated hidden-input origin, and generated path origin.
    Macro-introduced effects must remain visible to validation and the effect
    graph.
 
-6. **Structured dataflow for stdlib review results.** The language does not
+6. **Structured dataflow for review results.** The language does not
    need built-in findings semantics. It needs generic records, unions,
    structured provider outputs, typed procedure parameters, and loop-carried
-   values sufficient for the `.orc` stdlib `review-revise-loop` to define
+   values sufficient for the `.orc` `review-revise-loop` definition to define
    review decisions, findings, reports, blocker classes, and exhaustion reasons.
    Until list types are available, findings may be carried as a schema-validated
    JSON artifact path, but the semantic value must be validated before
    publication and revise/fix consumption rather than extracted from markdown.
 
-7. **Module visibility and stdlib packaging.** Stdlib workflows/procedures must
-   import, export, specialize, and source-map like project modules. A consumer
-   should be able to inspect which stdlib definition generated each executable
-   node.
+7. **Module visibility and library packaging.** Imported `.orc`
+   workflows/procedures/macros must import, export, specialize, and source-map
+   consistently whether they come from project modules or standard-library
+   modules. A consumer should be able to inspect which `.orc` definition
+   generated each executable node.
 
 8. **Negative validation for abstraction leaks.** The compiler must reject
    library definitions that leak hidden write-root inputs, treat pointer files
@@ -426,15 +502,15 @@ Readiness before acceptance:
 
 | Capability | Required for review loop? | Acceptance fixture | Acceptance status |
 | --- | --- | --- | --- |
-| Imported effectful stdlib `defproc` or workflow | Yes | Import stdlib loop and emit DSL-visible provider, command, loop, and match nodes | Must be proven by implementation audit |
-| `ProcRef` review/fix hook specialization | Yes | Pass caller-owned review/fix procedures into stdlib and emit no runtime proc value | Must be proven by implementation audit |
+| Imported `.orc` surface that lowers to effectful `defproc`/workflow behavior | Yes | Import review loop and emit DSL-visible provider, command, loop, and match nodes without compiler name recognition | Must be proven by implementation audit |
+| `ProcRef` review/fix hook specialization | Yes | Pass caller-owned review/fix procedures into imported `.orc` code and emit no runtime proc value | Must be proven by implementation audit |
 | Provider/prompt extern use inside selected procedures | Yes | Review/fix procedures produce provider steps after specialization without loop-carried provider or prompt refs | Must be proven by implementation audit |
 | `loop/recur` to resume-safe DSL loop | Yes | `REVISE -> fix -> APPROVE` with a persisted loop checkpoint | Must be proven by implementation audit |
 | Generic `loop/recur` exhaustion projection | Yes | Exhaustion returns `ReviewLoopResult.EXHAUSTED` using scalar overrides plus last loop-frame outputs | Must be proven by implementation audit |
-| Generated bundle/path allocation | Yes | Compile stdlib loop without public hidden write-root inputs | Must be proven by implementation audit |
-| No compiler-special review-loop recognition | Yes | Imported stdlib usage still compiles when `ReviewReviseLoopExpr` lowering is disabled | Must be proven by implementation audit |
-| Effect graph and source maps across stdlib expansion | Yes | Generated nodes record call site, stdlib definition, and generated-node provenance | Must be proven by implementation audit |
-| Negative validation for abstraction leaks | Yes | Reject stdlib definitions that route on report prose, leak hidden roots, or hide effects | Must be proven by implementation audit |
+| Generated bundle/path allocation | Yes | Compile imported review loop without public hidden write-root inputs | Must be proven by implementation audit |
+| No compiler-special review-loop recognition | Yes | Imported `.orc` usage still compiles when review-loop-specific expression, typecheck, and lowering paths are absent or disabled | Must be proven by implementation audit |
+| Effect graph and source maps across generic `.orc` expansion | Yes | Generated nodes record call site, imported definition, and generated-node provenance | Must be proven by implementation audit |
+| Negative validation for abstraction leaks | Yes | Reject imported `.orc` definitions that route on report prose, leak hidden roots, or hide effects | Must be proven by implementation audit |
 
 New or completed authoring syntax:
 
@@ -490,7 +566,7 @@ before publication and before revise/fix receives it.
 
 `ReviewFindings.v1` is validated by a Workflow Lisp `defschema` validator if
 available in this tranche, or by a certified `review-findings-v1` validation
-adapter generated by the stdlib loop. `schema_version` must equal
+adapter generated by the `.orc` review loop. `schema_version` must equal
 `ReviewFindings.v1`; a plain string value is not sufficient without that
 validation rule. Validation runs before the `ReviewFindings` record is
 published to loop state and again before revise/fix receives it after resume.
@@ -574,22 +650,26 @@ Generic effectful composition must:
 - allow imported reusable library definitions to generate provider steps,
   command steps, `match`, typed loops, and materialization through ordinary
   composition;
-- preserve source maps across authored call site, stdlib definition, macro
+- preserve source maps across authored call site, imported `.orc` definition, macro
   expansion if any, generated Core statements, hidden inputs, and generated
   paths;
 - keep generated effects visible in Semantic IR and the effect graph;
 - reject runtime transport of procedure/provider/prompt refs.
 
-Stdlib control forms lower by specializing imported stdlib definitions before
-Core DSL lowering. For this migration slice, `review-revise-loop` should compile
-as an imported stdlib workflow/procedure boundary or equivalent specialized
-private workflow, producing DSL-visible steps, call-frame state, loop state,
-source maps, and outputs. It must not rely on macro-generated hidden effects or
-a review-loop-specific compiler branch.
+Reusable control forms lower by specializing imported `.orc` definitions before
+Core DSL lowering. For this migration slice, the `std/phase.orc`
+`review-revise-loop` export should compile as an imported workflow/procedure
+boundary, or through a thin imported macro that specializes concrete caller
+types into an equivalent generated private workflow or local helper boundary,
+producing DSL-visible steps, call-frame state, loop state, source maps, and
+outputs. It must not rely on macro-generated hidden effects, a
+review-loop-specific compiler branch, or a Python implementation that
+hand-builds the review-loop control tree outside the generic `.orc` expansion
+pipeline.
 
-The stdlib `review-revise-loop` definition must compile through those generic
-capabilities to the same executable families a hand-authored workflow would use:
-`repeat_until`, provider steps, structured output bundles, `match`, and
+The `review-revise-loop` `.orc` definition must compile through those generic
+capabilities to the same executable families a hand-authored workflow would
+use: `repeat_until`, provider steps, structured output bundles, `match`, and
 materialization.
 
 Canonical generated executable shape for this migration slice:
@@ -623,8 +703,9 @@ generated/private workflow
 
 The caller observes a normal call-frame boundary and typed outputs. The private
 workflow owns the `repeat_until` frame, generated bundle roots, and terminal
-projection. This generated/private workflow is produced by generic stdlib
-specialization, not by a review-loop-specific compiler primitive. If
+projection. This generated/private workflow is produced by generic `.orc`
+specialization, whether reached from an imported procedure/workflow or a thin
+macro, not by a review-loop-specific compiler primitive. If
 implementation proves that inlining is required instead, this design must be
 revised to spell out equivalent call-frame, source-map, and resume guarantees
 before promotion.
@@ -770,8 +851,9 @@ Old behavior:
 
 New behavior:
 
-- `review-revise-loop` is a standard `.orc` stdlib workflow/procedure for
-  bounded review/fix loops, not a compiler-special language form.
+- `review-revise-loop` is a standard `.orc` surface, currently exported from
+  `std/phase.orc`, for bounded
+  review/fix loops, not a compiler-special language form.
 - It has two typed layers: `ReviewDecision` for one review iteration and
   `ReviewLoopResult` for the terminal loop result.
 - `APPROVE` exits with `APPROVED`; `REVISE` deterministically invokes
@@ -910,13 +992,14 @@ Recommended sequencing:
    shape, and path safety.
 2. Document and test the command structured-output runtime contract.
 3. Complete generic `.orc` effectful composition support for reusable library
-   definitions: stdlib-owned use of `ProcRef` hooks, workflow refs and
+   definitions: imported `.orc` use of `ProcRef` hooks, workflow refs and
    `loop/recur`, provider/prompt extern use inside selected procedures,
    generated path allocation, and source-map-preserving expansion.
 4. Finalize `command-result` lowering so hidden bundle paths are compiler-owned
    and not public entrypoint inputs.
-5. Implement `review-revise-loop` as ordinary `.orc` stdlib code, including
-   stdlib-owned findings propagation over generic structured dataflow.
+5. Implement `review-revise-loop` as ordinary `.orc` code, including
+   `.orc`-owned findings propagation over generic structured dataflow and any
+   required thin compile-time specialization for caller-specific record types.
 6. Implement or complete `.orc` input defaults.
 7. Finalize `StateLayout` and `resume-or-start` reusable-state validation for
    phase outputs.
@@ -1001,7 +1084,7 @@ For `command-result`:
 
 For `review-revise-loop`:
 
-- tests must prove the loop is defined in `.orc` stdlib and reaches runtime
+- tests must prove the loop is defined in `.orc` and reaches runtime
   through generic library composition, not a compiler-special lowering branch;
 - tests must drive `REVISE -> fix/revise -> APPROVE`;
 - tests must drive exhaustion;
@@ -1112,7 +1195,7 @@ Unit tests:
   handling for unions, source maps, and no public hidden input requirement for
   promoted entrypoints.
 - input defaults parse, type-check, lower, and reject invalid defaults.
-- stdlib review-result and findings records validate through generic
+- review-result and findings records validate through generic
   structured type checks and reject malformed findings.
 
 Runtime integration tests:
@@ -1120,20 +1203,31 @@ Runtime integration tests:
 - command structured output path is injected and validated.
 - missing bundle after command success fails visibly.
 - invalid bundle after command success fails visibly.
-- repeat-until resume still works for stdlib-defined review loops.
+- repeat-until resume still works for `.orc`-defined review loops.
 
 Workflow Lisp integration tests:
 
-- stdlib `review-revise-loop` imports and compiles through generic effectful
-  composition.
-- imported stdlib `review-revise-loop` still compiles when the compiler-special
-  `ReviewReviseLoopExpr` typecheck/lowering path is disabled for the fixture.
+- `std/phase.orc` `review-revise-loop` imports and compiles through generic
+  effectful composition, whether exposed as a procedure/workflow or as a thin
+  macro that lowers to the same generic forms.
+- imported `review-revise-loop` still compiles when review-loop-specific
+  expression, typecheck, and lowering paths are absent or disabled for the
+  fixture.
+- regression guards reject or flag review-loop-specific compiler artifacts as
+  the semantic route, including `ReviewReviseLoopExpr`,
+  `_elaborate_review_revise_loop`, `__review-revise-loop__`, or typechecker and
+  lowerer branches keyed directly to `review-revise-loop`.
+- expansion fixtures prove at least one non-review-loop `.orc` form uses the
+  same generic expansion representation and source-map path.
+- imported `review-revise-loop` does not require procedure type
+  parameters or runtime-carried type erasure to accept caller-specific
+  `completed` and `inputs` record shapes.
 - caller-owned review/fix procedures pass through `ProcRef` specialization and
   no runtime `ProcRef`, provider ref, or prompt ref value appears in executable
   state.
-- stdlib `review-revise-loop` approves first pass.
-- stdlib `review-revise-loop` revises once then approves.
-- stdlib `review-revise-loop` exhausts and returns `EXHAUSTED`.
+- `std/phase.orc` `review-revise-loop` approves first pass.
+- `std/phase.orc` `review-revise-loop` revises once then approves.
+- `std/phase.orc` `review-revise-loop` exhausts and returns `EXHAUSTED`.
 - exhaustion projection fails as an ordinary contract failure if the final
   completed iteration did not materialize required review outputs.
 - review provider output cannot replace carried evidence identities such as
@@ -1172,7 +1266,7 @@ is absent.
 Initial state: fake providers return `REVISE` with findings, then the fix
 provider writes an updated artifact, then review returns `APPROVE`.
 
-Entrypoint: a `.orc` phase importing the stdlib `review-revise-loop`.
+Entrypoint: a `.orc` phase importing `review-revise-loop` from `std/phase.orc`.
 
 Expected result: the fix step runs exactly once, receives structured findings,
 the loop exits approved, and the final phase output reflects the approved
@@ -1220,9 +1314,13 @@ non-primary.
   values, reusing the existing `defproc`, `WorkflowRef`, `ProcRef`, `bind-proc`,
   `let-proc`, and `loop/recur` substrate where it already satisfies the
   contract.
-- `review-revise-loop` is implemented as ordinary `.orc` stdlib code and is
-  accepted as the canonical high-level replacement for YAML review/fix
-  `repeat_until` loops.
+- `review-revise-loop` is implemented as ordinary `.orc` code, using an
+  imported procedure/workflow and/or a thin macro specialization layer
+  rather than a compiler-special branch, and is accepted as the canonical
+  high-level replacement for YAML review/fix `repeat_until` loops.
+- A follow-on parametric `.orc` specialization design may later replace the
+  thin macro specialization bridge, but it is not required for this migration
+  tranche.
 - Review findings are validated structured state and can be consumed by
   revise/fix steps.
 - Workflow Lisp input defaults lower to existing DSL input defaults.
@@ -1245,7 +1343,7 @@ Revise this design if:
   hidden inputs as public API;
 - command-produced union results require implicit `variant_output` paths instead
   of an explicit generated bundle contract;
-- the stdlib findings schema requires unsupported collection types that would
+- the review findings schema requires unsupported collection types that would
   broaden the type-system work beyond this migration tranche;
 - `repeat_until` cannot express the required review/fix behavior without
   weakening resume semantics;
