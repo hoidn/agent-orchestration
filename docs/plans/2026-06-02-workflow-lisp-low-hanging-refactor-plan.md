@@ -4,7 +4,13 @@
 
 **Goal:** Reduce maintenance cost in `orchestrator/workflow_lisp` through behavior-preserving, low-risk refactors.
 
-**Architecture:** Keep the existing pass-oriented compiler architecture. First add characterization coverage, then decide whether `lowering.py` should become a `lowering/` package before extracting read-only helpers and coherent lowering helper clusters. Preserve the `orchestrator.workflow_lisp.lowering` import facade and do not change `.orc` syntax, generated workflow behavior, diagnostics, source maps, or runtime contracts.
+**Architecture:** Keep the existing pass-oriented compiler architecture. First
+fix concrete low-risk hazards found by the module review, then add
+characterization coverage, then decide whether `lowering.py` should become a
+`lowering/` package before extracting read-only helpers and coherent lowering
+helper clusters. Preserve the `orchestrator.workflow_lisp.lowering` import
+facade and do not change `.orc` syntax, generated workflow behavior,
+diagnostics, source maps, or runtime contracts.
 
 **Tech Stack:** Python, pytest, Workflow Lisp frontend, existing orchestrator workflow loader/runtime.
 
@@ -33,6 +39,30 @@ The low-hanging debt is accretive complexity:
 - no explicit package boundary for very large modules such as `lowering.py`;
 - fixture-only code in the production package;
 - an overly broad package-root public API.
+
+## Findings From Module Review
+
+A module-by-module review of `orchestrator/workflow_lisp` promoted several
+items from general refactor debt to first-tranche work:
+
+- `lowering.py` has concrete hazards in addition to size: duplicate helper
+  definitions are silently shadowed, and a private-workflow type-analysis path
+  references `VariantCaseTypeRef` without importing it.
+- `functions.py` purity checking currently fails open for unknown expression
+  nodes. New effectful expression forms could be accepted in `defun` until a
+  later pass fails less clearly.
+- `macros.py` hygiene handlers can index malformed macro output before
+  downstream validators produce owned, source-mapped diagnostics.
+- expression traversal is duplicated across `functions.py`, `compiler.py`,
+  `workflow_refs.py`, `lowering.py`, and `typecheck.py`; this is the highest
+  leverage refactor after the immediate hazards.
+- lint and diagnostic metadata should be hardened before more rules are added:
+  lint severities are unconstrained strings, and unknown diagnostic codes can
+  silently default to parse/read metadata.
+- focused loop/phase-stdlib verification reported current failures:
+  `python -m pytest tests/test_workflow_lisp_loop_recur.py tests/test_workflow_lisp_phase_stdlib.py -q`
+  returned `91 passed, 4 failed`. Treat these as known preconditions before
+  relying on those selectors as clean refactor guards.
 
 ## Non-Goals
 
@@ -70,6 +100,70 @@ The low-hanging debt is accretive complexity:
 - `orchestrator/workflow_lisp/README.md`: package ownership map.
 - `docs/plans/2026-05-23-workflow-lisp-refactoring-backlog.md`: update status
   and boundaries after this tranche lands.
+
+## Task 0: Fix Concrete Review Hazards
+
+**Files:**
+- Modify: `orchestrator/workflow_lisp/lowering.py`
+- Modify: `orchestrator/workflow_lisp/functions.py`
+- Modify: `orchestrator/workflow_lisp/macros.py`
+- Modify: focused tests near the touched behavior
+
+- [ ] **Step 1: Remove shadowed lowering helpers**
+
+Remove duplicate definitions for:
+
+- `_origin_for_workflow`;
+- `_procedure_provenance_notes`;
+- `_definition_only_module`.
+
+Keep the later effective implementation unless inspection shows the earlier
+implementation contains required behavior. Add or run a lint/static check that
+catches duplicate definitions where available.
+
+- [ ] **Step 2: Fix missing private-workflow type import**
+
+Import or otherwise resolve `VariantCaseTypeRef` in `lowering.py` where the
+private-workflow type-analysis branch references it. Add the smallest focused
+test that exercises a private workflow path with variant-case field access, if
+an existing fixture does not already cover it.
+
+- [ ] **Step 3: Make `defun` purity fail closed**
+
+Update `_find_purity_violation` so unknown `ExprNode` containers cannot silently
+count as pure. Prefer a diagnostic or explicit internal unsupported-expression
+path over returning `None`.
+
+- [ ] **Step 4: Guard macro hygiene shape assumptions**
+
+Add shape guards for known hygiene handlers such as `match` and `defworkflow`.
+Malformed macro output should preserve expansion provenance and reach the normal
+elaboration/typecheck diagnostic path instead of raising an uncaught index
+error.
+
+- [ ] **Step 5: Run focused checks**
+
+Run:
+
+```bash
+python -m compileall orchestrator/workflow_lisp
+pytest \
+  tests/test_workflow_lisp_functions.py \
+  tests/test_workflow_lisp_macros.py \
+  tests/test_workflow_lisp_lowering.py \
+  -q
+git diff --check
+```
+
+Expected: compile and diff checks pass; focused tests pass or any pre-existing
+failures are recorded with exact output before continuing.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add orchestrator/workflow_lisp/lowering.py orchestrator/workflow_lisp/functions.py orchestrator/workflow_lisp/macros.py tests
+git commit -m "fix: harden workflow lisp refactor hazards"
+```
 
 ## Task 1: Add Refactor Characterization Checks
 
@@ -237,10 +331,19 @@ Cover common expression shapes:
 - `RecordExpr`;
 - `ProviderResultExpr`;
 - `CommandResultExpr`;
+- `ProduceOneOfExpr`;
+- `ResumeOrStartExpr`;
+- `ResourceTransitionExpr`;
+- `BacklogDrainExpr`;
 - leaf expressions.
 
 Expected behavior: the helper returns only direct child expressions in stable
 authoring order.
+
+Also add a coverage-style assertion that every member of the current `ExprNode`
+union is either covered by child traversal or explicitly classified as a leaf or
+specialized form. This is the guard against repeating the current missed-form
+pattern.
 
 - [ ] **Step 2: Run traversal tests and confirm they fail**
 
@@ -275,6 +378,9 @@ Use `iter_child_exprs` first in:
 - provider/prompt extern collection in the lowering facade;
 - ProcRef specialization discovery in `compiler.py`, only where it preserves
   current ProcRef environment handling.
+- workflow extern collection in `workflow_refs.py`, if doing so is mechanical;
+- let-proc escape or value-use checks in `typecheck.py`, only if the scoped
+  behavior remains obvious.
 
 Do not force every walker into the helper if a walker carries special scoped
 state that would make the helper confusing.
@@ -614,6 +720,16 @@ git diff --check
 If the full Workflow Lisp test selector is too slow or has unrelated failures,
 record the narrower passing selectors and the reason full verification could not
 be completed.
+
+Before using the loop/phase-stdlib selectors as regression evidence, rerun:
+
+```bash
+python -m pytest tests/test_workflow_lisp_loop_recur.py tests/test_workflow_lisp_phase_stdlib.py -q
+```
+
+The module review observed `91 passed, 4 failed` on this selector. Either fix
+those failures in an earlier tranche or record them as pre-existing failures
+with current output.
 
 ## Expected Outcome
 
