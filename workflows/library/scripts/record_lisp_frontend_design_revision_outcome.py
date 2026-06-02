@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+from pathlib import Path
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--review-decision", required=True, choices=["APPROVE", "REVISE", "BLOCKED"])
+    parser.add_argument("--review-decision", required=True)
     parser.add_argument("--state-path", required=True)
     parser.add_argument("--item-id", required=True)
     parser.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
@@ -17,6 +18,12 @@ def main() -> int:
     parser.add_argument("--summary-pointer-path", required=True)
     parser.add_argument("--drain-status-path", required=True)
     args = parser.parse_args()
+    review_decision = args.review_decision
+    decision_path = Path(review_decision)
+    if decision_path.exists():
+        review_decision = decision_path.read_text(encoding="utf-8").strip()
+    if review_decision not in {"APPROVE", "REVISE", "BLOCKED"}:
+        raise SystemExit(f"Unexpected design revision review decision: {review_decision}")
 
     command = [
         "python",
@@ -24,7 +31,7 @@ def main() -> int:
         "--state-path",
         args.state_path,
     ]
-    if args.review_decision == "APPROVE":
+    if review_decision == "APPROVE":
         command.extend(
             [
                 "design_revision",

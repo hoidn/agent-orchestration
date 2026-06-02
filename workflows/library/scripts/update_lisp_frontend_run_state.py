@@ -56,6 +56,10 @@ def _record_blocked(state: dict[str, Any], *, item_id: str, source: str, reason:
 
 
 def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
+    key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
+    blocked = dict(state.get(key, {}))
+    blocked.pop(item_id, None)
+    state[key] = blocked
     state.setdefault("history", []).append(
         {
             "event": "design_revision",
