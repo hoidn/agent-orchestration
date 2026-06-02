@@ -337,6 +337,11 @@ def lower_workflow_definitions(
                 return_type_ref=base.signature.return_type_ref,
                 span=base.signature.span,
                 form_path=base.signature.form_path,
+                param_defaults={
+                    name: default
+                    for name, default in base.signature.param_defaults.items()
+                    if name not in bindings
+                },
             ),
             typed_body=base.typed_body,
             effect_summary=base.effect_summary,
@@ -3455,7 +3460,16 @@ def _lower_call_expr(
     with_bindings: dict[str, Any] = {}
     assert callee_signature is not None
     for param_name, param_type in callee_signature.params:
-        value_expr = binding_by_name[param_name]
+        value_expr = binding_by_name.get(param_name)
+        if value_expr is None:
+            if param_name in callee_signature.param_defaults:
+                continue
+            raise _compile_error(
+                code="workflow_signature_mismatch",
+                message=f"call is missing required binding `{param_name}`",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
         if isinstance(param_type, RecordTypeRef):
             with_bindings.update(
                 _render_record_call_bindings(
@@ -10019,6 +10033,7 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
         return_type_ref=procedure.signature.return_type_ref,
         span=procedure.signature.span,
         form_path=procedure.signature.form_path,
+        param_defaults={},
     )
     return TypedWorkflowDef(
         definition=definition,

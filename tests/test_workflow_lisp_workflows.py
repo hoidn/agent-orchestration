@@ -198,6 +198,91 @@ def test_typecheck_workflow_definitions_rejects_duplicate_parameter_names() -> N
     _assert_diagnostic_code(excinfo, "workflow_param_duplicate")
 
 
+def test_elaborate_workflow_definitions_parses_workflow_param_default_metadata() -> None:
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defworkflow defaults",
+                    "    ((report_path WorkReport :default \"reports/default.md\")",
+                    "     (status String))",
+                    "    -> ImplementationSummary",
+                    '    (record ImplementationSummary :status status :report report_path)))',
+                ]
+            ),
+            source_path="workflow_param_default_metadata.orc",
+        )
+    )
+
+    workflow_def = elaborate_workflow_definitions(syntax_module)[0]
+    report_path_param, status_param = workflow_def.params
+
+    assert report_path_param.name == "report_path"
+    assert report_path_param.type_name == "WorkReport"
+    assert getattr(report_path_param, "default_value").datum == "reports/default.md"
+    assert status_param.name == "status"
+    assert getattr(status_param, "default_value") is None
+
+
+def test_elaborate_workflow_definitions_rejects_unknown_workflow_param_keyword() -> None:
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defworkflow defaults",
+                    "    ((report_path WorkReport :optional true))",
+                    "    -> ImplementationSummary",
+                    '    (record ImplementationSummary :status "ok" :report report_path)))',
+                ]
+            ),
+            source_path="workflow_param_unknown_keyword.orc",
+        )
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_workflow_definitions(syntax_module)
+
+    _assert_diagnostic_code(excinfo, "frontend_parse_error")
+    assert "unknown workflow param keyword `:optional`" in excinfo.value.diagnostics[0].message
+
+
+def test_elaborate_workflow_definitions_rejects_workflow_param_default_without_value() -> None:
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+
+    syntax_module = build_syntax_module(
+        read_sexpr_text(
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defworkflow defaults",
+                    "    ((report_path WorkReport :default))",
+                    "    -> ImplementationSummary",
+                    '    (record ImplementationSummary :status "ok" :report report_path)))',
+                ]
+            ),
+            source_path="workflow_param_default_without_value.orc",
+        )
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_workflow_definitions(syntax_module)
+
+    _assert_diagnostic_code(excinfo, "frontend_parse_error")
+    assert "workflow param `:default` requires a value" in excinfo.value.diagnostics[0].message
+
+
 def test_typecheck_workflow_definitions_requires_record_or_union_return_type() -> None:
     syntax_module = _build_syntax_module(FIXTURES / "invalid" / "workflow_return_type_invalid.orc")
     workflow_defs = elaborate_workflow_definitions(syntax_module)
@@ -406,6 +491,147 @@ def test_build_workflow_catalog_accepts_union_workflow_returns_when_projection_i
     )
 
     assert isinstance(workflow_catalog.signatures_by_name["provider-attempt"].return_type_ref, UnionTypeRef)
+
+
+def test_build_workflow_catalog_normalizes_supported_workflow_param_defaults(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_param_defaults.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum Status",
+                "    ready",
+                "    blocked)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Summary",
+                "    (report WorkReport))",
+                "  (defworkflow defaults",
+                '    ((message String :default "hello")',
+                "     (count Int :default 3)",
+                "     (score Float :default 0.5)",
+                "     (enabled Bool :default true)",
+                "     (status Status :default ready)",
+                '     (report_path WorkReport :default "reports/default.md"))',
+                "    -> Summary",
+                "    (record Summary :report report_path)))",
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(path))
+
+    workflow_catalog = build_workflow_catalog(
+        module,
+        workflow_defs,
+        FrontendTypeEnvironment.from_module(module),
+    )
+
+    defaults = workflow_catalog.signatures_by_name["defaults"].param_defaults
+    assert defaults["message"].normalized_value == "hello"
+    assert defaults["count"].normalized_value == 3
+    assert defaults["score"].normalized_value == 0.5
+    assert defaults["enabled"].normalized_value is True
+    assert defaults["status"].normalized_value == "ready"
+    assert defaults["report_path"].normalized_value == "reports/default.md"
+
+
+def test_compile_stage3_module_rejects_float_literals_outside_workflow_param_defaults(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "float_literal_body_invalid.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Summary",
+                "    (score Float))",
+                "  (defworkflow defaults",
+                "    ((score Float))",
+                "    -> Summary",
+                "    (record Summary :score 0.5)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "frontend_parse_error")
+    assert "only supported in `defworkflow` parameter defaults" in excinfo.value.diagnostics[0].message
+
+
+def test_build_workflow_catalog_rejects_structured_workflow_param_defaults(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_param_structured_default_invalid.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord MultiInput",
+                "    (status String)",
+                "    (report String))",
+                "  (defrecord Summary",
+                "    (status String))",
+                "  (defworkflow defaults",
+                '    ((input MultiInput :default "nope"))',
+                "    -> Summary",
+                '    (record Summary :status input.status)))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(path))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_workflow_catalog(
+            module,
+            workflow_defs,
+            FrontendTypeEnvironment.from_module(module),
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_param_default_unsupported")
+    assert "flatten to exactly one workflow input contract" in excinfo.value.diagnostics[0].message
+
+
+def test_build_workflow_catalog_rejects_type_invalid_workflow_param_defaults(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_param_type_invalid_default.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Summary",
+                "    (status String))",
+                "  (defworkflow defaults",
+                '    ((count Int :default "three"))',
+                "    -> Summary",
+                '    (record Summary :status "ok")))',
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(path))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_workflow_catalog(
+            module,
+            workflow_defs,
+            FrontendTypeEnvironment.from_module(module),
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_param_default_type_invalid")
+    assert "default for workflow param `count` must match boundary type `Int`" in excinfo.value.diagnostics[0].message
 
 
 def test_workflow_boundary_rejects_collection_typed_params(tmp_path: Path) -> None:

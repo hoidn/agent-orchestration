@@ -14,7 +14,7 @@ the planned syntax-neutral workflow representation.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from orchestrator.workflow.loaded_bundle import workflow_output_contracts, workflow_public_input_contracts
@@ -32,8 +32,13 @@ from .spans import SourcePosition
 from .syntax import (
     ExpansionStack,
     SyntaxIdentifier,
+    SyntaxFloat,
+    SyntaxInt,
+    SyntaxKeyword,
     SyntaxList,
     SyntaxNode,
+    SyntaxString,
+    SyntaxBool,
     WorkflowLispSyntaxModule,
     syntax_head,
     syntax_identifier,
@@ -144,6 +149,38 @@ class WorkflowParam:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    default_value: "WorkflowParamDefault | None" = None
+
+
+@dataclass(frozen=True)
+class WorkflowParamDefault:
+    """Authored workflow-boundary default with source provenance."""
+
+    syntax: SyntaxNode
+    normalized_value: object | None = None
+
+    @property
+    def datum(self) -> object:
+        datum = self.syntax.datum
+        if isinstance(datum, (SyntaxString, SyntaxInt, SyntaxBool)):
+            return datum.value
+        if isinstance(datum, SyntaxIdentifier):
+            return datum.resolved_name
+        if isinstance(datum, SyntaxKeyword):
+            return datum.value
+        return datum
+
+    @property
+    def span(self) -> SourceSpan:
+        return self.syntax.span
+
+    @property
+    def form_path(self) -> tuple[str, ...]:
+        return self.syntax.form_path
+
+    @property
+    def expansion_stack(self) -> ExpansionStack:
+        return self.syntax.expansion_stack
 
 
 @dataclass(frozen=True)
@@ -168,6 +205,7 @@ class WorkflowSignature:
     return_type_ref: RecordTypeRef | UnionTypeRef
     span: SourceSpan
     form_path: tuple[str, ...]
+    param_defaults: Mapping[str, WorkflowParamDefault] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -508,6 +546,7 @@ def build_workflow_catalog(
             diagnostics.append(return_diagnostic)
             continue
         params: list[tuple[str, TypeRef]] = []
+        param_defaults: dict[str, WorkflowParamDefault] = {}
         workflow_invalid = False
         for param in workflow_def.params:
             param_type = type_env.resolve_type(
@@ -533,6 +572,15 @@ def build_workflow_catalog(
                 workflow_invalid = True
                 continue
             params.append((param.name, param_type))
+            if param.default_value is not None:
+                try:
+                    param_defaults[param.name] = _resolve_workflow_param_default(
+                        param=param,
+                        param_type=param_type,
+                    )
+                except LispFrontendCompileError as exc:
+                    diagnostics.extend(exc.diagnostics)
+                    workflow_invalid = True
         if workflow_invalid:
             continue
         signature = WorkflowSignature(
@@ -541,6 +589,7 @@ def build_workflow_catalog(
             return_type_ref=return_type_ref,
             span=workflow_def.span,
             form_path=workflow_def.form_path,
+            param_defaults=param_defaults,
         )
         definitions_by_name[workflow_def.name] = workflow_def
         signatures_by_name[workflow_def.name] = signature
@@ -599,20 +648,28 @@ def _signature_from_imported_bundle(
 
     span = _bundle_source_span(bundle)
     form_path = ("workflow-lisp", alias)
-    params = tuple(
-        (
-            param_name,
-            _match_boundary_type_from_contracts(
-                grouped_inputs[param_name],
-                type_env=type_env,
-                generated_name=param_name,
-                allow_union=False,
-                span=span,
-                form_path=form_path,
-            ),
+    params_list: list[tuple[str, TypeRef]] = []
+    param_defaults: dict[str, WorkflowParamDefault] = {}
+    for param_name in param_order:
+        param_type = _match_boundary_type_from_contracts(
+            grouped_inputs[param_name],
+            type_env=type_env,
+            generated_name=param_name,
+            allow_union=False,
+            span=span,
+            form_path=form_path,
         )
-        for param_name in param_order
-    )
+        params_list.append((param_name, param_type))
+        imported_default = _workflow_param_default_from_imported_contracts(
+            contracts=grouped_inputs[param_name],
+            param_name=param_name,
+            param_type=param_type,
+            span=span,
+            form_path=form_path,
+        )
+        if imported_default is not None:
+            param_defaults[param_name] = imported_default
+    params = tuple(params_list)
     return_type_ref = _match_boundary_type_from_contracts(
         {
             output_name: dict(output_spec)
@@ -641,6 +698,89 @@ def _signature_from_imported_bundle(
         params=params,
         return_type_ref=return_type_ref,
         span=span,
+        form_path=form_path,
+        param_defaults=param_defaults,
+    )
+
+
+def _workflow_param_default_from_imported_contracts(
+    *,
+    contracts: Mapping[str, Mapping[str, object]],
+    param_name: str,
+    param_type: TypeRef,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> WorkflowParamDefault | None:
+    if len(contracts) != 1:
+        return None
+    field_spec = next(iter(contracts.values()))
+    if not isinstance(field_spec, Mapping) or "default" not in field_spec:
+        return None
+    normalized_value = field_spec["default"]
+    return WorkflowParamDefault(
+        syntax=_synthetic_workflow_param_default_syntax(
+            normalized_value=normalized_value,
+            param_type=param_type,
+            span=span,
+            form_path=form_path,
+        ),
+        normalized_value=normalized_value,
+    )
+
+
+def _synthetic_workflow_param_default_syntax(
+    *,
+    normalized_value: object,
+    param_type: TypeRef,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> SyntaxNode:
+    module_path = span.start.path
+    if isinstance(normalized_value, bool):
+        datum = SyntaxBool(
+            value=normalized_value,
+            span=span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=(),
+        )
+    elif isinstance(normalized_value, int):
+        datum = SyntaxInt(
+            value=normalized_value,
+            span=span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=(),
+        )
+    elif isinstance(normalized_value, float):
+        datum = SyntaxFloat(
+            value=normalized_value,
+            span=span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=(),
+        )
+    elif isinstance(param_type, PrimitiveTypeRef) and param_type.allowed_values and isinstance(normalized_value, str):
+        datum = SyntaxIdentifier(
+            display_name=normalized_value,
+            resolved_name=normalized_value,
+            span=span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=(),
+        )
+    else:
+        datum = SyntaxString(
+            value=str(normalized_value),
+            span=span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=(),
+        )
+    return SyntaxNode(
+        datum=datum,
+        span=span,
+        module_path=module_path,
         form_path=form_path,
     )
 
@@ -728,13 +868,127 @@ def _flattened_boundary_contracts(
     }
 
 
+def _workflow_boundary_fields_for_param(
+    param: WorkflowParam,
+    param_type: TypeRef,
+) -> tuple[object, ...]:
+    from .contracts import derive_workflow_boundary_fields
+
+    return derive_workflow_boundary_fields(
+        param_type,
+        generated_name=param.name,
+        source_path=(param.name,),
+        span=param.span,
+        form_path=param.form_path,
+    )
+
+
+def _resolve_workflow_param_default(
+    *,
+    param: WorkflowParam,
+    param_type: TypeRef,
+) -> WorkflowParamDefault:
+    default_value = param.default_value
+    if default_value is None:
+        raise ValueError("workflow param default resolution requires an authored default")
+
+    flattened_fields = _workflow_boundary_fields_for_param(param, param_type)
+    if len(flattened_fields) != 1:
+        _raise_workflow_param_default_error(
+            code="workflow_param_default_unsupported",
+            message=(
+                f"default for workflow param `{param.name}` is supported only for "
+                "boundary types that flatten to exactly one workflow input contract"
+            ),
+            param=param,
+        )
+
+    normalized_value = _normalize_workflow_param_default_literal(
+        param=param,
+        param_type=param_type,
+        default_value=default_value,
+    )
+    return WorkflowParamDefault(
+        syntax=default_value.syntax,
+        normalized_value=normalized_value,
+    )
+
+
+def _normalize_workflow_param_default_literal(
+    *,
+    param: WorkflowParam,
+    param_type: TypeRef,
+    default_value: WorkflowParamDefault,
+) -> object:
+    datum = default_value.syntax.datum
+    if isinstance(param_type, PathTypeRef):
+        if isinstance(datum, SyntaxString):
+            return datum.value
+        _raise_workflow_param_default_type_error(param=param)
+    if isinstance(param_type, PrimitiveTypeRef):
+        if param_type.allowed_values:
+            if isinstance(datum, SyntaxIdentifier) and datum.resolved_name in param_type.allowed_values:
+                return datum.resolved_name
+            _raise_workflow_param_default_type_error(param=param)
+        if param_type.name == "String":
+            if isinstance(datum, SyntaxString):
+                return datum.value
+            _raise_workflow_param_default_type_error(param=param)
+        if param_type.name == "Int":
+            if isinstance(datum, SyntaxInt):
+                return datum.value
+            _raise_workflow_param_default_type_error(param=param)
+        if param_type.name == "Float":
+            if isinstance(datum, SyntaxFloat):
+                return datum.value
+            _raise_workflow_param_default_type_error(param=param)
+        if param_type.name == "Bool":
+            if isinstance(datum, SyntaxBool):
+                return datum.value
+            _raise_workflow_param_default_type_error(param=param)
+    _raise_workflow_param_default_error(
+        code="workflow_param_default_unsupported",
+        message=(
+            f"default for workflow param `{param.name}` is not supported for boundary type `{param.type_name}`"
+        ),
+        param=param,
+    )
+
+
+def _raise_workflow_param_default_type_error(*, param: WorkflowParam) -> None:
+    _raise_workflow_param_default_error(
+        code="workflow_param_default_type_invalid",
+        message=f"default for workflow param `{param.name}` must match boundary type `{param.type_name}`",
+        param=param,
+    )
+
+
+def _raise_workflow_param_default_error(
+    *,
+    code: str,
+    message: str,
+    param: WorkflowParam,
+) -> None:
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=param.span,
+                form_path=param.form_path,
+                expansion_stack=param.expansion_stack,
+            ),
+        )
+    )
+
+
 def _normalize_boundary_contract_definition(definition: Mapping[str, object]) -> Mapping[str, object]:
     """Normalize a contract shape for structural boundary comparison."""
 
     return {
         str(key): value
         for key, value in dict(definition).items()
-        if key != "from"
+        if key not in {"default", "from"}
     }
 
 
@@ -1009,17 +1263,32 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
 
 
 def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowParam:
-    """Parse one `(name Type)` workflow parameter."""
+    """Parse one `(name Type)` or `(name Type :default <literal>)` workflow parameter."""
 
-    if not isinstance(raw_param, SyntaxList) or len(raw_param.items) != 2:
+    if not isinstance(raw_param, SyntaxList):
         span = raw_param.span if hasattr(raw_param, "span") else None
         if span is None:
             raise TypeError("workflow params must carry spans")
         _raise_error(
-            "workflow params must be two-item lists of `(name Type)`",
+            "workflow params must be lists of `(name Type)` or `(name Type :default <literal>)`",
             span=span,
             form_path=form_path,
             expansion_stack=getattr(raw_param, "expansion_stack", ()),
+        )
+    if len(raw_param.items) not in {2, 4}:
+        message = "workflow params must be lists of `(name Type)` or `(name Type :default <literal>)`"
+        if len(raw_param.items) >= 3:
+            keyword = raw_param.items[2]
+            if isinstance(keyword, SyntaxKeyword):
+                if keyword.value != ":default":
+                    message = f"unknown workflow param keyword `{keyword.value}`"
+                else:
+                    message = "workflow param `:default` requires a value"
+        _raise_error(
+            message,
+            span=raw_param.span,
+            form_path=form_path,
+            expansion_stack=raw_param.expansion_stack,
         )
     name_node = raw_param.items[0]
     type_node = raw_param.items[1]
@@ -1039,12 +1308,37 @@ def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowP
             form_path=form_path,
             expansion_stack=type_node.expansion_stack,
         )
+    default_value = None
+    if len(raw_param.items) == 4:
+        keyword_node = raw_param.items[2]
+        if not isinstance(keyword_node, SyntaxKeyword):
+            _raise_error(
+                "workflow params must be lists of `(name Type)` or `(name Type :default <literal>)`",
+                span=raw_param.span,
+                form_path=form_path,
+                expansion_stack=raw_param.expansion_stack,
+            )
+        if keyword_node.value != ":default":
+            _raise_error(
+                f"unknown workflow param keyword `{keyword_node.value}`",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        default_syntax = SyntaxNode(
+            datum=raw_param.items[3],
+            span=raw_param.items[3].span,
+            module_path=raw_param.module_path,
+            form_path=raw_param.form_path,
+        )
+        default_value = WorkflowParamDefault(syntax=default_syntax)
     return WorkflowParam(
         name=name_identifier.resolved_name,
         type_name=type_identifier.resolved_name,
         span=raw_param.span,
         form_path=form_path,
         expansion_stack=raw_param.expansion_stack,
+        default_value=default_value,
     )
 
 

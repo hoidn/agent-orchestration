@@ -608,6 +608,25 @@ Use `defworkflow` for exported callable workflow boundaries.
   ...)
 ```
 
+Current parameter forms are:
+
+- `(name Type)`
+- `(name Type :default <literal>)`
+
+Use `:default` only on public workflow-boundary inputs that flatten to one
+workflow input contract. Supported authored defaults in the current slice are:
+
+- string literals for `String` and path / relpath boundary types
+- integer literals for `Int`
+- float literals for `Float`
+- boolean literals for `Bool`
+- enum-member symbols for enum boundary types
+
+Do not use `:default` for record or union boundaries, collections, `nil`,
+`WorkflowRef`, `ProcRef`, or computed expressions. Omitting a defaulted binding
+uses the callee's compiled workflow-input default; passing a value still
+overrides the default.
+
 Use `defworkflow` when:
 
 - another workflow should call this unit;

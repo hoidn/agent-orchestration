@@ -12,9 +12,11 @@ from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
+from orchestrator.workflow.calls import CallExecutor
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,6 +162,96 @@ def _run_script(workspace: Path, *argv: str) -> subprocess.CompletedProcess[str]
         capture_output=True,
         check=True,
     )
+
+
+def _write_runtime_default_module(path: Path) -> Path:
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord Summary",
+                "    (report WorkReport))",
+                "  (defworkflow defaults",
+                '    ((report_path WorkReport :default "default.md"))',
+                "    -> Summary",
+                "    (record Summary :report report_path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_runtime_imported_default_modules(tmp_path: Path) -> Path:
+    source_root = tmp_path / "defaults_pkg"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "types.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/types)",
+                "  (export WorkReport WorkflowOutput)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (source_root / "helper.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/helper)",
+                "  (import defaults_pkg/types :only (WorkReport WorkflowOutput))",
+                "  (export helper)",
+                "  (defworkflow helper",
+                '    ((required_path WorkReport)',
+                '     (optional_report WorkReport :default "default.md"))',
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput :report optional_report)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry_path = source_root / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/entry)",
+                "  (import defaults_pkg/types :only (WorkReport WorkflowOutput))",
+                "  (import defaults_pkg/helper :as helper :only (helper))",
+                "  (export entry)",
+                "  (defworkflow entry",
+                "    ((required_path WorkReport))",
+                "    -> WorkflowOutput",
+                "    (call helper.helper",
+                "      :required_path required_path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return entry_path
 
 
 def test_materializer_normalizes_backlog_selection(tmp_path):
@@ -684,6 +776,92 @@ def test_lisp_frontend_workflows_load(tmp_path):
         "workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml",
     ]:
         loader.load(workspace / relpath)
+
+
+def test_bind_workflow_inputs_prefers_provided_values_over_authored_defaults(tmp_path):
+    result = compile_stage3_module(
+        _write_runtime_default_module(tmp_path / "workflow_param_default_runtime.orc"),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    workflow = result.validated_bundles["defaults"]
+
+    omitted = bind_workflow_inputs(workflow_input_contracts(workflow), {}, tmp_path)
+    provided = bind_workflow_inputs(
+        workflow_input_contracts(workflow),
+        {"report_path": "provided.md"},
+        tmp_path,
+    )
+
+    assert omitted["report_path"] == "artifacts/work/default.md"
+    assert provided["report_path"] == "artifacts/work/provided.md"
+
+
+def test_imported_workflow_call_binding_uses_callee_default_when_binding_is_omitted(tmp_path):
+    entry_path = _write_runtime_imported_default_modules(tmp_path)
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(tmp_path,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    helper_bundle = result.validated_bundles_by_name["defaults_pkg/helper::helper"]
+
+    class _FakeExecutor:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+            self.current_step = 0
+
+        def _call_input_bindings(self, step):
+            return step.get("with")
+
+        def _resolve_runtime_value(self, raw_value, state, scope=None):
+            del scope
+            if isinstance(raw_value, dict) and raw_value.get("ref", "").startswith("inputs."):
+                return state["inputs"][raw_value["ref"].split(".", 1)[1]]
+            return raw_value
+
+        def _contract_violation_result(self, message, details):
+            return {"message": message, "details": details}
+
+        def _json_safe_runtime_value(self, value):
+            return value
+
+    call_executor = CallExecutor(_FakeExecutor(tmp_path))
+    state = {"inputs": {"required_path": "required.md", "override_report": "override.md"}}
+
+    omitted_inputs, omitted_error = call_executor.resolve_bound_inputs(
+        {
+            "name": "CallHelper",
+            "with": {
+                "required_path": {"ref": "inputs.required_path"},
+            },
+        },
+        helper_bundle,
+        state,
+    )
+    provided_inputs, provided_error = call_executor.resolve_bound_inputs(
+        {
+            "name": "CallHelper",
+            "with": {
+                "required_path": {"ref": "inputs.required_path"},
+                "optional_report": {"ref": "inputs.override_report"},
+            },
+        },
+        helper_bundle,
+        state,
+    )
+
+    assert omitted_error is None
+    assert omitted_inputs == {
+        "required_path": "artifacts/work/required.md",
+        "optional_report": "default.md",
+    }
+    assert provided_error is None
+    assert provided_inputs == {
+        "required_path": "artifacts/work/required.md",
+        "optional_report": "artifacts/work/override.md",
+    }
 
 
 def test_design_delta_selector_prompt_defines_target_and_baseline():

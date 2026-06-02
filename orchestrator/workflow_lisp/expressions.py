@@ -22,6 +22,7 @@ from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
     SyntaxBool,
+    SyntaxFloat,
     SyntaxIdentifier,
     SyntaxInt,
     SyntaxKeyword,
@@ -526,6 +527,13 @@ def _elaborate(
         return LiteralExpr(
             value=datum.value,
             literal_kind="bool",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if isinstance(datum, SyntaxFloat):
+        _raise_error(
+            "float literals are only supported in `defworkflow` parameter defaults",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,

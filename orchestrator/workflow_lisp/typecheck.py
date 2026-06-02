@@ -1243,6 +1243,10 @@ def _typecheck(
             signature_name = signature.name
             return_type = signature.return_type_ref
             ordered_params = signature.params
+        if not isinstance(workflow_ref_type, WorkflowRefTypeRef):
+            defaulted_bindings = frozenset(signature.param_defaults)
+        else:
+            defaulted_bindings = frozenset()
         seen_bindings: set[str] = set()
         binding_summaries: list[EffectSummary] = []
         for binding_name, binding_expr in expr.bindings:
@@ -1325,7 +1329,7 @@ def _typecheck(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
-        missing_bindings = [name for name, _ in ordered_params if name not in seen_bindings]
+        missing_bindings = [name for name, _ in ordered_params if name not in seen_bindings and name not in defaulted_bindings]
         if missing_bindings:
             _raise_error(
                 f"call is missing required binding `{missing_bindings[0]}`",

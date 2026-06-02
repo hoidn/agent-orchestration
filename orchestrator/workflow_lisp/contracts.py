@@ -28,7 +28,7 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
 )
-from .workflows import WorkflowSignature
+from .workflows import WorkflowParamDefault, WorkflowSignature
 
 
 def is_review_findings_type(type_ref: TypeRef) -> bool:
@@ -239,6 +239,7 @@ def derive_workflow_signature_contracts(
                 param_name=param_name,
                 param_type=type_ref,
                 flattened_field=flattened_field,
+                authored_default=signature.param_defaults.get(param_name),
             )
             inputs[flattened_field.generated_name] = SurfaceContract(
                 name=flattened_field.generated_name,
@@ -288,6 +289,7 @@ def _apply_workflow_input_defaults(
     param_name: str,
     param_type: TypeRef,
     flattened_field: FlattenedContractField,
+    authored_default: WorkflowParamDefault | None,
 ) -> FlattenedContractField:
     """Attach bounded defaults for top-level phase-context inputs.
 
@@ -296,6 +298,15 @@ def _apply_workflow_input_defaults(
     example entry workflows usable without manual injection of synthetic phase
     roots and run metadata.
     """
+
+    if authored_default is not None and authored_default.normalized_value is not None:
+        definition = dict(flattened_field.contract_definition)
+        definition["default"] = authored_default.normalized_value
+        return FlattenedContractField(
+            generated_name=flattened_field.generated_name,
+            source_path=flattened_field.source_path,
+            contract_definition=definition,
+        )
 
     if not isinstance(param_type, RecordTypeRef) or param_type.name != "PhaseCtx":
         return flattened_field
@@ -645,6 +656,8 @@ def _workflow_boundary_type_kind(type_ref: TypeRef) -> str:
             return "string"
         if type_ref.name == "Int":
             return "integer"
+        if type_ref.name == "Float":
+            return "float"
         if type_ref.name == "Bool":
             return "bool"
         return type_ref.name.lower()
@@ -685,6 +698,8 @@ def _field_contract_definition(
             return {"type": "string"}
         if type_ref.name == "Int":
             return {"type": "integer"}
+        if type_ref.name == "Float":
+            return {"type": "float"}
         if type_ref.name == "Bool":
             return {"type": "bool"}
         if type_ref.name == "Json":

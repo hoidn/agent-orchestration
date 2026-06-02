@@ -129,6 +129,61 @@ def _structured_results_request(tmp_path: Path):
     )
 
 
+def _write_workflow_param_default_module(tmp_path: Path) -> Path:
+    package_dir = tmp_path / "defaults_pkg"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    module_path = package_dir / "entry.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/entry)",
+                "  (export defaults)",
+                "  (defenum Status",
+                "    ready",
+                "    blocked)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord Summary",
+                "    (report WorkReport))",
+                "  (defworkflow defaults",
+                '    ((message String :default "hello")',
+                "     (count Int :default 3)",
+                "     (score Float :default 0.5)",
+                "     (enabled Bool :default true)",
+                "     (status Status :default ready)",
+                '     (report_path WorkReport :default "default.md"))',
+                "    -> Summary",
+                "    (record Summary :report report_path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _workflow_param_default_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    module_path = _write_workflow_param_default_module(tmp_path)
+    return request_cls(
+        source_path=module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="defaults",
+        provider_externs_path=None,
+        prompt_externs_path=None,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
 def _lint_warning_variant_output_request(tmp_path: Path):
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -852,6 +907,34 @@ def test_build_result_same_file_validated_bundles_keep_executable_and_runtime_su
     assert isinstance(command_checks_bundle, type(result.validated_bundle))
     assert command_checks_bundle.ir.schema_version == "workflow_executable_ir.v1"
     assert command_checks_bundle.runtime_plan.schema_version == "workflow_runtime_plan.v1"
+
+
+def test_build_frontend_bundle_emits_authored_defaults_via_public_inputs_and_boundary_projection(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_workflow_param_default_request(tmp_path))
+    public_inputs = _workflow_public_input_contracts(result.validated_bundle)
+    projection = json.loads(result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8"))
+    workflow_projection = next(
+        workflow
+        for workflow in projection["workflows"]
+        if workflow["workflow_name"] == "defaults_pkg/entry::defaults"
+    )
+    flattened_inputs = {field["generated_name"]: field["contract_definition"] for field in workflow_projection["flattened_inputs"]}
+
+    assert public_inputs["message"]["default"] == "hello"
+    assert public_inputs["count"]["default"] == 3
+    assert public_inputs["score"]["default"] == 0.5
+    assert public_inputs["enabled"]["default"] is True
+    assert public_inputs["status"]["default"] == "ready"
+    assert public_inputs["report_path"]["default"] == "default.md"
+    assert flattened_inputs["message"]["default"] == "hello"
+    assert flattened_inputs["count"]["default"] == 3
+    assert flattened_inputs["score"]["default"] == 0.5
+    assert flattened_inputs["enabled"]["default"] is True
+    assert flattened_inputs["status"]["default"] == "ready"
+    assert flattened_inputs["report_path"]["default"] == "default.md"
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

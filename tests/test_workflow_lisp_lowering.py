@@ -102,6 +102,38 @@ def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
 
+
+def _write_workflow_param_default_module(path: Path) -> Path:
+    return _write_module(
+        path,
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum Status",
+                "    ready",
+                "    blocked)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord Summary",
+                "    (report WorkReport))",
+                "  (defworkflow defaults",
+                '    ((message String :default "hello")',
+                "     (count Int :default 3)",
+                "     (score Float :default 0.5)",
+                "     (enabled Bool :default true)",
+                "     (status Status :default ready)",
+                '     (report_path WorkReport :default "default.md"))',
+                "    -> Summary",
+                "    (record Summary :report report_path)))",
+            ]
+        ),
+    )
+
+
 def _compile_definition_module(path: Path):
     syntax_module = build_syntax_module(read_sexpr_file(path))
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
@@ -380,6 +412,89 @@ def test_compile_stage3_module_returns_lowered_workflows_and_optional_bundles(tm
     assert len(no_validation.lowered_workflows) == 3
     assert no_validation.validated_bundles == {}
     assert tuple(validated.validated_bundles) == ("command_checks", "provider_attempt", "orchestrate")
+
+
+def test_validate_lowered_workflows_attach_authored_defaults_to_public_input_contracts(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        _write_workflow_param_default_module(tmp_path / "workflow_param_defaults.orc"),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    public_inputs = _workflow_public_input_contracts(result.validated_bundles["defaults"])
+    assert public_inputs["message"]["default"] == "hello"
+    assert public_inputs["count"]["default"] == 3
+    assert public_inputs["score"]["default"] == 0.5
+    assert public_inputs["enabled"]["default"] is True
+    assert public_inputs["status"]["default"] == "ready"
+    assert public_inputs["report_path"]["default"] == "default.md"
+
+
+def test_build_workflow_catalog_reconstructs_imported_workflow_param_defaults_from_bundle(tmp_path: Path) -> None:
+    compiled = compile_stage3_module(
+        _write_module(
+            tmp_path / "workflow_param_defaults_imported.orc",
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defenum Status",
+                    "    ready",
+                    "    blocked)",
+                    "  (defpath WorkReport",
+                    "    :kind relpath",
+                    '    :under "artifacts/work"',
+                    "    :must-exist false)",
+                    "  (defrecord Summary",
+                    "    (report WorkReport))",
+                    "  (defworkflow defaults",
+                    "    ((count Int :default 3)",
+                    "     (score Float :default 0.5)",
+                    "     (enabled Bool :default true)",
+                    "     (status Status :default ready)",
+                    '     (report_path WorkReport :default "default.md"))',
+                    "    -> Summary",
+                    "    (record Summary :report report_path)))",
+                ]
+            ),
+        ),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    caller_types = _write_module(
+        tmp_path / "caller_types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum Status",
+                "    ready",
+                "    blocked)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord Summary",
+                "    (report WorkReport)))",
+            ]
+        ),
+    )
+
+    workflow_catalog = build_workflow_catalog(
+        _compile_definition_module(caller_types),
+        (),
+        FrontendTypeEnvironment.from_module(_compile_definition_module(caller_types)),
+        imported_workflow_bundles={"defaults": compiled.validated_bundles["defaults"]},
+    )
+
+    defaults = workflow_catalog.signatures_by_name["defaults"].param_defaults
+    assert defaults["count"].normalized_value == 3
+    assert defaults["score"].normalized_value == 0.5
+    assert defaults["enabled"].normalized_value is True
+    assert defaults["status"].normalized_value == "ready"
+    assert defaults["report_path"].normalized_value == "default.md"
 
 
 def test_lower_workflow_definitions_supports_union_returning_same_file_calls(tmp_path: Path) -> None:
@@ -1305,6 +1420,129 @@ def test_compile_stage3_module_lowers_same_file_call_with_local_record_alias(tmp
 
     assert lowered["steps"][0]["call"] == "build-checks"
     assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
+
+
+def test_compile_stage3_module_omits_same_file_defaulted_call_bindings(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "same_file_default_call.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow helper",
+                '    ((required_path WorkReport)',
+                '     (optional_report WorkReport :default "default.md"))',
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput :report required_path))",
+                "  (defworkflow entry",
+                "    ((required_path WorkReport))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :required_path required_path)))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
+    )
+
+    assert lowered["steps"][0]["call"] == "helper"
+    assert lowered["steps"][0]["with"]["required_path"] == {"ref": "inputs.required_path"}
+    assert "optional_report" not in lowered["steps"][0]["with"]
+
+
+def test_compile_stage3_entrypoint_omits_imported_defaulted_call_bindings(tmp_path: Path) -> None:
+    source_root = tmp_path / "defaults_pkg"
+    source_root.mkdir(parents=True, exist_ok=True)
+    types_path = _write_module(
+        source_root / "types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/types)",
+                "  (export WorkReport WorkflowOutput)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport)))",
+            ]
+        ),
+    )
+    del types_path
+    helper_path = _write_module(
+        source_root / "helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/helper)",
+                "  (import defaults_pkg/types :only (WorkReport WorkflowOutput))",
+                "  (export helper)",
+                "  (defworkflow helper",
+                '    ((required_path WorkReport)',
+                '     (optional_report WorkReport :default "default.md"))',
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput :report required_path)))",
+            ]
+        ),
+    )
+    del helper_path
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule defaults_pkg/entry)",
+                "  (import defaults_pkg/types :only (WorkReport WorkflowOutput))",
+                "  (import defaults_pkg/helper :as helper :only (helper))",
+                "  (export entry)",
+                "  (defworkflow entry",
+                "    ((required_path WorkReport))",
+                "    -> WorkflowOutput",
+                "    (call helper.helper",
+                "      :required_path required_path)))",
+            ]
+        ),
+    )
+
+    compile_entrypoint = getattr(_compiler_module(), "compile_stage3_entrypoint")
+    result = compile_entrypoint(
+        entry_path,
+        source_roots=(tmp_path,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "defaults_pkg/entry::entry"
+    )
+
+    assert lowered["steps"][0]["call"] == "defaults_pkg/helper::helper"
+    assert lowered["steps"][0]["with"]["required_path"] == {"ref": "inputs.required_path"}
+    assert "optional_report" not in lowered["steps"][0]["with"]
 
 
 def test_compile_stage3_module_rejects_same_file_call_record_leaf_without_ref(tmp_path: Path) -> None:

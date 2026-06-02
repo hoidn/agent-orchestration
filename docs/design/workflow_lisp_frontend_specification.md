@@ -1039,6 +1039,28 @@ Defines exported runtime-callable workflow.
 
 A `defworkflow` maps to a callable workflow in core AST.
 
+Current implemented parameter forms are:
+
+- `(name Type)`
+- `(name Type :default <literal>)`
+
+The bounded `:default` surface is part of the workflow boundary contract, not a
+body-level expression feature. In the current implementation, authored
+`defworkflow` defaults are supported only for boundary parameters that flatten
+to exactly one public workflow input contract and whose type is one of:
+
+- `String` from a string literal
+- path / relpath boundary types from a string literal
+- `Int` from an integer literal
+- `Float` from a float literal
+- `Bool` from a boolean literal
+- enum boundary types from an enum-member symbol
+
+Structured record/union defaults, collection defaults, `nil`, `WorkflowRef`,
+`ProcRef`, and dynamic default expressions are not part of this slice. When a
+caller omits a defaulted workflow input, the compiled input contract `default`
+field is authoritative and caller-provided values still win over that default.
+
 It has:
 
 - typed input signature
