@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -162,6 +163,24 @@ def _pointer_effects_request(tmp_path: Path):
     )
 
 
+def _workflow_public_input_contracts(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_public_input_contracts",
+        loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
+
+
+def _workflow_runtime_input_contracts(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_runtime_input_contracts",
+        loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
+
+
 def _assert_no_runtime_closure_markers(serialized: str) -> None:
     for marker in RUNTIME_CLOSURE_MARKERS:
         assert marker not in serialized
@@ -261,7 +280,9 @@ def test_build_fingerprint_changes_when_command_boundary_manifest_changes(tmp_pa
     assert original.manifest.fingerprint != alternate.manifest.fingerprint
 
 
-def test_build_accepts_compiled_imported_bundle_manifests(tmp_path: Path) -> None:
+def test_build_accepts_compiled_imported_workflow_bundles_manifest_and_public_runtime_input_projections(
+    tmp_path: Path,
+) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
@@ -318,8 +339,15 @@ def test_build_accepts_compiled_imported_bundle_manifests(tmp_path: Path) -> Non
     assert result.imported_workflow_bundles[0].workflow_name == "compiled/selector::selector-run"
     assert result.imported_workflow_bundles[0].bundle.ir.schema_version == "workflow_executable_ir.v1"
     assert result.imported_workflow_bundles[0].bundle.runtime_plan.schema_version == "workflow_runtime_plan.v1"
-    assert workflow_managed_write_root_inputs(result.imported_workflow_bundles[0].bundle) == (
+    bundle = result.imported_workflow_bundles[0].bundle
+    assert workflow_managed_write_root_inputs(bundle) == (
         "__write_root__compiled_selector_selector_run__result__result_bundle",
+    )
+    assert "__write_root__compiled_selector_selector_run__result__result_bundle" not in _workflow_public_input_contracts(
+        bundle
+    )
+    assert "__write_root__compiled_selector_selector_run__result__result_bundle" in _workflow_runtime_input_contracts(
+        bundle
     )
 
 

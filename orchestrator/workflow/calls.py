@@ -15,10 +15,10 @@ from .executable_ir import (
 )
 from .loaded_bundle import (
     workflow_bundle,
-    workflow_input_contracts,
     workflow_import_bundle,
     workflow_managed_write_root_inputs,
     workflow_provenance,
+    workflow_runtime_input_contracts,
 )
 from .predicates import PredicateEvaluationError
 from .references import ReferenceResolutionError
@@ -134,7 +134,7 @@ class CallExecutor:
                 },
             )
 
-        input_specs = workflow_input_contracts(imported_workflow)
+        input_specs = workflow_runtime_input_contracts(imported_workflow)
 
         bound_inputs: Dict[str, Any] = {}
         for input_name, input_spec in input_specs.items():

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import shutil
 import time
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import hashlib
 import yaml
@@ -18,9 +19,11 @@ from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.resume_planner import ResumePlanner
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
 
 
@@ -2001,6 +2004,184 @@ steps:
     assert mock_executor.called is False
     assert "Workflow input binding failed" in capsys.readouterr().err
     assert sorted(path.name for path in (temp_workspace / ".orchestrate" / "runs").iterdir()) == [run_id]
+
+
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+def test_resume_force_restart_rebinds_only_public_inputs_for_orc_bundle(
+    mock_executor,
+    temp_workspace,
+):
+    workflow_path = temp_workspace / "cycle_guard_demo.orc"
+    workflow_path.write_text("(workflow-lisp)\n", encoding="utf-8")
+
+    bundle = compile_stage3_module(
+        Path(__file__).resolve().parent.parent / "workflows" / "examples" / "cycle_guard_demo.orc",
+        command_boundaries={
+            "emit_cycle_guard_summary": ExternalToolBinding(
+                name="emit_cycle_guard_summary",
+                stable_command=("python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).validated_bundles["cycle-guard-demo"]
+    hidden_input_name = workflow_managed_write_root_inputs(bundle)[0]
+
+    run_id = "force-restart-managed-orc-inputs"
+    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "run_id": run_id,
+                "workflow_file": str(workflow_path),
+                "workflow_checksum": "sha256:placeholder",
+                "started_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:01:00Z",
+                "status": "failed",
+                "context": {},
+                "bound_inputs": {
+                    "terminal_status": "FAILED_CLOSED_BY_GUARD",
+                    "guard_cycles": 2,
+                    hidden_input_name: 7,
+                },
+                "steps": {},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    mock_executor.return_value.execute.return_value = {
+        "status": "completed",
+        "steps": {},
+    }
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        return_value=bundle,
+    ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="fresh-force-restart-run")):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=True,
+        )
+
+    assert result == 0
+    new_state = json.loads(
+        (
+            temp_workspace
+            / ".orchestrate"
+            / "runs"
+            / "fresh-force-restart-run"
+            / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert new_state["bound_inputs"] == {
+        "terminal_status": "FAILED_CLOSED_BY_GUARD",
+        "guard_cycles": 2,
+    }
+
+
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+def test_resume_force_restart_strips_stale_managed_inputs_after_workflow_rename(
+    mock_executor,
+    temp_workspace,
+):
+    original_source = (
+        Path(__file__).resolve().parent.parent
+        / "workflows"
+        / "examples"
+        / "cycle_guard_demo.orc"
+    ).read_text(encoding="utf-8")
+    renamed_source = (
+        original_source
+        .replace("(defmodule cycle_guard_demo)", "(defmodule cycle_guard_demo_renamed)")
+        .replace("(export cycle-guard-demo)", "(export cycle-guard-demo-renamed)")
+        .replace("(defworkflow cycle-guard-demo", "(defworkflow cycle-guard-demo-renamed")
+    )
+    workflow_path = temp_workspace / "cycle_guard_demo_renamed.orc"
+    workflow_path.write_text(renamed_source, encoding="utf-8")
+
+    command_boundaries = {
+        "emit_cycle_guard_summary": ExternalToolBinding(
+            name="emit_cycle_guard_summary",
+            stable_command=("python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"),
+        )
+    }
+    stale_bundle = compile_stage3_module(
+        Path(__file__).resolve().parent.parent / "workflows" / "examples" / "cycle_guard_demo.orc",
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).validated_bundles["cycle-guard-demo"]
+    renamed_bundle = compile_stage3_module(
+        workflow_path,
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).validated_bundles["cycle-guard-demo-renamed"]
+    stale_hidden_input_name = workflow_managed_write_root_inputs(stale_bundle)[0]
+    renamed_hidden_input_name = workflow_managed_write_root_inputs(renamed_bundle)[0]
+
+    assert stale_hidden_input_name != renamed_hidden_input_name
+
+    run_id = "force-restart-stale-managed-orc-inputs"
+    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "run_id": run_id,
+                "workflow_file": str(workflow_path),
+                "workflow_checksum": "sha256:placeholder",
+                "started_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:01:00Z",
+                "status": "failed",
+                "context": {},
+                "bound_inputs": {
+                    "terminal_status": "FAILED_CLOSED_BY_GUARD",
+                    "guard_cycles": 2,
+                    stale_hidden_input_name: 7,
+                },
+                "steps": {},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    mock_executor.return_value.execute.return_value = {
+        "status": "completed",
+        "steps": {},
+    }
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        return_value=renamed_bundle,
+    ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="fresh-force-restart-renamed-run")):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=True,
+        )
+
+    assert result == 0
+    new_state = json.loads(
+        (
+            temp_workspace
+            / ".orchestrate"
+            / "runs"
+            / "fresh-force-restart-renamed-run"
+            / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert new_state["bound_inputs"] == {
+        "terminal_status": "FAILED_CLOSED_BY_GUARD",
+        "guard_cycles": 2,
+    }
 
 
 def test_at4_resume_corrupted_state_with_repair(temp_workspace, sample_workflow):

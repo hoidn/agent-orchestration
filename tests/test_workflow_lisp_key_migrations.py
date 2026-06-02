@@ -6,10 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_input_contracts
+from orchestrator.workflow.loaded_bundle import workflow_input_contracts, workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
@@ -28,6 +29,15 @@ def _load_json(path: Path) -> dict[str, str]:
 
 def _workflow_short_name(name: str) -> str:
     return name.rsplit("::", 1)[-1]
+
+
+def _workflow_public_input_contracts(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_public_input_contracts",
+        loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
 
 
 def test_cycle_guard_demo_orc_compiles_with_bounded_loop(tmp_path: Path) -> None:
@@ -73,25 +83,30 @@ def test_cycle_guard_demo_orc_runtime_materializes_output_bundle(tmp_path: Path)
     )
 
     bundle = result.validated_bundles["cycle-guard-demo"]
-    hidden_inputs = tuple(
-        name for name in workflow_input_contracts(bundle) if isinstance(name, str) and name.startswith("__write_root__")
-    )
+    hidden_inputs = workflow_managed_write_root_inputs(bundle)
     assert len(hidden_inputs) == 1
-    hidden_input_name = hidden_inputs[0]
+    assert hidden_inputs[0].endswith("__result_bundle")
+    assert hidden_inputs[0] not in _workflow_public_input_contracts(bundle)
 
     adapter_source = REPO_ROOT / "scripts" / "workflow_lisp_migrations" / "emit_cycle_guard_summary.py"
     adapter_dest = tmp_path / "scripts" / "workflow_lisp_migrations" / "emit_cycle_guard_summary.py"
     adapter_dest.parent.mkdir(parents=True, exist_ok=True)
     adapter_dest.write_text(adapter_source.read_text(encoding="utf-8"), encoding="utf-8")
 
-    output_bundle_relpath = "state/cycle-guard-result.json"
+    output_bundle_relpath = (
+        Path(".orchestrate")
+        / "workflow_lisp"
+        / "entry"
+        / "cycle-guard-orc-runtime"
+        / "cycle-guard-demo"
+        / f"{hidden_inputs[0]}.json"
+    )
     state_manager = StateManager(workspace=tmp_path, run_id="cycle-guard-orc-runtime")
     state_manager.initialize(
         (EXAMPLES / "cycle_guard_demo.orc").as_posix(),
         bound_inputs={
             "terminal_status": "FAILED_CLOSED_BY_GUARD",
             "guard_cycles": 2,
-            hidden_input_name: output_bundle_relpath,
         },
     )
     state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
@@ -103,6 +118,44 @@ def test_cycle_guard_demo_orc_runtime_materializes_output_bundle(tmp_path: Path)
         "terminal_status": "FAILED_CLOSED_BY_GUARD",
         "guard_cycles": 2,
     }
+
+
+def test_cycle_guard_demo_orc_rejects_user_override_of_runtime_owned_write_root(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        EXAMPLES / "cycle_guard_demo.orc",
+        command_boundaries={
+            "emit_cycle_guard_summary": ExternalToolBinding(
+                name="emit_cycle_guard_summary",
+                stable_command=("python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["cycle-guard-demo"]
+    hidden_input_name = workflow_managed_write_root_inputs(bundle)[0]
+
+    adapter_source = REPO_ROOT / "scripts" / "workflow_lisp_migrations" / "emit_cycle_guard_summary.py"
+    adapter_dest = tmp_path / "scripts" / "workflow_lisp_migrations" / "emit_cycle_guard_summary.py"
+    adapter_dest.parent.mkdir(parents=True, exist_ok=True)
+    adapter_dest.write_text(adapter_source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    state_manager = StateManager(workspace=tmp_path, run_id="cycle-guard-orc-override")
+    state_manager.initialize(
+        (EXAMPLES / "cycle_guard_demo.orc").as_posix(),
+        bound_inputs={
+            "terminal_status": "FAILED_CLOSED_BY_GUARD",
+            "guard_cycles": 2,
+            hidden_input_name: "state/user-owned-result.json",
+        },
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "failed"
+    assert state["error"]["type"] == "contract_violation"
+    assert state["error"]["context"]["reason"] == "managed_write_root_override"
+    assert state["error"]["context"]["input"] == hidden_input_name
 
 
 def test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts(tmp_path: Path) -> None:

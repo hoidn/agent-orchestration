@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from orchestrator.workflow.loaded_bundle import workflow_input_contracts, workflow_output_contracts
+from orchestrator.workflow.loaded_bundle import workflow_output_contracts, workflow_public_input_contracts
 
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -585,13 +585,11 @@ def _signature_from_imported_bundle(
 ) -> WorkflowSignature:
     """Reconstruct a frontend workflow signature from a validated bundle."""
 
-    input_contracts = workflow_input_contracts(bundle)
+    input_contracts = workflow_public_input_contracts(bundle)
     grouped_inputs: dict[str, dict[str, Mapping[str, object]]] = {}
     param_order: list[str] = []
     for input_name, input_spec in input_contracts.items():
         if not isinstance(input_name, str) or not isinstance(input_spec, Mapping):
-            continue
-        if input_name.startswith("__write_root__"):
             continue
         param_name = input_name.split("__", 1)[0]
         if param_name not in grouped_inputs:

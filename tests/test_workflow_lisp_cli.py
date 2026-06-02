@@ -24,6 +24,8 @@ CALLABLE_SOURCE_ROOT = FIXTURES / "modules" / "valid" / "callables"
 KISS_ENTRYPOINT = REPO_ROOT / "workflows" / "examples" / "kiss_backlog_item.orc"
 KISS_PROVIDERS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "providers.json"
 KISS_PROMPTS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "prompts.json"
+CYCLE_GUARD_ENTRYPOINT = REPO_ROOT / "workflows" / "examples" / "cycle_guard_demo.orc"
+CYCLE_GUARD_SOURCE_ROOT = REPO_ROOT / "workflows" / "examples"
 
 
 def _build_module():
@@ -462,6 +464,46 @@ def test_run_workflow_orc_dry_run_requires_bound_inputs(tmp_path: Path, monkeypa
     result = run_workflow(_orc_run_args())
 
     assert result == 2
+    assert not (tmp_path / ".orchestrate" / "runs").exists()
+
+
+def test_run_workflow_orc_public_binding_excludes_managed_write_roots(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    commands_manifest = tmp_path / "cycle_guard.commands.json"
+    commands_manifest.write_text(
+        json.dumps(
+            {
+                "emit_cycle_guard_summary": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py",
+                    ],
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    args = _orc_run_args(
+        workflow=CYCLE_GUARD_ENTRYPOINT,
+        source_root=CYCLE_GUARD_SOURCE_ROOT,
+        input_values=[
+            "terminal_status=FAILED_CLOSED_BY_GUARD",
+            "guard_cycles=2",
+        ],
+    )
+    args.entry_workflow = "cycle-guard-demo"
+    args.provider_externs_file = None
+    args.prompt_externs_file = None
+    args.imported_workflow_bundles_file = None
+    args.command_boundaries_file = str(commands_manifest)
+
+    result = run_workflow(args)
+
+    assert result == 0
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 

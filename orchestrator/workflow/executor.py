@@ -66,9 +66,10 @@ from .identity import iteration_step_id, runtime_step_id
 from .loaded_bundle import (
     workflow_bundle,
     workflow_context,
-    workflow_input_contracts,
+    workflow_managed_write_root_inputs,
     workflow_output_contracts,
     workflow_provenance,
+    workflow_runtime_input_contracts,
 )
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
@@ -1848,6 +1849,8 @@ class WorkflowExecutor:
         if not isinstance(bound_inputs, dict):
             bound_inputs = {}
             state['bound_inputs'] = bound_inputs
+        if self.state_manager.state is not None:
+            self.state_manager.state.bound_inputs = dict(bound_inputs)
 
         workflow_outputs = state.get('workflow_outputs', {})
         if not isinstance(workflow_outputs, dict):
@@ -1857,6 +1860,77 @@ class WorkflowExecutor:
         self._persist_finalization_state(state)
         self.state_manager.update_workflow_outputs(workflow_outputs)
         self.state_manager.update_run_error(state.get('error') if isinstance(state.get('error'), dict) else None)
+
+    def _persist_bound_inputs(self, state: Dict[str, Any]) -> None:
+        """Persist the current workflow-boundary input bag."""
+        bound_inputs = state.get('bound_inputs', {})
+        if not isinstance(bound_inputs, dict):
+            bound_inputs = {}
+            state['bound_inputs'] = bound_inputs
+        if self.state_manager.state is None:
+            return
+        self.state_manager.state.bound_inputs = dict(bound_inputs)
+        self.state_manager._write_state()
+
+    def _entry_managed_write_root_bindings(self) -> Dict[str, str]:
+        """Return deterministic runtime-owned managed write-root bindings for entry workflows."""
+        if not isinstance(self.state_manager, StateManager):
+            return {}
+        workflow_root = Path(self.workflow_name) if isinstance(self.workflow_name, str) and self.workflow_name else Path("workflow")
+        base = (
+            Path(".orchestrate")
+            / "workflow_lisp"
+            / "entry"
+            / self.state_manager.run_id
+            / workflow_root
+        )
+        return {
+            input_name: (base / f"{input_name}.json").as_posix()
+            for input_name in workflow_managed_write_root_inputs(self.loaded_bundle)
+            if isinstance(input_name, str)
+        }
+
+    def _ensure_entry_managed_write_root_bindings(
+        self,
+        state: Dict[str, Any],
+        *,
+        resume: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Allocate or validate runtime-owned managed write roots for entry workflows."""
+        managed_bindings = self._entry_managed_write_root_bindings()
+        if not managed_bindings:
+            return None
+
+        bound_inputs = state.get('bound_inputs', {})
+        if not isinstance(bound_inputs, dict):
+            bound_inputs = {}
+            state['bound_inputs'] = bound_inputs
+
+        changed = False
+        for input_name, expected_value in managed_bindings.items():
+            if input_name not in bound_inputs:
+                bound_inputs[input_name] = expected_value
+                changed = True
+                continue
+
+            current_value = bound_inputs[input_name]
+            if resume and current_value == expected_value:
+                continue
+
+            return self._contract_violation_result(
+                "Workflow input binding failed",
+                {
+                    "scope": "workflow_inputs",
+                    "reason": "managed_write_root_override",
+                    "input": input_name,
+                    "value": self._json_safe_runtime_value(current_value),
+                    "expected": expected_value,
+                },
+            )
+
+        if changed:
+            self._persist_bound_inputs(state)
+        return None
 
     def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
                 max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
@@ -1898,6 +1972,14 @@ class WorkflowExecutor:
         if initial_finalization is not None:
             state.setdefault('finalization', initial_finalization)
         state['_resolved_consumes'] = {}
+        managed_input_error = self._ensure_entry_managed_write_root_bindings(state, resume=resume)
+        if managed_input_error is not None:
+            state['status'] = 'failed'
+            state['error'] = managed_input_error.get('error')
+            self._persist_bound_inputs(state)
+            self.state_manager.update_run_error(state['error'] if isinstance(state.get('error'), dict) else None)
+            self.state_manager.update_status('failed')
+            return self.state_manager.load().to_dict()
         if resume:
             session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
                 state,
@@ -6662,7 +6744,7 @@ class WorkflowExecutor:
         os.replace(temp_path, target)
 
     def _workflow_input_contracts(self) -> Dict[str, Dict[str, Any]]:
-        return dict(workflow_input_contracts(self.loaded_bundle))
+        return dict(workflow_runtime_input_contracts(self.loaded_bundle))
 
     def _runtime_step_by_name(self, step_name: str) -> Optional[RuntimeStep]:
         if not isinstance(step_name, str) or not step_name:

@@ -17,7 +17,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_bundle as loaded_workflow_bundle,
     workflow_context,
-    workflow_input_contracts,
+    workflow_public_input_contracts,
 )
 from orchestrator.workflow.linting import lint_workflow
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
@@ -385,7 +385,7 @@ def run_workflow(args: Namespace) -> int:
         lint_warnings = lint_workflow(workflow)
 
         bound_inputs = bind_workflow_inputs(
-            workflow_input_contracts(workflow),
+            workflow_public_input_contracts(workflow),
             raw_inputs,
             workspace=workspace,
         )

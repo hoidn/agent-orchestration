@@ -10,7 +10,12 @@ import sys
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts
+from orchestrator.workflow.loaded_bundle import (
+    workflow_context,
+    workflow_is_managed_write_root_input_name,
+    workflow_managed_write_root_inputs,
+    workflow_public_input_contracts,
+)
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
@@ -20,6 +25,25 @@ from orchestrator.runtime_observability import close_executor_session, open_exec
 
 logger = logging.getLogger(__name__)
 PROVIDER_SESSION_QUARANTINE_ERROR = "provider_session_interrupted_visit_quarantined"
+
+
+def _public_rebind_inputs_for_force_restart(
+    workflow_bundle: Any,
+    persisted_bound_inputs: Any,
+) -> Dict[str, Any]:
+    raw_inputs = persisted_bound_inputs if isinstance(persisted_bound_inputs, dict) else {}
+    managed_inputs = {
+        name
+        for name in workflow_managed_write_root_inputs(workflow_bundle)
+        if isinstance(name, str)
+    }
+    return {
+        str(name): value
+        for name, value in raw_inputs.items()
+        if isinstance(name, str)
+        and name not in managed_inputs
+        and not workflow_is_managed_write_root_input_name(name)
+    }
 
 
 def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: Any) -> Optional[Dict[str, Any]]:
@@ -289,8 +313,8 @@ def resume_workflow(
     if force_restart:
         try:
             bound_inputs = bind_workflow_inputs(
-                workflow_input_contracts(workflow_bundle),
-                getattr(state, 'bound_inputs', {}),
+                workflow_public_input_contracts(workflow_bundle),
+                _public_rebind_inputs_for_force_restart(workflow_bundle, getattr(state, 'bound_inputs', {})),
                 workspace=workspace_dir,
             )
         except ValueError as exc:

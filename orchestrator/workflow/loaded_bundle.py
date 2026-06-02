@@ -54,6 +54,11 @@ def _require_bundle(workflow_or_bundle: Any) -> LoadedWorkflowBundle:
     return bundle
 
 
+def workflow_is_managed_write_root_input_name(name: Any) -> bool:
+    """Return whether one input name uses the compiler-owned managed write-root prefix."""
+    return isinstance(name, str) and name.startswith("__write_root__")
+
+
 def workflow_context(workflow_or_bundle: Any) -> Mapping[str, Any]:
     """Return workflow context values from the typed bundle."""
     return _require_bundle(workflow_or_bundle).surface.context
@@ -77,6 +82,31 @@ def workflow_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[st
         for name, contract in bundle.surface.inputs.items()
         if isinstance(name, str) and isinstance(contract.definition, Mapping)
     })
+
+
+def _managed_write_root_input_set(bundle: LoadedWorkflowBundle) -> frozenset[str]:
+    managed_inputs = workflow_managed_write_root_inputs(bundle)
+    return frozenset(name for name in managed_inputs if isinstance(name, str))
+
+
+def workflow_public_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
+    """Return the user-bindable workflow input contracts from the typed bundle."""
+    if workflow_or_bundle is None:
+        return MappingProxyType({})
+    bundle = _require_bundle(workflow_or_bundle)
+    managed_inputs = _managed_write_root_input_set(bundle)
+    return MappingProxyType({
+        name: _compatibility_value(contract.definition)
+        for name, contract in bundle.surface.inputs.items()
+        if isinstance(name, str)
+        and name not in managed_inputs
+        and isinstance(contract.definition, Mapping)
+    })
+
+
+def workflow_runtime_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
+    """Return the runtime-required workflow input contracts from the typed bundle."""
+    return workflow_input_contracts(workflow_or_bundle)
 
 
 def workflow_output_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
@@ -145,5 +175,5 @@ def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ..
     return tuple(
         name
         for name in bundle.surface.inputs
-        if isinstance(name, str) and name.startswith("__write_root__")
+        if workflow_is_managed_write_root_input_name(name)
     )

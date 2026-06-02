@@ -856,6 +856,38 @@ def test_for_each_call_runtime_rejects_reused_write_root_from_loop_local_ref(tmp
     assert len(persisted.get("call_frames", {})) == 1
 
 
+def test_reusable_call_runtime_write_root_bindings_still_validate(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _managed_write_root_library(version="2.7"),
+    )
+    final_state, persisted = _run_workflow(
+        tmp_path,
+        {
+            "version": "2.7",
+            "name": "call-with-distinct-write-root",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                    "with": {
+                        "max_cycles": 1,
+                        "write_root": "state/review-loop-a",
+                    },
+                }
+            ],
+        },
+        run_id="call-with-distinct-write-root",
+    )
+
+    assert final_state["status"] == "completed"
+    assert len(persisted.get("call_frames", {})) == 1
+    call_frame = next(iter(persisted["call_frames"].values()))
+    assert call_frame["bound_inputs"]["write_root"] == "state/review-loop-a"
+
+
 def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path: Path):
     _write_yaml(
         tmp_path / "workflows" / "library" / "review_fix_loop.yaml",

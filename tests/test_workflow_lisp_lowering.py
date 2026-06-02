@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import (
@@ -106,6 +107,24 @@ def _compile_definition_module(path: Path):
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
     _validate_definition_module(module)
     return module
+
+
+def _workflow_public_input_contracts(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_public_input_contracts",
+        loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
+
+
+def _workflow_runtime_input_contracts(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_runtime_input_contracts",
+        loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
 
 
 def _typed_fixture_workflows():
@@ -326,6 +345,12 @@ def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: 
     ).authored_mapping
     assert workflow_managed_write_root_inputs(validated["provider_attempt"]) == (
         "__write_root__provider_attempt__attempt__result_bundle",
+    )
+    assert "__write_root__provider_attempt__attempt__result_bundle" not in _workflow_public_input_contracts(
+        validated["provider_attempt"]
+    )
+    assert "__write_root__provider_attempt__attempt__result_bundle" in _workflow_runtime_input_contracts(
+        validated["provider_attempt"]
     )
 
 
