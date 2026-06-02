@@ -4,13 +4,15 @@
 
 **Goal:** Reduce maintenance cost in `orchestrator/workflow_lisp` through behavior-preserving, low-risk refactors.
 
-**Architecture:** Keep the existing pass-oriented compiler architecture. First
-fix concrete low-risk hazards found by the module review, then add
-characterization coverage, then decide whether `lowering.py` should become a
-`lowering/` package before extracting read-only helpers and coherent lowering
-helper clusters. Preserve the `orchestrator.workflow_lisp.lowering` import
-facade and do not change `.orc` syntax, generated workflow behavior,
-diagnostics, source maps, or runtime contracts.
+**Architecture:** Follow
+[Workflow Lisp Refactor Architecture](../design/workflow_lisp_refactor_architecture.md).
+Keep the existing pass-oriented compiler architecture. First fix concrete
+low-risk hazards found by the module review, then add characterization coverage,
+then decide whether `lowering.py` should become a `lowering/` package before
+extracting read-only helpers and coherent lowering helper clusters. Preserve the
+`orchestrator.workflow_lisp.lowering` import facade and do not change `.orc`
+syntax, generated workflow behavior, diagnostics, source maps, or runtime
+contracts.
 
 **Tech Stack:** Python, pytest, Workflow Lisp frontend, existing orchestrator workflow loader/runtime.
 
@@ -19,7 +21,8 @@ diagnostics, source maps, or runtime contracts.
 ## Context
 
 This plan is a narrow execution companion to
-`docs/plans/2026-05-23-workflow-lisp-refactoring-backlog.md`.
+`docs/plans/2026-05-23-workflow-lisp-refactoring-backlog.md` and the design in
+[Workflow Lisp Refactor Architecture](../design/workflow_lisp_refactor_architecture.md).
 
 The current compiler shape is sound enough to preserve:
 

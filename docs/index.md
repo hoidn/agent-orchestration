@@ -172,6 +172,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow
 **Use this when:** Reviewing the parent Workflow Lisp language contract or checking whether a scoped frontend delta preserves the baseline design.
 
+### [Workflow Lisp Refactor Architecture](design/workflow_lisp_refactor_architecture.md)
+**Description:** Behavior-preserving architecture guidance for reducing Workflow Lisp frontend maintainability debt, covering module boundaries, shared traversal, context objects, lowering splits, registries, and public API cleanup.
+**Keywords:** lisp-frontend, refactor, architecture, maintainability, module-boundaries
+**Use this when:** Planning or reviewing Workflow Lisp frontend refactors that must preserve `.orc` semantics, source maps, diagnostics, contracts, and runtime behavior.
+
 ### [Workflow Lisp Semantic Workflow IR](design/workflow_lisp_semantic_workflow_ir.md)
 **Description:** Durable current-checkout contract for the shared Semantic IR layer, documenting `SemanticWorkflowIR` and `LoadedWorkflowBundle.semantic_ir` as the typed semantic authority surface while executable IR, runtime-plan, and debug/report projections remain distinct.
 **Keywords:** lisp-frontend, semantic-ir, loadedworkflowbundle, contracts, source-map, authority
