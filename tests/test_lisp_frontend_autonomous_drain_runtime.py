@@ -797,6 +797,10 @@ def test_detect_prior_blocked_design_gap_recovers_roadmap_conflict(tmp_path):
         "recovery_status": "RECOVER_BLOCKED_DESIGN_GAP",
         "design_gap_id": "parser-syntax",
         "progress_report_path": progress_path.relative_to(workspace).as_posix(),
+        "architecture_path": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md",
+        "plan_path": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md",
+        "architecture_copy_path": output_path.with_name("prior-blocked-gap-architecture.md").relative_to(workspace).as_posix(),
+        "plan_copy_path": output_path.with_name("prior-blocked-gap-execution-plan.md").relative_to(workspace).as_posix(),
         "blocker_class": "roadmap_conflict",
         "block_reason": "implementation_blocked",
     }
@@ -846,6 +850,10 @@ def test_detect_prior_blocked_design_gap_recovers_under_scoped_architecture(tmp_
     assert payload["recovery_status"] == "RECOVER_BLOCKED_DESIGN_GAP"
     assert payload["design_gap_id"] == "parser-syntax"
     assert payload["progress_report_path"] == progress_path.relative_to(workspace).as_posix()
+    assert payload["architecture_path"].endswith("/parser-syntax/implementation_architecture.md")
+    assert payload["plan_path"].endswith("/parser-syntax/execution_plan.md")
+    assert payload["architecture_copy_path"].endswith("/prior-blocked-gap-architecture.md")
+    assert payload["plan_copy_path"].endswith("/prior-blocked-gap-execution-plan.md")
 
 
 def test_design_gap_architect_stays_single_pass_for_stage7_scope():
@@ -1129,10 +1137,18 @@ def test_design_delta_drain_classifies_prior_blocked_recovery_before_revision():
         "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md"
     )
     reviser = next(step for step in recover["steps"] if step["name"] == "RevisePriorBlockedDesignGap")
-    assert reviser["when"]["compare"]["right"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    route_values = [
+        predicate["compare"]["right"]
+        for predicate in reviser["when"]["any_of"]
+    ]
+    assert route_values == ["TARGET_DESIGN_REVISION_REQUIRED", "GAP_DESIGN_REVISION_REQUIRED"]
+    assert "${inputs.drain_state_root}/prior-blocked-recovery-decision.json" in reviser["depends_on"]["required"]
+    assert "${inputs.drain_state_root}/prior-blocked-gap-architecture.md" in reviser["depends_on"]["required"]
+    assert "${inputs.drain_state_root}/prior-blocked-gap-execution-plan.md" in reviser["depends_on"]["required"]
     recorder = next(step for step in recover["steps"] if step["name"] == "RecordPriorBlockedRecoveryOutcome")
     assert any(part.endswith("record_lisp_frontend_blocked_recovery_outcome.py") for part in recorder["command"])
     assert "${inputs.drain_state_root}/prior-blocked-recovery-decision.json" in recorder["command"]
+    assert "${inputs.drain_state_root}/prior-blocked-design-revision-report.json" in recorder["command"]
     assert "continue" in recorder["command"]
 
 
@@ -1550,8 +1566,12 @@ def _write_design_revision_review_approve(workspace: Path) -> None:
 def _seed_prior_blocked_design_gap(workspace: Path) -> None:
     run_state = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
     progress = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/progress_report.md"
+    architecture = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    plan = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
     run_state.parent.mkdir(parents=True, exist_ok=True)
     progress.parent.mkdir(parents=True, exist_ok=True)
+    architecture.parent.mkdir(parents=True, exist_ok=True)
+    plan.parent.mkdir(parents=True, exist_ok=True)
     run_state.write_text(
         json.dumps(
             {
@@ -1570,6 +1590,8 @@ def _seed_prior_blocked_design_gap(workspace: Path) -> None:
         encoding="utf-8",
     )
     progress.write_text("# Progress Report\n\nBlocker class: roadmap_conflict\n", encoding="utf-8")
+    architecture.write_text("# Parser Syntax Implementation Architecture\n", encoding="utf-8")
+    plan.write_text("# Parser Syntax Execution Plan\n", encoding="utf-8")
 
 
 def _revise_prior_blocked_design_gap(workspace: Path) -> None:
@@ -1588,6 +1610,31 @@ def _revise_prior_blocked_design_gap(workspace: Path) -> None:
                 "changed_sections": ["Prior Blocker Revision"],
                 "blocker_class": "roadmap_conflict",
                 "reason": "implementation_design_revision_required",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _revise_prior_blocked_gap_design(workspace: Path) -> None:
+    architecture = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    architecture.write_text(
+        architecture.read_text(encoding="utf-8")
+        + "\n\n## Blocked Recovery Revision\n\nAdded missing dependency sequencing.\n",
+        encoding="utf-8",
+    )
+    report = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/prior-blocked-design-revision-report.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        json.dumps(
+            {
+                "design_revision_decision": "REVISED",
+                "summary": "Updated gap implementation architecture from prior blocked state.",
+                "changed_sections": ["Blocked Recovery Revision"],
+                "blocker_class": "unknown",
+                "reason": "implementation_architecture_under_scoped",
             },
             indent=2,
         )
@@ -2088,6 +2135,7 @@ def test_design_delta_prior_blocked_gap_design_recovery_before_selection(tmp_pat
         workflow_path,
         [
             ("ClassifyPriorBlockedImplementationRecovery", _classify_blocked_recovery_gap_design_required),
+            ("RevisePriorBlockedDesignGap", _revise_prior_blocked_gap_design),
             ("SelectNextWork", _write_selector_done),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
@@ -2097,11 +2145,17 @@ def test_design_delta_prior_blocked_gap_design_recovery_before_selection(tmp_pat
         (workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json").read_text(encoding="utf-8")
     )
     target_text = (workspace / _design_delta_workflow_inputs()["target_design_path"]).read_text(encoding="utf-8")
+    architecture_text = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    ).read_text(encoding="utf-8")
 
     assert state["status"] == "completed"
+    assert state["__provider_calls"] == 3
     assert any(event["event"] == "gap_design_revision" for event in run_state["history"])
     assert "parser-syntax" not in run_state["blocked_design_gaps"]
     assert "Prior Blocker Revision" not in target_text
+    assert "Blocked Recovery Revision" in architecture_text
 
 
 def test_design_delta_terminal_blocker_does_not_revise_design(tmp_path):

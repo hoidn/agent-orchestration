@@ -127,6 +127,8 @@ steps:
       - ${inputs.run_state_target_path}
       - --artifact-work-root
       - ${inputs.artifact_work_root}
+      - --architecture-index-root
+      - ${inputs.architecture_index_root}
       - --output
       - ${inputs.drain_state_root}/prior-blocked-recovery.json
     output_bundle:
@@ -141,6 +143,18 @@ steps:
           type: string
         - name: progress_report_path
           json_pointer: /progress_report_path
+          type: string
+        - name: architecture_path
+          json_pointer: /architecture_path
+          type: string
+        - name: plan_path
+          json_pointer: /plan_path
+          type: string
+        - name: architecture_copy_path
+          json_pointer: /architecture_copy_path
+          type: string
+        - name: plan_copy_path
+          json_pointer: /plan_copy_path
           type: string
         - name: blocker_class
           json_pointer: /blocker_class
@@ -212,11 +226,17 @@ steps:
             - name: RevisePriorBlockedDesignGap
               id: revise_prior_blocked_design_gap
               when:
-                compare:
-                  left:
-                    ref: self.steps.ClassifyPriorBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                  op: eq
-                  right: TARGET_DESIGN_REVISION_REQUIRED
+                any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyPriorBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyPriorBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: GAP_DESIGN_REVISION_REQUIRED
               provider: ${inputs.implementation_execute_provider}
               input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_prior_blocked_design_gap.md
               timeout_sec: 3600
@@ -224,7 +244,11 @@ steps:
                 required:
                   - ${inputs.target_design_path}
                   - ${inputs.baseline_design_path}
+                  - ${inputs.drain_state_root}/prior-blocked-recovery.json
+                  - ${inputs.drain_state_root}/prior-blocked-recovery-decision.json
                   - ${inputs.drain_state_root}/prior-blocked-progress-report.md
+                  - ${inputs.drain_state_root}/prior-blocked-gap-architecture.md
+                  - ${inputs.drain_state_root}/prior-blocked-gap-execution-plan.md
                 inject:
                   mode: content
               output_bundle:
@@ -301,6 +325,8 @@ steps:
                 - workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py
                 - --recovery-bundle-path
                 - ${inputs.drain_state_root}/prior-blocked-recovery-decision.json
+                - --revision-report
+                - ${inputs.drain_state_root}/prior-blocked-design-revision-report.json
                 - --target-design-review-decision
                 - ${inputs.drain_state_root}/prior-blocked-design-revision-loop-decision.txt
                 - --terminal-action

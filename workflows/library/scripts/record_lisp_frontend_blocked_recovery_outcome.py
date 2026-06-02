@@ -88,6 +88,7 @@ def main() -> int:
     parser.add_argument("--recovery-route", default="")
     parser.add_argument("--reason", default="")
     parser.add_argument("--recovery-bundle-path", default="")
+    parser.add_argument("--revision-report", default="")
     parser.add_argument("--target-design-review-decision", required=True)
     parser.add_argument("--terminal-action", required=True, choices=["block", "continue"])
     parser.add_argument("--state-path", required=True)
@@ -110,6 +111,13 @@ def main() -> int:
         raise SystemExit("Recovery reason is required")
 
     if route == "GAP_DESIGN_REVISION_REQUIRED":
+        if args.revision_report:
+            report = json.loads(Path(args.revision_report).read_text(encoding="utf-8"))
+            decision = str(report.get("design_revision_decision") or "").strip()
+            if decision == "BLOCKED":
+                return _run_update(args, "blocked", "gap_design_revision_blocked")
+            if decision != "REVISED":
+                raise SystemExit(f"Unexpected gap design revision decision: {decision}")
         return _run_update(args, "gap_design_revision", reason)
     if route == "TARGET_DESIGN_REVISION_REQUIRED":
         decision = _read_value_or_path(args.target_design_review_decision)
