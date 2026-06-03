@@ -347,10 +347,15 @@ expansion Track A:
   helpers.
 - P0.4 Introduce shared expression traversal coverage and migrate low-risk
   walkers.
+- P0.5 Keep maintained Python frontend modules at or below 2,000 physical lines
+  per file, or split them before adding new Track A/type-system behavior.
 
 Rationale: these items reduce the chance that a new generic expansion path is
 parsed, elaborated, or typechecked correctly while being missed by purity checks,
 extern discovery, ProcRef discovery, source maps, or lowering analysis.
+The module-size cap is a refactor-safety rule, not a language semantic rule:
+large compiler modules are harder to characterize, review, and extend without
+accidentally adding another hidden special case.
 
 ### 8.2 Strongly Recommended Before Structural Parametric Work
 
@@ -448,6 +453,11 @@ Acceptance:
 - lowering import inventory is recorded;
 - package facade or sibling fallback is chosen;
 - `orchestrator.workflow_lisp.lowering` remains the public import facade;
+- maintained Python modules under `orchestrator/workflow_lisp/` touched by this
+  migration are at or below 2,000 physical lines, excluding generated files,
+  fixtures, and temporary migration evidence;
+- any currently larger touched module is split behind the existing public import
+  facade before new generic expansion or type-system behavior is added there;
 - no behavior changes occur in the pure move;
 - focused lowering tests pass.
 
