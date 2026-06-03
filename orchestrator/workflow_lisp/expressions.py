@@ -8,10 +8,11 @@ the full intended language surface.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .form_registry import FormKind, get_form_spec
 from .phase_stdlib import (
     ProduceOneOfCandidateFieldSpec,
     ProduceOneOfCandidateSpec,
@@ -473,6 +474,11 @@ _ACTIVE_LOCAL_PROC_NAMES = frozenset()
 _ACTIVE_LOOP_BODY_DEPTH = 0
 _ACTIVE_LET_PROC_DEPTH = 0
 
+_ElaborationRouteHandler = Callable[
+    [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
+    "ExprNode",
+]
+
 
 def elaborate_expression(
     node: SyntaxNode,
@@ -624,191 +630,32 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    if head.resolved_name == "record":
-        return _elaborate_record(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "variant":
-        return _elaborate_variant(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "let*":
-        return _elaborate_letstar(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "if":
-        return _elaborate_if(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "match":
-        return _elaborate_match(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "loop/recur":
-        return _elaborate_loop_recur(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "fn":
-        _raise_error(
-            "`fn` is valid only as the body form of `loop/recur`",
-            code="loop_recur_fn_outside_loop",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    if head.resolved_name == "continue":
-        if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+    form_spec = get_form_spec(head.resolved_name)
+    if form_spec is not None:
+        if form_spec.kind is FormKind.TOP_LEVEL_DEFINITION:
             _raise_error(
-                "`continue` is valid only inside `loop/recur`",
-                code="loop_recur_continue_outside_loop",
-                span=datum.span,
+                f"`{head.display_name}` is a top-level definition form and cannot appear in expression position",
+                code="top_level_definition_in_expression_position",
+                span=head.span,
                 form_path=form_path,
-                expansion_stack=datum.expansion_stack,
+                expansion_stack=head.expansion_stack,
             )
-        return _elaborate_continue(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "done":
-        if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+        if form_spec.kind is FormKind.STDLIB_EXTENSION:
             _raise_error(
-                "`done` is valid only inside `loop/recur`",
-                code="loop_recur_done_outside_loop",
-                span=datum.span,
+                f"`{head.display_name}` requires imported stdlib expansion before expression elaboration",
+                code="stdlib_extension_missing_import_route",
+                span=head.span,
                 form_path=form_path,
-                expansion_stack=datum.expansion_stack,
+                expansion_stack=head.expansion_stack,
             )
-        return _elaborate_done(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "call":
-        return _elaborate_call(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "with-phase":
-        return _elaborate_with_phase(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "phase-target":
-        return _elaborate_phase_target(datum, form_path=form_path)
-    if head.resolved_name == "workflow-ref":
-        return _elaborate_workflow_ref_literal(datum, form_path=form_path)
-    if head.resolved_name == "proc-ref":
-        return _elaborate_proc_ref_literal(datum, form_path=form_path)
-    if head.resolved_name == "bind-proc":
-        return _elaborate_bind_proc(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "let-proc":
-        if _ACTIVE_LET_PROC_DEPTH > 0:
-            _raise_error(
-                "`let-proc` cannot be nested in V1",
-                code="let_proc_nested_unsupported",
-                span=datum.span,
+        if form_spec.elaboration_route is not None:
+            return _dispatch_elaboration_route(
+                form_spec.elaboration_route,
+                datum,
                 form_path=form_path,
-                expansion_stack=datum.expansion_stack,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
             )
-        return _elaborate_let_proc(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "provider-result":
-        return _elaborate_provider_result(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "command-result":
-        return _elaborate_command_result(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "run-provider-phase":
-        return _elaborate_run_provider_phase(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "produce-one-of":
-        return _elaborate_produce_one_of(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "__stdlib-specialization__":
-        return _elaborate_stdlib_specialization(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "resume-or-start":
-        return _elaborate_resume_or_start(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "resource-transition":
-        return _elaborate_resource_transition(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "finalize-selected-item":
-        return _elaborate_finalize_selected_item(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
-    if head.resolved_name == "backlog-drain":
-        return _elaborate_backlog_drain(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-        )
     if head.resolved_name in _ACTIVE_FUNCTION_NAMES:
         return _elaborate_function_call(
             datum,
@@ -845,6 +692,169 @@ def _elaborate_list(
         form_path=form_path,
         expansion_stack=head.expansion_stack,
     )
+
+
+def _dispatch_elaboration_route(
+    route_key: str,
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    handler = _elaboration_route_handlers().get(route_key)
+    if handler is None:
+        raise AssertionError(f"unknown Workflow Lisp elaboration route `{route_key}`")
+    return handler(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+
+
+def _guard_loop_fn_route(
+    datum: SyntaxList,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    _raise_error(
+        "`fn` is valid only as the body form of `loop/recur`",
+        code="loop_recur_fn_outside_loop",
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _guard_continue_route(
+    datum: SyntaxList,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+        _raise_error(
+            "`continue` is valid only inside `loop/recur`",
+            code="loop_recur_continue_outside_loop",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return _elaborate_continue(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+
+
+def _guard_done_route(
+    datum: SyntaxList,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+        _raise_error(
+            "`done` is valid only inside `loop/recur`",
+            code="loop_recur_done_outside_loop",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return _elaborate_done(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+
+
+def _guard_let_proc_route(
+    datum: SyntaxList,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    if _ACTIVE_LET_PROC_DEPTH > 0:
+        _raise_error(
+            "`let-proc` cannot be nested in V1",
+            code="let_proc_nested_unsupported",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return _elaborate_let_proc(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+
+
+def _route_phase_target(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    del bound_names, procedure_names
+    return _elaborate_phase_target(datum, form_path=form_path)
+
+
+def _route_workflow_ref(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    del bound_names, procedure_names
+    return _elaborate_workflow_ref_literal(datum, form_path=form_path)
+
+
+def _route_proc_ref(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    del bound_names, procedure_names
+    return _elaborate_proc_ref_literal(datum, form_path=form_path)
+
+
+def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
+    return {
+        "record": _elaborate_record,
+        "variant": _elaborate_variant,
+        "let_star": _elaborate_letstar,
+        "if": _elaborate_if,
+        "match": _elaborate_match,
+        "loop_recur": _elaborate_loop_recur,
+        "loop_fn_guard": _guard_loop_fn_route,
+        "continue_guard": _guard_continue_route,
+        "done_guard": _guard_done_route,
+        "call": _elaborate_call,
+        "with_phase": _elaborate_with_phase,
+        "phase_target": _route_phase_target,
+        "workflow_ref": _route_workflow_ref,
+        "proc_ref": _route_proc_ref,
+        "bind_proc": _elaborate_bind_proc,
+        "let_proc_guard": _guard_let_proc_route,
+        "provider_result": _elaborate_provider_result,
+        "command_result": _elaborate_command_result,
+        "run_provider_phase": _elaborate_run_provider_phase,
+        "produce_one_of": _elaborate_produce_one_of,
+        "stdlib_specialization": _elaborate_stdlib_specialization,
+        "resume_or_start": _elaborate_resume_or_start,
+        "resource_transition": _elaborate_resource_transition,
+        "finalize_selected_item": _elaborate_finalize_selected_item,
+        "backlog_drain": _elaborate_backlog_drain,
+    }
 
 
 def _elaborate_record(
