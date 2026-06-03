@@ -1330,6 +1330,14 @@ def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:
     )
 
 
+def test_review_loop_validator_binding_registers_only_when_review_loop_present(tmp_path: Path) -> None:
+    review_loop_result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+    resume_result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
+
+    assert "validate_review_findings_v1" in review_loop_result.command_boundary_environment.bindings_by_name
+    assert "validate_review_findings_v1" not in resume_result.command_boundary_environment.bindings_by_name
+
+
 def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path: Path) -> None:
     result = _compile(
         VALID_REVIEW_LOOP_FIXTURE,

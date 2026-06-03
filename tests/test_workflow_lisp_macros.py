@@ -95,6 +95,38 @@ def test_compile_stage1_rejects_reserved_macro_names() -> None:
     assert "defworkflow" in diagnostic.message
 
 
+def test_form_registry_reserved_macro_names_match_current_policy_exactly() -> None:
+    registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+
+    assert registry.reserved_macro_names() == _macros_module()._RESERVED_MACRO_NAMES
+
+
+def test_form_registry_admitted_top_level_heads_match_current_policy_exactly() -> None:
+    registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+
+    assert registry.admitted_top_level_heads() == _macros_module()._ALLOWED_TOP_LEVEL_HEADS
+
+
+def test_form_registry_keeps_current_bindable_compiler_forms_bindable() -> None:
+    registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+
+    reserved = registry.reserved_macro_names()
+
+    assert {
+        "review-revise-loop",
+        "variant",
+        "if",
+        "loop/recur",
+        "fn",
+        "continue",
+        "done",
+        "workflow-ref",
+        "proc-ref",
+        "bind-proc",
+        "let-proc",
+    }.isdisjoint(reserved)
+
+
 def test_compile_stage1_reports_macro_expansion_cycles() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage1_module(FIXTURES / "invalid" / "macro_expansion_cycle.orc")

@@ -358,6 +358,26 @@ def test_elaborate_expression_rejects_unknown_expression_forms() -> None:
     _assert_diagnostic_code(excinfo, "procedure_call_unknown")
 
 
+def test_elaborate_expression_rejects_stdlib_extension_without_import_route() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax("(review-revise-loop implementation-review)"),
+            bound_names=frozenset(),
+        )
+
+    _assert_diagnostic_code(excinfo, "stdlib_extension_missing_import_route")
+
+
+def test_elaborate_expression_rejects_top_level_definition_head_in_expression_position() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax('(defworkflow nested () -> String "nope")'),
+            bound_names=frozenset(),
+        )
+
+    _assert_diagnostic_code(excinfo, "top_level_definition_in_expression_position")
+
+
 def test_compile_stage3_elaborates_same_file_procedure_call_heads(tmp_path: Path) -> None:
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
