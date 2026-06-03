@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .form_registry import admitted_top_level_heads, reserved_macro_names
 from .spans import SourceSpan
 from .syntax import (
     ExpansionFrame,
@@ -30,52 +31,9 @@ from .syntax import (
     top_level_form_path,
 )
 
-_RESERVED_MACRO_NAMES = frozenset(
-    {
-        "workflow-lisp",
-        "defenum",
-        "defpath",
-        "defschema",
-        "defrecord",
-        "defunion",
-        "defworkflow",
-        "defun",
-        "defproc",
-        "defmodule",
-        "import",
-        "export",
-        "defmacro",
-        "record",
-        "let*",
-        "match",
-        "call",
-        "provider-result",
-        "command-result",
-        "with-phase",
-        "phase-target",
-        "run-provider-phase",
-        "produce-one-of",
-        "__stdlib-specialization__",
-        "resume-or-start",
-        "resource-transition",
-        "finalize-selected-item",
-        "backlog-drain",
-        "provider",
-    }
-)
+_RESERVED_MACRO_NAMES = reserved_macro_names()
 
-_ALLOWED_TOP_LEVEL_HEADS = frozenset(
-    {
-        "defenum",
-        "defpath",
-        "defschema",
-        "defrecord",
-        "defunion",
-        "defworkflow",
-        "defun",
-        "defproc",
-    }
-)
+_ALLOWED_TOP_LEVEL_HEADS = admitted_top_level_heads()
 
 
 @dataclass(frozen=True)
