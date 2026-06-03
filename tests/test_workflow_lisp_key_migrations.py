@@ -17,7 +17,7 @@ from orchestrator.workflow_lisp.adapters import (
     validate_reusable_phase_state,
     write_reusable_phase_state_v1,
 )
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -44,6 +44,28 @@ def _workflow_public_input_contracts(bundle):
         loaded_bundle_helpers.workflow_input_contracts,
     )
     return helper(bundle)
+
+
+def _iter_nested_steps(steps):
+    for step in steps:
+        yield step
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            for case in match_block.get("cases", {}).values():
+                if isinstance(case, dict):
+                    yield from _iter_nested_steps(case.get("steps", []))
+        repeat_block = step.get("repeat_until")
+        if isinstance(repeat_block, dict):
+            yield from _iter_nested_steps(repeat_block.get("steps", []))
+            exhausted_block = repeat_block.get("on_exhausted")
+            if isinstance(exhausted_block, dict):
+                yield from _iter_nested_steps(exhausted_block.get("steps", []))
+        then_block = step.get("then")
+        if isinstance(then_block, dict):
+            yield from _iter_nested_steps(then_block.get("steps", []))
+        else_block = step.get("else")
+        if isinstance(else_block, dict):
+            yield from _iter_nested_steps(else_block.get("steps", []))
 
 
 def _structured_contract_fingerprint(
@@ -244,14 +266,15 @@ def test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts(tmp_pat
     provider_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json")
     prompt_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json")
 
-    result = compile_stage3_module(
+    result = compile_stage3_entrypoint(
         EXAMPLES / "design_plan_impl_review_stack_v2_call.orc",
+        source_roots=(WORKFLOWS,),
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundaries={},
         validate_shared=True,
         workspace_root=tmp_path,
-    )
+    ).entry_result
 
     lowered = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -488,6 +511,73 @@ def test_resume_or_start_plan_gate_reusable_state_parity_path(
     missing_result = json.loads(capsys.readouterr().out)
     assert missing_exit == 0
     assert missing_result == {"variant": "MISSING_ARTIFACT"}
+
+
+def test_resume_or_start_plan_gate_reusable_state_parity_path_wrapper_union_contract(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "phase_stdlib_resume_or_start_reusable_wrapper.orc"
+    fixture.write_text(
+        (LISP_FIXTURES / "phase_stdlib_resume_or_start_reusable_wrapper.orc").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if _workflow_short_name(workflow.typed_workflow.definition.name) == "resume-plan-gate-wrapper"
+    )
+    validator_step = authored["steps"][0]
+    branch_step = next(
+        step
+        for step in authored["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{validator_step['name']}.artifacts.variant"
+    )
+    start_steps = branch_step["match"]["cases"]["START"]["steps"]
+    call_step = next(
+        step
+        for step in _iter_nested_steps(start_steps)
+        if step.get("call") == "wrap-plan-gate"
+    )
+
+    assert call_step["call"] == "wrap-plan-gate"
+    assert "load_canonical_phase_result__PlanGateWrapperResult" in result.command_boundary_environment.bindings_by_name
+    assert "resume-plan-gate-wrapper" in {
+        _workflow_short_name(workflow.typed_workflow.definition.name) for workflow in result.lowered_workflows
+    }
 
 
 def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imported_stdlib_route(

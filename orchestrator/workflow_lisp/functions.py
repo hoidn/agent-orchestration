@@ -360,6 +360,17 @@ def _normalize_expr(
                 for field_name, field_expr in expr.fields
             ),
         )
+    if isinstance(expr, UnionVariantExpr):
+        return replace(
+            expr,
+            fields=tuple(
+                (
+                    field_name,
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name),
+                )
+                for field_name, field_expr in expr.fields
+            ),
+        )
     if isinstance(expr, LetStarExpr):
         return replace(
             expr,
@@ -489,6 +500,25 @@ def _clone_function_expr(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
+    if isinstance(expr, UnionVariantExpr):
+        return replace(
+            expr,
+            fields=tuple(
+                (
+                    field_name,
+                    _clone_function_expr(
+                        field_expr,
+                        span=span,
+                        form_path=form_path,
+                        expansion_stack=expansion_stack,
+                    ),
+                )
+                for field_name, field_expr in expr.fields
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
     if isinstance(expr, LetStarExpr):
         return replace(
             expr,
@@ -595,6 +625,10 @@ def _function_dependencies(expr: ExprNode) -> set[str]:
             dependencies.update(_function_dependencies(arg))
         return dependencies
     if isinstance(expr, RecordExpr):
+        for _, field_expr in expr.fields:
+            dependencies.update(_function_dependencies(field_expr))
+        return dependencies
+    if isinstance(expr, UnionVariantExpr):
         for _, field_expr in expr.fields:
             dependencies.update(_function_dependencies(field_expr))
         return dependencies

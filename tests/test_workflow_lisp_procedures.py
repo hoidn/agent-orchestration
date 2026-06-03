@@ -29,6 +29,7 @@ from orchestrator.workflow_lisp.expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
+    UnionVariantExpr,
 )
 from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
@@ -1529,6 +1530,327 @@ def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_
     procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "wrap-summary")
 
     assert procedure.transitive_effect_summary.transitive_effects == frozenset()
+
+
+def test_compile_stage3_elaborates_authored_union_variant_constructor_to_union_variant_expr(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_expr.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)",
+            "      (message String))",
+            "    (BLOCKED",
+            "      (report WorkReport)",
+            "      (reason String)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report",
+            '      :message "ok"))',
+            ")",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+
+    assert isinstance(entry.typed_body.expr, UnionVariantExpr)
+    assert entry.typed_body.expr.type_name == "WorkflowResult"
+    assert entry.typed_body.expr.variant_name == "APPROVED"
+    assert [field_name for field_name, _ in entry.typed_body.expr.fields] == ["report", "message"]
+
+
+def test_typecheck_authored_union_variant_constructor_rejects_non_union_target(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_non_union_target.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowResult",
+            "    (report WorkReport))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "type_mismatch")
+
+
+def test_typecheck_authored_union_variant_constructor_rejects_unknown_variant(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_unknown_variant.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult BLOCKED",
+            "      :report input.report))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "union_variant_unknown")
+
+
+def test_typecheck_authored_union_variant_constructor_rejects_missing_required_field(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_missing_field.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)",
+            "      (message String)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "record_field_missing")
+
+
+def test_typecheck_authored_union_variant_constructor_rejects_unknown_field(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_unknown_field.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report",
+            '      :message "unexpected"))',
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "record_field_unknown")
+
+
+def test_typecheck_authored_union_variant_constructor_rejects_duplicate_field(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_duplicate_field.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report",
+            "      :report input.report))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "record_field_duplicate")
+
+
+def test_typecheck_authored_union_variant_constructor_rejects_field_type_mismatch(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_field_type_invalid.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)",
+            "      (message String)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report",
+            "      :message input))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "type_mismatch")
+
+
+def test_compile_stage3_supports_pure_helper_authored_union_variant_constructor(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_pure_helper.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)",
+            "      (message String))",
+            "    (BLOCKED",
+            "      (report WorkReport)",
+            "      (reason String)))",
+            "  (defun wrap",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report",
+            '      :message "ok"))',
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (wrap input))",
+            ")",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+
+    assert "entry" in {workflow.definition.name for workflow in result.typed_workflows}
+
+def test_lowering_authored_union_variant_constructor_reuses_existing_union_output_path(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "union_variant_lowering.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defunion WorkflowResult",
+            "    (APPROVED",
+            "      (report WorkReport)",
+            "      (message String))",
+            "    (BLOCKED",
+            "      (report WorkReport)",
+            "      (reason String)))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowResult",
+            "    (variant WorkflowResult APPROVED",
+            "      :report input.report",
+            '      :message "ok"))',
+            ")",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    lowered = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
+    step = lowered.authored_mapping["steps"][0]
+    values = {value["name"]: value["source"] for value in step["materialize_artifacts"]["values"]}
+
+    assert step["name"] == "entry"
+    assert values["variant"] == {"literal": "APPROVED"}
+    assert values["report"] == {"ref": "inputs.input__report"}
+    assert values["message"] == {"literal": "ok"}
+    assert step["variant_output"]["path"] == "${inputs.__write_root__entry__result_bundle}"
+    assert lowered.origin_map.step_spans["entry"].form_path == ("workflow-lisp", "defworkflow", "entry")
+    assert lowered.origin_map.generated_output_spans["return__variant"].form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "entry",
+    )
 
 
 def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path: Path) -> None:

@@ -80,7 +80,7 @@ class RecordExpr:
 
 @dataclass(frozen=True)
 class UnionVariantExpr:
-    """One compiler-generated union-variant constructor."""
+    """One union-variant constructor."""
 
     type_name: str
     variant_name: str
@@ -614,6 +614,13 @@ def _elaborate_list(
             bound_names=bound_names,
             procedure_names=procedure_names,
         )
+    if head.resolved_name == "variant":
+        return _elaborate_variant(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "let*":
         return _elaborate_letstar(
             datum,
@@ -873,6 +880,78 @@ def _elaborate_record(
         )
     return RecordExpr(
         type_name=type_identifier.resolved_name,
+        fields=tuple(fields),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_variant(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> UnionVariantExpr:
+    if len(datum.items) < 3:
+        _raise_error(
+            "`variant` requires a union type and variant name",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    type_node = datum.items[1]
+    type_identifier = syntax_identifier(type_node)
+    if type_identifier is None:
+        _raise_error(
+            "`variant` union type must be a symbol",
+            span=type_node.span,
+            form_path=form_path,
+            expansion_stack=type_node.expansion_stack,
+        )
+    variant_node = datum.items[2]
+    variant_identifier = syntax_identifier(variant_node)
+    if variant_identifier is None:
+        _raise_error(
+            "`variant` name must be a symbol",
+            span=variant_node.span,
+            form_path=form_path,
+            expansion_stack=variant_node.expansion_stack,
+        )
+    raw_fields = datum.items[3:]
+    if len(raw_fields) % 2 != 0:
+        _raise_error(
+            "`variant` requires keyword/value field pairs",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    fields: list[tuple[str, ExprNode]] = []
+    for index in range(0, len(raw_fields), 2):
+        keyword_node = raw_fields[index]
+        value_node = raw_fields[index + 1]
+        if not isinstance(keyword_node, SyntaxKeyword):
+            _raise_error(
+                "`variant` fields must start with keywords",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        fields.append(
+            (
+                keyword_node.value[1:],
+                _elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            )
+        )
+    return UnionVariantExpr(
+        type_name=type_identifier.resolved_name,
+        variant_name=variant_identifier.resolved_name,
         fields=tuple(fields),
         span=datum.span,
         form_path=form_path,

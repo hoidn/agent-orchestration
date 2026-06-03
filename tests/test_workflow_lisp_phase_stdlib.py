@@ -54,6 +54,7 @@ VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effe
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
 VALID_RESUME_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start.orc"
+VALID_RESUME_WRAPPER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_reusable_wrapper.orc"
 INVALID_PHASE_CTX_FIXTURE = FIXTURES / "invalid" / "phase_ctx_contract_invalid.orc"
 INVALID_LEGACY_BRIDGE_FIXTURE = FIXTURES / "invalid" / "phase_ctx_legacy_bridge_misuse.orc"
 INVALID_PHASE_TARGET_FIXTURE = FIXTURES / "invalid" / "phase_target_unknown_generic.orc"
@@ -2195,6 +2196,26 @@ def test_resume_or_start_supports_union_start_workflow_call(tmp_path: Path) -> N
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
 
     assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
+
+
+def test_resume_or_start_supports_reusable_wrapper_union_start_workflow_call(tmp_path: Path) -> None:
+    result = _compile(VALID_RESUME_WRAPPER_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "resume-plan-gate-wrapper"
+    )
+    validator_step = authored["steps"][0]
+    branch_step = next(
+        step
+        for step in authored["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{validator_step['name']}.artifacts.variant"
+    )
+    start_steps = branch_step["match"]["cases"]["START"]["steps"]
+
+    assert any(step.get("call") == "wrap-plan-gate" for step in _iter_nested_steps(start_steps))
+    assert "load_canonical_phase_result__PlanGateWrapperResult" in result.command_boundary_environment.bindings_by_name
 
 
 def test_typecheck_rejects_resume_or_start_contract_invalid() -> None:

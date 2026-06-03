@@ -682,6 +682,7 @@ def _typecheck(
         expected_fields = {field.name: field for field in variant_type.definition.fields}
         seen_fields: set[str] = set()
         field_summaries: list[EffectSummary] = []
+        rewritten_fields: list[tuple[str, ExprNode]] = []
         for field_name, field_expr in expr.fields:
             if field_name in seen_fields:
                 _raise_error(
@@ -714,6 +715,7 @@ def _typecheck(
                 proc_ref_resolution_context=proc_ref_resolution_context,
             )
             field_summaries.append(typed_field.effect_summary)
+            rewritten_fields.append((field_name, typed_field.expr))
             expected_type = union_type.variant_field_types.get(expr.variant_name, {}).get(field_name)
             if expected_type is None:
                 expected_type = type_env.resolve_type(
@@ -738,7 +740,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return _typed(
-            expr=expr,
+            expr=replace(expr, fields=tuple(rewritten_fields)),
             type_ref=union_type,
             effect=merge_effect_summaries(*field_summaries),
         )

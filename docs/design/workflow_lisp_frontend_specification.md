@@ -912,6 +912,21 @@ Defines tagged outcome type.
     (stage FailedStage)))
 ```
 
+Current authored construction for a declared union variant is explicit:
+
+```lisp
+(variant SelectedItemResult CONTINUE
+  :item-summary report-path
+  :run-state state-path)
+```
+
+The authored `variant` form lowers directly to the existing
+`UnionVariantExpr`. It requires an explicit union type name, an explicit
+variant name, and keyword/value field pairs. The resulting expression has the
+declared union type. Constructing a union value does not create proof for
+variant-specific field access; later reads still require `match`,
+`requires_variant`, or another proof-bearing path.
+
 ### 8.6 `defun`
 
 Defines pure helper function.
@@ -1088,6 +1103,7 @@ They may appear in:
 
 - path construction
 - record construction
+- union construction with `variant`
 - conditions over already-available values
 - arguments to procs/workflows
 
