@@ -490,7 +490,7 @@ def test_lowering_rejects_private_workflow_for_non_boundary_type(tmp_path: Path)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(PRIVATE_BOUNDARY_FIXTURE, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
+    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
 def test_auto_lowering_stays_inline_when_call_sites_cannot_bind_through_stage3_seam(tmp_path: Path) -> None:
     path = _write_module(
@@ -767,7 +767,7 @@ def test_explicit_private_workflow_rejects_input_projection_body(tmp_path: Path)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
+    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
 
 def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:

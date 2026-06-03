@@ -603,6 +603,16 @@ def _hygienic_match(
     expansion_id: str,
     env: Mapping[str, str],
 ) -> SyntaxDatum:
+    if len(datum.items) < 2:
+        return replace(
+            datum,
+            items=tuple(
+                item
+                if index == 0
+                else _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=env)
+                for index, item in enumerate(datum.items)
+            ),
+        )
     updated = list(datum.items)
     updated[1] = _apply_hygiene(
         datum.items[1],
@@ -643,10 +653,28 @@ def _hygienic_defworkflow(
     expansion_id: str,
     env: Mapping[str, str],
 ) -> SyntaxDatum:
+    if len(datum.items) <= 5:
+        return replace(
+            datum,
+            items=tuple(
+                item
+                if index == 0
+                else _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=env)
+                for index, item in enumerate(datum.items)
+            ),
+        )
     updated = list(datum.items)
     params = datum.items[2]
     if not isinstance(params, SyntaxList):
-        return datum
+        return replace(
+            datum,
+            items=tuple(
+                item
+                if index == 0
+                else _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=env)
+                for index, item in enumerate(datum.items)
+            ),
+        )
     binding_env = dict(env)
     new_params: list[SyntaxDatum] = []
     for raw_param in params.items:

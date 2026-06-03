@@ -351,6 +351,77 @@ def test_compile_stage3_rejects_macro_introduced_hidden_command_effects_as_macro
     assert payload["authority_layer"] == "frontend"
 
 
+def test_compile_stage3_rejects_macro_emitted_malformed_match_with_owned_diagnostic(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "macro_malformed_match.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (emit-bad-match broken)",
+                "  (defmacro emit-bad-match (name)",
+                "    (defworkflow name",
+                "      ((report_path WorkReport))",
+                "      -> ImplementationSummary",
+                "      (match))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            fixture,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-bad-match"
+    assert "match" in diagnostic.message
+
+
+def test_compile_stage3_rejects_macro_emitted_malformed_defworkflow_with_owned_diagnostic(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "macro_malformed_defworkflow.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (emit-bad-workflow broken)",
+                "  (defmacro emit-bad-workflow (name)",
+                "    (defworkflow name)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            fixture,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-bad-workflow"
+    assert "defworkflow" in diagnostic.message
+
+
 def test_compile_stage3_entrypoint_rejects_imported_macros_that_introduce_hidden_command_effects(
     tmp_path: Path,
 ) -> None:

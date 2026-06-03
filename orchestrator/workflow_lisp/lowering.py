@@ -119,6 +119,7 @@ from .type_env import (
     RecordTypeRef,
     TypeRef,
     UnionTypeRef,
+    VariantCaseTypeRef,
     WorkflowRefTypeRef,
 )
 from .typecheck import TypedExpr
@@ -8913,40 +8914,6 @@ def _resume_required_artifact_fields(
         )
     return required
 
-
-def _origin_for_workflow(
-    typed_workflow: TypedWorkflowDef,
-    *,
-    typed_procedures: Mapping[str, TypedProcedureDef],
-) -> LoweringOrigin:
-    """Choose the source-map origin for an authored workflow mapping."""
-
-    body_expr = typed_workflow.typed_body.expr
-    if isinstance(body_expr, ProcedureCallExpr):
-        procedure = typed_procedures.get(body_expr.callee_name)
-        if procedure is not None and procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE:
-            return LoweringOrigin(
-                span=typed_workflow.definition.span,
-                form_path=typed_workflow.definition.form_path,
-                expansion_stack=typed_workflow.definition.expansion_stack,
-                notes=_procedure_provenance_notes(body_expr, procedure),
-            )
-    if any(getattr(frame, "function_name", None) is not None for frame in getattr(body_expr, "expansion_stack", ())):
-        return _origin_from_source(body_expr)
-    return _origin_from_source(typed_workflow.definition)
-
-
-def _procedure_provenance_notes(call_expr: ProcedureCallExpr, procedure: TypedProcedureDef) -> tuple[str, ...]:
-    """Describe the call site and definition behind an inlined procedure."""
-
-    call_start = call_expr.span.start
-    definition_start = procedure.definition.span.start
-    return (
-        f"procedure call site at {call_start.path}:{call_start.line}:{call_start.column}",
-        f"procedure definition at {definition_start.path}:{definition_start.line}:{definition_start.column}",
-    )
-
-
 def _lower_record_expr(
     typed_expr: TypedExpr,
     *,
@@ -11061,14 +11028,6 @@ def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tupl
                 phase="lowering",
             ),
         )
-    )
-
-
-def _definition_only_module(workflow_path: Path):
-    """Load only type/procedure definitions from a workflow source file."""
-
-    return elaborate_definition_module(
-        _definition_only_syntax_module(build_syntax_module(read_sexpr_file(workflow_path)))
     )
 
 

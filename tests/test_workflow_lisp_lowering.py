@@ -1,3 +1,4 @@
+import ast
 import importlib
 from dataclasses import fields, is_dataclass
 from dataclasses import replace
@@ -103,6 +104,29 @@ def _compiler_module():
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def test_lowering_source_defines_preflight_helpers_exactly_once() -> None:
+    lowering_path = Path(importlib.import_module("orchestrator.workflow_lisp.lowering").__file__)
+    module = ast.parse(lowering_path.read_text(encoding="utf-8"), filename=str(lowering_path))
+    counts = {
+        name: sum(
+            1
+            for node in module.body
+            if isinstance(node, ast.FunctionDef) and node.name == name
+        )
+        for name in (
+            "_origin_for_workflow",
+            "_procedure_provenance_notes",
+            "_definition_only_module",
+        )
+    }
+
+    assert counts == {
+        "_origin_for_workflow": 1,
+        "_procedure_provenance_notes": 1,
+        "_definition_only_module": 1,
+    }
 
 
 def _write_workflow_param_default_module(path: Path) -> Path:

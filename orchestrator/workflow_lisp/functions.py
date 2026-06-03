@@ -755,7 +755,7 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return _find_purity_violation(expr.state_expr)
     if isinstance(expr, DoneExpr):
         return _find_purity_violation(expr.result_expr)
-    return None
+    return f"unsupported expression container {type(expr).__name__}"
 
 
 def _elaborate_function_definition(form: SyntaxNode) -> FunctionDef:

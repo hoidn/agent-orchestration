@@ -1,4 +1,5 @@
 import importlib
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -76,6 +78,19 @@ def _compile_definition_module(path: Path):
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _test_span(path: str) -> SourceSpan:
+    start = SourcePosition(path=path, line=1, column=1, offset=0)
+    end = SourcePosition(path=path, line=1, column=2, offset=1)
+    return SourceSpan(start=start, end=end)
+
+
+@dataclass(frozen=True)
+class _UnsupportedExprContainer:
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
 
 
 def test_build_function_catalog_registers_local_helpers_before_body_checking() -> None:
@@ -144,6 +159,30 @@ def test_compile_stage3_rejects_effectful_helper_bodies(tmp_path: Path) -> None:
         _compile(INVALID_FIXTURES / "defun_effectful.orc", tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "pure_function_has_effect")
+
+
+def test_validate_pure_function_expr_rejects_unknown_expression_containers() -> None:
+    functions = _functions_module()
+    expr = _UnsupportedExprContainer(
+        span=_test_span("unsupported_expr.orc"),
+        form_path=("workflow-lisp", "defun", "summarize"),
+    )
+    function_def = functions.FunctionDef(
+        name="summarize",
+        params=(),
+        return_type_name="String",
+        body=expr,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        functions._validate_pure_function_expr(expr, function_def=function_def)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "pure_function_has_effect"
+    assert "unsupported" in diagnostic.message
+    assert "expression container" in diagnostic.message
 
 
 def test_compile_stage3_rejects_helper_cycles(tmp_path: Path) -> None:
