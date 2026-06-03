@@ -45,15 +45,15 @@
     },
     "required": {
       "core_workflow_ast": {
-        "path": ".orchestrate/build/f6252aa012fa214e/core_workflow_ast.json",
+        "path": ".orchestrate/build/51dedba7cee730ce/core_workflow_ast.json",
         "status": "pass"
       },
       "semantic_ir": {
-        "path": ".orchestrate/build/f6252aa012fa214e/semantic_ir.json",
+        "path": ".orchestrate/build/51dedba7cee730ce/semantic_ir.json",
         "status": "pass"
       },
       "source_map": {
-        "path": ".orchestrate/build/f6252aa012fa214e/source_map.json",
+        "path": ".orchestrate/build/51dedba7cee730ce/source_map.json",
         "status": "pass"
       }
     }
@@ -77,10 +77,10 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "review_loop_parity_fixture",
+        "design_plan_impl_stack_orc_runtime_materializes_expected_artifacts",
         "-q"
       ],
-      "elapsed_seconds": 0.42,
+      "elapsed_seconds": 0.48,
       "exit_code": 0,
       "status": "pass"
     },
@@ -137,10 +137,10 @@
         "--command-boundaries-file",
         "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json"
       ],
-      "build_root": ".orchestrate/build/f6252aa012fa214e",
-      "elapsed_seconds": 0.312,
+      "build_root": ".orchestrate/build/51dedba7cee730ce",
+      "elapsed_seconds": 0.338,
       "exit_code": 0,
-      "manifest_path": ".orchestrate/build/f6252aa012fa214e/manifest.json",
+      "manifest_path": ".orchestrate/build/51dedba7cee730ce/manifest.json",
       "status": "pass"
     },
     "dry_run": {
@@ -174,7 +174,7 @@
         "implementation_review_report_target_path=artifacts/review/parity-implementation-review.md",
         "--dry-run"
       ],
-      "elapsed_seconds": 0.32,
+      "elapsed_seconds": 0.331,
       "exit_code": 0,
       "status": "pass"
     },
@@ -185,10 +185,10 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "review_loop_parity_fixture",
+        "design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs",
         "-q"
       ],
-      "elapsed_seconds": 0.419,
+      "elapsed_seconds": 0.486,
       "exit_code": 0,
       "status": "pass"
     },
@@ -202,7 +202,7 @@
         "resume_or_start_plan_gate_reusable_state_parity_path",
         "-q"
       ],
-      "elapsed_seconds": 0.363,
+      "elapsed_seconds": 0.408,
       "exit_code": 0,
       "status": "pass"
     },
@@ -216,10 +216,10 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "review_loop_parity_fixture",
+        "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
         "-q"
       ],
-      "elapsed_seconds": 0.418,
+      "elapsed_seconds": 0.504,
       "exit_code": 0,
       "status": "pass"
     },
@@ -230,15 +230,15 @@
         "pytest",
         "tests/test_workflow_lisp_key_migrations.py",
         "-k",
-        "review_loop_parity_fixture",
+        "design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state",
         "-q"
       ],
-      "elapsed_seconds": 0.419,
+      "elapsed_seconds": 0.479,
       "exit_code": 0,
       "status": "pass"
     }
   },
-  "generated_at": "2026-06-02T13:53:51Z",
+  "generated_at": "2026-06-03T12:14:57Z",
   "generated_by": [
     "python",
     "-m",
@@ -247,7 +247,9 @@
     "--targets-file",
     "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
     "--output-root",
-    "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity"
+    "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity",
+    "--target",
+    "design_plan_impl_stack"
   ],
   "non_regressive": false,
   "promotion_eligibility": {

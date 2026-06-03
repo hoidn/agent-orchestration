@@ -322,6 +322,209 @@ def test_design_plan_impl_stack_orc_compiles_with_phase_family_contracts(tmp_pat
     }
 
 
+def _execute_design_plan_impl_stack_single_pass_runtime() -> tuple[Path, dict[str, object], dict[str, str]]:
+    workflow_relpath = Path("workflows/examples/design_plan_impl_review_stack_v2_call.orc")
+    workspace = Path(tempfile.mkdtemp(prefix="design-plan-impl-stack-", dir="/tmp"))
+    workflow_path = workspace / workflow_relpath
+    workflow_path.parent.mkdir(parents=True, exist_ok=True)
+    workflow_path.write_text((REPO_ROOT / workflow_relpath).read_text(encoding="utf-8"), encoding="utf-8")
+
+    provider_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json")
+    prompt_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json")
+    for prompt_relpath in prompt_externs.values():
+        prompt_path = workspace / prompt_relpath
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text((REPO_ROOT / prompt_relpath).read_text(encoding="utf-8"), encoding="utf-8")
+
+        nested_prompt_path = workflow_path.parent / prompt_relpath
+        nested_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        nested_prompt_path.write_text(
+            (REPO_ROOT / prompt_relpath).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+
+    brief_relpath = "workflows/examples/inputs/major_project_brief.md"
+    brief_path = workspace / brief_relpath
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text(
+        (REPO_ROOT / brief_relpath).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(workspace / "workflows",),
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=workspace,
+    ).entry_result
+    bundle = result.validated_bundles[
+        "examples/design_plan_impl_review_stack_v2_call::design-plan-impl-review-stack"
+    ]
+
+    bound_inputs = {
+        "brief_path": brief_relpath,
+        "design_target_path": "docs/plans/runtime-design.md",
+        "design_review_report_target_path": "artifacts/review/runtime-design-review.md",
+        "plan_target_path": "docs/plans/runtime-plan.md",
+        "plan_review_report_target_path": "artifacts/review/runtime-plan-review.md",
+        "execution_report_target_path": "artifacts/work/runtime-execution-report.md",
+        "implementation_review_report_target_path": "artifacts/review/runtime-implementation-review.md",
+    }
+    output_paths = {
+        "design_path": bound_inputs["design_target_path"],
+        "design_review_report_path": bound_inputs["design_review_report_target_path"],
+        "plan_path": bound_inputs["plan_target_path"],
+        "plan_review_report_path": bound_inputs["plan_review_report_target_path"],
+        "execution_report_path": bound_inputs["execution_report_target_path"],
+        "implementation_review_report_path": bound_inputs["implementation_review_report_target_path"],
+    }
+
+    state_manager = StateManager(workspace=workspace, run_id="design-plan-impl-stack-runtime")
+    state_manager.initialize(
+        workflow_relpath.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+
+    provider_steps = [
+        {
+            "artifacts": [(output_paths["design_path"], "# Runtime Design\n")],
+            "bundle": {
+                "design_path": output_paths["design_path"],
+            },
+        },
+        {
+            "artifacts": [(output_paths["design_review_report_path"], "APPROVE\n")],
+            "bundle": {
+                "variant": "APPROVE",
+                "design_review_report_path": output_paths["design_review_report_path"],
+                "design_review_decision": "APPROVE",
+            },
+        },
+        {
+            "artifacts": [(output_paths["plan_path"], "# Runtime Plan\n")],
+            "bundle": {
+                "plan_path": output_paths["plan_path"],
+            },
+        },
+        {
+            "artifacts": [(output_paths["plan_review_report_path"], "APPROVE\n")],
+            "bundle": {
+                "variant": "APPROVE",
+                "plan_review_report_path": output_paths["plan_review_report_path"],
+                "plan_review_decision": "APPROVE",
+            },
+        },
+        {
+            "artifacts": [(output_paths["execution_report_path"], "# Runtime Execution Report\n")],
+            "bundle": {
+                "execution_report_path": output_paths["execution_report_path"],
+            },
+        },
+        {
+            "artifacts": [(output_paths["implementation_review_report_path"], "APPROVE\n")],
+            "bundle": {
+                "variant": "APPROVE",
+                "implementation_review_report_path": output_paths["implementation_review_report_path"],
+                "implementation_review_decision": "APPROVE",
+            },
+        },
+    ]
+    provider_control = {"index": 0}
+
+    def _prepare_invocation(_self, provider_name=None, prompt_content=None, **_kwargs):
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=prompt_content or "",
+                provider_name=provider_name,
+            ),
+            None,
+        )
+
+    def _bundle_path_from_prompt(prompt: str) -> Path:
+        match = re.search(r"(?m)^-?\s*path: (.+)$", prompt)
+        assert match is not None, prompt
+        return workspace / match.group(1).strip()
+
+    def _write_bundle(bundle_path: Path, payload: dict[str, object]) -> None:
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    def _success():
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    def _execute(_self, invocation, **_kwargs):
+        provider_index = provider_control["index"]
+        provider_control["index"] += 1
+        spec = provider_steps[provider_index]
+        for relpath, content in spec["artifacts"]:
+            target = workspace / relpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        _write_bundle(_bundle_path_from_prompt(getattr(invocation, "prompt", "")), spec["bundle"])
+        return _success()
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute()
+
+    assert provider_control["index"] == len(provider_steps)
+    return workspace, state, output_paths
+
+
+def test_design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack() -> None:
+    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+
+    assert state["status"] == "completed"
+
+
+def test_design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs() -> None:
+    _workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+
+    assert state["workflow_outputs"] == {
+        "return__design_path": output_paths["design_path"],
+        "return__design_review_report_path": output_paths["design_review_report_path"],
+        "return__design_review_decision": "APPROVE",
+        "return__plan_path": output_paths["plan_path"],
+        "return__plan_review_report_path": output_paths["plan_review_report_path"],
+        "return__plan_review_decision": "APPROVE",
+        "return__execution_report_path": output_paths["execution_report_path"],
+        "return__implementation_review_report_path": output_paths["implementation_review_report_path"],
+        "return__implementation_review_decision": "APPROVE",
+    }
+
+
+def test_design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state() -> None:
+    _workspace, state, _output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+
+    assert state["status"] == "completed"
+    assert state.get("error") is None
+
+
+def test_design_plan_impl_stack_orc_runtime_materializes_expected_artifacts() -> None:
+    workspace, state, output_paths = _execute_design_plan_impl_stack_single_pass_runtime()
+
+    assert state["status"] == "completed"
+    for relpath in output_paths.values():
+        assert (workspace / relpath).is_file(), relpath
+
+
 def test_library_orc_variants_compile_independently(tmp_path: Path) -> None:
     provider_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json")
     prompt_externs = _load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json")

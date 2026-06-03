@@ -2,7 +2,7 @@
 
 - Candidate: `workflows/examples/design_plan_impl_review_stack_v2_call.orc`
 - YAML primary: `workflows/examples/design_plan_impl_review_stack_v2_call.yaml`
-- Generated at: `2026-06-02T13:53:51Z`
+- Generated at: `2026-06-03T12:14:57Z`
 - Non-regressive: `false`
 - Promotion eligible: `true`
 - Primary surface: `yaml`
@@ -26,9 +26,9 @@
 - `resume_parity`: `pass`
 
 ## Compile Artifacts
-- `required.core_workflow_ast`: `pass` (`.orchestrate/build/f6252aa012fa214e/core_workflow_ast.json`)
-- `required.semantic_ir`: `pass` (`.orchestrate/build/f6252aa012fa214e/semantic_ir.json`)
-- `required.source_map`: `pass` (`.orchestrate/build/f6252aa012fa214e/source_map.json`)
+- `required.core_workflow_ast`: `pass` (`.orchestrate/build/51dedba7cee730ce/core_workflow_ast.json`)
+- `required.semantic_ir`: `pass` (`.orchestrate/build/51dedba7cee730ce/semantic_ir.json`)
+- `required.source_map`: `pass` (`.orchestrate/build/51dedba7cee730ce/source_map.json`)
 - `optional.expanded_debug_yaml`: `not_implemented`
 
 ## Deprecated YAML Mechanics

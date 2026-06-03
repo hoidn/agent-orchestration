@@ -251,7 +251,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "review_loop_parity_fixture",
+          "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
           "-q"
         ],
         "output_contract_parity": [
@@ -260,7 +260,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "review_loop_parity_fixture",
+          "design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs",
           "-q"
         ],
         "terminal_state_parity": [
@@ -269,7 +269,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "review_loop_parity_fixture",
+          "design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state",
           "-q"
         ],
         "artifact_parity": [
@@ -278,7 +278,7 @@
           "pytest",
           "tests/test_workflow_lisp_key_migrations.py",
           "-k",
-          "review_loop_parity_fixture",
+          "design_plan_impl_stack_orc_runtime_materializes_expected_artifacts",
           "-q"
         ],
         "resume_parity": [

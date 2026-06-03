@@ -382,6 +382,7 @@ def write_reports(
     *,
     output_root: Path,
     repo_root: Path,
+    index_reports: Sequence[Mapping[str, Any]] | None = None,
 ) -> Path:
     resolved_output_root = output_root.resolve()
     resolved_output_root.mkdir(parents=True, exist_ok=True)
@@ -395,7 +396,7 @@ def write_reports(
 
     index_path = resolved_output_root / "index.json"
     index_path.write_text(
-        json.dumps(render_parity_index(reports), indent=2, sort_keys=True) + "\n",
+        json.dumps(render_parity_index(index_reports or reports), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return index_path
@@ -411,6 +412,7 @@ def run_migration_parity(
     generated_by: Sequence[str] | None = None,
 ) -> dict[str, object]:
     targets = load_parity_targets(targets_file)
+    targets_for_index = list(targets)
     if selected_targets:
         selected = set(selected_targets)
         missing = sorted(selected.difference(target.workflow_family for target in targets))
@@ -428,7 +430,17 @@ def run_migration_parity(
         )
         for target in targets
     ]
-    index_path = write_reports(reports, output_root=output_root, repo_root=repo_root)
+    index_reports = _reports_for_aggregate_index(
+        targets_for_index,
+        refreshed_reports=reports,
+        output_root=output_root,
+    )
+    index_path = write_reports(
+        reports,
+        output_root=output_root,
+        repo_root=repo_root,
+        index_reports=index_reports,
+    )
     non_regressive_targets = sorted(
         report["workflow_family"] for report in reports if bool(report["non_regressive"])
     )
@@ -442,6 +454,45 @@ def run_migration_parity(
         "regressive_targets": regressive_targets,
         "index_path": _relative_path(index_path, repo_root),
     }
+
+
+def _reports_for_aggregate_index(
+    targets: Sequence[ParityTarget],
+    *,
+    refreshed_reports: Sequence[Mapping[str, Any]],
+    output_root: Path,
+) -> list[Mapping[str, Any]]:
+    refreshed_by_family = {
+        str(report["workflow_family"]): report for report in refreshed_reports
+    }
+    reports: list[Mapping[str, Any]] = []
+    for target in targets:
+        report = refreshed_by_family.get(target.workflow_family)
+        if report is None:
+            report = _load_existing_report(
+                output_root / f"{target.workflow_family}.json",
+                workflow_family=target.workflow_family,
+            )
+        reports.append(report)
+    return reports
+
+
+def _load_existing_report(path: Path, *, workflow_family: str) -> Mapping[str, Any]:
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(
+            "cannot refresh aggregate parity index without an existing report for "
+            f"unselected workflow_family `{workflow_family}` at `{path}`"
+        ) from exc
+
+    if not isinstance(report, Mapping):
+        raise ValueError(f"existing report for `{workflow_family}` at `{path}` must be a JSON object")
+    if report.get("workflow_family") != workflow_family:
+        raise ValueError(
+            f"existing report at `{path}` does not match workflow_family `{workflow_family}`"
+        )
+    return report
 
 
 def _parse_command_spec(*, workflow_family: str, role: str, raw_value: Any) -> EvidenceCommand:
