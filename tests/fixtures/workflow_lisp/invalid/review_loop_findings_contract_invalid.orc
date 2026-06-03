@@ -11,7 +11,7 @@
     BLOCKED)
   (defpath ReviewReport
     :kind relpath
-    :under "artifacts/work"
+    :under "artifacts/review"
     :must-exist true)
   (defpath ChecksReport
     :kind relpath
@@ -51,13 +51,11 @@
     (EXHAUSTED
       (last_review_report ReviewReport)
       (reason String)))
-  (defrecord ReviewLoopSurfaceResult
-    (report_path ReviewReport))
   (defworkflow invalid-review-loop-contract
     ((phase-ctx PhaseCtx)
      (completed CompletedAttempt)
      (inputs ReviewInputs))
-    -> ReviewLoopSurfaceResult
+    -> BrokenReviewLoopResult
     (with-phase phase-ctx implementation-review
       (let* ((result
                (review-revise-loop implementation-review
@@ -72,8 +70,21 @@
                  :returns BrokenReviewLoopResult)))
         (match result
           ((APPROVED approved)
-           (record ReviewLoopSurfaceResult
-             :report_path approved.review_report))
+           (variant BrokenReviewLoopResult APPROVED
+             :checks_report approved.checks_report
+             :review_report approved.review_report
+             :review_decision approved.review_decision
+             :findings (record WrongFindings
+               :schema_version approved.findings.schema_version
+               :items_path approved.findings.items_path)))
           ((BLOCKED blocked)
-           (record ReviewLoopSurfaceResult
-             :report_path blocked.progress_report)))))))
+           (variant BrokenReviewLoopResult BLOCKED
+             :progress_report blocked.progress_report
+             :blocker_class blocked.blocker_class
+             :findings (record WrongFindings
+               :schema_version blocked.findings.schema_version
+               :items_path blocked.findings.items_path)))
+          ((EXHAUSTED exhausted)
+           (variant BrokenReviewLoopResult EXHAUSTED
+             :last_review_report exhausted.last_review_report
+             :reason exhausted.reason)))))))

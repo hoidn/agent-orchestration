@@ -963,7 +963,12 @@ def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imp
         if workflow.typed_workflow.definition.name == "phase_stdlib_review_loop::review-revise-loop-demo"
     )
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+    seed_step = next(step for step in authored["steps"] if step["name"].endswith("__seed"))
     body_steps = repeat_step["repeat_until"]["steps"]
+    seed_values = {
+        value["name"]: value
+        for value in seed_step["materialize_artifacts"]["values"]
+    }
 
     def _walk_steps(steps):
         for step in steps:
@@ -998,6 +1003,15 @@ def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imp
         for workflow in result.lowered_workflows
         for step in workflow.authored_mapping["steps"]
     )
+    assert authored["outputs"]["return__review_report"]["under"] == "artifacts/review"
+    assert authored["outputs"]["return__last_review_report"]["under"] == "artifacts/review"
+    assert authored["outputs"]["return__findings__items_path"]["under"] == "artifacts/work"
+    assert seed_values["state__last_review_report"]["source"] == {
+        "literal": "artifacts/review/last-review-report.md"
+    }
+    assert seed_values["state__latest_findings__items_path"]["source"] == {
+        "literal": "artifacts/work/review-findings-seed.json"
+    }
 
     frame_checkpoint = next(
         checkpoint

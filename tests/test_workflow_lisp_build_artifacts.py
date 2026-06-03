@@ -1299,6 +1299,63 @@ def test_review_loop_command_boundary_surfaces_validate_review_findings_adapter(
     assert source_map["workflows"][workflow_name]["command_boundaries"]
 
 
+def test_review_loop_bundle_preserves_distinct_review_report_and_findings_seed_paths(
+    tmp_path: Path,
+) -> None:
+    fixture = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
+    module_path = tmp_path / "phase_stdlib_review_loop.orc"
+    module_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    for relpath in (
+        "prompts/implementation/review.md",
+        "prompts/implementation/fix.md",
+    ):
+        target = tmp_path / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "phase_stdlib_review_loop::review-revise-loop-demo"
+    )
+    seed_step = next(step for step in lowered.authored_mapping["steps"] if step["name"].endswith("__seed"))
+    seed_values = {
+        value["name"]: value
+        for value in seed_step["materialize_artifacts"]["values"]
+    }
+    outputs = lowered.authored_mapping["outputs"]
+
+    assert seed_values["state__last_review_report"]["source"] == {
+        "literal": "artifacts/review/last-review-report.md"
+    }
+    assert seed_values["state__latest_findings__items_path"]["source"] == {
+        "literal": "artifacts/work/review-findings-seed.json"
+    }
+    assert outputs["return__review_report"]["under"] == "artifacts/review"
+    assert outputs["return__last_review_report"]["under"] == "artifacts/review"
+    assert outputs["return__findings__items_path"]["under"] == "artifacts/work"
+
+
 def test_stdlib_contract_inventory_is_compile_time_only_and_not_serialized_into_frontend_build_artifacts(
     tmp_path: Path,
 ) -> None:

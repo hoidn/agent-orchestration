@@ -37,6 +37,7 @@ from .expressions import (
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
     FunctionCallExpr,
+    GeneratedRelpathSeedExpr,
     IfExpr,
     LetProcExpr,
     LetStarExpr,
@@ -444,6 +445,17 @@ def _typecheck(
             type_ref=PrimitiveTypeRef(name=_literal_type_name(expr.literal_kind)),
             effect=EMPTY_EFFECT_SUMMARY,
         )
+    if isinstance(expr, GeneratedRelpathSeedExpr):
+        seed_type = expr.target_type_ref
+        if not isinstance(seed_type, PathTypeRef) or seed_type.definition.kind != "relpath":
+            _raise_error(
+                f"generated relpath seed `{expr.seed_role}` requires a relpath type, got `{_type_label(seed_type)}`",
+                code="type_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return _typed(expr=expr, type_ref=seed_type, effect=EMPTY_EFFECT_SUMMARY)
     if isinstance(expr, NameExpr):
         try:
             type_ref = value_env[expr.name]
@@ -684,15 +696,7 @@ def _typecheck(
                     span=field_expr.span,
                     form_path=field_expr.form_path,
                 )
-            if (
-                not _type_refs_compatible(expected_type, typed_field.type_ref)
-                and not _allow_stdlib_review_findings_seed_path(
-                    field_name,
-                    expected=expected_type,
-                    actual=typed_field.type_ref,
-                    span=field_expr.span,
-                )
-            ):
+            if not _type_refs_compatible(expected_type, typed_field.type_ref):
                 _raise_error(
                     f"record field `{field_name}` expected `{_type_label(expected_type)}`"
                     f" but got `{_type_label(typed_field.type_ref)}`",
@@ -3411,7 +3415,14 @@ def _specialize_phase_review_loop_request(
             ),
             (
                 "items_path",
-                initial_last_review_report_expr,
+                _generated_relpath_seed_expr(
+                    type_ref=findings_type.field_types["items_path"],
+                    literal_path="artifacts/work/review-findings-seed.json",
+                    seed_role="review_loop_findings_items_path_seed",
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
             ),
         ),
         span=generated_span,
@@ -4261,8 +4272,10 @@ def _initial_review_loop_report_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    return PhaseTargetExpr(
-        target_name="execution-report",
+    return _generated_relpath_seed_expr(
+        type_ref=last_review_report_type,
+        literal_path="artifacts/review/last-review-report.md",
+        seed_role="review_loop_last_review_report_seed",
         span=generated_span,
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
@@ -4534,6 +4547,33 @@ def _typed(*, expr: ExprNode, type_ref: TypeRef, effect: EffectSummary) -> Typed
     )
 
 
+def _generated_relpath_seed_expr(
+    *,
+    type_ref: TypeRef,
+    literal_path: str,
+    seed_role: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack,
+) -> GeneratedRelpathSeedExpr:
+    if not isinstance(type_ref, PathTypeRef) or type_ref.definition.kind != "relpath":
+        _raise_error(
+            f"generated relpath seed `{seed_role}` requires a relpath type, got `{_type_label(type_ref)}`",
+            code="type_mismatch",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    return GeneratedRelpathSeedExpr(
+        target_type_ref=type_ref,
+        literal_path=literal_path,
+        seed_role=seed_role,
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+
+
 def _typecheck_expected_extern_operand(
     expr: ExprNode,
     *,
@@ -4660,26 +4700,6 @@ def _type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
     if expected == actual:
         return True
     return review_findings_types_compatible(expected, actual)
-
-
-def _allow_stdlib_review_findings_seed_path(
-    field_name: str,
-    *,
-    expected: TypeRef,
-    actual: TypeRef,
-    span: SourceSpan,
-) -> bool:
-    from .contracts import is_review_findings_json_path_type
-
-    return (
-        field_name == "items_path"
-        and is_review_findings_json_path_type(expected)
-        and isinstance(actual, PathTypeRef)
-        and actual.definition.kind == "relpath"
-        and actual.definition.under == "artifacts/work"
-        and actual.definition.must_exist is True
-        and span.start.path.endswith("orchestrator/workflow_lisp/stdlib_modules/std/phase.orc")
-    )
 
 
 def _unify_loop_control_types(

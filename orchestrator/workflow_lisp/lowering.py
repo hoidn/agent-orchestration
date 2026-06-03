@@ -69,6 +69,7 @@ from .expressions import (
     DoneExpr,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
+    GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
     LiteralExpr,
@@ -2317,6 +2318,20 @@ def _lower_loop_recur(
     repeat_step_id = _normalize_generated_step_id(plan.repeat_step_name)
     result_step_id = _normalize_generated_step_id(plan.result_normalization_step_name)
     initial_state_value = _resolve_inline_expr_value(expr.initial_state_expr, local_values=local_values)
+    state_optional_relpath_fields = _loop_state_optional_relpath_fields(
+        expr.initial_state_expr,
+        projection=plan.state_projection,
+        local_values=local_values,
+        context=context,
+    )
+    if state_optional_relpath_fields != plan.state_projection.optional_relpath_fields:
+        plan = replace(
+            plan,
+            state_projection=replace(
+                plan.state_projection,
+                optional_relpath_fields=state_optional_relpath_fields,
+            ),
+        )
     seed_step = _build_loop_seed_step(
         expr=expr,
         state_type=state_type,
@@ -2693,7 +2708,6 @@ def _build_loop_seed_step(
                 projection=state_projection,
                 local_values=local_values,
                 context=context,
-                normalize_review_findings_seed_path=True,
                 allow_missing_target_fields=state_projection.optional_relpath_fields,
                 allow_missing_active_fields=True,
             ),
@@ -2730,7 +2744,6 @@ def _build_loop_seed_step(
                         local_values=local_values,
                         context=context,
                         active_variant_name=variant.name,
-                        normalize_review_findings_seed_path=True,
                         allow_missing_target_fields=state_projection.optional_relpath_fields,
                         allow_missing_active_fields=True,
                     ),
@@ -3192,22 +3205,12 @@ def _loop_projection_materialize_values(
     local_values: Mapping[str, Any],
     context: _LoweringContext,
     active_variant_name: str | None = None,
-    normalize_review_findings_seed_path: bool = False,
     allow_missing_target_fields: frozenset[str] = frozenset(),
     allow_missing_active_fields: bool = False,
 ) -> list[dict[str, Any]]:
     """Project one expression into flattened materialized loop outputs."""
 
     resolved_value = _resolve_inline_expr_value(expr, local_values=local_values)
-
-    def normalize_source(field: FlattenedContractField, source: dict[str, Any]) -> dict[str, Any]:
-        if normalize_review_findings_seed_path and field.source_path == (
-            "state",
-            "latest_findings",
-            "items_path",
-        ):
-            return {"literal": "artifacts/work/review-findings-seed.json"}
-        return source
 
     def current_value_for(field_path: tuple[str, ...]) -> Any:
         if isinstance(expr, UnionVariantExpr):
@@ -3246,9 +3249,11 @@ def _loop_projection_materialize_values(
                 relative_path = field.source_path[1:]
                 current_value = current_value_for(relative_path)
                 if isinstance(current_value, LiteralExpr):
-                    source = normalize_source(field, {"literal": current_value.value})
+                    source = {"literal": current_value.value}
+                elif isinstance(current_value, GeneratedRelpathSeedExpr):
+                    source = {"literal": current_value.literal_path}
                 elif isinstance(current_value, str):
-                    source = normalize_source(field, {"ref": current_value})
+                    source = {"ref": current_value}
                 else:
                     raise _compile_error(
                         code="workflow_return_not_exportable",
@@ -3277,9 +3282,11 @@ def _loop_projection_materialize_values(
         relative_path = field.source_path[1:]
         current_value = current_value_for(relative_path)
         if isinstance(current_value, LiteralExpr):
-            source = normalize_source(field, {"literal": current_value.value})
+            source = {"literal": current_value.value}
+        elif isinstance(current_value, GeneratedRelpathSeedExpr):
+            source = {"literal": current_value.literal_path}
         elif isinstance(current_value, str):
-            source = normalize_source(field, {"ref": current_value})
+            source = {"ref": current_value}
         else:
             raise _compile_error(
                 code="workflow_return_not_exportable",
@@ -3366,6 +3373,47 @@ def _loop_result_optional_relpath_fields(projection: LoopValueProjection) -> fro
     """Result relpaths may be deferred until `done`, so internal loop steps must tolerate placeholders."""
 
     return projection_relpath_fields(projection)
+
+
+def _loop_state_optional_relpath_fields(
+    expr: Any,
+    *,
+    projection: LoopValueProjection,
+    local_values: Mapping[str, Any],
+    context: _LoweringContext,
+) -> frozenset[str]:
+    """Keep state relpath optionality limited to union placeholders and generated seed fields."""
+
+    optional_fields = set(projection.optional_relpath_fields)
+    resolved_value = _resolve_inline_expr_value(expr, local_values=local_values)
+
+    def current_value_for(field_path: tuple[str, ...]) -> Any:
+        if isinstance(expr, UnionVariantExpr):
+            return _inline_expr_field_value(
+                expr,
+                field_path=field_path,
+                local_values=local_values,
+                context=context,
+            )
+        current_value = resolved_value
+        if field_path:
+            current_value = _resolve_inline_field_value(
+                resolved_value,
+                field_path=field_path,
+                local_values=local_values,
+            )
+        if isinstance(current_value, PhaseTargetExpr):
+            return _phase_target_inline_ref(current_value, context=context)
+        return current_value
+
+    for field in projection.flattened_fields:
+        if field.contract_definition.get("type") != "relpath":
+            continue
+        current_value = current_value_for(field.source_path[1:])
+        if isinstance(current_value, GeneratedRelpathSeedExpr):
+            optional_fields.add(field.generated_name)
+
+    return frozenset(optional_fields)
 
 
 def _loop_result_case_output_ref(
@@ -6987,6 +7035,8 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
     """Resolve literals, names, fields, and record expressions for inline use."""
 
     if isinstance(expr, LiteralExpr):
+        return expr
+    if isinstance(expr, GeneratedRelpathSeedExpr):
         return expr
     if isinstance(expr, WorkflowRefLiteralExpr):
         return expr

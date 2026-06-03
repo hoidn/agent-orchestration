@@ -18,6 +18,10 @@
     :kind relpath
     :under "artifacts/work"
     :must-exist true)
+  (defpath ReviewReport
+    :kind relpath
+    :under "artifacts/review"
+    :must-exist true)
   (defrecord RunCtx
     (run-id RunId)
     (state-root Path.state-root)
@@ -35,7 +39,7 @@
   (defunion ReviewLoopResult
     (APPROVED
       (checks_report WorkReport)
-      (review_report WorkReport)
+      (review_report ReviewReport)
       (review_decision ReviewDecision)
       (findings ReviewFindings))
     (BLOCKED
@@ -43,16 +47,14 @@
       (blocker_class BlockerClass)
       (findings ReviewFindings))
     (EXHAUSTED
-      (last_review_report WorkReport)
+      (last_review_report ReviewReport)
       (reason String)
       (findings ReviewFindings)))
-  (defrecord ReviewLoopSurfaceResult
-    (report_path WorkReport))
   (defworkflow review-revise-loop-demo
     ((phase-ctx PhaseCtx)
      (completed CompletedAttempt)
      (inputs ReviewInputs))
-    -> ReviewLoopSurfaceResult
+    -> ReviewLoopResult
     (with-phase phase-ctx implementation-review
       (let* ((result
                (review-revise-loop implementation-review
@@ -67,11 +69,24 @@
                  :returns ReviewLoopResult)))
         (match result
           ((APPROVED approved)
-           (record ReviewLoopSurfaceResult
-             :report_path approved.review_report))
+           (variant ReviewLoopResult APPROVED
+             :checks_report approved.checks_report
+             :review_report approved.review_report
+             :review_decision approved.review_decision
+             :findings (record ReviewFindings
+               :schema_version approved.findings.schema_version
+               :items_path approved.findings.items_path)))
           ((BLOCKED blocked)
-           (record ReviewLoopSurfaceResult
-             :report_path blocked.progress_report))
+           (variant ReviewLoopResult BLOCKED
+             :progress_report blocked.progress_report
+             :blocker_class blocked.blocker_class
+             :findings (record ReviewFindings
+               :schema_version blocked.findings.schema_version
+               :items_path blocked.findings.items_path)))
           ((EXHAUSTED exhausted)
-           (record ReviewLoopSurfaceResult
-             :report_path exhausted.last_review_report)))))))
+           (variant ReviewLoopResult EXHAUSTED
+             :last_review_report exhausted.last_review_report
+             :reason exhausted.reason
+             :findings (record ReviewFindings
+               :schema_version exhausted.findings.schema_version
+               :items_path exhausted.findings.items_path))))))))

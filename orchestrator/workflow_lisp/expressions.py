@@ -8,6 +8,7 @@ the full intended language surface.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -33,6 +34,9 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
 )
+
+if TYPE_CHECKING:
+    from .type_env import TypeRef
 
 
 @dataclass(frozen=True)
@@ -186,6 +190,18 @@ class PhaseTargetExpr:
     """One named phase-target reference."""
 
     target_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class GeneratedRelpathSeedExpr:
+    """One compiler-private relpath seed placeholder."""
+
+    target_type_ref: "TypeRef | Any"
+    literal_path: str
+    seed_role: str
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
@@ -429,6 +445,7 @@ ExprNode = (
     | ProcedureCallExpr
     | WithPhaseExpr
     | PhaseTargetExpr
+    | GeneratedRelpathSeedExpr
     | WorkflowRefLiteralExpr
     | ProcRefLiteralExpr
     | BindProcExpr

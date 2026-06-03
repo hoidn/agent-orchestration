@@ -24,7 +24,7 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.contracts import is_review_findings_type
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import StdlibSpecializationExpr
+from orchestrator.workflow_lisp.expressions import GeneratedRelpathSeedExpr, StdlibSpecializationExpr
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
@@ -724,12 +724,12 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
     path = _write_module(
         tmp_path / "reusable_composed_with_phase_review_loop.orc",
         "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule reusable_composed_with_phase_review_loop)",
-                "  (import std/phase :only (review-revise-loop))",
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defmodule reusable_composed_with_phase_review_loop)",
+                    "  (import std/phase :only (ReviewFindings review-revise-loop))",
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware",
@@ -760,23 +760,26 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
                 "    (report_path WorkReport))",
                 "  (defrecord ReviewSurfaceResult",
                 "    (report_path WorkReport))",
-                "  (defunion ReviewLoopResult",
-                "    (APPROVED",
-                "      (checks_report WorkReport)",
-                "      (review_report WorkReport)",
-                "      (review_decision ReviewDecision))",
-                "    (BLOCKED",
-                "      (progress_report WorkReport)",
-                "      (blocker_class BlockerClass))",
-                "    (EXHAUSTED",
-                "      (last_review_report WorkReport)",
-                "      (reason String)))",
+                    "  (defunion ReviewLoopResult",
+                    "    (APPROVED",
+                    "      (checks_report WorkReport)",
+                    "      (review_report WorkReport)",
+                    "      (review_decision ReviewDecision)",
+                    "      (findings ReviewFindings))",
+                    "    (BLOCKED",
+                    "      (progress_report WorkReport)",
+                    "      (blocker_class BlockerClass)",
+                    "      (findings ReviewFindings))",
+                    "    (EXHAUSTED",
+                    "      (last_review_report WorkReport)",
+                    "      (reason String)",
+                    "      (findings ReviewFindings)))",
                 "  (defproc review-phase-helper",
                 "    ((phase-ctx PhaseCtx)",
                 "     (completed CompletedSurface)",
                 "     (inputs ReviewInputs))",
                 "    -> ReviewLoopResult",
-                "    :effects ((uses-provider providers.review) (uses-provider providers.fix))",
+                    "    :effects ((uses-provider providers.review) (uses-provider providers.fix) (uses-command validate_review_findings_v1))",
                 "    :lowering private-workflow",
                 "    (with-phase phase-ctx implementation-review",
                 "      (review-revise-loop implementation-review",
@@ -1098,10 +1101,22 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
     review_step = next(step for step in review_workflow.authored_mapping["steps"] if step.get("provider") == "fake-review")
     fix_step = next(step for step in fix_workflow.authored_mapping["steps"] if step.get("provider") == "fake-fix")
 
-    assert [value["name"] for value in materialize_step["materialize_artifacts"]["values"]] == [
+    seed_values = {
+        value["name"]: value
+        for value in materialize_step["materialize_artifacts"]["values"]
+    }
+    assert list(seed_values) == [
         "state__completed__execution_report_path",
         "state__last_review_report",
+        "state__latest_findings__schema_version",
+        "state__latest_findings__items_path",
     ]
+    assert seed_values["state__last_review_report"]["source"] == {
+        "literal": "artifacts/review/last-review-report.md"
+    }
+    assert seed_values["state__latest_findings__items_path"]["source"] == {
+        "literal": "artifacts/work/review-findings-seed.json"
+    }
     review_inputs = list(review_workflow.authored_mapping["inputs"])
     fix_inputs = list(fix_workflow.authored_mapping["inputs"])
     assert review_inputs[:3] == [
@@ -1109,16 +1124,20 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
         "inputs__design_review_prompt",
         "inputs__fix_plan_prompt",
     ]
-    assert len(review_inputs) == 4
-    assert review_inputs[3].startswith("__write_root__")
+    assert len(review_inputs) == 7
+    assert all(name.startswith("__write_root__") for name in review_inputs[3:])
     assert fix_inputs[:4] == [
         "completed__execution_report_path",
         "inputs__design_review_prompt",
         "inputs__fix_plan_prompt",
         "review_report",
     ]
-    assert len(fix_inputs) == 5
-    assert fix_inputs[4].startswith("__write_root__")
+    assert fix_inputs[4:6] == [
+        "findings__schema_version",
+        "findings__items_path",
+    ]
+    assert len(fix_inputs) == 7
+    assert fix_inputs[6].startswith("__write_root__")
     assert "consumes" not in review_step
     assert "prompt_consumes" not in review_step
     assert "consumes" not in fix_step
@@ -1142,6 +1161,7 @@ def test_review_loop_seed_state_does_not_reuse_initial_report_as_findings_path(t
     assert seed_values["state__latest_findings__items_path"]["source"] != {
         "ref": "inputs.completed__execution_report_path"
     }
+    assert seed_values["state__latest_findings__items_path"]["source"] != seed_values["state__last_review_report"]["source"]
 
 
 def test_review_loop_seed_state_uses_placeholder_for_noncanonical_completed_report_field(tmp_path: Path) -> None:
@@ -1167,6 +1187,134 @@ def test_review_loop_seed_state_uses_placeholder_for_noncanonical_completed_repo
     assert seed_values["state__latest_findings__items_path"]["source"] == {
         "literal": "artifacts/work/review-findings-seed.json"
     }
+
+
+def test_review_loop_seed_state_uses_review_report_placeholder_for_noncanonical_completed_report_field(
+    tmp_path: Path,
+) -> None:
+    path = _rewrite_fixture(
+        VALID_REVIEW_LOOP_FIXTURE,
+        replacements=(("(execution_report_path WorkReport)", "(summary_report WorkReport)"),),
+        tmp_path=tmp_path,
+        filename="phase_stdlib_review_loop.orc",
+    )
+    result = _compile(path, tmp_path=tmp_path)
+
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+    )
+    seed_step = next(step for step in authored["steps"] if step["name"].endswith("__seed"))
+    seed_values = {
+        value["name"]: value
+        for value in seed_step["materialize_artifacts"]["values"]
+    }
+
+    assert seed_values["state__last_review_report"]["source"] == {
+        "literal": "artifacts/review/last-review-report.md"
+    }
+
+
+def test_review_loop_seed_state_uses_distinct_generated_seed_roles(tmp_path: Path) -> None:
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+
+    roles = {
+        node.seed_role
+        for workflow in result.typed_workflows
+        for node in _walk_nodes(workflow.typed_body.expr)
+        if isinstance(node, GeneratedRelpathSeedExpr)
+    }
+    roles.update(
+        node.seed_role
+        for procedure in result.typed_procedures
+        for node in _walk_nodes(procedure.typed_body.expr)
+        if isinstance(node, GeneratedRelpathSeedExpr)
+    )
+
+    assert roles >= {
+        "review_loop_last_review_report_seed",
+        "review_loop_findings_items_path_seed",
+    }
+
+
+def test_review_loop_valid_fixture_preserves_review_report_and_findings_roots(tmp_path: Path) -> None:
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+    )
+    outputs = {
+        field.generated_name: field.contract_definition
+        for field in lowered.boundary_projection.flattened_outputs
+    }
+
+    assert outputs["return__review_report"]["under"] == "artifacts/review"
+    assert outputs["return__last_review_report"]["under"] == "artifacts/review"
+    assert outputs["return__progress_report"]["under"] == "artifacts/work"
+    assert outputs["return__findings__items_path"]["under"] == "artifacts/work"
+
+
+def test_authored_loop_recur_review_findings_state_keeps_strict_relpath_contracts(
+    tmp_path: Path,
+) -> None:
+    module_path = _write_module(
+        tmp_path / "authored_loop_recur_review_findings.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule authored_loop_recur_review_findings)",
+                "  (import std/phase :only (ReviewFindings))",
+                "  (defrecord LoopState",
+                "    (latest_findings ReviewFindings)",
+                "    (done Bool))",
+                "  (defworkflow authored-loop-recur-review-findings",
+                "    ((state LoopState))",
+                "    -> LoopState",
+                "    (loop/recur",
+                "      :max 2",
+                "      :state state",
+                "      (fn (current)",
+                "        (if current.done",
+                "          (done current)",
+                "          (continue current))))))",
+            ]
+        )
+        + "\n",
+    )
+    result = _compile(module_path, tmp_path=tmp_path)
+
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::authored-loop-recur-review-findings")
+    )
+    repeat_step = next(step for step in authored["steps"] if step["name"].endswith("__loop"))
+    outputs = repeat_step["repeat_until"]["outputs"]
+
+    assert outputs["state__latest_findings__items_path"]["must_exist_target"] is True
+
+    current_state_step = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step["name"].endswith("__body__state")
+    )
+    carried_copy = next(
+        nested_step
+        for nested_step in current_state_step["then"]["steps"]
+        if nested_step["name"].endswith("__use_carried_state")
+    )
+    carried_contract = next(
+        value["contract"]
+        for value in carried_copy["materialize_artifacts"]["values"]
+        if value["name"] == "state__latest_findings__items_path"
+    )
+
+    assert carried_contract["must_exist_target"] is True
 
 
 def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:
