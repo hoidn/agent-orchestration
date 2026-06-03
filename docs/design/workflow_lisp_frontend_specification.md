@@ -670,10 +670,6 @@ Symbol
 ### 7.2 Enum Types
 
 ```lisp
-(defenum ReviewDecision
-  APPROVE
-  REVISE)
-
 (defenum DrainStatus
   CONTINUE
   BLOCKED
@@ -687,6 +683,11 @@ Symbol
   user_decision_required
   unrecoverable_after_fix_attempt)
 ```
+
+For the first-tranche parametric review/revise route, `ReviewDecision` is not a
+global two-token enum. It is a stdlib-owned union with `APPROVE`, `REVISE`, and
+`BLOCKED` variants as defined by
+`workflow_lisp_review_revise_stdlib_parametric_integration.md`.
 
 Enums map to:
 
@@ -759,12 +760,9 @@ Records map to:
 ### 7.5 Unions
 
 ```lisp
-(defunion ImplementationResult
+(defunion ImplementationAttempt
   (COMPLETED
     (execution-report Path.execution-report)
-    (checks-report Path.checks-report)
-    (review-report Path.review-report)
-    (review-decision ReviewDecision))
 
   (BLOCKED
     (progress-report Path.progress-report)
@@ -1749,15 +1747,25 @@ exhaustion schemas are owned by the stdlib definition; the language/compiler
 must provide the generic structured dataflow, effect visibility, source maps,
 and generated path handling needed to compile it like other `.orc` library code.
 
+Contract alignment note: the follow-on parametric route described in
+`workflow_lisp_review_revise_stdlib_parametric_integration.md`,
+`workflow_lisp_compile_time_parametric_specialization.md`, and
+`workflow_lisp_structural_parametric_constraints.md` supersedes the older
+provider/prompt-oriented placeholder surface for this section. Review/fix
+provider and prompt selection belong inside the caller-supplied procedures, not
+on the public `review-revise-loop` signature.
+
+This section is an umbrella summary only. The exact first-tranche
+`ReviewFinding`, `ReviewFindings`, `ReviewDecision`, and `ReviewLoopResult`
+schema is owned by `workflow_lisp_review_revise_stdlib_parametric_integration.md`.
+
 ```lisp
 (review-revise-loop implementation-review
   :ctx ctx
   :completed completed
   :inputs inputs
-  :review-provider providers.review
-  :fix-provider providers.fix
-  :review-prompt prompts.implementation.review
-  :fix-prompt prompts.implementation.fix
+  :review (proc-ref review-implementation)
+  :fix (proc-ref fix-implementation)
   :max 40)
 ```
 
@@ -1766,27 +1774,32 @@ Return type:
 ```lisp
 (defunion ReviewLoopResult
   (APPROVED
-    (checks-report Path.checks-report)
-    (review-report Path.review-report)
-    (review-decision ReviewDecision))
+    (review_report ReviewReportPath)
+    (findings ReviewFindings))
 
   (BLOCKED
-    (progress-report Path.progress-report)
-    (blocker Blocker))
+    (review_report ReviewReportPath)
+    (findings ReviewFindings)
+    (blocker_class BlockerClass))
 
   (EXHAUSTED
-    (last-review-report Path.review-report)
+    (last_review_report ReviewReportPath)
+    (findings ReviewFindings)
     (reason String)))
 ```
+
+The exact first-tranche contract is stdlib-owned. Caller-specific terminal
+unions are projected outside the loop by ordinary proof-gated `match`; typed
+state and validated artifacts remain the semantic authority.
 
 Required generated shape:
 
 - `repeat_until`
-- provider review step
-- optional command checks step
-- provider fix step
-- structured decision output
-- typed terminal result
+- call to review `ProcRef`
+- optional command/provider work inside the review or fix procedures
+- call to fix `ProcRef` on `REVISE`
+- structured stdlib-owned `ReviewDecision`
+- typed stdlib-owned `ReviewLoopResult`
 
 No markdown parsing of review decision.
 
@@ -2163,9 +2176,9 @@ Contains:
 Example:
 
 ```text
-implementation : ImplementationResult
+attempt : ImplementationAttempt
 inside COMPLETED branch:
-  completed : ImplementationResult.COMPLETED
+  completed : ImplementationAttempt.COMPLETED
   completed.execution-report : Path.execution-report
 ```
 
@@ -2535,18 +2548,18 @@ model to generated Core AST equivalent to:
 ```text
 CoreRepeatUntil
   iteration state
-  review provider-result
+  call specialized review ProcRef
   match decision
-  optional fix provider-result
-  terminal typed output
+  optional call specialized fix ProcRef
+  final projection to stdlib-owned terminal result
 ```
 
 Semantic IR must expose:
 
 - `BoundedLoop`
-- `ReviewDecision` enum
-- `TerminalResult` union
-- provider contracts
+- stdlib-owned `ReviewDecision`
+- stdlib-owned `ReviewLoopResult`
+- effects of the selected review/fix procedures
 - artifact refs by branch
 
 ## 58. `backlog-drain` Lowering
@@ -3032,8 +3045,7 @@ DrainCtx
   (:target-dsl "2.14")
 
   (import std/paths :as path)
-
-  (defenum ReviewDecision APPROVE REVISE)
+  (import std/phase :as phase)
 
   (defenum BlockerClass
     missing_resource
@@ -3071,15 +3083,26 @@ DrainCtx
       (blocker Blocker)))
 
   (defunion ImplementationResult
-    (COMPLETED
+    (APPROVED
       (execution-report path/work-report)
-      (checks-report path/checks-report)
-      (review-report path/review-report)
-      (review-decision ReviewDecision))
+      (review_report path/review-report)
+      (findings phase/ReviewFindings))
 
-    (BLOCKED
+    (EXECUTION_BLOCKED
       (progress-report path/work-report)
-      (blocker Blocker))))
+      (blocker Blocker))
+
+    (REVIEW_BLOCKED
+      (execution-report path/work-report)
+      (review_report path/review-report)
+      (blocker_class BlockerClass)
+      (findings phase/ReviewFindings))
+
+    (EXHAUSTED
+      (execution-report path/work-report)
+      (last_review_report path/review-report)
+      (findings phase/ReviewFindings)
+      (reason String))))
 ```
 
 ## 89. Implementation Phase
@@ -3134,24 +3157,47 @@ DrainCtx
              (result
                (match attempt
                  ((COMPLETED completed)
-                  (phase/review-revise-loop implementation-review
-                    :ctx phase-ctx
-                    :completed completed
-                    :inputs inputs
-                    :review-provider providers.review
-                    :fix-provider providers.fix
-                    :review-prompt prompts.implementation.review
-                    :fix-prompt prompts.implementation.fix
-                    :max 40))
+                  (match
+                    (phase/review-revise-loop implementation-review
+                      :ctx phase-ctx
+                      :completed completed
+                      :inputs inputs
+                      :review (proc-ref implementation-review)
+                      :fix (proc-ref implementation-fix)
+                      :max 40)
+
+                    ((APPROVED approved)
+                     (nt/ImplementationResult.APPROVED
+                       :execution-report completed.execution-report
+                       :review_report approved.review_report
+                       :findings approved.findings))
+
+                    ((BLOCKED blocked)
+                     (nt/ImplementationResult.REVIEW_BLOCKED
+                       :execution-report completed.execution-report
+                       :review_report blocked.review_report
+                       :blocker_class blocked.blocker_class
+                       :findings blocked.findings))
+
+                    ((EXHAUSTED exhausted)
+                     (nt/ImplementationResult.EXHAUSTED
+                       :execution-report completed.execution-report
+                       :last_review_report exhausted.last_review_report
+                       :findings exhausted.findings
+                       :reason exhausted.reason))))
 
                  ((BLOCKED blocked)
-                  blocked))))
+                  (nt/ImplementationResult.EXECUTION_BLOCKED
+                    :progress-report blocked.progress-report
+                    :blocker blocked.blocker)))))
 
         result))))
 ```
 
 Notes:
 
+- the stdlib loop returns `phase/ReviewLoopResult`; workflow-specific terminal
+  unions are projected by caller code with an ordinary proof-gated `match`
 - no manual state path
 - no markdown extraction
 - no explicit snapshot name

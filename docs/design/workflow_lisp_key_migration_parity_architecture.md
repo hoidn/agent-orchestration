@@ -720,13 +720,14 @@ Readiness before acceptance:
 
 New or completed authoring syntax:
 
-```lisp
-(defrecord ReviewFinding
-  (id String)
-  (severity FindingSeverity)
-  (summary String)
-  (evidence String))
+The active parity tranche targets the same first-tranche review-loop carrier
+and terminal protocol owned by
+`docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`.
+This section summarizes that contract only because the parity fixtures depend on
+it. If wording ever diverges, the integration doc is the owner for the exact
+`ReviewFindings`, `ReviewDecision`, and `ReviewLoopResult` schema.
 
+```lisp
 (defpath ReviewFindingsJsonPath
   :kind relpath
   :under "artifacts/work"
@@ -769,6 +770,10 @@ exhaustion maps to terminal `EXHAUSTED`. Raw unconstrained `Json` findings do
 not satisfy primary-promotion parity. Until first-class list types exist,
 `items_path` must point to JSON that validates against `ReviewFindings.v1`
 before publication and before revise/fix receives it.
+
+There is no first-tranche generic `ReviewFinding` item record. The typed
+carrier plus the validated minimum `ReviewFindings.v1` envelope are the whole
+stdlib-owned contract for this slice.
 
 `ReviewFindings.items_path` and `review_report` / `last_review_report` are
 intentionally different contracts. Review-loop specialization must allocate or

@@ -23,14 +23,23 @@ Related docs:
 
 ## 1. Purpose
 
-This document specifies the incremental architecture for moving
+This document specifies the follow-on architecture for moving
 `review-revise-loop` from a compiler-special Workflow Lisp form into an
-ordinary `.orc` standard-library component.
+ordinary imported `.orc` standard-library component.
 
 This document is self-contained with respect to the prerequisite refactoring. It
 incorporates the recommended behavior-preserving refactor preflight, the generic
 `.orc` expansion Track A, and the minimal parametric type-system work needed
-before `review-revise-loop` can become ordinary stdlib code.
+before the thin-macro parity bridge can be retired in favor of ordinary generic
+stdlib code.
+
+This document does not revise the currently accepted key-migration rescue
+tranche. Until
+`docs/design/workflow_lisp_key_migration_parity_architecture.md` is explicitly
+updated, that document remains the authority for the active parity route:
+generic `.orc` expansion plus a thin macro or equivalent monomorphic-helper
+specialization layer. This document defines the replacement architecture for the
+follow-on tranche that removes that bridge.
 
 This document does not replace the refactor architecture. The refactor
 architecture remains the primary source for behavior-preserving frontend
@@ -65,7 +74,9 @@ and the relevant Class B substrate have landed.
 
 ## 2. Executive Decision
 
-Implement this migration in the following order:
+Implement this follow-on convergence in the following order after the active
+parity tranche lands, or if the migration-parity architecture is explicitly
+revised to adopt the parametric route:
 
 1. Add this integration document as the target architecture.
 2. Behavior-preserving refactor preflight:
@@ -88,10 +99,12 @@ Implement this migration in the following order:
    - `loop/recur` typed exhaustion projection;
    - `:forall` and monomorphic helper specialization;
    - structural record/union constraints;
-   - ProcRef signature constraints;
+   - ordinary `ProcRef` parameter typing over signatures that mention
+     specialized type parameters;
    - variant-proof preservation through `match`.
 5. `std/phase.orc` `review-revise-loop`:
-   - caller-owned completed/input/result types;
+   - caller-owned completed/input records;
+   - exact stdlib-owned `ReviewLoopResult`;
    - compile-time review/fix ProcRefs;
    - ordinary `loop/recur` + `match` + projection lowering;
    - evidence identity carried by state/inputs.
@@ -110,6 +123,11 @@ elaboration, denylist tests, generic imported `.orc` expansion, source maps,
 imported-effect visibility, and generic ProcRef specialization; that plan
 explicitly says Track A must land first or Track B risks becoming another
 hand-coded migration path.
+
+Until the migration-parity architecture is revised, that same Track A substrate
+still feeds the accepted thin macro bridge for the active rescue slice. The
+parametric `defproc` route in this document is the intended follow-on
+replacement, not a second concurrent authority for the current tranche.
 
 ## 3. Problem
 
@@ -221,26 +239,56 @@ The ownership split is:
   expansion/source-map/effect visibility, and generic ProcRef specialization
   substrate.
 
+`workflow_lisp_key_migration_parity_architecture.md`
+: Owns the active review-loop rescue tranche. It currently requires generic
+  `.orc` expansion plus a thin macro or equivalent monomorphic-helper bridge and
+  explicitly does not require parametric imported `defproc` support in that
+  tranche.
+
 `workflow_lisp_compile_time_parametric_specialization.md`
 : Owns `:forall` type parameters, call-site type resolution, concrete
   monomorphic helper/private-workflow specialization, specialization identity,
-  runtime erasure of type parameters, compile-time-only ProcRef treatment, and
-  source-map obligations for generated specializations.
+  runtime erasure of type parameters, compile-time-only ProcRef treatment,
+  first-tranche generic clause ordering (`:forall`, parameter list, `:where`,
+  return type), the accepted first-tranche pipeline (`constraint check ->
+  instantiate -> typecheck instantiated helper -> lower`), and source-map
+  obligations for generated specializations. Pre-instantiation generic-body
+  checking remains deferred follow-on diagnostic work rather than a tranche-one
+  acceptance gate.
 
 `workflow_lisp_structural_parametric_constraints.md`
 : Owns `has-field` constraints, `has-union-variant` constraints,
   `has-shared-union-field` constraints, `is-record` / `is-union` constraints,
-  ProcRef signature constraints, variant-proof preservation, and diagnostics for
-  unsatisfied constraints.
+  variant-proof preservation, and diagnostics for unsatisfied constraints.
 
-This document owns the review/revise stdlib migration sequence, which refactor
-work is prerequisite versus follow-up cleanup, the `std/phase.orc`
-`review-revise-loop` API shape, approve/revise/blocked/exhausted routing
-semantics, evidence-authority rules, loop/recur exhaustion projection
-requirement, fixture and promotion matrix, and removal of `ReviewReviseLoopExpr`
-from the promoted path.
+This document owns the review/revise stdlib follow-on replacement sequence once
+the parity tranche is ready to retire the thin bridge, which refactor work is
+prerequisite versus follow-up cleanup, the exact first-tranche
+`ReviewFindings` carrier, minimum `ReviewFindings.v1` artifact envelope,
+`ReviewDecision` / `ReviewLoopResult` stdlib schemas, the
+`std/phase.orc` `review-revise-loop` API shape,
+approve/revise/blocked/exhausted routing semantics, evidence-authority rules,
+loop/recur exhaustion projection requirement, fixture and promotion matrix, and
+removal of `ReviewReviseLoopExpr` from the promoted path.
 
 ### 4.2 Target Dependency Direction
+
+The three parametric design docs consume one first-tranche specialization rule:
+
+```text
+resolve concrete call-site types
+  -> check explicit structural constraints
+  -> instantiate a monomorphic helper/private workflow
+  -> typecheck the instantiated helper
+  -> lower through ordinary Core AST, shared validation, and existing runtime
+```
+
+That rule keeps `review-revise-loop` on ordinary imported `.orc` stdlib code
+plus generic language machinery. It also fixes diagnostic ownership for this
+tranche: unsatisfied structural constraints fail against the generic definition
+and call site, while ordinary typing, proof-gated union behavior, effect
+visibility, and lowering correctness are checked on the instantiated helper.
+Pre-instantiation generic-body checking is intentionally deferred.
 
 Target dependency direction:
 
@@ -822,7 +870,7 @@ The required specialization pipeline is:
 ```text
 generic .orc definition
   -> infer concrete call-site types
-  -> check explicit shape/trait constraints
+  -> check explicit structural constraints
   -> instantiate monomorphic helper/private workflow
   -> typecheck the instantiated AST
   -> lower ordinary Core AST
@@ -848,6 +896,11 @@ Executable runtime state must not contain:
 - runtime method choices;
 - closure environments.
 
+The first stable generic authoring surface here is `defproc`. If lowering later
+emits a private/generated workflow, that workflow consumes already-specialized
+monomorphic structure; a separate authored generic `defworkflow` surface is
+explicitly deferred.
+
 ## 12. Structural Constraint Dependency
 
 This document depends on structural parametric constraints.
@@ -861,20 +914,25 @@ T has-union-variant VARIANT (field Type ...)
 T has-shared-union-field name Type
 T is-record
 T is-union
-P ProcRef[(A B) -> R]
 ```
+
+In the first tranche, `has-shared-union-field` means every concrete variant of
+the specialized union declares the named field with an assignment-compatible
+type. It permits only branch-free access to that one field; it does not provide
+variant proof or arbitrary constructor authority.
 
 For this design, constraints must support:
 
 - caller-owned `CompletedT` record;
 - caller-owned `InputsT` record;
-- caller-owned `ResultT` union;
-- `ResultT` terminal variants `APPROVED`, `BLOCKED`, `EXHAUSTED`;
-- review ProcRef signature;
-- fix ProcRef signature;
 - variant-proof preservation through `match`;
-- field projection only under proof;
+- caller-side projection only under proof;
 - constraint failure before lowering.
+
+`review` and `fix` remain ordinary procedure parameters whose declared
+`ProcRef[...]` signatures may mention resolved type parameters. Their signature
+checks happen in ordinary parameter typing after `CompletedT` and `InputsT`
+resolve; they are not part of the first-tranche structural-constraint surface.
 
 Constraint checking must happen before the specialized helper is accepted.
 Lowering receives only concrete monomorphic definitions.
@@ -915,7 +973,7 @@ generic expansion / specialization substrate
         |
         v
 generic type checker
-  resolves concrete CompletedT / InputsT / ResultT
+  resolves concrete CompletedT / InputsT
   checks structural record/union/variant constraints
   checks ProcRef signatures and effects
   preserves variant proof through match
@@ -949,199 +1007,129 @@ runtime sees ordinary DSL.
 
 ## 14. Stdlib Surface
 
-### 14.1 First Tranche: Concrete Review Decision And Findings, Generic Completed/Input/Result
+### 14.1 First Tranche: Concrete Review Decision, Findings, And Stdlib Terminal Protocol
 
 The first stable implementation should avoid over-generalizing every part of the
-loop. It can keep review decision and findings as stdlib-owned concrete types
-while allowing caller-owned completed/input records and caller-owned terminal
-result unions.
+loop. It keeps review decision, findings, and terminal outcome protocol as
+stdlib-owned concrete types while allowing caller-owned completed/input records.
 
-Illustrative stdlib types:
+### 14.1.1 Authoritative First-Tranche Schema
+
+This document is the owner for the exact first-tranche review/revise stdlib
+schema. Other docs may summarize it, but they should not publish conflicting
+examples.
 
 ```lisp
-(defrecord ReviewFinding
-  ((severity String)
-   (message String)
-   (location OptionalString)))
+(defpath ReviewFindingsJsonPath
+  :kind relpath
+  :under "artifacts/work"
+  :must-exist true)
 
 (defrecord ReviewFindings
-  ((summary String)
-   (items ReviewFindingList)))
+  (schema_version String)
+  (items_path ReviewFindingsJsonPath))
 
 (defunion ReviewDecision
   (APPROVE
     (review_report ReviewReportPath)
     (findings ReviewFindings))
-
   (REVISE
     (review_report ReviewReportPath)
     (findings ReviewFindings))
-
   (BLOCKED
     (review_report ReviewReportPath)
+    (blocker_class BlockerClass)
+    (findings ReviewFindings)))
+
+(defunion ReviewLoopResult
+  (APPROVED
+    (review_report ReviewReportPath)
+    (findings ReviewFindings))
+  (BLOCKED
+    (review_report ReviewReportPath)
+    (blocker_class BlockerClass)
+    (findings ReviewFindings))
+  (EXHAUSTED
+    (last_review_report ReviewReportPath)
     (findings ReviewFindings)
-    (blocker_class String)
     (reason String)))
 ```
 
-Illustrative generic stdlib definition:
+`ReviewDecision` is the per-iteration review result. `ReviewLoopResult` is the
+terminal loop result. `BLOCKED` is part of `ReviewDecision`, not a side channel
+outside it, and blocked terminal state carries `blocker_class BlockerClass`,
+not a plain string.
 
-```lisp
-(defproc review-revise-loop
-  :forall (CompletedT InputsT ResultT)
-  :where
-    ((CompletedT is-record)
-     (InputsT is-record)
+There is no first-tranche generic `ReviewFinding` item record. The stdlib loop
+only standardizes the typed `ReviewFindings` carrier plus the minimum validated
+artifact envelope at `items_path`.
 
-     (ResultT has-union-variant APPROVED
-       (completed CompletedT)
-       (review_report ReviewReportPath)
-       (findings ReviewFindings))
+`ReviewFindings` remains semantic metadata for a validated findings artifact.
+The typed record and the validated JSON at `items_path` are authority; reports
+and summaries remain views. In the first tranche, that carrier has one exact
+owner-doc rule: `schema_version` must equal `"ReviewFindings.v1"`, `items_path`
+must point to JSON under `artifacts/work`, that JSON must validate as a
+non-pointer object with a top-level `items` member, and malformed findings fail
+as an output-contract error rather than as a review decision.
 
-     (ResultT has-union-variant BLOCKED
-       (completed CompletedT)
-       (review_report ReviewReportPath)
-       (findings ReviewFindings)
-       (blocker_class String)
-       (reason String))
+That minimum `ReviewFindings.v1` envelope is intentionally narrower than a
+generic per-item schema. Additional top-level fields, the type of the `items`
+member, and each finding item's internal fields are outside the stdlib loop's
+first-tranche contract. If a producing/consuming workflow needs stricter
+payload guarantees, it must own them in a separate workflow-specific findings
+schema or validator layered behind the same `ReviewFindings` carrier.
 
-     (ResultT has-union-variant EXHAUSTED
-       (completed CompletedT)
-       (last_review_report ReviewReportPath)
-       (findings ReviewFindings)
-       (reason String))
+`workflow_lisp_structural_parametric_constraints.md` owns the structural
+constraint vocabulary used around these types.
+`workflow_lisp_compile_time_parametric_specialization.md` owns the compile-time
+generic instantiation machinery. Frontend-spec and drafting-guide examples may
+summarize this contract, but any duplicate example must match these names,
+carrier fields, terminal fields, and the first-tranche generic clause ordering
+exactly.
 
-     (review ProcRef[(CompletedT InputsT) -> ReviewDecision])
-     (fix ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT]))
-
-  ((completed CompletedT)
-   (inputs InputsT)
-   (review ProcRef[(CompletedT InputsT) -> ReviewDecision])
-   (fix ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT])
-   (max_iterations Int))
-
-  -> ResultT
-
-  ...)
-```
-
-The spelling is illustrative. The semantic contract is normative:
+The semantic contract is:
 
 - `CompletedT` and `InputsT` are caller-owned records.
-- `ResultT` is a caller-owned union constrained structurally.
+- `ReviewFindings.schema_version` must equal `"ReviewFindings.v1"`.
+- `ReviewFindings.items_path` must point to JSON under `artifacts/work` that
+  validates the owner-doc minimum `ReviewFindings.v1` envelope: non-pointer
+  object with a top-level `items` member.
+- findings validation runs before a `ReviewFindings` record is published to
+  loop state and again before `fix` consumes findings after resume.
+- stronger finding-item payload rules, if needed, belong to a separate
+  workflow-specific findings schema/validator behind the same carrier.
 - `review` and `fix` are compile-time ProcRefs.
 - `review` returns a typed `ReviewDecision`.
-- `fix` consumes findings from `REVISE` and returns the next `CompletedT`.
+- `fix` is findings-only:
+  `ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT]`.
+- the stdlib loop returns exact `ReviewLoopResult` variants.
+- any workflow-specific terminal union is constructed by caller code after a
+  proof-gated `match` on `ReviewLoopResult`.
 - `APPROVE` and `BLOCKED` are terminal.
 - `REVISE` invokes fix and continues.
 - `EXHAUSTED` is typed terminal non-completion.
 
 ### 14.2 Extended Model: Generic Decision And Findings
 
-A later version may parameterize decision and findings types too:
+A later version may parameterize decision and findings types too, but that
+should not block the first migration tranche unless a concrete caller requires
+custom findings.
 
-```lisp
-(defproc review-revise-loop
-  :forall (CompletedT InputsT DecisionT FindingsT ResultT)
-  :where
-    ((CompletedT is-record)
-     (InputsT is-record)
+### 14.3 Deferred Extension: Caller-Owned Terminal Construction
 
-     (DecisionT has-union-variant APPROVE
-       (review_report ReviewReportPath)
-       (findings FindingsT))
+If a future tranche wants the stdlib loop itself to construct caller-owned
+terminal unions, it must first accept one stable route: exact protocol
+normalization, explicit field-mapping constraints, or constructor ProcRefs.
 
-     (DecisionT has-union-variant REVISE
-       (review_report ReviewReportPath)
-       (findings FindingsT))
+Until then, the preferred model is:
 
-     (DecisionT has-union-variant BLOCKED
-       (review_report ReviewReportPath)
-       (findings FindingsT)
-       (blocker_class String)
-       (reason String))
-
-     (ResultT has-union-variant APPROVED
-       (completed CompletedT)
-       (review_report ReviewReportPath)
-       (findings FindingsT))
-
-     (ResultT has-union-variant BLOCKED
-       (completed CompletedT)
-       (review_report ReviewReportPath)
-       (findings FindingsT)
-       (blocker_class String)
-       (reason String))
-
-     (ResultT has-union-variant EXHAUSTED
-       (completed CompletedT)
-       (last_review_report ReviewReportPath)
-       (findings FindingsT)
-       (reason String))
-
-     (review ProcRef[(CompletedT InputsT) -> DecisionT])
-     (fix ProcRef[(CompletedT InputsT FindingsT) -> CompletedT]))
-
-  ((completed CompletedT)
-   (inputs InputsT)
-   (review ProcRef[(CompletedT InputsT) -> DecisionT])
-   (fix ProcRef[(CompletedT InputsT FindingsT) -> CompletedT])
-   (max_iterations Int))
-
-  -> ResultT
-
-  ...)
+```text
+review-revise-loop returns ReviewLoopResult,
+and caller code projects any richer workflow-specific terminal union.
 ```
 
-This should not block the first migration tranche unless a concrete caller
-requires custom findings.
-
-### 14.3 Bridge Model: Terminal-Constructor ProcRefs
-
-If direct generic construction of caller-owned result-union variants is not
-ready, the stdlib loop may accept terminal-constructor ProcRefs as a bridge:
-
-```lisp
-(defproc review-revise-loop
-  :forall (CompletedT InputsT ResultT)
-  :where
-    ((CompletedT is-record)
-     (InputsT is-record)
-     (review ProcRef[(CompletedT InputsT) -> ReviewDecision])
-     (fix ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT])
-     (on-approved ProcRef[(CompletedT ReviewReportPath ReviewFindings) -> ResultT])
-     (on-blocked ProcRef[(CompletedT ReviewReportPath ReviewFindings String String) -> ResultT])
-     (on-exhausted ProcRef[(CompletedT ReviewReportPath ReviewFindings String) -> ResultT]))
-
-  ((completed CompletedT)
-   (inputs InputsT)
-   (review ProcRef[(CompletedT InputsT) -> ReviewDecision])
-   (fix ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT])
-   (on-approved ProcRef[(CompletedT ReviewReportPath ReviewFindings) -> ResultT])
-   (on-blocked ProcRef[(CompletedT ReviewReportPath ReviewFindings String String) -> ResultT])
-   (on-exhausted ProcRef[(CompletedT ReviewReportPath ReviewFindings String) -> ResultT])
-   (max_iterations Int))
-
-  -> ResultT
-
-  ...)
-```
-
-This bridge is acceptable only if constructor hooks are compile-time ProcRefs,
-constructor hook effects are visible, constructor hook bodies are ordinary
-`.orc`, constructor hook return type is concrete after specialization,
-constructor hooks do not introduce runtime procedure values, source maps include
-constructor hook bodies, and the bridge is documented as temporary or as an
-ergonomic wrapper.
-
-Preferred long-term model: `review-revise-loop` directly constructs `ResultT`
-variants justified by structural constraints.
-
-Allowed bridge model: `review-revise-loop` delegates terminal construction to
-compile-time ProcRefs while direct generic union construction matures.
-
-Disallowed model: Python compiler branch constructs `ResultT` variants because
-it knows `review-revise-loop` by name.
+Disallowed model: Python compiler branch constructs workflow-specific terminal
+variants because it knows `review-revise-loop` by name.
 
 ## 15. Review/Revise Semantic Contract
 
@@ -1152,9 +1140,9 @@ The stdlib loop has four routes.
 ```text
 review(completed, inputs) returns APPROVE
   -> loop exits
-  -> terminal result is ResultT.APPROVED
-  -> completed state is the current completed value
+  -> terminal result is ReviewLoopResult.APPROVED
   -> review_report and findings come from the approving review decision
+  -> any workflow-specific terminal projection happens in caller code after match
 ```
 
 ### 15.2 REVISE
@@ -1172,9 +1160,9 @@ review(completed, inputs) returns REVISE
 ```text
 review(completed, inputs) returns BLOCKED
   -> loop exits
-  -> terminal result is ResultT.BLOCKED
-  -> completed state is the current completed value
-  -> review_report, findings, blocker_class, and reason come from the blocking review decision
+  -> terminal result is ReviewLoopResult.BLOCKED
+  -> review_report, findings, and blocker_class come from the blocking review decision
+  -> any workflow-specific terminal projection happens in caller code after match
 ```
 
 ### 15.4 EXHAUSTED
@@ -1182,10 +1170,10 @@ review(completed, inputs) returns BLOCKED
 ```text
 loop reaches max_iterations without APPROVE or BLOCKED
   -> loop exits through explicit exhaustion projection
-  -> terminal result is ResultT.EXHAUSTED
-  -> completed state is the latest completed value
+  -> terminal result is ReviewLoopResult.EXHAUSTED
   -> last_review_report and findings come from the last completed review frame
   -> reason is a deterministic workflow-owned value such as "max_iterations_exhausted"
+  -> any workflow-specific terminal projection happens in caller code after match
 ```
 
 Exhaustion is not hidden control-flow failure. It is a typed non-completion
@@ -1202,14 +1190,18 @@ conceptual frame is:
    (decision_status ReviewDecisionStatus)
    (latest_review_report ReviewReportPath)
    (latest_findings ReviewFindings)
-   (latest_blocker_class OptionalString)
-   (latest_reason OptionalString)
+   (latest_blocker_class OptionalBlockerClass)
+   (exhaustion_reason OptionalString)
    (iteration Int)))
 ```
 
 After specialization, `CompletedT` is concrete. No type parameter appears in
 lowered Core AST, Semantic IR, executable state, output contracts, provider
 payloads, or command payloads.
+
+The optional placeholder names in this conceptual frame are explanatory, not a
+competing public schema surface. When present, `latest_blocker_class` carries a
+`BlockerClass` value.
 
 The frame is semantic state. It must not carry ProcRef values, provider refs,
 prompt refs, type parameters, runtime closure environments, unvalidated report
@@ -1230,7 +1222,7 @@ generated/private review-loop helper
       latest_review_report
       latest_findings
       latest_blocker_class
-      latest_reason
+      exhaustion_reason
 
     condition:
       self.outputs.decision_status in ["APPROVE", "BLOCKED"]
@@ -1240,7 +1232,7 @@ generated/private review-loop helper
 
     on_exhausted.outputs:
       decision_status = "EXHAUSTED"
-      latest_reason = "max_iterations_exhausted"
+      exhaustion_reason = "max_iterations_exhausted"
 
     steps:
       ReviewOnce:
@@ -1267,17 +1259,20 @@ generated/private review-loop helper
             materialize latest_review_report
             materialize latest_findings
             materialize latest_blocker_class
-            materialize latest_reason
             set decision_status = "BLOCKED"
 
   FinalReviewLoopProjection:
     match ReviewLoop.outputs.decision_status
       APPROVE:
-        construct ResultT.APPROVED
+        construct ReviewLoopResult.APPROVED
       BLOCKED:
-        construct ResultT.BLOCKED
+        construct ReviewLoopResult.BLOCKED
       EXHAUSTED:
-        construct ResultT.EXHAUSTED
+        construct ReviewLoopResult.EXHAUSTED
+
+  CallerProjection:
+    optional authored match over ReviewLoopResult
+      constructs workflow-specific result union, if needed
 ```
 
 The final projection must use loop-frame outputs. It must not reach into only
@@ -1306,8 +1301,9 @@ loop/recur :on-exhausted
 Required behavior:
 
 - if `max_iterations` exhausts after a completed iteration, set scalar marker
-  `decision_status = EXHAUSTED`, preserve last completed loop-frame outputs, and
-  construct typed `ResultT.EXHAUSTED` in final projection;
+  `decision_status = EXHAUSTED`, preserve last completed loop-frame outputs, set
+  `exhaustion_reason`, and construct typed `ReviewLoopResult.EXHAUSTED` in
+  final projection;
 - if body fails, ordinary failure, not `EXHAUSTED`;
 - if output resolution fails, ordinary failure, not `EXHAUSTED`;
 - if predicate evaluation fails, ordinary failure, not `EXHAUSTED`;
@@ -1462,6 +1458,18 @@ Every generated specialization must have a deterministic identity:
 Equivalent call sites may share a specialization only if doing so preserves
 source-map and generated-path obligations. Otherwise, the compiler should
 generate per-call-site helpers.
+
+Specialization identity chooses generated helpers, specialization caching, and
+debug/source-map provenance. Persisted `repeat_until` checkpoint identity is a
+separate contract owned by the shared semantic/executable bridge and runtime
+state layout: for imported stdlib review loops it must stay anchored to the
+authored loop-step identity exposed for that call site in the importing
+workflow, not to a generated helper name.
+
+Call-site provenance may force distinct helpers or richer source maps, but it
+does not by itself redefine the persisted checkpoint key for the same authored
+review-loop site in the same run. Generated helper names are implementation
+details and must not become resume lookup keys.
 
 ## 24. Incremental Implementation Plan
 
@@ -1635,7 +1643,9 @@ Tasks:
 - support `is-record` and `is-union` constraints;
 - support `has-field` constraints;
 - support `has-union-variant` constraints;
-- support ProcRef signature constraints with type parameters;
+- support `has-shared-union-field` constraints with owner-doc semantics;
+- support ordinary `ProcRef` parameters whose signatures mention specialized
+  type parameters;
 - instantiate monomorphic helper before ordinary lowering;
 - typecheck instantiated helper;
 - preserve variant proof through `match`.
@@ -1645,6 +1655,8 @@ Acceptance:
 - pure generic `defproc` fixture passes;
 - generic record-field fixture passes;
 - generic union-match fixture passes;
+- generic shared-union-field fixture passes with branch-free access to the
+  constrained field only;
 - effectful generic ProcRef fixture passes;
 - unsatisfied constraint fails before lowering;
 - variant field access without proof fails before lowering.
@@ -1654,45 +1666,52 @@ Acceptance:
 Tasks:
 
 - define stdlib `ReviewDecision` and `ReviewFindings`, unless already defined;
+- define stdlib `ReviewLoopResult`;
+- keep those contracts aligned with Section 14.1.1;
 - define generic `review-revise-loop` in `std/phase.orc`;
-- accept caller-owned `CompletedT`, `InputsT`, `ResultT`;
-- express `ResultT` terminal variants as structural constraints;
+- accept caller-owned `CompletedT` and `InputsT`;
 - accept review/fix as compile-time ProcRef parameters;
 - lower through `loop/recur`, `match`, `provider-result` / `command-result`,
   materialization, and projection;
 - carry evidence identity through inputs/state;
+- document caller-side projection for workflow-specific terminal unions;
 - add source-map fixtures.
 
 Acceptance:
 
-- `APPROVE` first pass returns `ResultT.APPROVED`;
-- `REVISE -> fix -> APPROVE` returns `ResultT.APPROVED` with fixed completed
-  state;
-- `BLOCKED` returns `ResultT.BLOCKED`;
-- `REVISE` until `max_iterations` returns `ResultT.EXHAUSTED`;
+- `APPROVE` first pass returns `ReviewLoopResult.APPROVED`;
+- `REVISE -> fix -> APPROVE` returns `ReviewLoopResult.APPROVED`;
+- `BLOCKED` returns `ReviewLoopResult.BLOCKED`;
+- `REVISE` until `max_iterations` returns `ReviewLoopResult.EXHAUSTED`;
 - fix receives findings from the immediately preceding `REVISE` decision;
 - terminal outputs come from loop frame/projection, not first review step;
+- workflow-specific terminal unions are projected outside the stdlib loop;
 - carried evidence cannot be redirected by `ReviewDecision` output.
 
-### Stage 11 - Optional Terminal-Constructor Bridge
+### Stage 11 - Optional Caller-Owned Terminal Construction
 
-Use this only if direct generic result-union construction is not ready.
+Use this only if there is a concrete need for stdlib-internal construction of
+caller-owned terminal unions after the first stable route lands.
 
 Tasks:
 
-- add `on-approved` / `on-blocked` / `on-exhausted` ProcRef bridge surface;
+- choose one extension surface: explicit field mapping, exact protocol
+  normalization, or `on-approved` / `on-blocked` / `on-exhausted` constructor
+  ProcRefs;
 - ensure constructor ProcRefs are compile-time only;
 - ensure constructor effects are visible;
-- ensure constructor return types specialize to concrete `ResultT`;
+- ensure constructor return types specialize to the concrete caller-owned
+  terminal type;
 - mark bridge as migration-compatible but not the preferred long-term model.
 
 Acceptance:
 
-- review loop compiles without direct generic `ResultT` construction;
+- review loop compiles without direct arbitrary caller-owned terminal
+  construction;
 - runtime state still contains no constructor ProcRef values;
 - source maps include constructor hooks;
-- promotion remains blocked until either direct construction lands or bridge is
-  accepted as stable stdlib API.
+- promotion remains blocked until either an explicit mapping route lands or the
+  bridge is accepted as stable stdlib API.
 
 ### Stage 12 - Remove Promoted Dependency On Compiler-Special Review Loop
 
@@ -1935,6 +1954,7 @@ architectural.
 - `phase_stdlib_review_loop_evidence_redirection_negative.orc`
 - `phase_stdlib_review_loop_missing_bundle_negative.orc`
 - `phase_stdlib_review_loop_no_special_lowerer_negative.orc`
+- `phase_stdlib_review_loop_caller_projection.orc`
 - `phase_stdlib_review_loop_source_map.orc`
 - `phase_stdlib_review_loop_resume_checkpoint_identity.orc`
 - `phase_stdlib_review_loop_proc_ref_effects.orc`
@@ -1986,6 +2006,9 @@ the following must pass:
 - `review-revise-loop` compiles with `ReviewReviseLoopExpr` disabled.
 - `review-revise-loop` lowers to ordinary `repeat_until`, `match`,
   provider/command, materialization, and projection surfaces.
+- The stdlib loop returns exact `ReviewLoopResult` variants.
+- Workflow-specific terminal unions, if any, are built by caller-side
+  proof-gated matches rather than review-loop-specific compiler semantics.
 - `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, and `EXHAUSTED` behavior pass.
 - `EXHAUSTED` is typed non-completion.
 - `REVISE` is not completion.
@@ -2026,36 +2049,31 @@ Migration is additive:
 
 ## 29. Open Questions
 
-- Should the first stable API expose only `CompletedT`, `InputsT`, and `ResultT`,
-  while keeping `ReviewDecision` and `ReviewFindings` as stdlib-owned concrete
-  types?
+The first implementation rule is fixed:
+
+- P0.1-P0.5 are hard gates before Track A.
+- R1-R4 remain recommendations, but they become mandatory before Stage 9 if
+  Track A characterization exposes pass drift, ownership ambiguity, or missing
+  typecheck/lowering context needed for safe structural-generic work.
+- Stage 9 must check structural constraints, instantiate a monomorphic helper,
+  and typecheck the instantiated helper before lowering.
+- Pre-instantiation generic-body checking is deferred follow-on diagnostic work,
+  not a first-tranche acceptance gate.
+
 - Should generic `DecisionT` and `FindingsT` wait until a concrete caller needs
   custom decision/findings schemas?
-- Should fix receive only `ReviewFindings`, or the entire `REVISE` variant
-  payload?
-- Should terminal result construction use structural constraints from the start,
-  or should constructor ProcRefs be accepted as a temporary bridge?
-- If existing caller result unions use phase-specific field names, should the
-  type system support trait aliases with field-name mapping, or should callers
-  normalize to stdlib protocol field names?
-- Should `review-revise-loop` be a `defproc`, `defworkflow`, or macro that
-  expands to a call to a generic `defproc`?
-- How much generic body checking should occur before monomorphic instantiation?
-  The minimal implementation can typecheck instantiated helpers first, but
-  better diagnostics require generic checking against constraints.
-- What is the stable generated-name schema for specializations whose identity
-  includes call-site provenance?
-- How should resume checkpoint identity be assigned when a stdlib loop is
-  imported, specialized, and lowered to a generated/private workflow?
-- Which promotion gate should decide that the terminal-constructor bridge is
-  stable enough, if direct generic union construction remains incomplete?
+- If a future tranche wants stdlib-internal construction of caller-owned
+  terminal unions with phase-specific field names, should it use exact protocol
+  aliases, explicit field-mapping constraints, or constructor ProcRefs?
+- If a future tranche wants extra ergonomic sugar over the accepted generic
+  `defproc`, should that wrapper be a macro or a generated private workflow,
+  with any authored `defworkflow` surface considered only after the generic
+  `defproc` route is proven?
+- Which promotion gate should decide that any future caller-owned terminal
+  construction extension is stable enough?
 - Which existing high-level forms besides `review-revise-loop` should be
   reclassified from `TEMP_COMPILER_INTRINSIC` to `STDLIB_EXTENSION` after the
   generic expansion route is proven?
-- Which refactor preflight items must be hard gates for Track A versus strong
-  recommendations before structural constraints? This document treats concrete
-  hazards, characterization, lowering-boundary choice, and traversal coverage as
-  hard gates.
 
 ## 30. Summary Recommendation
 
@@ -2082,25 +2100,30 @@ Proceed in this order:
    - `is-record`;
    - `has-field`;
    - `has-union-variant`;
-   - ProcRef constraints;
+   - ordinary `ProcRef` parameter typing over signatures that mention resolved
+     type parameters;
    - variant-proof preservation.
-6. Implement `std/phase.orc` `review-revise-loop` using direct structural result
-   constraints where possible.
-7. Use terminal-constructor ProcRefs only as a bridge if direct generic union
-   construction is not ready.
-8. Prove `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, `EXHAUSTED`, source-map,
-   resume, and evidence-authority fixtures.
-9. Remove `ReviewReviseLoopExpr` from the promoted path.
-10. Gate migration through machine-computed parity evidence.
-11. Continue broader backlog cleanup after the semantic route is stable.
+6. Implement `std/phase.orc` `review-revise-loop` returning exact
+   `ReviewLoopResult`.
+7. Project workflow-specific terminal unions outside the stdlib loop where
+   needed, using ordinary proof-gated matches.
+8. Use terminal-constructor ProcRefs or field-mapping extensions only if a
+   later design explicitly reopens stdlib-internal caller-owned terminal
+   construction.
+9. Prove `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, `EXHAUSTED`, source-map,
+   resume, caller-projection, and evidence-authority fixtures.
+10. Remove `ReviewReviseLoopExpr` from the promoted path.
+11. Gate migration through machine-computed parity evidence.
+12. Continue broader backlog cleanup after the semantic route is stable.
 
 The key architectural move is not to move the existing Python branch into a
 macro. The key move is to make the frontend refactor-safe first, then make
 generic `.orc` expansion and the type system expressive enough that
 `review-revise-loop` is just one ordinary effectful stdlib definition over
-caller-owned typed state, caller-owned terminal results, compile-time procedure
-hooks, structural result constraints, proof-preserving match, and generic loop
-exhaustion projection.
+caller-owned typed state, exact stdlib-owned terminal protocol, compile-time
+procedure hooks, proof-preserving match, and generic loop exhaustion
+projection, with any richer workflow-specific terminal unions authored outside
+the loop.
 
 ## Major Changes
 
@@ -2119,15 +2142,15 @@ Track A implementation prerequisite, while
 `workflow_lisp_structural_parametric_constraints.md` remain the type-system
 mechanism docs.
 
-## Issues To Verify
+## Follow-On Observations
 
-The main implementation decision to verify is whether `TypecheckContext` should
-be a hard gate before Track A, or only before structural constraints. I drafted
-it as strongly recommended before structural constraints because Track A can
-start with simple imported `.orc` fixtures, but structural generics will likely
-make the current typecheck threading more fragile.
+The `TypecheckContext` gate timing is not a live decision in this document.
+Section 29 fixes the first-tranche rule: P0.1-P0.5 are hard gates before
+Track A, R1-R4 remain conditional recommendations, and they become mandatory
+before Stage 9 only if Track A characterization exposes the relevant typecheck
+or lowering fragility.
 
-The second decision is whether direct generic `ResultT` variant construction is
-feasible in the first implementation. If not, terminal-constructor ProcRefs are
-a reasonable bridge, but the document keeps direct structural result construction
-as the preferred long-term model.
+The remaining open product question is narrower: whether any later tranche ever
+needs stdlib-internal construction of caller-owned terminal unions at all. This
+document keeps the first stable route on exact stdlib-owned terminal protocol
+plus caller-side proof-gated projection.

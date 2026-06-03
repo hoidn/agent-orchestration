@@ -502,10 +502,6 @@ pointer file path.
 Use `defenum` for stable decision tokens.
 
 ```lisp
-(defenum ReviewDecision
-  APPROVE
-  REVISE)
-
 (defenum DrainStatus
   CONTINUE
   BLOCKED
@@ -519,6 +515,11 @@ Use `defenum` for stable decision tokens.
   user_decision_required
   unrecoverable_after_fix_attempt)
 ```
+
+For the first-tranche parametric review/revise route, `ReviewDecision` is not a
+two-value enum example. That route uses the stdlib-owned `ReviewDecision` union
+defined in
+`docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`.
 
 Enums support contract validation, exhaustive `match`, stable branch shape,
 prompt-contract generation, and typed diagnostics.
@@ -1089,6 +1090,12 @@ promotion-ready until it lowers as ordinary stdlib/generic composition over
 compile-time review/fix `ProcRef` hooks, with the parity evidence required by
 `docs/design/workflow_lisp_key_migration_parity_architecture.md`.
 
+The exact first-tranche `ReviewFindings`, `ReviewDecision`, and
+`ReviewLoopResult` schemas are owned by
+`docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`.
+This guide should summarize that contract rather than restating alternate enum
+or field-name variants.
+
 ```lisp
 (review-revise-loop implementation-review
   :ctx ctx
@@ -1542,19 +1549,26 @@ Types:
     (blocker-reason String)))
 
 (defunion ImplementationResult
-  (COMPLETED
+  (APPROVED
     (execution-report Path.execution-report)
-    (checks-report Path.checks-report)
-    (review-report Path.review-report)
-    (review-decision ReviewDecision))
+    (review_report Path.review-report)
+    (findings ReviewFindings))
 
-  (BLOCKED
+  (EXECUTION_BLOCKED
     (progress-report Path.progress-report)
     (blocker-class BlockerClass)
     (blocker-reason String))
 
+  (REVIEW_BLOCKED
+    (execution-report Path.execution-report)
+    (review_report Path.review-report)
+    (blocker_class BlockerClass)
+    (findings ReviewFindings))
+
   (EXHAUSTED
-    (last-review-report Path.review-report)
+    (execution-report Path.execution-report)
+    (last_review_report Path.review-report)
+    (findings ReviewFindings)
     (reason String)))
 ```
 
@@ -1589,20 +1603,45 @@ Workflow:
 
       (match attempt
         ((COMPLETED completed)
-          (review-revise-loop implementation-review
-            :ctx ctx
-            :completed completed
-            :inputs inputs
-            :review (proc-ref review-implementation)
-            :fix (proc-ref fix-implementation)
-            :max 40))
+          (match
+            (review-revise-loop implementation-review
+              :ctx ctx
+              :completed completed
+              :inputs inputs
+              :review (proc-ref review-implementation)
+              :fix (proc-ref fix-implementation)
+              :max 40)
+
+            ((APPROVED approved)
+              (ImplementationResult.APPROVED
+                :execution-report completed.execution-report
+                :review_report approved.review_report
+                :findings approved.findings))
+
+            ((BLOCKED blocked)
+              (ImplementationResult.REVIEW_BLOCKED
+                :execution-report completed.execution-report
+                :review_report blocked.review_report
+                :blocker_class blocked.blocker_class
+                :findings blocked.findings))
+
+            ((EXHAUSTED exhausted)
+              (ImplementationResult.EXHAUSTED
+                :execution-report completed.execution-report
+                :last_review_report exhausted.last_review_report
+                :findings exhausted.findings
+                :reason exhausted.reason))))
 
         ((BLOCKED blocked)
-          (ImplementationResult.BLOCKED
+          (ImplementationResult.EXECUTION_BLOCKED
             :progress-report blocked.progress-report
             :blocker-class blocked.blocker-class
             :blocker-reason blocked.blocker-reason))))))
 ```
+
+The stdlib loop returns the exact stdlib-owned `ReviewLoopResult`; the
+workflow-specific `ImplementationResult` above is a caller-side projection over
+that terminal protocol, not a replacement for it.
 
 The author does not hand-manage `implementation_state.json`, snapshot names,
 candidate paths, variant selector files, pointer sidecars, `requires_variant`,
