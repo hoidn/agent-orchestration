@@ -65,7 +65,8 @@
       "replacement": "machine-readable parity JSON report"
     },
     {
-      "mechanic": "full YAML review-revise loop with carried findings extraction"
+      "mechanic": "full YAML review-revise loop with carried findings extraction",
+      "replacement": "family-specific .orc design_plan_impl_stack parity route with typed review decisions, validated artifacts, and reusable phase-state evidence"
     }
   ],
   "dsl_version": "2.14",
@@ -80,7 +81,7 @@
         "design_plan_impl_stack_orc_runtime_materializes_expected_artifacts",
         "-q"
       ],
-      "elapsed_seconds": 0.48,
+      "elapsed_seconds": 0.479,
       "exit_code": 0,
       "status": "pass"
     },
@@ -138,7 +139,7 @@
         "workflows/examples/inputs/workflow_lisp_migrations/design_plan_impl_stack.commands.json"
       ],
       "build_root": ".orchestrate/build/51dedba7cee730ce",
-      "elapsed_seconds": 0.338,
+      "elapsed_seconds": 0.31,
       "exit_code": 0,
       "manifest_path": ".orchestrate/build/51dedba7cee730ce/manifest.json",
       "status": "pass"
@@ -174,7 +175,7 @@
         "implementation_review_report_target_path=artifacts/review/parity-implementation-review.md",
         "--dry-run"
       ],
-      "elapsed_seconds": 0.331,
+      "elapsed_seconds": 0.313,
       "exit_code": 0,
       "status": "pass"
     },
@@ -188,7 +189,7 @@
         "design_plan_impl_stack_orc_runtime_output_contract_matches_stack_outputs",
         "-q"
       ],
-      "elapsed_seconds": 0.486,
+      "elapsed_seconds": 0.483,
       "exit_code": 0,
       "status": "pass"
     },
@@ -202,7 +203,7 @@
         "resume_or_start_plan_gate_reusable_state_parity_path",
         "-q"
       ],
-      "elapsed_seconds": 0.408,
+      "elapsed_seconds": 0.396,
       "exit_code": 0,
       "status": "pass"
     },
@@ -219,7 +220,7 @@
         "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
         "-q"
       ],
-      "elapsed_seconds": 0.504,
+      "elapsed_seconds": 0.491,
       "exit_code": 0,
       "status": "pass"
     },
@@ -233,12 +234,12 @@
         "design_plan_impl_stack_orc_runtime_completes_with_expected_terminal_state",
         "-q"
       ],
-      "elapsed_seconds": 0.479,
+      "elapsed_seconds": 0.478,
       "exit_code": 0,
       "status": "pass"
     }
   },
-  "generated_at": "2026-06-03T12:14:57Z",
+  "generated_at": "2026-06-03T12:38:27Z",
   "generated_by": [
     "python",
     "-m",
@@ -251,7 +252,7 @@
     "--target",
     "design_plan_impl_stack"
   ],
-  "non_regressive": false,
+  "non_regressive": true,
   "promotion_eligibility": {
     "eligible_for_primary_surface": true
   },

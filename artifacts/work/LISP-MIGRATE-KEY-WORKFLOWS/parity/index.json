@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-03T12:14:57Z",
+  "generated_at": "2026-06-03T12:38:27Z",
   "schema_version": "workflow_lisp_migration_parity_index.v1",
   "targets": [
     {
@@ -19,8 +19,8 @@
       "candidate": "workflows/examples/design_plan_impl_review_stack_v2_call.orc",
       "json_report": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.json",
       "markdown_report": "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/design_plan_impl_stack.md",
-      "non_regressive": false,
-      "primary_surface": "yaml",
+      "non_regressive": true,
+      "primary_surface": "orc",
       "promotion_eligibility": {
         "eligible_for_primary_surface": true
       },

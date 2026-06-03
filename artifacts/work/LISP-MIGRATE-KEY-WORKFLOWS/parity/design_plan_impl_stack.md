@@ -2,10 +2,10 @@
 
 - Candidate: `workflows/examples/design_plan_impl_review_stack_v2_call.orc`
 - YAML primary: `workflows/examples/design_plan_impl_review_stack_v2_call.yaml`
-- Generated at: `2026-06-03T12:14:57Z`
-- Non-regressive: `false`
+- Generated at: `2026-06-03T12:38:27Z`
+- Non-regressive: `true`
 - Promotion eligible: `true`
-- Primary surface: `yaml`
+- Primary surface: `orc`
 
 ## Baseline Characterization
 - Inputs: `brief_path`, `design_target_path`, `design_review_report_target_path`, `plan_target_path`, `plan_review_report_target_path`, `execution_report_target_path`, `implementation_review_report_target_path`
@@ -33,4 +33,4 @@
 
 ## Deprecated YAML Mechanics
 - `manual markdown parity summary` -> `machine-readable parity JSON report`
-- `full YAML review-revise loop with carried findings extraction` unresolved
+- `full YAML review-revise loop with carried findings extraction` -> `family-specific .orc design_plan_impl_stack parity route with typed review decisions, validated artifacts, and reusable phase-state evidence`

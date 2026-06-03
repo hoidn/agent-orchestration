@@ -183,7 +183,8 @@
           "replacement": "machine-readable parity JSON report"
         },
         {
-          "mechanic": "full YAML review-revise loop with carried findings extraction"
+          "mechanic": "full YAML review-revise loop with carried findings extraction",
+          "replacement": "family-specific .orc design_plan_impl_stack parity route with typed review decisions, validated artifacts, and reusable phase-state evidence"
         }
       ],
       "promotion_eligibility": {

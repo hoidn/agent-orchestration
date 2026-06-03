@@ -22,7 +22,7 @@ Executed the approved first-tranche migration plan for:
 
 ## Parity Status
 - `cycle_guard_demo`: regressive (`non_regressive=false`), YAML remains primary.
-- `design_plan_impl_stack` family: regressive (`non_regressive=false`), YAML remains primary.
+- `design_plan_impl_stack` family: non-regressive (`non_regressive=true`), `.orc` is the primary surface.
 
 See:
 - `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/cycle_guard_demo.md`

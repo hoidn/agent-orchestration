@@ -470,8 +470,23 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_family_speci
     assert dry_run_argv.count("--input") == 7
     assert "brief_path=workflows/examples/inputs/major_project_brief.md" in dry_run_argv
 
-    deprecated = {entry["mechanic"] for entry in target["deprecated_yaml_mechanics"]}
-    assert "full YAML review-revise loop with carried findings extraction" in deprecated
+    loop_entry = next(
+        entry
+        for entry in target["deprecated_yaml_mechanics"]
+        if entry["mechanic"] == "full YAML review-revise loop with carried findings extraction"
+    )
+    assert loop_entry["replacement"] == (
+        "family-specific .orc design_plan_impl_stack parity route with typed "
+        "review decisions, validated artifacts, and reusable phase-state evidence"
+    )
+    stale = [
+        entry
+        for entry in target["deprecated_yaml_mechanics"]
+        if entry["mechanic"] == "full YAML review-revise loop with carried findings extraction"
+        and not entry.get("replacement")
+        and not entry.get("waiver")
+    ]
+    assert not stale
 
     expected_behavioral_selectors = {
         "smoke_or_integration": "design_plan_impl_stack_orc_runtime_smoke_executes_single_pass_stack",
