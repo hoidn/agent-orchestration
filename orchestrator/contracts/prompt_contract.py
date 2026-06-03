@@ -5,6 +5,14 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+_RELPATH_GUIDANCE = (
+    "# Relpath values are workspace-relative. Include the declared `under` "
+    "prefix in the value: for `under: artifacts/work`, write "
+    "`artifacts/work/...`; for `under: artifacts/review`, write "
+    "`artifacts/review/...`."
+)
+
+
 def _append_field_constraints(lines: List[str], spec: Dict[str, Any], *, indent: int = 2) -> None:
     """Append optional field-level contract constraints."""
     prefix = " " * indent
@@ -50,6 +58,7 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
         "## Output Contract",
         "Write the following artifacts exactly as specified.",
         "Each artifact file must contain only the value for that artifact.",
+        _RELPATH_GUIDANCE,
     ]
 
     for spec in expected_outputs:
@@ -66,6 +75,7 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
     lines: List[str] = [
         "## Output Contract",
         "Write the following JSON bundle exactly as specified.",
+        _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
         "  fields:",
@@ -85,6 +95,7 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
     lines: List[str] = [
         "## Variant Output Contract",
         "Write the following JSON bundle exactly as specified.",
+        _RELPATH_GUIDANCE,
         f"- path: {variant_output['path']}",
         "  format: JSON object",
         "  discriminant:",

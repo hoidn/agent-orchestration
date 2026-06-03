@@ -213,6 +213,9 @@ def test_provider_variant_output_appends_variant_contract_block_to_prompt(tmp_pa
     assert "Variant Output Contract" in captured["prompt"]
     assert "implementation_state" in captured["prompt"]
     assert "execution_report_path" in captured["prompt"]
+    assert "Relpath values are workspace-relative" in captured["prompt"]
+    assert "for `under: artifacts/work`, write `artifacts/work/...`" in captured["prompt"]
+    assert "for `under: artifacts/review`, write `artifacts/review/...`" in captured["prompt"]
 
 
 def test_variant_output_prompt_contract_renders_structured_nested_constraints() -> None:
@@ -253,6 +256,8 @@ def test_variant_output_prompt_contract_renders_structured_nested_constraints() 
     bundle = rendered[0]
     completed_field = bundle["variants"]["COMPLETED"]["fields"][0]
     blocked_field = bundle["variants"]["BLOCKED"]["fields"][0]
+    assert "for `under: artifacts/work`, write `artifacts/work/...`" in prompt_block
+    assert "for `under: artifacts/review`, write `artifacts/review/...`" in prompt_block
     assert completed_field["under"] == "artifacts/work"
     assert completed_field["must_exist_target"] is True
     assert blocked_field["under"] == "artifacts/work"
