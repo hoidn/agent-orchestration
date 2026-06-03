@@ -212,8 +212,13 @@ Add tests for `update_lisp_frontend_run_state.py blocked` that cover optional re
 - `--architecture-path`
 - `--plan-path`
 - `--recovery-event-id`
+- `--recovery-status`
+- `--prerequisite-selection-bundle-path`
+- `--waiting-on-prerequisite-gap-id`
+- `--prerequisite-recovery-status`
+- `--original-blocked-gap-id`
 
-Expected state: `blocked_design_gaps[item_id]` keeps these fields and appends one `history` event.
+Expected state: `blocked_design_gaps[item_id]` keeps these fields and appends one `history` event with the same recovery/prerequisite metadata.
 
 - [ ] **Step 2: Implement the narrow CLI extension**
 
@@ -346,7 +351,7 @@ Add script-level tests for `resolve_lisp_frontend_drain_iteration_status.py`:
 | `pre_selection_route` | recovery status | recovered item status | expected drain status |
 | --- | --- | --- | --- |
 | `SELECT_NORMAL_WORK` | ignored | ignored | normal selection status |
-| `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `CONTINUE` | `CONTINUE` |
+| `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `CONTINUE` | `CONTINUE` as a nonterminal drain signal only, not prerequisite satisfaction |
 | `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `DONE` / `BLOCKED` | `BLOCKED` until a prerequisite satisfaction recorder exists |
 | `RECOVER_BLOCKED_DESIGN_GAP` | `RUN_RECOVERED_GAP` | `CONTINUE` / `BLOCKED` | recovered item status |
 | `RECOVER_BLOCKED_DESIGN_GAP` | `CONTINUE` | ignored | `CONTINUE` |
@@ -429,6 +434,7 @@ Expected: PASS.
 - Modify: `workflows/library/lisp_frontend_design_delta_work_item.v214.yaml`
 - Modify: `workflows/examples/lisp_frontend_design_delta_drain.yaml`
 - Modify: `workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py`
+- Add/modify: `workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py`
 - Test: `tests/test_lisp_frontend_autonomous_drain_runtime.py`
 
 - [ ] **Step 1: Add route to output contracts**
@@ -468,10 +474,10 @@ For `PREREQUISITE_GAP_REQUIRED`:
 - transition the original gap from `PREREQUISITE_WORK_PENDING` to `RETRY_READY` only after a structured prerequisite satisfaction record proves the prerequisite completed;
 - terminally block only on explicit provider decline, invalid selection, unsafe scheduling, or missing evidence.
 
-This task requires a concrete satisfaction recorder/validator, for example
-`record_lisp_frontend_prerequisite_recovery_outcome.py`, that consumes the
-prerequisite selection bundle, selected work-item status, original blocked gap
-id, and run state. It owns the transition:
+This task requires `record_lisp_frontend_prerequisite_recovery_outcome.py` as a
+concrete satisfaction recorder/validator. It must consume the prerequisite
+selection bundle, selected work-item status, selected work run-state/history,
+original blocked gap id, and drain run state. It owns the transition:
 
 - selected prerequisite completed with valid relation -> original blocked gap
   `recovery_status=RETRY_READY`;
@@ -481,8 +487,11 @@ id, and run state. It owns the transition:
 
 Until that recorder/validator exists, `SELECT_PREREQUISITE_WORK` must never turn
 selector `DONE` into drain `DONE`; it may pass through only `CONTINUE` from
-actually selected work and must fail closed to `BLOCKED` for selector
-non-selection.
+actually selected work as a nonterminal drain signal and must fail closed to
+`BLOCKED` for selector non-selection. The scalar `CONTINUE` status is not
+evidence that the prerequisite was satisfied; the recorder/validator must inspect
+the selected work state/history and relation fields before marking the original
+gap `RETRY_READY`.
 
 Do not map prerequisite work to `GAP_DESIGN_REVISION_REQUIRED`.
 
@@ -573,6 +582,7 @@ git diff --check -- \
   workflows/library/scripts/materialize_lisp_frontend_recovered_design_gap_draft.py \
   workflows/library/scripts/prepare_lisp_frontend_recovered_design_gap_work_item.py \
   workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py \
+  workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py \
   workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py \
   workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md \
   workflows/library/lisp_frontend_design_delta_selector.v214.yaml \
