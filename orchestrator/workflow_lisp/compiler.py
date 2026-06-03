@@ -52,6 +52,7 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
+from .form_registry import head_has_feature_tag, stdlib_request_kind_has_feature
 from .functions import (
     FunctionCatalog,
     FunctionDef,
@@ -2037,6 +2038,8 @@ def _augment_review_loop_command_boundaries(
     bindings = dict(command_boundary_environment.bindings_by_name)
     if "validate_review_findings_v1" in bindings:
         return command_boundary_environment
+    if not any(_workflow_contains_review_revise_loop(expr) for expr in expressions):
+        return command_boundary_environment
     bindings["validate_review_findings_v1"] = CertifiedAdapterBinding(
         name="validate_review_findings_v1",
         stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
@@ -2082,15 +2085,24 @@ def _workflow_contains_review_revise_loop(expr) -> bool:
     if isinstance(expr, SyntaxNode):
         return _workflow_contains_review_revise_loop(syntax_node_datum(expr))
     if isinstance(expr, SyntaxList):
-        if syntax_head_name(expr) == "review-revise-loop":
+        head_name = syntax_head_name(expr)
+        if head_name is not None and head_has_feature_tag(head_name, "review_loop_public_surface"):
             return True
-        if syntax_head_name(expr) == "__stdlib-specialization__":
+        if head_name is not None and head_has_feature_tag(head_name, "review_loop_compat_bridge"):
             items = expr.items
-            if len(items) >= 2 and getattr(items[1], "value", None) == "phase-review-loop":
+            request_kind = (
+                syntax_identifier(items[1]).resolved_name
+                if len(items) >= 2 and syntax_identifier(items[1]) is not None
+                else None
+            )
+            if request_kind is not None and stdlib_request_kind_has_feature(
+                request_kind,
+                "review_loop_compat_bridge",
+            ):
                 return True
         return any(_workflow_contains_review_revise_loop(item) for item in expr.items)
     if isinstance(expr, StdlibSpecializationExpr):
-        if expr.request_kind == "phase-review-loop":
+        if stdlib_request_kind_has_feature(expr.request_kind, "review_loop_compat_bridge"):
             return True
     if isinstance(expr, LetStarExpr):
         return any(_workflow_contains_review_revise_loop(binding_expr) for _, binding_expr in expr.bindings) or _workflow_contains_review_revise_loop(expr.body)
