@@ -229,6 +229,9 @@ steps:
               - name: recovery_reason
                 json_pointer: /recovery_reason
                 type: string
+              - name: recovery_status
+                json_pointer: /recovery_status
+                type: string
               - name: progress_report_path
                 json_pointer: /progress_report_path
                 type: string
@@ -563,14 +566,58 @@ steps:
               type: enum
               allowed: ["CONTINUE", "DONE", "BLOCKED"]
 
-        - name: ClassifyBlockedImplementationRecovery
-          id: classify_blocked_implementation_recovery
+        - name: RecordPrerequisiteRecoveryOutcome
+          id: record_prerequisite_recovery_outcome
           when:
             compare:
               left:
                 ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
               op: eq
-              right: RECOVER_BLOCKED_DESIGN_GAP
+              right: SELECT_PREREQUISITE_WORK
+          command:
+            - python
+            - workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py
+            - --pre-selection-bundle-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
+            - --selection-bundle-path
+            - ${steps.SelectNextWork.artifacts.selection_bundle_path}
+            - --selected-work-status-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/normal-drain-status.txt
+            - --run-state-path
+            - ${inputs.run_state_target_path}
+            - --summary-path
+            - ${inputs.artifact_work_root}/iterations/${loop.index}/prerequisite-recovery-summary.json
+            - --drain-status-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-recovery-drain-status.txt
+          output_bundle:
+            path: ${inputs.artifact_work_root}/iterations/${loop.index}/prerequisite-recovery-summary.json
+            fields:
+              - name: prerequisite_recovery_record_status
+                json_pointer: /record_status
+                type: enum
+                allowed: ["RETRY_READY", "BLOCKED"]
+              - name: prerequisite_recovery_drain_status
+                json_pointer: /drain_status
+                type: enum
+                allowed: ["CONTINUE", "BLOCKED"]
+              - name: prerequisite_recovery_reason
+                json_pointer: /reason
+                type: string
+
+        - name: ClassifyBlockedImplementationRecovery
+          id: classify_blocked_implementation_recovery
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
           provider: ${inputs.implementation_review_provider}
           input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md
           timeout_sec: 1800
@@ -609,6 +656,11 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
               - any_of:
                   - compare:
                       left:
@@ -656,6 +708,11 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
               - any_of:
                   - compare:
                       left:
@@ -703,6 +760,11 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
               - any_of:
                   - compare:
                       left:
@@ -732,11 +794,17 @@ steps:
         - name: RecordBlockedRecoveryOutcome
           id: record_blocked_recovery_outcome
           when:
-            compare:
-              left:
-                ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
-              op: eq
-              right: RECOVER_BLOCKED_DESIGN_GAP
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
           command:
             - python
             - workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py
@@ -776,8 +844,8 @@ steps:
               type: enum
               allowed: ["CONTINUE", "BLOCKED", "RUN_RECOVERED_GAP"]
 
-        - name: MaterializeRecoveredBlockedGapDraft
-          id: materialize_recovered_blocked_gap_draft
+        - name: RecordPrerequisiteRetryReadyOutcome
+          id: record_prerequisite_retry_ready_outcome
           when:
             all_of:
               - compare:
@@ -787,9 +855,42 @@ steps:
                   right: RECOVER_BLOCKED_DESIGN_GAP
               - compare:
                   left:
-                    ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
                   op: eq
-                  right: RUN_RECOVERED_GAP
+                  right: RETRY_READY
+          command:
+            - python
+            - workflows/library/scripts/write_lisp_frontend_recovery_status.py
+            - --status
+            - RUN_RECOVERED_GAP
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
+          expected_outputs:
+            - name: retry_ready_recovery_drain_status
+              path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
+              type: enum
+              allowed: ["RUN_RECOVERED_GAP"]
+
+        - name: MaterializeRecoveredBlockedGapDraft
+          id: materialize_recovered_blocked_gap_draft
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                      op: eq
+                      right: RETRY_READY
+                  - compare:
+                      left:
+                        ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                      op: eq
+                      right: RUN_RECOVERED_GAP
           command:
             - python
             - workflows/library/scripts/materialize_lisp_frontend_recovered_design_gap_draft.py
@@ -816,11 +917,17 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
-              - compare:
-                  left:
-                    ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
-                  op: eq
-                  right: RUN_RECOVERED_GAP
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                      op: eq
+                      right: RETRY_READY
+                  - compare:
+                      left:
+                        ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                      op: eq
+                      right: RUN_RECOVERED_GAP
           command:
             - python
             - workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py
@@ -972,6 +1079,8 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
             - --normal-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/normal-drain-status.txt
+            - --prerequisite-recovery-status-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-recovery-drain-status.txt
             - --recovery-record-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
             - --recovered-work-item-status-path

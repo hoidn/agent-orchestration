@@ -116,8 +116,10 @@ Minimum required fields for a recoverable blocked design gap are: item id, `reas
 Prerequisite recovery may also carry `recovery_status`,
 `prerequisite_selection_bundle_path`, `waiting_on_prerequisite_gap_id`,
 `prerequisite_recovery_status`, and `original_blocked_gap_id`. These fields
-become required before claiming that the workflow can automatically retry the
-original gap after prerequisite completion.
+track selector-driven prerequisite work after target-design revision has made
+the prerequisite representable in the target design. They become required before
+claiming that the workflow can automatically retry the original gap after
+prerequisite completion.
 
 `reason` is the stable block category and must be `implementation_blocked` for recoverable implementation blocks. Classifier causes such as `implementation_architecture_under_scoped`, `target_design_contract_gap`, or `prerequisite_gap_required` belong in `recovery_reason`. The detector must not infer missing `recovery_route`, `recovery_reason`, or `recovery_event_id`; missing required recovery fields produce an explicit `BLOCKED` pre-selection result.
 
@@ -137,10 +139,15 @@ Use one route vocabulary for startup blocks and in-run blocks:
 
 - `PREREQUISITE_GAP_REQUIRED`
   - Do not pretend the current gap design was revised.
-  - Keep the original gap in `blocked_design_gaps` as waiting on prerequisite work.
-  - Route through a recovery-specific prerequisite-selection branch that calls the existing selector prompt with run-state context.
-  - Use `SELECT_PREREQUISITE_WORK` as the pre-selection route for that branch; it is distinct from ordinary `SELECT_NORMAL_WORK`.
-  - Terminally block only on explicit provider decline, malformed provider output, invalid/out-of-scope/self-referential prerequisite selection, unsafe scheduling, or missing evidence.
+  - Keep the original gap visibly blocked with `recovery_route=PREREQUISITE_GAP_REQUIRED`.
+  - If the prerequisite is not already represented in the target design, route through target-design revision/review first.
+  - After target-design approval, set `recovery_status=PREREQUISITE_WORK_PENDING`.
+  - On the next drain iteration, use `SELECT_PREREQUISITE_WORK` to call the existing selector with run-state context.
+  - The selector should draft/select prerequisite work from the target design before unrelated work.
+  - When the prerequisite work completes, record prerequisite satisfaction and set the original blocked gap to `RETRY_READY`.
+  - `RETRY_READY` retries the original blocked gap once, without reclassifying first.
+  - If the retry blocks again, classify from the new evidence normally.
+  - Do not terminally block merely because prerequisite work is incomplete or unsupported by a narrow helper path. Keep recovery visible unless a recorded provider decline or concrete non-recoverable validation failure proves the workflow cannot safely proceed.
 
 - `TERMINAL_BLOCKED`
   - Record a terminal block and stop the drain.
@@ -255,6 +262,7 @@ Test cases:
 - no blocked design gaps -> `pre_selection_route: SELECT_NORMAL_WORK`;
 - one blocked design gap with enough artifacts -> `pre_selection_route: RECOVER_BLOCKED_DESIGN_GAP`;
 - one blocked design gap with `recovery_route=PREREQUISITE_GAP_REQUIRED` and `recovery_status=PREREQUISITE_WORK_PENDING` -> `pre_selection_route: SELECT_PREREQUISITE_WORK`;
+- one blocked design gap with `recovery_route=PREREQUISITE_GAP_REQUIRED` and `recovery_status=RETRY_READY` -> `pre_selection_route: RECOVER_BLOCKED_DESIGN_GAP`, with the recovery recorder bypassing provider reclassification into `RUN_RECOVERED_GAP` for the same original gap;
 - blocked design gap missing required architecture/plan/progress evidence -> `pre_selection_route: BLOCKED` with reason.
 - blocked design gap missing `recovery_route`, `recovery_reason`, or `recovery_event_id` -> `pre_selection_route: BLOCKED` with reason.
 
@@ -348,15 +356,15 @@ Add a denylist test that fails if `lisp_frontend_design_delta_drain.yaml` still 
 
 Add script-level tests for `resolve_lisp_frontend_drain_iteration_status.py`:
 
-| `pre_selection_route` | recovery status | recovered item status | expected drain status |
-| --- | --- | --- | --- |
-| `SELECT_NORMAL_WORK` | ignored | ignored | normal selection status |
-| `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `CONTINUE` | `CONTINUE` as a nonterminal drain signal only, not prerequisite satisfaction |
-| `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `DONE` / `BLOCKED` | `BLOCKED` until a prerequisite satisfaction recorder exists |
-| `RECOVER_BLOCKED_DESIGN_GAP` | `RUN_RECOVERED_GAP` | `CONTINUE` / `BLOCKED` | recovered item status |
-| `RECOVER_BLOCKED_DESIGN_GAP` | `CONTINUE` | ignored | `CONTINUE` |
-| `RECOVER_BLOCKED_DESIGN_GAP` | `BLOCKED` | ignored | `BLOCKED` |
-| `BLOCKED` | ignored | ignored | `BLOCKED` |
+| `pre_selection_route` | recovery status | recovered item status | prerequisite recorder status | expected drain status |
+| --- | --- | --- | --- | --- |
+| `SELECT_NORMAL_WORK` | ignored | ignored | ignored | normal selection status |
+| `SELECT_PREREQUISITE_WORK` | ignored | ignored | `CONTINUE` | `CONTINUE` as a nonterminal drain signal after the recorder updates prerequisite state; selected-work `CONTINUE` alone is not satisfaction |
+| `SELECT_PREREQUISITE_WORK` | ignored | ignored | `BLOCKED` | `BLOCKED` with the recorder's prerequisite recovery reason visible in run state/summary |
+| `RECOVER_BLOCKED_DESIGN_GAP` | `RUN_RECOVERED_GAP` | `CONTINUE` / `BLOCKED` | ignored | recovered item status |
+| `RECOVER_BLOCKED_DESIGN_GAP` | `CONTINUE` | ignored | ignored | `CONTINUE` |
+| `RECOVER_BLOCKED_DESIGN_GAP` | `BLOCKED` | ignored | ignored | `BLOCKED` |
+| `BLOCKED` | ignored | ignored | ignored | `BLOCKED` |
 
 Also cover missing skipped-branch status files: normal selection must not require recovery status files, recovery `CONTINUE`/`BLOCKED` must not require a recovered-work-item status file, and pre-selection `BLOCKED` must not require normal or recovery status files.
 
@@ -462,17 +470,26 @@ The prompt should classify from concrete evidence:
 
 Do not ask the prompt to manage loop state or choose the next workflow step.
 
-- [ ] **Step 3: Implement prompt-selected prerequisite recovery**
+- [ ] **Step 3: Implement target-design-revision plus recovery-context prerequisite selection**
 
 For `PREREQUISITE_GAP_REQUIRED`:
 
-- keep the current item visibly blocked with `recovery_route=PREREQUISITE_GAP_REQUIRED`;
-- route to `SELECT_PREREQUISITE_WORK`, which invokes the existing selector prompt before unrelated normal selection;
-- validate the provider-selected prerequisite through the selector output schema, path safety, membership, no self-dependency, artifact existence, and existing work-item contracts;
-- record the selected prerequisite bundle/id/path before claiming the original gap can be retried;
-- run selected prerequisite work before retrying the original gap;
-- transition the original gap from `PREREQUISITE_WORK_PENDING` to `RETRY_READY` only after a structured prerequisite satisfaction record proves the prerequisite completed;
-- terminally block only on explicit provider decline, invalid selection, unsafe scheduling, or missing evidence.
+- Keep the original gap visibly blocked with `recovery_route=PREREQUISITE_GAP_REQUIRED`.
+- If the prerequisite is not already represented in the target design, route through target-design revision/review first.
+- After target-design approval, set `recovery_status=PREREQUISITE_WORK_PENDING`.
+- On the next drain iteration, use `SELECT_PREREQUISITE_WORK` to call the existing selector with run-state context.
+- The selector should draft/select prerequisite work from the target design before unrelated work.
+- Validate the selector output through schema, path safety, membership, no self-dependency, artifact existence, and existing work-item contracts.
+- Record the selected prerequisite bundle/id/path before claiming the original gap can be retried.
+- When the prerequisite work completes, record prerequisite satisfaction and set the original blocked gap to `RETRY_READY`.
+- `RETRY_READY` retries the original blocked gap once, without reclassifying first.
+- If the retry blocks again, classify from the new evidence normally.
+- Do not terminally block merely because prerequisite work is incomplete or unsupported by a narrow helper path. Keep recovery visible unless a recorded provider decline or concrete non-recoverable validation failure proves the workflow cannot safely proceed.
+
+Do not add deterministic prerequisite scheduling. Deterministic code validates
+state, selector output, path safety, membership, no self-dependency, and
+completion evidence. The target design plus selector prompt determine which
+prerequisite work is next.
 
 This task requires `record_lisp_frontend_prerequisite_recovery_outcome.py` as a
 concrete satisfaction recorder/validator. It must consume the prerequisite
@@ -481,9 +498,16 @@ original blocked gap id, and drain run state. It owns the transition:
 
 - selected prerequisite completed with valid relation -> original blocked gap
   `recovery_status=RETRY_READY`;
-- provider decline, selector `DONE`, selector `BLOCKED`, invalid relation,
-  self-dependency, out-of-scope path, or missing evidence -> original blocked
-  gap remains visible and the drain returns `BLOCKED` with a recorded reason.
+- recorded provider decline or concrete non-recoverable validation failure ->
+  original blocked gap remains visible and the drain returns `BLOCKED` with a
+  recorded reason.
+
+The concrete workflow step is `RecordPrerequisiteRecoveryOutcome`, placed after
+`WriteNormalIterationStatus` and before `ResolveIterationDrainStatus`, guarded on
+`pre_selection_route == SELECT_PREREQUISITE_WORK`. Its summary bundle exposes
+`record_status`, `drain_status`, and `reason`; the resolver consumes the
+prerequisite recorder's status file for `SELECT_PREREQUISITE_WORK` instead of
+treating raw selected-work `CONTINUE` as prerequisite satisfaction.
 
 Until that recorder/validator exists, `SELECT_PREREQUISITE_WORK` must never turn
 selector `DONE` into drain `DONE`; it may pass through only `CONTINUE` from
@@ -493,7 +517,14 @@ evidence that the prerequisite was satisfied; the recorder/validator must inspec
 the selected work state/history and relation fields before marking the original
 gap `RETRY_READY`.
 
-Do not map prerequisite work to `GAP_DESIGN_REVISION_REQUIRED`.
+Selector output during prerequisite recovery must include
+`prerequisite_relation` on `SELECT_BACKLOG_ITEM` or `DRAFT_DESIGN_GAP` outputs.
+The prompt/provider owns that semantic relation. Deterministic code validates
+that the relation is present, the selected id is not the original blocked gap,
+and the selected work has completed before setting `RETRY_READY`.
+
+Prerequisite recovery is target-design revision plus recovery-context selection,
+not a separate scheduler and not `GAP_DESIGN_REVISION_REQUIRED`.
 
 - [ ] **Step 4: Add fixture coverage**
 
@@ -501,14 +532,14 @@ Add provider fixtures where the recovery classifier returns `PREREQUISITE_GAP_RE
 
 Expected:
 
-- current gap remains blocked;
 - current gap remains visibly blocked;
+- missing prerequisite work is represented through target-design revision before prerequisite selection;
 - prerequisite selection runs before unrelated normal selection;
 - provider decline or invalid/self-referential/out-of-scope prerequisite selection blocks with a precise recorded reason;
 - original gap retries after prerequisite completion only after the selected prerequisite and satisfaction record are durable.
-- resolver coverage proves `SELECT_PREREQUISITE_WORK` maps selected-work
-  `CONTINUE` to `CONTINUE`, and selector `DONE`/`BLOCKED` to `BLOCKED` until
-  satisfaction recording exists.
+- resolver coverage proves `SELECT_PREREQUISITE_WORK` uses the prerequisite
+  recorder status; selected-work `CONTINUE` remains nonterminal until the
+  satisfaction recorder confirms completion.
 
 ## Task 7: End-To-End Workflow Verification
 
@@ -602,6 +633,8 @@ Expected: no output.
 - `GAP_DESIGN_REVISION_REQUIRED` means revise the current gap design and retry the same gap; it does not mean "record and continue."
 - `TARGET_DESIGN_REVISION_REQUIRED` means revise/review the target design and retry the same gap.
 - `PREREQUISITE_GAP_REQUIRED` is distinct from gap design revision and does not get hidden behind normal selection.
+- A missing prerequisite is represented via target-design revision before selector-driven prerequisite selection.
+- The selector chooses prerequisite work from the revised target design before unrelated work.
 - Blocked-state records preserve enough evidence for the recovery agent to know what to fix.
 - The drain loop has one idempotent recovery-before-selection invariant.
 - Existing startup prior-blocked records that already have required recovery metadata are handled through the generic path, not through a separate implementation. Legacy records without that metadata block visibly until normalized.

@@ -118,6 +118,18 @@ def _architecture_path(args: argparse.Namespace) -> str:
     return str(bundle.get("architecture_path") or "").strip()
 
 
+def _stored_prerequisite_retry_ready(args: argparse.Namespace) -> bool:
+    state_path = Path(args.state_path)
+    if not state_path.exists():
+        return False
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    entry = (state.get("blocked_design_gaps") or {}).get(args.item_id) or {}
+    return (
+        str(entry.get("recovery_route") or "").strip() == "PREREQUISITE_GAP_REQUIRED"
+        and str(entry.get("recovery_status") or "").strip() == "RETRY_READY"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--recovery-route", default="")
@@ -151,6 +163,20 @@ def main() -> int:
     if not reason:
         raise SystemExit("Recovery reason is required")
     args.recovery_route = route
+
+    if _stored_prerequisite_retry_ready(args):
+        _write_outputs(
+            state_path=args.state_path,
+            item_id=args.item_id,
+            source=args.source,
+            status="RUN_RECOVERED_GAP",
+            reason="prerequisite_retry_ready",
+            summary_status="PREREQUISITE_RETRY_READY",
+            summary_path=args.summary_path,
+            summary_pointer_path=args.summary_pointer_path,
+            drain_status_path=args.drain_status_path,
+        )
+        return 0
 
     revision_report_path = Path(args.revision_report) if args.revision_report else None
     revision_report_exists = revision_report_path is not None and revision_report_path.exists()

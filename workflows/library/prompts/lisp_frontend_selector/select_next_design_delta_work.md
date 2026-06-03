@@ -25,6 +25,10 @@ the target delta without violating the baseline design.
 If run state contains a blocked design gap with
 `recovery_status: PREREQUISITE_WORK_PENDING`, select or draft the prerequisite
 target-delta work needed to unblock that gap before unrelated target-delta work.
+For that prerequisite-recovery case, include `prerequisite_relation` in the
+selected or drafted output. The relation should name how the selected unit
+unblocks the original blocked design gap; use `BLOCKED` instead when no safe
+prerequisite can be selected.
 
 Refactoring may be selected when it is the best next step toward completing the
 target delta, but only as a bounded expansion-enabling pass.
@@ -64,6 +68,7 @@ Backlog selection:
   "selection_status": "SELECT_BACKLOG_ITEM",
   "selected_item_id": "<selected_item_id>",
   "selected_item_path": "<selected_item_path>",
+  "prerequisite_relation": "only when selecting prerequisite recovery work",
   "selection_rationale": "short reason"
 }
 ```
@@ -78,6 +83,7 @@ Design gap:
   "source_sections": ["Target-delta section name"],
   "missing_component": "Under-specified or unimplemented target-delta unit",
   "proposed_scope": "Draft one bounded implementation architecture only.",
+  "prerequisite_relation": "only when drafting prerequisite recovery work",
   "selection_rationale": "short reason"
 }
 ```

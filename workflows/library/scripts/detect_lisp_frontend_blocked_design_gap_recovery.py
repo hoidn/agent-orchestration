@@ -51,6 +51,7 @@ def _block_payload(reason: str) -> dict[str, str]:
         "design_gap_id": "",
         "recovery_route": "TERMINAL_BLOCKED",
         "recovery_reason": reason,
+        "recovery_status": "",
         "progress_report_path": "",
         "architecture_path": "",
         "plan_path": "",
@@ -68,12 +69,16 @@ def _none_payload(
     recovery_reason: str = "not_blocked",
     *,
     pre_selection_route: str = "SELECT_NORMAL_WORK",
+    design_gap_id: str = "",
+    recovery_event_id: str = "",
+    recovery_status: str = "",
 ) -> dict[str, str]:
     return {
         "pre_selection_route": pre_selection_route,
-        "design_gap_id": "",
+        "design_gap_id": design_gap_id,
         "recovery_route": recovery_route,
         "recovery_reason": recovery_reason,
+        "recovery_status": recovery_status,
         "progress_report_path": "",
         "architecture_path": "",
         "plan_path": "",
@@ -82,7 +87,7 @@ def _none_payload(
         "blocker_class": "",
         "block_reason": "",
         "implementation_state_path": "",
-        "recovery_event_id": "",
+        "recovery_event_id": recovery_event_id,
     }
 
 
@@ -115,6 +120,9 @@ def _recovery_payload(
                 recovery_route=recovery_route,
                 recovery_reason=recovery_reason,
                 pre_selection_route="SELECT_PREREQUISITE_WORK",
+                design_gap_id=design_gap_id,
+                recovery_event_id=recovery_event_id,
+                recovery_status=recovery_status,
             )
         progress_path = _find_progress_report(artifact_work_root, design_gap_id, entry)
         if progress_path is None:
@@ -138,6 +146,7 @@ def _recovery_payload(
             "design_gap_id": design_gap_id,
             "recovery_route": recovery_route,
             "recovery_reason": recovery_reason,
+            "recovery_status": recovery_status,
             "progress_report_path": progress_path.as_posix(),
             "architecture_path": architecture_path,
             "plan_path": plan_path,
