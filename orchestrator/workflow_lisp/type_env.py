@@ -27,6 +27,7 @@ PRELUDE_PRIMITIVE_TYPE_NAMES = frozenset(
     {
         "String",
         "Int",
+        "Float",
         "Bool",
         "Json",
         "Provider",

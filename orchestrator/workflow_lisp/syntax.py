@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
+from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
 
@@ -89,6 +89,17 @@ class SyntaxInt:
 
 
 @dataclass(frozen=True)
+class SyntaxFloat:
+    """One syntax-layer float atom."""
+
+    value: float
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+
+
+@dataclass(frozen=True)
 class SyntaxBool:
     """One syntax-layer bool atom."""
 
@@ -99,7 +110,7 @@ class SyntaxBool:
     expansion_stack: ExpansionStack
 
 
-SyntaxAtom = SyntaxIdentifier | SyntaxKeyword | SyntaxString | SyntaxInt | SyntaxBool
+SyntaxAtom = SyntaxIdentifier | SyntaxKeyword | SyntaxString | SyntaxInt | SyntaxFloat | SyntaxBool
 
 
 @dataclass(frozen=True)
@@ -316,7 +327,7 @@ def ensure_syntax_datum(
 
     if isinstance(
         datum,
-        (SyntaxIdentifier, SyntaxKeyword, SyntaxString, SyntaxInt, SyntaxBool, SyntaxList),
+        (SyntaxIdentifier, SyntaxKeyword, SyntaxString, SyntaxInt, SyntaxFloat, SyntaxBool, SyntaxList),
     ):
         return datum
     if isinstance(datum, SymbolAtom):
@@ -346,6 +357,14 @@ def ensure_syntax_datum(
         )
     if isinstance(datum, IntAtom):
         return SyntaxInt(
+            value=datum.value,
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(datum, FloatAtom):
+        return SyntaxFloat(
             value=datum.value,
             span=datum.span,
             module_path=module_path,

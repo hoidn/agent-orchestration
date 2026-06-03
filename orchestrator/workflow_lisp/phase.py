@@ -38,8 +38,8 @@ PHASE_TARGET_SPECS = {
     "execution-report": ("WorkReportTarget", "artifacts/work", "execution-report.md"),
     "progress-report": ("WorkReportTarget", "artifacts/work", "progress-report.md"),
     "checks-report": ("ChecksReport", "artifacts/work", "checks-report.md"),
-    "review-report": ("ReviewReport", "artifacts/work", "review-report.md"),
-    "last-review-report": ("ReviewReport", "artifacts/work", "last-review-report.md"),
+    "review-report": ("ReviewReportTarget", "artifacts/review", "review-report.md"),
+    "last-review-report": ("ReviewReportTarget", "artifacts/review", "last-review-report.md"),
 }
 
 
@@ -243,11 +243,16 @@ def resolve_phase_target_type(
 
     target_type = phase_scope.target_types.get(target_name)
     if target_type is not None:
-        resolved_named_type = type_env.resolve_type(
-            target_type.name,
-            span=span,
-            form_path=form_path,
-        )
+        try:
+            resolved_named_type = type_env.resolve_type(
+                target_type.name,
+                span=span,
+                form_path=form_path,
+            )
+        except LispFrontendCompileError as exc:
+            if any(diagnostic.code != "type_unknown" for diagnostic in exc.diagnostics):
+                raise
+            return target_type
         if (
             isinstance(resolved_named_type, PathTypeRef)
             and resolved_named_type.definition.under == target_type.definition.under

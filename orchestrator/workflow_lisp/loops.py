@@ -328,8 +328,6 @@ def _optional_relpath_fields(
         if field.generated_name in variant_only_names
         and field.contract_definition.get("type") == "relpath"
     )
-
-
 def _raise_loop_error(
     *,
     code: str,

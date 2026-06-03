@@ -48,6 +48,14 @@ class IntAtom:
 
 
 @dataclass(frozen=True)
+class FloatAtom:
+    """Authored float atom."""
+
+    value: float
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class BoolAtom:
     """Authored boolean atom."""
 
@@ -55,4 +63,4 @@ class BoolAtom:
     span: SourceSpan
 
 
-SExpr = ListExpr | SymbolAtom | KeywordAtom | StringAtom | IntAtom | BoolAtom
+SExpr = ListExpr | SymbolAtom | KeywordAtom | StringAtom | IntAtom | FloatAtom | BoolAtom

@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
+from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourcePosition, SourceSpan
 
 
@@ -190,11 +190,7 @@ class _Reader:
         if _INTEGER_RE.match(token):
             return IntAtom(value=int(token), span=SourceSpan(start=start, end=end))
         if _FLOAT_RE.match(token):
-            self._raise_error(
-                "unsupported lexical form: floats are not supported in Stage 1",
-                start=start,
-                end=end,
-            )
+            return FloatAtom(value=float(token), span=SourceSpan(start=start, end=end))
         if token.startswith(":"):
             if len(token) == 1:
                 self._raise_error("invalid keyword token", start=start, end=end)

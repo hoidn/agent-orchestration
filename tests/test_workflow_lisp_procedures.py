@@ -1,4 +1,5 @@
 import importlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -31,9 +32,13 @@ from orchestrator.workflow_lisp.expressions import (
     RunProviderPhaseExpr,
     UnionVariantExpr,
 )
-from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering
+from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering, lower_workflow_definitions
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
-from orchestrator.workflow_lisp.procedures import build_procedure_catalog, elaborate_procedure_definitions
+from orchestrator.workflow_lisp.procedures import (
+    ProcedureLoweringMode,
+    build_procedure_catalog,
+    elaborate_procedure_definitions,
+)
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from orchestrator.workflow_lisp.syntax import build_syntax_module
@@ -1382,6 +1387,96 @@ def test_private_workflow_match_binding_exports_step_backed_outputs(tmp_path: Pa
         if workflow.typed_workflow.definition.name == "run-private"
     )
     assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
+
+
+def test_private_workflow_union_match_uses_private_workflow_metadata_not_name_heuristic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_module(
+        tmp_path / "procedure_union_match_private_workflow.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
+            "    missing_resource",
+            "    unavailable_hardware)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defunion AttemptResult",
+            "    (APPROVED",
+            "      (execution_report_path WorkReport))",
+            "    (BLOCKED",
+            "      (progress_report_path WorkReport)",
+            "      (blocker_class BlockerClass)))",
+            "  (defproc private-wrap",
+            "    ((report_path WorkReport))",
+            "    -> AttemptResult",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering private-workflow",
+            "    (let* ((attempt",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.implementation.execute",
+            "               :inputs (report_path)",
+            "               :returns AttemptResult)))",
+            "      (match attempt",
+            "        ((APPROVED approved)",
+            "         (variant AttemptResult APPROVED",
+            "           :execution_report_path approved.execution_report_path))",
+            "        ((BLOCKED blocked)",
+            "         (variant AttemptResult BLOCKED",
+            "           :progress_report_path blocked.progress_report_path",
+            "           :blocker_class blocked.blocker_class)))))",
+            "  (defworkflow run-private",
+            "    ((report_path WorkReport))",
+            "    -> AttemptResult",
+            "    (private-wrap report_path)))",
+        ],
+    )
+
+    compiled = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    private_proc = next(
+        procedure for procedure in compiled.typed_procedures if procedure.definition.name == "private-wrap"
+    )
+    custom_private_proc = replace(
+        private_proc,
+        resolved_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
+        generated_workflow_name="%custom.private-wrap",
+    )
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    monkeypatch.setattr(
+        lowering_module,
+        "_resolve_procedure_lowering",
+        lambda *args, **kwargs: {"private-wrap": custom_private_proc},
+    )
+
+    lowered = lower_workflow_definitions(
+        compiled.typed_workflows,
+        typed_procedures=compiled.typed_procedures,
+        procedure_catalog=compiled.procedure_catalog,
+        workflow_path=path,
+        workflow_catalog=compiled.workflow_catalog,
+        imported_workflow_bundles=compiled.workflow_catalog.imported_bundles_by_name,
+        extern_environment=compiled.extern_environment,
+        command_boundary_environment=compiled.command_boundary_environment,
+        type_env=FrontendTypeEnvironment.from_module(compiled.module),
+    )
+    private_workflow = next(
+        workflow for workflow in lowered if workflow.typed_workflow.definition.name == "%custom.private-wrap"
+    )
+
+    assert not any(
+        name.endswith("__match_attempt__result_bundle") for name in private_workflow.authored_mapping["inputs"]
+    )
 
 
 def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: Path) -> None:

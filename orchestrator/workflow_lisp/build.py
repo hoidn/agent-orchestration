@@ -544,7 +544,7 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
                 ),
             )
         )
-    source_roots = tuple(root.resolve() for root in request.source_roots) or (source_path.parent,)
+    source_roots = tuple(root.resolve() for root in request.source_roots)
     return FrontendBuildRequest(
         source_path=source_path,
         source_roots=source_roots,

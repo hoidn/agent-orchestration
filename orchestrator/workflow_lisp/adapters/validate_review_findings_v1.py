@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+from .reusable_phase_state_common import emit_structured_result
+
 
 def _load_payload(argv: list[str]) -> dict[str, object]:
     if len(argv) > 2:
@@ -87,15 +89,12 @@ def main(argv: list[str] | None = None) -> int:
         findings_payload = _load_findings_json(_validated_findings_path(items_path))
         if "items" not in findings_payload:
             raise ValueError("review_findings_bundle_schema_invalid")
-        json.dump(
+        return emit_structured_result(
             {
                 "schema_version": schema_version,
                 "items_path": items_path.as_posix(),
-            },
-            sys.stdout,
+            }
         )
-        sys.stdout.write("\n")
-        return 0
     except ValueError as error:
         return _emit_error(str(error))
 
