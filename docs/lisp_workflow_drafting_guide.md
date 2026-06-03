@@ -451,7 +451,7 @@ Use the smallest unit that represents the behavior truthfully.
 | Fixed-shape result | `defrecord` | Fake tagged union |
 | Queue/ledger movement | `resource-transition` or certified adapter | Shell move + hidden ledger update |
 | Resume prior state or run fresh | `resume-or-start` | Recovery gate |
-| Review/fix loop | `review-revise-loop` | Raw back-edge or shell counter |
+| Review/fix loop | `review-revise-loop` where its lowering contract is supported for the promotion target | Raw back-edge or shell counter |
 | Select/run/gap/repeat | `backlog-drain` | Hand-authored drain loop |
 
 ## 5. Types First
@@ -551,14 +551,25 @@ Use `defunion` for outcome-shaped state.
     (execution-report Path.execution-report))
 
   (BLOCKED
-    (progress-report Path.progress-report)
-    (blocker-class BlockerClass)
-    (blocker-reason String)))
+      (progress-report Path.progress-report)
+      (blocker-class BlockerClass)
+      (blocker-reason String)))
 ```
 
 Use a union when different outcomes have different valid fields. Do not use a
 union when every variant has the same fields. That is a fixed-shape record with
 an enum field.
+
+Construct one declared union variant with the explicit `variant` form:
+
+```lisp
+(variant ImplementationAttempt COMPLETED
+  :execution-report execution-report-path)
+```
+
+Keep the union type and variant name explicit. Use the same keyword/value field
+shape as `record`. Constructing a union does not prove later field access;
+variant-specific reads still need `match` or another proof-bearing path.
 
 Bad:
 
@@ -932,6 +943,9 @@ are available. Outside `match`, variant-specific fields are unavailable.
 Prefer exhaustive matches. Avoid partial matches unless the type or form
 explicitly permits them.
 
+Use `variant` to build a union value; use `match` to prove which variant you
+have before reading variant-specific fields.
+
 Do not use general predicates as proof:
 
 ```lisp
@@ -1066,17 +1080,22 @@ provide manual state paths.
 
 ### 13.2 `review-revise-loop`
 
-Use for bounded review/fix loops.
+Use for bounded review/fix loops where the form's lowering contract is
+supported for the workflow's target.
+
+The current authoring surface supports review/fix loop examples and fixtures.
+Primary YAML-to-`.orc` migration is stricter: `review-revise-loop` is not
+promotion-ready until it lowers as ordinary stdlib/generic composition over
+compile-time review/fix `ProcRef` hooks, with the parity evidence required by
+`docs/design/workflow_lisp_key_migration_parity_architecture.md`.
 
 ```lisp
 (review-revise-loop implementation-review
   :ctx ctx
   :completed completed
   :inputs inputs
-  :review-provider providers.review
-  :fix-provider providers.fix
-  :review-prompt prompts.implementation.review
-  :fix-prompt prompts.implementation.fix
+  :review (proc-ref review-implementation)
+  :fix (proc-ref fix-implementation)
   :max 40)
 ```
 
@@ -1283,9 +1302,12 @@ produced, or dynamically dispatched procedures.
 
 Use high-level loop forms when the pattern is known.
 
-Prefer `review-revise-loop` for review/fix loops and `backlog-drain` for
-select/run/gap/repeat. Use direct `loop/recur` only when the loop shape is
-genuinely novel.
+Prefer `review-revise-loop` for review/fix loops only when its current lowering
+contract is supported for the workflow's promotion target. For primary
+migrations, keep the characterized YAML primary or use an explicitly marked
+compatibility surface until the ordinary stdlib/generic composition route is
+proven. Prefer `backlog-drain` for select/run/gap/repeat. Use direct
+`loop/recur` only when the loop shape is genuinely novel.
 
 Every loop must have:
 
@@ -1571,10 +1593,8 @@ Workflow:
             :ctx ctx
             :completed completed
             :inputs inputs
-            :review-provider providers.review
-            :fix-provider providers.fix
-            :review-prompt prompts.implementation.review
-            :fix-prompt prompts.implementation.fix
+            :review (proc-ref review-implementation)
+            :fix (proc-ref fix-implementation)
             :max 40))
 
         ((BLOCKED blocked)

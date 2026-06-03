@@ -3,7 +3,7 @@
 Status: draft
 Kind: architecture decision / migration design
 Created: 2026-06-01
-Last material update: 2026-06-01
+Last material update: 2026-06-02
 Scope:
 
 - Workflow Lisp lowering requirements for key-workflow parity.
@@ -44,6 +44,27 @@ dry-run meaningful `.orc` replacements, but it did not establish primary
 workflow parity. The remaining gaps are not mostly syntax gaps. They are
 contract gaps between high-level Lisp forms, generated Core DSL, runtime output
 materialization, repeat/revise state, and migration evidence.
+
+The first family-level parity integration pass for
+`design_plan_impl_stack` also exposed two still-missing generic authoring
+prerequisites that this document now treats as explicit migration blockers:
+
+- a generic authored surface for constructing or specializing reusable
+  union-returning wrapper results, so approved-only `resume-or-start`
+  boundaries do not depend on compiler-generated-only union constructors; and
+- a generic entrypoint context-bootstrap surface for internal `RunCtx` /
+  `PhaseCtx` construction, so promoted wrappers can derive runtime-owned
+  run/context values without exposing fake run ids or extra public context
+  inputs.
+
+The blocked family attempt confirmed that the second prerequisite is not just a
+discoverability gap. A dedicated promoted-entry bootstrap fixture still fails
+with `[workflow_signature_mismatch] call is missing required binding
+\`phase-ctx\``, which means the current checkout cannot yet route runtime-owned
+context into reusable wrapper calls from a promoted entry boundary. Synthetic
+top-level `PhaseCtx` defaults that help compile or dry-run isolated fixtures are
+implementation convenience only; they are not migration-parity evidence for
+wrapper-level `resume-or-start`.
 
 This design chooses a language-foundation-first migration architecture. The
 YAML DSL already has most required runtime primitives: `output_bundle`,
@@ -217,19 +238,27 @@ composition feature before migration can continue. A key workflow may attempt
 1. `command-result` lowers to authoritative generated bundle contracts with
    compiler-owned paths and runtime bundle-path injection.
 2. Imported `.orc` definitions can generate provider steps, command
-   steps, `match`, and one resume-safe typed loop form with stable source maps.
-3. `review-revise-loop` is an exported `.orc` surface over compile-time `ProcRef`
+   steps, `match`, and one resume-safe typed loop form with stable source maps
+   and stable persisted checkpoint identity.
+3. Reusable library and wrapper workflows have a generic authored surface for
+   building union-returning reusable-result adapters or an equivalent
+   specialization route, rather than relying on compiler-generated-only
+   `UnionVariantExpr` behavior.
+4. Promoted entry workflows have a generic context-bootstrap route for
+   internal `RunCtx` / `PhaseCtx` construction with runtime-owned run ids and
+   roots hidden from the public entrypoint boundary.
+5. `review-revise-loop` is an exported `.orc` surface over compile-time `ProcRef`
    review/fix hooks. It may lower through an imported monomorphic
    `defproc`/workflow or through a thin macro that specializes concrete
    caller types into an equivalent generated helper. Caller-owned review/fix
    procedures may use provider and prompt externs, but the loop does not carry
    provider or prompt refs as runtime state.
-4. Generic `loop/recur` supports typed exhaustion projection through current
+6. Generic `loop/recur` supports typed exhaustion projection through current
    `repeat_until.on_exhausted` scalar overrides plus final projection from the
    last loop-frame state.
-5. Provider, prompt, workflow, and procedure refs are compile-time-only and
+7. Provider, prompt, workflow, and procedure refs are compile-time-only and
    fully specialized before executable runtime state is produced.
-6. Parity evidence proves the generated executable shape matches the YAML
+8. Parity evidence proves the generated executable shape matches the YAML
    baseline.
 
 Generic macros, broader `.orc` packaging, and arbitrary nested effectful
@@ -286,7 +315,11 @@ Alternatives considered:
 | --- | --- | --- | --- | --- |
 | Command-result structured return materialization | Final `command-result` lowering contract and runtime bundle-path contract | Workflow Lisp lowering + runtime executor | Normative command bundle-path behavior in `specs/dsl.md` and `specs/io.md` | Real command smoke proves env injection, bundle validation, and missing-bundle failure |
 | Review/revise loop parity | Complete generic effectful `.orc` library composition, then implement `review-revise-loop` as `.orc` code, allowing thin compile-time specialization for caller-specific record types | Workflow Lisp language/compiler + `.orc` libraries | No new YAML DSL construct if v2.7/v2.12 semantics plus final projection suffice | REVISE/fix/APPROVE and exhaustion tests |
+| Imported review-loop resume checkpoint identity | Preserve one stable `repeat_until` checkpoint identity across imported `.orc` specialization, persisted runtime state, authored/debug projections, and resume lookup | Workflow Lisp lowering + runtime state mapping | Clarify repeat-until checkpoint identity ownership in state/runtime contracts; no new YAML DSL construct | Imported stdlib review-loop resume fixture proves the persisted checkpoint is stored and resumed under the authored/generated loop-step identity |
 | Carried findings/review state | Generic structured output/dataflow support, with concrete review-result and findings schemas owned by the `.orc` review loop | `.orc` library definitions + Workflow Lisp generic validation | No new YAML DSL construct; use declared structured bundles | Findings schema validation and revise/fix consumption |
+| Mixed-root review-loop report/findings path ownership | Split report-path seeding from findings-path seeding in imported `review-revise-loop` specialization so `review_report` / `last_review_report` stay on review-path contracts while `ReviewFindings.items_path` stays on `ReviewFindingsJsonPath` under `artifacts/work` | Workflow Lisp typecheck/lowering + `.orc` stdlib review-loop | No new YAML DSL construct; clarify typed path seeding and validation ownership for imported review loops | Imported review-loop fixtures and family compile proofs show `artifacts/review` reports and `artifacts/work` findings coexist without type coercion |
+| Reusable-result wrapper construction | Generic authored union-construction or specialization surface for wrapper workflows that normalize approved-only reusable results | Workflow Lisp parser/typecheck/lowering + `.orc` libraries | No new YAML DSL construct; must remain an ordinary `.orc` or generic specialization surface | Compile a reusable phase wrapper that returns an authored union and drives `resume-or-start :valid-when (APPROVED)` without compiler-special family support |
+| Entrypoint context bootstrap | Generic promoted-entry bootstrap split into two required sub-capabilities: runtime-owned internal `RunCtx` / `PhaseCtx` construction at the public boundary, and hidden binding of reusable internal calls whose signatures require those context values | Workflow Lisp lowering + state-layout/runtime bridge | Clarify runtime-owned context inputs, hidden binding policy, promoted-entry call binding rules, and the failure taxonomy when hidden bootstrap is unavailable | Compile and dry-run or execute a promoted wrapper that calls a reusable union-returning `resume-or-start` surface without public run-id/state-root/artifact-root inputs, without explicit or defaulted authored `phase-ctx` fallback inputs, and without a `[workflow_signature_mismatch]` missing-binding failure on the internal reusable call |
 | Resume/state semantics | State layout and `resume-or-start` reusable-state validation contract | Workflow Lisp state layout + runtime/adapters | Clarify reusable state shape and failure taxonomy | Reusable, stale, missing artifact, failed, and schema-mismatch cases |
 | Default input parity | `.orc` boundary syntax and lowering for workflow input defaults | Workflow Lisp parser/typecheck/lowering | Existing DSL input default support | Compile/lower/default override tests |
 | Real smoke coverage | Migration promotion checklist and parity report schema | Migration policy/tests | New machine-readable migration report schema | Computed `non_regressive`, not manually asserted |
@@ -300,8 +333,127 @@ Implementation owner matrix:
 | Managed bundle paths | `orchestrator/workflow_lisp/lowering.py`, runtime command executor bridge |
 | `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` injection | runtime command execution, `specs/io.md`, `specs/dsl.md` |
 | `review-revise-loop` lowering | `.orc` stdlib/generic effectful composition and Workflow Lisp lowering |
+| Reusable-result wrapper construction | Workflow Lisp expressions/typecheck/lowering and generic `.orc` specialization |
+| Entrypoint context bootstrap | Workflow Lisp lowering, state-layout ownership, runtime-managed hidden inputs |
 | State/reuse validation | Workflow Lisp state layout, shared validation, certified validators |
 | Parity report | migration tooling, parity tests, generated report schema |
+
+### Newly Exposed Prerequisite Gaps
+
+The blocked `design_plan_impl_stack` family pass did not invalidate the
+selected architecture, but it did show that four capabilities were still being
+assumed rather than specified. Future design-gap selection should treat them as
+explicit prerequisite gaps ahead of rerunning that family slice:
+
+1. `workflow-lisp-reusable-result-wrapper-construction`
+   - Scope: authored or generically specialized construction of family-local
+     union-returning reusable wrapper results, including approved-only wrappers
+     used to make `resume-or-start :valid-when (APPROVED)` legal without
+     compiler-generated-only variant constructors.
+   - Non-goal: family-specific compiler branches or hard-coded wrapper names.
+2. `workflow-lisp-entrypoint-context-bootstrap`
+   - Scope: runtime-owned hidden binding and lowering policy for internal
+     `RunCtx` / `PhaseCtx` construction at promoted entry workflow boundaries,
+     including run-id/root derivation, source maps, public-input hiding, and
+     hidden binding of reusable workflow or `resume-or-start` calls whose
+     internal signatures require context values not present on the authored
+     public entry boundary.
+   - Decomposition:
+     - `entry-boundary bootstrap`: derive runtime-owned `RunCtx` /
+       `PhaseCtx` values for a promoted entry workflow without exposing public
+       `run-id`, `state-root`, `artifact-root`, or authored top-level
+       `phase-ctx` inputs.
+     - `hidden reusable-call binding`: satisfy required internal context
+       parameters on reusable workflow or `resume-or-start` calls from those
+       runtime-owned bindings, so the promoted wrapper does not fail with
+       `[workflow_signature_mismatch] call is missing required binding
+       \`phase-ctx\``.
+   - Acceptance fixture: a dedicated promoted-entry bootstrap fixture that
+     calls a union-returning reusable wrapper through
+     `resume-or-start :valid-when (APPROVED)` and proves both that the compiled
+     public boundary excludes `phase-ctx__*`, `run-id`, `state-root`,
+     `artifact-root`, and managed write-root inputs, and that compile plus
+     dry-run or execution succeed only because runtime-owned hidden bootstrap
+     bindings satisfy the internal call contract.
+   - Acceptance checkpoints:
+     1. Public-boundary inspection proves the promoted entry exposes only its
+        authored business inputs and excludes `phase-ctx__*`, `run-id`,
+        `state-root`, `artifact-root`, and managed write-root inputs.
+     2. Executable proof drives a reusable union-returning
+        `resume-or-start :valid-when (APPROVED)` path and succeeds only because
+        the runtime-owned bootstrap bindings satisfy the internal reusable call
+        contract.
+     3. A compile-only or dry-run-only proof attributable to synthetic
+        top-level `PhaseCtx` defaults does not satisfy this prerequisite.
+   - Non-goal: exposing `run-id`, `state-root`, or `artifact-root` as new
+     required user inputs for promoted wrappers, or treating synthetic
+     top-level `PhaseCtx` defaults as sufficient parity evidence.
+3. `workflow-lisp-review-loop-report-findings-path-split`
+   - Scope: imported `review-revise-loop` specialization must seed review-report
+     fields and findings-path fields independently, so `review_report` and
+     `last_review_report` may remain on review-report contracts rooted under
+     `artifacts/review` while `ReviewFindings.items_path` remains on
+     `ReviewFindingsJsonPath` rooted under `artifacts/work`.
+   - Required behavior:
+     - the initial `ReviewFindings` carrier must not be built from the same
+       expression used for `review_report` or `last_review_report`;
+     - the compiler/typechecker must reject or avoid lowerings that coerce both
+       surfaces onto one shared path type;
+     - imported stdlib and project-authored review-loop consumers must be able
+       to keep human review reports and structured findings on their distinct
+       authority paths without family-local adapter glue.
+   - Acceptance fixture: an imported review-loop fixture and at least one
+     family-style compile proof where review reports stay under
+     `artifacts/review`, findings JSON stays under `artifacts/work`, and the
+     resulting `ReviewDecision` / `ReviewLoopResult` contracts typecheck
+     without aliasing the two path roles.
+   - Non-goal: moving findings into review-report paths, weakening
+     `ReviewFindingsJsonPath`, or requiring family-local coercion helpers to
+     satisfy the generic stdlib route.
+4. `workflow-lisp-imported-review-loop-resume-checkpoint-identity`
+   - Scope: imported `review-revise-loop` lowering must preserve one stable
+     `repeat_until` checkpoint identity across authored mappings, generated or
+     private workflow specialization, persisted runtime state, and resume
+     lookup.
+   - Required behavior:
+     - the persisted `state.json.repeat_until` entry for an imported stdlib
+       review loop must be keyed by the same stable loop-step identity exposed
+       by authored/debug projections for that run;
+     - resume must find and reuse that checkpoint identity after an
+       interruption in the `REVISE -> fix -> APPROVE` path rather than falling
+       back to a transient allocator name or losing the frame entirely;
+     - source maps and observability must still connect that persisted loop
+       identity back to the imported `.orc` call site and specialized helper
+       origin.
+   - Acceptance fixture: the imported stdlib review-loop resume fixture in
+     `tests/test_workflow_lisp_key_migrations.py::test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint`
+     must persist a `repeat_until` frame under the authored/generated
+     `repeat_step["name"]` identity and complete successfully after resume.
+   - Non-goal: family-local checkpoint aliases, weakening the proof to accept
+     any repeat-until frame regardless of identity, or treating compile-only
+     evidence as sufficient for resume parity.
+
+Selection note:
+
+- `workflow-lisp-review-loop-report-findings-path-split` should be drafted and
+  selected as its own prerequisite migration gap before rerunning any family
+  parity slice that keeps review reports under `artifacts/review` while
+  carried findings remain under `artifacts/work`.
+- `workflow-lisp-imported-review-loop-resume-checkpoint-identity` should be
+  drafted and selected as its own prerequisite migration gap before rerunning
+  any family parity slice that depends on imported stdlib review-loop resume
+  after a persisted `REVISE` checkpoint.
+- `workflow-lisp-entrypoint-context-bootstrap` should be drafted and selected
+  as its own prerequisite migration gap before rerunning any family parity
+  slice that depends on wrapper-level `resume-or-start` from a promoted entry
+  workflow.
+- The drafted gap should treat the missing-`\`phase-ctx\`` promoted-entry
+  failure as its motivating negative fixture and should not allow a family
+  parity slice to proceed on public-boundary inspection alone.
+- The drafted imported-review-loop checkpoint gap should treat the
+  `KeyError: 'rl_rl18_5_h_1__loop'` failure as its motivating negative fixture
+  and should not allow a family parity slice to proceed on compile-only or
+  first-run-only review-loop evidence.
 
 ## Architecture
 
@@ -491,8 +643,9 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
 3. **Composable typed loops.** `loop/recur` already provides typed iterative
    control. The remaining requirement is to prove and, where needed, complete
    its use inside imported `.orc` procedures/workflows, with typed loop
-   outputs, a typed terminal result, explicit exhaustion, source maps, and
-   resume-safe lowering.
+   outputs, a typed terminal result, explicit exhaustion, source maps,
+   resume-safe lowering, and one stable persisted checkpoint identity that the
+   resumed run can resolve back to the same loop frame.
 
 4. **Generic result-bundle and path allocation.** Library code must request
    semantic targets such as "review decision bundle" or "phase result bundle"
@@ -516,6 +669,12 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
    Until list types are available, findings may be carried as a schema-validated
    JSON artifact path, but the semantic value must be validated before
    publication and revise/fix consumption rather than extracted from markdown.
+   Imported review-loop specialization must seed report fields and findings
+   paths independently: `review_report` / `last_review_report` may stay on
+   review-report contracts under `artifacts/review`, while
+   `ReviewFindings.items_path` remains a findings JSON path under
+   `artifacts/work`. Reusing the review-report expression as the findings seed
+   is not an allowed lowering shortcut.
 
 7. **Module visibility and library packaging.** Imported `.orc`
    workflows/procedures/macros must import, export, specialize, and source-map
@@ -526,6 +685,21 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
 8. **Negative validation for abstraction leaks.** The compiler must reject
    library definitions that leak hidden write-root inputs, treat pointer files
    as state authority, hide effects in macros, or route on report prose.
+9. **Reusable-result wrapper construction.** Authors or generic specialization
+   machinery must be able to construct family-local union-returning reusable
+   result wrappers in ordinary `.orc` code. Family parity must not depend on a
+   surface where only compiler-generated helpers can produce union variants.
+10. **Entrypoint context bootstrap.** Promoted wrapper workflows need a
+   supported route to obtain internal `RunCtx` / `PhaseCtx` values with
+   runtime-owned run ids and roots. Existing derived-context helpers such as
+   `phase-ctx` are not sufficient when no parent context is already present at
+   the authored entry boundary. This prerequisite has two separately auditable
+   responsibilities: deriving those runtime-owned context values at the entry
+   boundary, and using them to satisfy hidden required bindings on reusable
+   internal calls. A proof that checks only the public workflow boundary is
+   incomplete if the first executable reusable call still fails with
+   `[workflow_signature_mismatch] call is missing required binding
+   \`phase-ctx\``.
 
 Readiness before acceptance:
 
@@ -534,12 +708,15 @@ Readiness before acceptance:
 | Imported `.orc` surface that lowers to effectful `defproc`/workflow behavior | Yes | Import review loop and emit DSL-visible provider, command, loop, and match nodes without compiler name recognition | Must be proven by implementation audit |
 | `ProcRef` review/fix hook specialization | Yes | Pass caller-owned review/fix procedures into imported `.orc` code and emit no runtime proc value | Must be proven by implementation audit |
 | Provider/prompt extern use inside selected procedures | Yes | Review/fix procedures produce provider steps after specialization without loop-carried provider or prompt refs | Must be proven by implementation audit |
-| `loop/recur` to resume-safe DSL loop | Yes | `REVISE -> fix -> APPROVE` with a persisted loop checkpoint | Must be proven by implementation audit |
+| `loop/recur` to resume-safe DSL loop | Yes | `REVISE -> fix -> APPROVE` with a persisted loop checkpoint stored and resumed under the authored/generated loop-step identity | Must be proven by implementation audit |
 | Generic `loop/recur` exhaustion projection | Yes | Exhaustion returns `ReviewLoopResult.EXHAUSTED` using scalar overrides plus last loop-frame outputs | Must be proven by implementation audit |
 | Generated bundle/path allocation | Yes | Compile imported review loop without public hidden write-root inputs | Must be proven by implementation audit |
+| Independent report and findings path seeding | Yes | Imported review loop compiles when `review_report` / `last_review_report` use review-report contracts and `ReviewFindings.items_path` uses `ReviewFindingsJsonPath` under `artifacts/work` | Must be proven by implementation audit |
 | No compiler-special review-loop recognition | Yes | Imported `.orc` usage still compiles when review-loop-specific expression, typecheck, and lowering paths are absent or disabled | Must be proven by implementation audit |
 | Effect graph and source maps across generic `.orc` expansion | Yes | Generated nodes record call site, imported definition, and generated-node provenance | Must be proven by implementation audit |
 | Negative validation for abstraction leaks | Yes | Reject imported `.orc` definitions that route on report prose, leak hidden roots, or hide effects | Must be proven by implementation audit |
+| Authored reusable-result wrapper construction | Yes | Compile a reusable phase wrapper that returns an authored union and feeds `resume-or-start :valid-when (APPROVED)` without compiler-family special casing | Must be proven by implementation audit |
+| Entrypoint context bootstrap without public context inputs | Yes | Compile and dry-run or execute a promoted wrapper that internally derives `RunCtx` / `PhaseCtx`, drives a reusable union-returning `resume-or-start` wrapper, exposes no public `phase-ctx__*`, run-id, state-root, artifact-root, or managed write-root inputs, and does not require explicit/defaulted authored `phase-ctx` fallback wiring on the first reusable internal call | Must be proven by implementation audit |
 
 New or completed authoring syntax:
 
@@ -592,6 +769,12 @@ exhaustion maps to terminal `EXHAUSTED`. Raw unconstrained `Json` findings do
 not satisfy primary-promotion parity. Until first-class list types exist,
 `items_path` must point to JSON that validates against `ReviewFindings.v1`
 before publication and before revise/fix receives it.
+
+`ReviewFindings.items_path` and `review_report` / `last_review_report` are
+intentionally different contracts. Review-loop specialization must allocate or
+accept them independently. A compiler or typechecker path that seeds findings
+from the review-report expression, or coerces both to one shared path type,
+does not satisfy this design.
 
 `ReviewFindings.v1` is validated by a Workflow Lisp `defschema` validator if
 available in this tranche, or by a certified `review-findings-v1` validation
@@ -684,6 +867,16 @@ Generic effectful composition must:
   paths;
 - keep generated effects visible in Semantic IR and the effect graph;
 - reject runtime transport of procedure/provider/prompt refs.
+
+Generic authored composition for migration parity must also:
+
+- provide a non-family-specific way to construct or specialize union-returning
+  reusable wrapper surfaces in authored `.orc` code; and
+- provide a runtime-owned hidden-binding route for entry workflow context
+  bootstrap so wrapper-authored calls to reusable phase workflows do not invent
+  fake `RunId` literals, require new public context inputs, or depend on
+  explicit/defaulted authored `phase-ctx` fallback parameters at the promoted
+  entry boundary.
 
 Consumed evidence identities such as `checks_report` are loop inputs, consumed
 artifacts, or workflow/materializer outputs. Review providers inspect and judge
@@ -782,6 +975,20 @@ Default lowering must:
 - reject defaults that violate path roots, type contracts, or `must-exist`;
 - keep compiler-owned hidden inputs out of public documentation unless a debug
   surface explicitly requests them.
+
+Entrypoint context-bootstrap lowering must:
+
+- derive internal `RunCtx` / `PhaseCtx` values from runtime-owned run metadata,
+  generated state/artifact roots, and authored phase names;
+- satisfy internal reusable workflow and `resume-or-start` call bindings that
+  require those context values without surfacing authored fallback context
+  inputs on the public workflow boundary;
+- keep those context fields off the promoted public workflow boundary unless a
+  debug/explain surface explicitly requests them;
+- preserve deterministic source maps and managed-input provenance for generated
+  context bindings; and
+- reject wrapper designs that depend on user-supplied fake run ids or manual
+  absolute root construction.
 
 ### 3. Runtime Layer
 
@@ -905,6 +1112,10 @@ New behavior:
   produced the outputs required by the final projection.
 - Reports are views; typed review decisions, terminal results, and validated
   findings are authority.
+- `review_report` and `last_review_report` remain review-report contracts,
+  while `ReviewFindings.items_path` remains a findings JSON contract. Imported
+  review-loop lowering must not derive one from the other or force them onto a
+  shared path type.
 - Evidence artifact identities are carried from workflow state or consumed
   artifacts, not authored by the review provider. A reviewer may inspect and
   judge `checks_report`, but it must not redirect that evidence by returning a
@@ -1038,17 +1249,32 @@ Recommended sequencing:
    definitions: imported `.orc` use of `ProcRef` hooks, workflow refs and
    `loop/recur`, provider/prompt extern use inside selected procedures,
    generated path allocation, and source-map-preserving expansion.
-4. Finalize `command-result` lowering so hidden bundle paths are compiler-owned
+4. Prove imported review-loop checkpoint identity so persisted `repeat_until`
+   state is stored and resumed under the authored/generated loop-step identity.
+   This is a standalone prerequisite gap:
+   `workflow-lisp-imported-review-loop-resume-checkpoint-identity`.
+5. Add the authored reusable-result wrapper construction surface needed for
+   approved-only reusable adapters and wrapper-level `resume-or-start`.
+6. Add entrypoint context-bootstrap support for runtime-owned internal
+   `RunCtx` / `PhaseCtx` construction and hidden reusable-call binding without
+   new public context inputs. The drafted prerequisite must prove both the
+   promoted public boundary and the first executable reusable internal call.
+   This is a standalone prerequisite gap:
+   `workflow-lisp-entrypoint-context-bootstrap`.
+7. Finalize `command-result` lowering so hidden bundle paths are compiler-owned
    and not public entrypoint inputs.
-5. Implement `review-revise-loop` as ordinary `.orc` code, including
+8. Split review-report path seeding from findings-path seeding in imported
+   `review-revise-loop` specialization so review reports may remain under
+   `artifacts/review` while findings JSON stays under `artifacts/work`.
+9. Implement `review-revise-loop` as ordinary `.orc` code, including
    `.orc`-owned findings propagation over generic structured dataflow and any
    required thin compile-time specialization for caller-specific record types.
-6. Implement or complete `.orc` input defaults.
-7. Finalize `StateLayout` and `resume-or-start` reusable-state validation for
+10. Implement or complete `.orc` input defaults.
+11. Finalize `StateLayout` and `resume-or-start` reusable-state validation for
    phase outputs.
-8. Define and enforce the machine-readable parity report schema.
-9. Re-run the existing migrated workflow family and update parity reports.
-10. Only then migrate additional key workflow families.
+12. Define and enforce the machine-readable parity report schema.
+13. Re-run the existing migrated workflow family and update parity reports.
+14. Only then migrate additional key workflow families.
 
 Independent work:
 
@@ -1139,6 +1365,25 @@ For `resume-or-start`:
 
 - tests must cover reusable approved state, stale state, missing artifact state,
   failed state, and schema mismatch.
+- tests must cover wrapper-level approved-only reuse through an authored
+  union-returning reusable surface rather than record-only direct reuse.
+
+For reusable wrapper construction and entrypoint context bootstrap:
+
+- tests must prove an authored `.orc` wrapper can return a union-shaped reusable
+  result suitable for `resume-or-start :valid-when (APPROVED)` without relying
+  on compiler-family special cases; and
+- tests must prove a promoted entry workflow can derive internal `RunCtx` /
+  `PhaseCtx` values without exposing `phase-ctx__*`, `run-id`, `state-root`,
+  or `artifact-root` as public required inputs.
+- tests must also prove the promoted entry can satisfy the first reusable
+  internal call without explicit/defaulted authored `phase-ctx` fallback
+  wiring, so the executable proof does not stop at
+  `[workflow_signature_mismatch] call is missing required binding \`phase-ctx\``.
+- compile-only inspection or dry-run success attributable to synthetic
+  top-level `PhaseCtx` defaults is insufficient; the proof must exercise the
+  actual promoted-entry wrapper path that calls reusable union-returning
+  `resume-or-start`.
 
 For migration promotion:
 
@@ -1361,6 +1606,14 @@ non-primary.
   values, reusing the existing `defproc`, `WorkflowRef`, `ProcRef`, `bind-proc`,
   `let-proc`, and `loop/recur` substrate where it already satisfies the
   contract.
+- Authored or generically specialized reusable-result wrappers can expose
+  approved-only union returns for `resume-or-start` without relying on
+  compiler-generated-only union construction.
+- Promoted entry workflows can bootstrap internal `RunCtx` / `PhaseCtx` values
+  through runtime-owned hidden bindings rather than public run-id/root inputs,
+  fake literals, or explicit/defaulted authored `PhaseCtx` fallback parameters,
+  and the first reusable internal call succeeds through that same hidden
+  binding route.
 - `review-revise-loop` is implemented as ordinary `.orc` code, using an
   imported procedure/workflow and/or a thin macro specialization layer
   rather than a compiler-special branch, and is accepted as the canonical
@@ -1390,6 +1643,13 @@ Revise this design if:
   hidden inputs as public API;
 - command-produced union results require implicit `variant_output` paths instead
   of an explicit generated bundle contract;
+- family migration still requires fake literal run ids or new public
+  run-id/state-root/artifact-root inputs, or still depends on explicit or
+  defaulted authored `PhaseCtx` fallback wiring, because entrypoint context
+  bootstrap is not generically specified or the hidden reusable-call binding
+  half of the prerequisite is still missing;
+- approved-only reusable wrappers still depend on compiler-generated-only union
+  constructors with no authored or generically specialized surface;
 - the review findings schema requires unsupported collection types that would
   broaden the type-system work beyond this migration tranche;
 - `repeat_until` cannot express the required review/fix behavior without

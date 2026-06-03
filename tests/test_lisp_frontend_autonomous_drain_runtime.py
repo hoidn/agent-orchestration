@@ -1350,7 +1350,7 @@ def test_prerequisite_recovery_completion_marks_original_gap_retry_ready(tmp_pat
     assert summary["record_status"] == "RETRY_READY"
 
 
-def test_prerequisite_retry_ready_bypasses_reclassification_for_original_gap_retry(tmp_path):
+def test_prerequisite_retry_ready_is_overridden_when_retry_blocks_again(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
     state_path = workspace / "state/drain/run_state.json"
@@ -1358,6 +1358,20 @@ def test_prerequisite_retry_ready_bypasses_reclassification_for_original_gap_ret
     summary_path = workspace / "artifacts/work/blocked-summary.json"
     pointer_path = workspace / "state/drain/blocked-summary-path.txt"
     drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
+    progress_path = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/progress_report.md"
+    implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+
+    for path, text in [
+        (progress_path, "# Progress Report\n\nRetry blocked again because another prerequisite is missing.\n"),
+        (implementation_state_path, "{}\n"),
+        (architecture_path, "# Parser Syntax Architecture\n"),
+        (plan_path, "# Parser Syntax Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
@@ -1374,6 +1388,10 @@ def test_prerequisite_retry_ready_bypasses_reclassification_for_original_gap_ret
                         "recovery_reason": "prerequisite_gap_required",
                         "recovery_status": "RETRY_READY",
                         "recovery_event_id": "parser-syntax-implementation-blocked",
+                        "progress_report_path": progress_path.relative_to(workspace).as_posix(),
+                        "implementation_state_path": implementation_state_path.relative_to(workspace).as_posix(),
+                        "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                        "plan_path": plan_path.relative_to(workspace).as_posix(),
                     }
                 },
                 "history": [],
@@ -1409,6 +1427,16 @@ def test_prerequisite_retry_ready_bypasses_reclassification_for_original_gap_ret
         "parser-syntax",
         "--source",
         "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--implementation-state-path",
+        implementation_state_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "parser-syntax-implementation-blocked",
         "--summary-path",
         summary_path.relative_to(workspace).as_posix(),
         "--summary-pointer-path",
@@ -1417,9 +1445,30 @@ def test_prerequisite_retry_ready_bypasses_reclassification_for_original_gap_ret
         drain_status_path.relative_to(workspace).as_posix(),
     )
 
-    assert drain_status_path.read_text(encoding="utf-8").strip() == "RUN_RECOVERED_GAP"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"]["parser-syntax"]
+    assert blocked["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert blocked["recovery_reason"] == "prerequisite_gap_required"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["item_status"] == "PREREQUISITE_RETRY_READY"
+    assert summary["item_status"] == "BLOCKED"
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert payload["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
 
 
 def test_prerequisite_recovery_decline_keeps_original_gap_blocked(tmp_path):
@@ -2045,6 +2094,7 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
         step["name"] == "RunPrerequisiteRecoverySelector"
         for step in selector_cases["SELECT_PREREQUISITE_WORK"]["steps"]
     )
+
     prerequisite_selector = next(
         step for step in selector_cases["SELECT_PREREQUISITE_WORK"]["steps"]
         if step["name"] == "RunPrerequisiteRecoverySelector"
@@ -2125,6 +2175,14 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
     materializer_condition = json.dumps(recover["MaterializeRecoveredBlockedGapDraft"]["when"])
     assert "RETRY_READY" in materializer_condition
     assert "RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status" in materializer_condition
+    for step_name in [
+        "MaterializeRecoveredBlockedGapDraft",
+        "ValidateRecoveredBlockedGapArchitecture",
+        "PrepareRecoveredBlockedGapWorkItem",
+        "RunRecoveredBlockedGapWorkItem",
+        "RecordRecoveredRetryUnavailable",
+    ]:
+        assert _condition_has_recovered_retry_request_guard(recover[step_name]["when"]), step_name
 
 
 def test_blocked_target_design_revision_review_report_path_is_command_owned():
@@ -2189,6 +2247,33 @@ def _condition_has_pre_selection_recovery_guard(condition: dict) -> bool:
         )
     return any(
         _condition_has_pre_selection_recovery_guard(child)
+        for key in ("all_of", "any_of")
+        for child in condition.get(key, [])
+    )
+
+
+def _condition_has_recovered_retry_request_guard(condition: dict) -> bool:
+    if not isinstance(condition, dict):
+        return False
+    compare = condition.get("compare")
+    if isinstance(compare, dict):
+        left = compare.get("left")
+        if (
+            isinstance(left, dict)
+            and left.get("ref") == "self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status"
+            and compare.get("op") == "eq"
+            and compare.get("right") == "RETRY_READY"
+        ):
+            return True
+        if (
+            isinstance(left, dict)
+            and left.get("ref") == "self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status"
+            and compare.get("op") == "eq"
+            and compare.get("right") == "RUN_RECOVERED_GAP"
+        ):
+            return True
+    return any(
+        _condition_has_recovered_retry_request_guard(child)
         for key in ("all_of", "any_of")
         for child in condition.get(key, [])
     )

@@ -1,7 +1,7 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
-  (defmodule design_plan_impl_review_stack_v2_call)
+  (defmodule examples/design_plan_impl_review_stack_v2_call)
   (export design-plan-impl-review-stack)
 
   (defenum BlockerClass

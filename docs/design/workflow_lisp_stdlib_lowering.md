@@ -41,6 +41,16 @@ plus generic `loop/recur` exhaustion projection. The existing
 `ReviewReviseLoopExpr` lowerer remains a shape reference, not acceptance
 evidence for ordinary stdlib composition.
 
+## Form Status
+
+| Form | Authoring status | Primary-migration status | Lowering status |
+| --- | --- | --- | --- |
+| `provider-result` | implemented authoring surface | pending parity evidence per workflow family | structured provider bundle contract |
+| `command-result` | implemented authoring surface | pending union/proof and bundle-path parity | `output_bundle` for fixed records; union results require a variant-proof surface or validator/projection |
+| `review-revise-loop` | implemented authoring surface for current fixtures/examples | pending | ordinary stdlib/generic composition over compile-time `ProcRef` review/fix hooks; no review-loop-specific compiler branch |
+| `resume-or-start` | library/adapter-backed or pending by usage | pending | requires canonical reusable-state validation |
+| `resource-transition` | library/adapter-backed by usage | pending promotion evidence where used | certified adapter or runtime-native effect |
+
 ## Required Forms
 
 Initial forms:

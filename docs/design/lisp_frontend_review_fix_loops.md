@@ -23,8 +23,10 @@ completed even when the phase review decision is `REVISE`.
    is a terminal non-completion state.
 
 2. Prompts judge; workflows route.
-   Review prompts decide whether the artifact is acceptable. The YAML owns the
-   loop, branch, publication, and final state transitions.
+   Review prompts decide whether the artifact is acceptable. In the YAML
+   baseline, YAML owns the loop, branch, publication, and final state
+   transitions. In the `.orc` migration target, typed stdlib loop state owns the
+   same routing semantics after lowering.
 
 3. Completion requires approval.
    A design gap may enter the plan/implementation stack only after architecture
@@ -39,10 +41,28 @@ completed even when the phase review decision is `REVISE`.
    review.
 
 5. Exhaustion is explicit.
-   If the loop reaches `max_iterations` without approval, the phase finalizer
-   records `REVISE`, and the work-item workflow records a blocked item with a
-   reason such as `architecture_review_exhausted`, `plan_review_exhausted`, or
+   If the YAML loop reaches `max_iterations` without approval, the phase
+   finalizer records the legacy terminal `REVISE` projection, and the work-item
+   workflow records a blocked item with a reason such as
+   `architecture_review_exhausted`, `plan_review_exhausted`, or
    `implementation_review_exhausted`.
+
+## `.orc` Compatibility Vocabulary
+
+This document characterizes the YAML baseline. The Workflow Lisp migration
+target uses separate per-iteration and terminal result vocabulary:
+
+| YAML / provider event | `.orc` stdlib concept | YAML-compatible projection |
+| --- | --- | --- |
+| review decision `APPROVE` | `ReviewDecision.APPROVE -> ReviewLoopResult.APPROVED` | phase approved |
+| review decision `REVISE` with budget remaining | run revise/fix branch and repeat | not terminal |
+| review decision `REVISE` with exhausted budget | `ReviewLoopResult.EXHAUSTED` | blocked with `*_review_exhausted`; legacy phase decision may record `REVISE` |
+| review decision `BLOCKED` where supported | `ReviewDecision.BLOCKED -> ReviewLoopResult.BLOCKED` | blocked with blocker class or reason |
+| malformed provider output | output-contract failure | failed step, not semantic review result |
+
+`REVISE` is therefore a loop-control decision, not an approved completion
+state. `EXHAUSTED` is the typed `.orc` terminal result for bounded retry
+exhaustion; YAML's terminal `REVISE` is a compatibility projection.
 
 ## Architecture Phase Shape
 

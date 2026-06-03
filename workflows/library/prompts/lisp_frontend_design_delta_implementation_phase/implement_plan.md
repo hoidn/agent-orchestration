@@ -1,4 +1,5 @@
 Implement only the approved plan for the target-design work item.
+Use `superpowers:executing-plans` to execute the approved plan task by task.
 
 Use the consumed target design, baseline design, approved plan, check commands,
 and the authoritative execution-report and progress-report target paths.

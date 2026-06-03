@@ -1051,6 +1051,17 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                      op: eq
+                      right: RETRY_READY
+                  - compare:
+                      left:
+                        ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                      op: eq
+                      right: RUN_RECOVERED_GAP
               - compare:
                   left:
                     ref: self.steps.ValidateRecoveredBlockedGapArchitecture.artifacts.architecture_validation_status
@@ -1101,6 +1112,17 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                      op: eq
+                      right: RETRY_READY
+                  - compare:
+                      left:
+                        ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                      op: eq
+                      right: RUN_RECOVERED_GAP
               - compare:
                   left:
                     ref: self.steps.ValidateRecoveredBlockedGapArchitecture.artifacts.architecture_validation_status
@@ -1140,11 +1162,23 @@ steps:
         - name: RecordRecoveredRetryUnavailable
           id: record_recovered_retry_unavailable
           when:
-            compare:
-              left:
-                ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
-              op: eq
-              right: RECOVER_BLOCKED_DESIGN_GAP
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                      op: eq
+                      right: RETRY_READY
+                  - compare:
+                      left:
+                        ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                      op: eq
+                      right: RUN_RECOVERED_GAP
           command:
             - python
             - workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py
