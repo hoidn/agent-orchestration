@@ -15,6 +15,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_is_managed_write_root_input_name,
     workflow_managed_write_root_inputs,
     workflow_public_input_contracts,
+    workflow_runtime_context_inputs,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
@@ -37,11 +38,17 @@ def _public_rebind_inputs_for_force_restart(
         for name in workflow_managed_write_root_inputs(workflow_bundle)
         if isinstance(name, str)
     }
+    runtime_context_inputs = {
+        name
+        for name in workflow_runtime_context_inputs(workflow_bundle)
+        if isinstance(name, str)
+    }
     return {
         str(name): value
         for name, value in raw_inputs.items()
         if isinstance(name, str)
         and name not in managed_inputs
+        and name not in runtime_context_inputs
         and not workflow_is_managed_write_root_input_name(name)
     }
 

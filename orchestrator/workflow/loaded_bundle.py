@@ -89,17 +89,24 @@ def _managed_write_root_input_set(bundle: LoadedWorkflowBundle) -> frozenset[str
     return frozenset(name for name in managed_inputs if isinstance(name, str))
 
 
+def _runtime_context_input_set(bundle: LoadedWorkflowBundle) -> frozenset[str]:
+    runtime_inputs = workflow_runtime_context_inputs(bundle)
+    return frozenset(name for name in runtime_inputs if isinstance(name, str))
+
+
 def workflow_public_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
     """Return the user-bindable workflow input contracts from the typed bundle."""
     if workflow_or_bundle is None:
         return MappingProxyType({})
     bundle = _require_bundle(workflow_or_bundle)
     managed_inputs = _managed_write_root_input_set(bundle)
+    runtime_context_inputs = _runtime_context_input_set(bundle)
     return MappingProxyType({
         name: _compatibility_value(contract.definition)
         for name, contract in bundle.surface.inputs.items()
         if isinstance(name, str)
         and name not in managed_inputs
+        and name not in runtime_context_inputs
         and isinstance(contract.definition, Mapping)
     })
 
@@ -176,4 +183,17 @@ def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ..
         name
         for name in bundle.surface.inputs
         if workflow_is_managed_write_root_input_name(name)
+    )
+
+
+def workflow_runtime_context_inputs(workflow_or_bundle: Any) -> tuple[str, ...]:
+    """Return typed runtime-owned context inputs for one loaded workflow."""
+
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is None:
+        return ()
+    return tuple(
+        name
+        for name in bundle.provenance.runtime_context_inputs
+        if isinstance(name, str)
     )

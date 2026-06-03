@@ -9,7 +9,7 @@ import pytest
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -112,7 +112,6 @@ def _write_structured_results_module(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return module_path
-
 
 def _structured_results_request(tmp_path: Path):
     build = _build_module()
@@ -234,6 +233,15 @@ def _workflow_runtime_input_contracts(bundle):
         loaded_bundle_helpers,
         "workflow_runtime_input_contracts",
         loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
+
+
+def _workflow_runtime_context_inputs(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_runtime_context_inputs",
+        lambda _: (),
     )
     return helper(bundle)
 
@@ -1008,6 +1016,61 @@ def test_resume_or_start_generated_internal_inputs_keep_reusable_state_paths_run
     assert writer_hidden_input in runtime_inputs
     assert writer_hidden_input not in public_inputs
     assert writer_step["output_bundle"]["path"] in lowered.origin_map.generated_path_spans
+
+
+def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(
+    tmp_path: Path,
+) -> None:
+    fixture = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(FIXTURES / "valid",),
+        command_boundaries={
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+
+    workflow_name = (
+        "phase_stdlib_resume_or_start_promoted_entry_bootstrap::"
+        "promoted-entry-resume-plan-gate-wrapper"
+    )
+    bundle = result.validated_bundles[workflow_name]
+    runtime_inputs = _workflow_runtime_input_contracts(bundle)
+    public_inputs = _workflow_public_input_contracts(bundle)
+    runtime_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == workflow_name
+    )
+
+    assert runtime_context_inputs == {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }
+    assert runtime_context_inputs.issubset(runtime_inputs)
+    assert runtime_context_inputs.isdisjoint(public_inputs)
+    assert {
+        item.generated_name: item.reason
+        for item in lowered.boundary_projection.generated_internal_inputs
+        if item.reason == "runtime_owned_context"
+    } == {
+        "phase-ctx__run__run-id": "runtime_owned_context",
+        "phase-ctx__run__state-root": "runtime_owned_context",
+        "phase-ctx__run__artifact-root": "runtime_owned_context",
+        "phase-ctx__phase-name": "runtime_owned_context",
+        "phase-ctx__state-root": "runtime_owned_context",
+        "phase-ctx__artifact-root": "runtime_owned_context",
+    }
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

@@ -210,8 +210,6 @@ def _infer_entry_source_root(path: Path) -> Path:
     if tuple(actual_parts[-len(expected_parts) :]) != expected_parts:
         return path.parent
     return path.parents[len(expected_parts) - 1]
-
-
 @dataclass(frozen=True)
 class LinkedStage1CompileResult:
     """Definition-only compile result for an entry module graph.
@@ -1380,6 +1378,7 @@ def _compile_stage3_graph(
             imported_signatures=imported_workflow_signatures,
             lookup_aliases=workflow_lookup_aliases,
             imported_workflow_bundles=effective_imported_bundles,
+            allow_hidden_context_callers=module_name == graph.entry_module_name,
         )
         function_catalog = build_function_catalog(
             function_defs,

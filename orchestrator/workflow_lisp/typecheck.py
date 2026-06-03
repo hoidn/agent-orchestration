@@ -73,6 +73,7 @@ from .procedure_refs import (
 from .phase import (
     PhaseScope,
     PHASE_CONTEXT_NAME,
+    RUN_CONTEXT_NAME,
     build_phase_scope,
     IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME,
     is_implementation_attempt_result_type,
@@ -150,8 +151,6 @@ _ACTIVE_GENERATED_LOCAL_PROCEDURES: dict[str, TypedProcedureDef] = {}
 _ACTIVE_LET_PROC_REWRITE_RESULTS: dict[int, ExprNode] = {}
 _ACTIVE_WORKFLOW_SIGNATURE = None
 _ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT: Mapping[str, object] | None = None
-
-
 def consume_generated_local_procedures() -> tuple[TypedProcedureDef, ...]:
     """Return and clear generated `let-proc` procedures from the active pass."""
 
@@ -205,6 +204,51 @@ def clear_active_reusable_state_producer_context() -> None:
 
 def _effect_subject(value: str) -> tuple[str, ...]:
     return tuple(segment for segment in value.split(".") if segment)
+
+
+def _hidden_context_omission_allowed(
+    *,
+    callee_signature,
+    param_name: str,
+    expected_type: TypeRef,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> bool:
+    active_signature = _ACTIVE_WORKFLOW_SIGNATURE
+    if (
+        callee_signature is None
+        or active_signature is None
+        or not getattr(active_signature, "allow_hidden_context_binding", False)
+    ):
+        return False
+    if not isinstance(expected_type, RecordTypeRef):
+        return False
+    if expected_type.name not in {RUN_CONTEXT_NAME, PHASE_CONTEXT_NAME}:
+        return False
+
+    ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
+    if param_name in ambiguities:
+        phase_names = ambiguities[param_name]
+        _raise_error(
+            (
+                f"promoted-entry hidden `{param_name}` binding is ambiguous across phases "
+                f"`{phase_names[0]}` and `{phase_names[-1]}`"
+            ),
+            code="promoted_entry_hidden_phase_ctx_ambiguous",
+            span=span,
+            form_path=form_path,
+        )
+
+    requirements = getattr(callee_signature, "hidden_context_requirements", {})
+    requirement = requirements.get(param_name) if isinstance(requirements, Mapping) else None
+    if requirement is None:
+        _raise_error(
+            f"promoted-entry hidden binding for `{param_name}` is unavailable in this callee",
+            code="promoted_entry_hidden_context_binding_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    return True
 
 
 @dataclass(frozen=True)
@@ -599,6 +643,7 @@ def _typecheck(
         expected_fields = {field.name: field for field in record_type.definition.fields}
         seen_fields: set[str] = set()
         field_summaries: list[EffectSummary] = []
+        rewritten_fields: list[tuple[str, ExprNode]] = []
         for field_name, field_expr in expr.fields:
             if field_name in seen_fields:
                 _raise_error(
@@ -631,6 +676,7 @@ def _typecheck(
                 proc_ref_resolution_context=proc_ref_resolution_context,
             )
             field_summaries.append(typed_field.effect_summary)
+            rewritten_fields.append((field_name, typed_field.expr))
             expected_type = record_type.field_types.get(field_name)
             if expected_type is None:
                 expected_type = type_env.resolve_type(
@@ -638,11 +684,14 @@ def _typecheck(
                     span=field_expr.span,
                     form_path=field_expr.form_path,
                 )
-            if not _type_refs_compatible(expected_type, typed_field.type_ref) and not _allow_stdlib_review_findings_seed_path(
-                field_name,
-                expected=expected_type,
-                actual=typed_field.type_ref,
-                span=field_expr.span,
+            if (
+                not _type_refs_compatible(expected_type, typed_field.type_ref)
+                and not _allow_stdlib_review_findings_seed_path(
+                    field_name,
+                    expected=expected_type,
+                    actual=typed_field.type_ref,
+                    span=field_expr.span,
+                )
             ):
                 _raise_error(
                     f"record field `{field_name}` expected `{_type_label(expected_type)}`"
@@ -660,7 +709,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return _typed(
-            expr=expr,
+            expr=replace(expr, fields=tuple(rewritten_fields)),
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
         )
@@ -1365,7 +1414,19 @@ def _typecheck(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
-        missing_bindings = [name for name, _ in ordered_params if name not in seen_bindings and name not in defaulted_bindings]
+        missing_bindings = [
+            name
+            for name, expected_type in ordered_params
+            if name not in seen_bindings
+            and name not in defaulted_bindings
+            and not _hidden_context_omission_allowed(
+                callee_signature=signature if not isinstance(workflow_ref_type, WorkflowRefTypeRef) else None,
+                param_name=name,
+                expected_type=expected_type,
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        ]
         if missing_bindings:
             _raise_error(
                 f"call is missing required binding `{missing_bindings[0]}`",
@@ -2895,7 +2956,6 @@ def _validate_review_loop_result_contract(
                 span=span,
                 form_path=form_path,
             )
-
 def _typecheck_stdlib_specialization_expr(
     expr: StdlibSpecializationExpr,
     *,
@@ -3349,7 +3409,10 @@ def _specialize_phase_review_loop_request(
                     expansion_stack=expr.expansion_stack,
                 ),
             ),
-            ("items_path", initial_last_review_report_expr),
+            (
+                "items_path",
+                initial_last_review_report_expr,
+            ),
         ),
         span=generated_span,
         form_path=expr.form_path,

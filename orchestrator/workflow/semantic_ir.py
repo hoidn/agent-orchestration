@@ -471,6 +471,13 @@ def derive_workflow_semantic_ir(
             layout_kind="managed_write_root_input",
             details=MappingProxyType({"input_name": input_name}),
         )
+    for input_name in provenance.runtime_context_inputs:
+        state_layout[_state_layout_id(workflow_name, "runtime_context_input", input_name)] = SemanticStateLayoutEntry(
+            layout_id=_state_layout_id(workflow_name, "runtime_context_input", input_name),
+            workflow_name=workflow_name,
+            layout_kind="runtime_context_input",
+            details=MappingProxyType({"input_name": input_name}),
+        )
 
     if provenance.frontend_source_map_coverage is not None:
         for key, value in sorted(provenance.frontend_source_map_coverage.items()):

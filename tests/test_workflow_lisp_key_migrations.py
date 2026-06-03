@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import re
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -42,6 +44,15 @@ def _workflow_public_input_contracts(bundle):
         loaded_bundle_helpers,
         "workflow_public_input_contracts",
         loaded_bundle_helpers.workflow_input_contracts,
+    )
+    return helper(bundle)
+
+
+def _workflow_runtime_context_inputs(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_runtime_context_inputs",
+        lambda _: (),
     )
     return helper(bundle)
 
@@ -341,6 +352,343 @@ def test_library_orc_variants_compile_independently(tmp_path: Path) -> None:
             for workflow in result.lowered_workflows
         }
         assert lowered_names == {expected[target.name]}
+
+
+def test_promoted_entry_resume_or_start_fixture_bootstraps_hidden_context(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    fixture = LISP_FIXTURES / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+    workspace = Path(tempfile.mkdtemp(prefix="orc-pe-", dir="/tmp"))
+    monkeypatch.chdir(workspace)
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(LISP_FIXTURES,),
+        command_boundaries={
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+    ).entry_result
+    bundle = result.validated_bundles[
+        "phase_stdlib_resume_or_start_promoted_entry_bootstrap::promoted-entry-resume-plan-gate-wrapper"
+    ]
+    imported_resume_bundle = bundle.imports[
+        "library/phase_stdlib_resume_or_start_promoted_entry_bootstrap_helper::resume-plan-gate-wrapper"
+    ]
+    validator_step = imported_resume_bundle.surface.steps[0]
+    assert validator_step.command[:3] == (
+        "python",
+        "-m",
+        "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
+    )
+    validator_payload = json.loads(validator_step.command[-1])
+    public_inputs = _workflow_public_input_contracts(bundle)
+    assert set(public_inputs) == {
+        "inputs__resume_from",
+        "inputs__design",
+        "inputs__plan",
+        "inputs__report_path",
+    }
+    assert all("phase-ctx__" not in name for name in public_inputs)
+    assert all("run-id" not in name for name in public_inputs)
+    assert all("state-root" not in name for name in public_inputs)
+    assert all("artifact-root" not in name for name in public_inputs)
+    assert workflow_managed_write_root_inputs(bundle) == ()
+    assert set(_workflow_runtime_context_inputs(bundle)) == {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }
+    assert all(name not in public_inputs for name in _workflow_runtime_context_inputs(bundle))
+
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == "phase_stdlib_resume_or_start_promoted_entry_bootstrap::promoted-entry-resume-plan-gate-wrapper"
+    )
+    call_step = next(step for step in authored["steps"] if step.get("call"))
+    assert call_step["call"].endswith("::resume-plan-gate-wrapper")
+    assert {
+        name: call_step["with"][name]
+        for name in (
+            "phase-ctx__run__run-id",
+            "phase-ctx__run__state-root",
+            "phase-ctx__run__artifact-root",
+            "phase-ctx__phase-name",
+            "phase-ctx__state-root",
+            "phase-ctx__artifact-root",
+        )
+    } == {
+        "phase-ctx__run__run-id": {"ref": "inputs.phase-ctx__run__run-id"},
+        "phase-ctx__run__state-root": {"ref": "inputs.phase-ctx__run__state-root"},
+        "phase-ctx__run__artifact-root": {"ref": "inputs.phase-ctx__run__artifact-root"},
+        "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__phase-name"},
+        "phase-ctx__state-root": {"ref": "inputs.phase-ctx__state-root"},
+        "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__artifact-root"},
+    }
+
+    design_path = workspace / "docs" / "design" / "selected-item-design.md"
+    plan_path = workspace / "docs" / "plans" / "selected-item-plan.md"
+    report_path = workspace / "artifacts" / "work" / "selected-item-execution.md"
+    for target in (design_path, plan_path, report_path):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("seed\n", encoding="utf-8")
+
+    bundle_path = workspace / "state" / "selected-item" / "plan-gate.json"
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "variant": "APPROVED",
+                "report_path": "artifacts/work/selected-item-execution.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = {
+        **validator_payload,
+        "bundle_path": "state/selected-item/plan-gate.json",
+        "resume_from": "state/selected-item/plan-gate.json",
+        "current_public_inputs": {
+            "phase-ctx__phase-name": "plan-gate-wrapper",
+            "inputs__resume_from": "state/selected-item/plan-gate.json",
+            "inputs__design": "docs/design/selected-item-design.md",
+            "inputs__plan": "docs/plans/selected-item-plan.md",
+            "inputs__report_path": "artifacts/work/selected-item-execution.md",
+        },
+        "source_run_id": "promoted-entry-bootstrap",
+        "source_step_id": "resume-plan-gate-wrapper",
+        "source_call_frame_id": "root",
+        "phase_id": "plan-gate-wrapper",
+        "created_at": "2026-06-03T00:00:00Z",
+    }
+    payload_path = workspace / "state" / "payloads" / "promoted_entry_plan_gate_wrapper.json"
+    payload_path.parent.mkdir(parents=True, exist_ok=True)
+    payload_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert write_reusable_phase_state_v1.main(
+        ["write_reusable_phase_state_v1", payload_path.as_posix()]
+    ) == 0
+    capsys.readouterr()
+    assert validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", payload_path.as_posix()]
+    ) == 0
+    reusable_payload = json.loads(capsys.readouterr().out)
+    assert reusable_payload["variant"] == "REUSABLE"
+
+    script_path = workspace / "scripts" / "resolve_plan_gate.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "report_path = Path(sys.argv[1])",
+                "report_path.parent.mkdir(parents=True, exist_ok=True)",
+                "report_path.write_text('approved\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(",
+                "    json.dumps(",
+                    "        {",
+                    "            'variant': 'APPROVED',",
+                    "            'shared_report_path': report_path.as_posix(),",
+                    "        }",
+                "    ) + '\\n',",
+                "    encoding='utf-8',",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    state_manager = StateManager(workspace=workspace, run_id="promoted-entry-bootstrap")
+    state_manager.initialize(
+        fixture.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "inputs__resume_from": "state/selected-item/plan-gate.json",
+            "inputs__design": "docs/design/selected-item-design.md",
+            "inputs__plan": "docs/plans/selected-item-plan.md",
+            "inputs__report_path": "artifacts/work/selected-item-execution.md",
+        },
+    )
+    state = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "completed"
+    outputs = state["workflow_outputs"]
+    assert outputs["return__report_path"] == "artifacts/work/selected-item-execution.md"
+    assert report_path.read_text(encoding="utf-8") == "seed\n"
+
+
+def test_public_phase_ctx_entry_inputs_do_not_require_hidden_context_provenance(
+    tmp_path: Path,
+) -> None:
+    workflow_path = tmp_path / "public_phase_ctx.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReportTarget",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord WorkflowOutput",
+                "    (report_path WorkReportTarget))",
+                "  (defworkflow entry",
+                "    ((phase-ctx PhaseCtx)",
+                "     (report-path WorkReportTarget))",
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput :report_path report-path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles["entry"]
+    assert _workflow_runtime_context_inputs(bundle) == ()
+
+    state_manager = StateManager(workspace=tmp_path, run_id="public-phase-ctx")
+    state_manager.initialize(
+        workflow_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report-path": "artifacts/work/report.md",
+            "phase-ctx__run__run-id": "user-run",
+            "phase-ctx__run__state-root": "state/user",
+            "phase-ctx__run__artifact-root": "artifacts/user",
+            "phase-ctx__phase-name": "implementation",
+            "phase-ctx__state-root": "state/phase",
+            "phase-ctx__artifact-root": "artifacts/phase",
+        },
+    )
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "return__report_path": "artifacts/work/report.md",
+    }
+
+
+def test_promoted_entry_hidden_context_override_fails(tmp_path: Path) -> None:
+    fixture = LISP_FIXTURES / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(LISP_FIXTURES,),
+        command_boundaries={
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+    bundle = result.validated_bundles[
+        "phase_stdlib_resume_or_start_promoted_entry_bootstrap::promoted-entry-resume-plan-gate-wrapper"
+    ]
+    hidden_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+    assert "phase-ctx__phase-name" in hidden_context_inputs
+
+    state_manager = StateManager(workspace=tmp_path, run_id="promoted-entry-hidden-context-override")
+    state_manager.initialize(
+        fixture.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "inputs__resume_from": "state/selected-item/plan-gate.json",
+            "inputs__design": "docs/design/selected-item-design.md",
+            "inputs__plan": "docs/plans/selected-item-plan.md",
+            "inputs__report_path": "artifacts/work/selected-item-execution.md",
+            "phase-ctx__phase-name": "forged-phase-name",
+        },
+    )
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "failed"
+    assert state["error"]["type"] == "contract_violation"
+    assert state["error"]["context"]["reason"] == "promoted_entry_hidden_context_override"
+    assert state["error"]["context"]["input"] == "phase-ctx__phase-name"
+    assert state["error"]["context"]["expected"] == "plan-gate-wrapper"
+
+
+def test_promoted_entry_hidden_context_metadata_missing_fails(tmp_path: Path) -> None:
+    fixture = LISP_FIXTURES / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(LISP_FIXTURES,),
+        command_boundaries={
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+    bundle = result.validated_bundles[
+        "phase_stdlib_resume_or_start_promoted_entry_bootstrap::promoted-entry-resume-plan-gate-wrapper"
+    ]
+    hidden_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+    assert "phase-ctx__phase-name" in hidden_context_inputs
+
+    broken_bundle = replace(
+        bundle,
+        provenance=replace(bundle.provenance, runtime_context_inputs=()),
+    )
+    assert _workflow_runtime_context_inputs(broken_bundle) == ()
+    assert hidden_context_inputs.issubset(workflow_input_contracts(broken_bundle))
+
+    state_manager = StateManager(workspace=tmp_path, run_id="promoted-entry-hidden-context-metadata-missing")
+    state_manager.initialize(
+        fixture.as_posix(),
+        context=bundle_context_dict(broken_bundle),
+        bound_inputs={
+            "inputs__resume_from": "state/selected-item/plan-gate.json",
+            "inputs__design": "docs/design/selected-item-design.md",
+            "inputs__plan": "docs/plans/selected-item-plan.md",
+            "inputs__report_path": "artifacts/work/selected-item-execution.md",
+        },
+    )
+
+    state = WorkflowExecutor(broken_bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "failed"
+    assert state["error"]["type"] == "contract_violation"
+    assert state["error"]["context"]["reason"] == "promoted_entry_hidden_context_metadata_missing"
+    assert set(state["error"]["context"]["inputs"]) == hidden_context_inputs
 
 
 def test_resume_or_start_plan_gate_reusable_state_parity_path(

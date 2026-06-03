@@ -15,16 +15,26 @@ from unittest.mock import patch, MagicMock
 import hashlib
 import yaml
 
+import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
+
+
+def _workflow_runtime_context_inputs(bundle):
+    helper = getattr(
+        loaded_bundle_helpers,
+        "workflow_runtime_context_inputs",
+        lambda _: (),
+    )
+    return helper(bundle)
 
 
 def _build_resume_loop_workflow() -> dict:
@@ -2007,7 +2017,7 @@ steps:
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')
-def test_resume_force_restart_rebinds_only_public_inputs_for_orc_bundle(
+def test_resume_force_restart_rebinds_only_public_inputs_for_managed_orc_inputs(
     mock_executor,
     temp_workspace,
 ):
@@ -2081,6 +2091,108 @@ def test_resume_force_restart_rebinds_only_public_inputs_for_orc_bundle(
     assert new_state["bound_inputs"] == {
         "terminal_status": "FAILED_CLOSED_BY_GUARD",
         "guard_cycles": 2,
+    }
+
+
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+def test_resume_force_restart_rebinds_only_public_inputs_for_promoted_entry_hidden_context(
+    mock_executor,
+    temp_workspace,
+):
+    fixture = (
+        Path(__file__).resolve().parent
+        / "fixtures"
+        / "workflow_lisp"
+        / "valid"
+        / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+    )
+    workflow_path = temp_workspace / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+    workflow_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    bundle = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(fixture.parent,),
+        command_boundaries={
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).entry_result.validated_bundles[
+        "phase_stdlib_resume_or_start_promoted_entry_bootstrap::promoted-entry-resume-plan-gate-wrapper"
+    ]
+    hidden_context_inputs = _workflow_runtime_context_inputs(bundle)
+    assert hidden_context_inputs
+
+    for relative_path in (
+        Path("docs/design/selected-item-design.md"),
+        Path("docs/plans/selected-item-plan.md"),
+        Path("artifacts/work/selected-item-execution.md"),
+    ):
+        target = temp_workspace / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("seed\n", encoding="utf-8")
+
+    run_id = "force-restart-runtime-context-orc-inputs"
+    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "run_id": run_id,
+                "workflow_file": str(workflow_path),
+                "workflow_checksum": "sha256:placeholder",
+                "started_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:01:00Z",
+                "status": "failed",
+                "context": {},
+                "bound_inputs": {
+                    "inputs__resume_from": "state/selected-item/plan-gate.json",
+                    "inputs__design": "docs/design/selected-item-design.md",
+                    "inputs__plan": "docs/plans/selected-item-plan.md",
+                    "inputs__report_path": "artifacts/work/selected-item-execution.md",
+                    **{name: f"stale-{index}" for index, name in enumerate(hidden_context_inputs)},
+                },
+                "steps": {},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    mock_executor.return_value.execute.return_value = {
+        "status": "completed",
+        "steps": {},
+    }
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        return_value=bundle,
+    ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="fresh-force-restart-context-run")):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=True,
+        )
+
+    assert result == 0
+    new_state = json.loads(
+        (
+            temp_workspace
+            / ".orchestrate"
+            / "runs"
+            / "fresh-force-restart-context-run"
+            / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert new_state["bound_inputs"] == {
+        "inputs__resume_from": "state/selected-item/plan-gate.json",
+        "inputs__design": "docs/design/selected-item-design.md",
+        "inputs__plan": "docs/plans/selected-item-plan.md",
+        "inputs__report_path": "artifacts/work/selected-item-execution.md",
     }
 
 

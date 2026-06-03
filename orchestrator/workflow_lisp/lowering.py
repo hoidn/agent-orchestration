@@ -100,8 +100,11 @@ from .loops import (
 )
 from .phase import (
     IMPLEMENTATION_ATTEMPT_PHASE_NAME,
+    PHASE_CONTEXT_NAME,
     PHASE_TARGET_SPECS,
     PhaseScope,
+    PromotedEntryHiddenContextRequirement,
+    RUN_CONTEXT_NAME,
 )
 from .macros import collect_macro_catalog, expand_module_forms
 from .reader import read_sexpr_file
@@ -299,6 +302,7 @@ def lower_workflow_definitions(
         if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW
         and procedure.generated_workflow_name is not None
     }
+    generated_private_workflow_names = frozenset(private_workflows)
     workflows_by_name: dict[str, TypedWorkflowDef] = {
         **{workflow.definition.name: workflow for workflow in typed_workflows},
         **private_workflows,
@@ -342,6 +346,9 @@ def lower_workflow_definitions(
                     for name, default in base.signature.param_defaults.items()
                     if name not in bindings
                 },
+                hidden_context_requirements=base.signature.hidden_context_requirements,
+                hidden_context_ambiguities=base.signature.hidden_context_ambiguities,
+                allow_hidden_context_binding=base.signature.allow_hidden_context_binding,
             ),
             typed_body=base.typed_body,
             effect_summary=base.effect_summary,
@@ -394,6 +401,7 @@ def lower_workflow_definitions(
         lowered = _lower_one_workflow(
             typed_workflow,
             workflow_path=workflow_path,
+            generated_private_workflow_names=generated_private_workflow_names,
             workflow_catalog=workflow_catalog,
             imported_workflow_bundles=imported_workflow_bundles or {},
             extern_environment=extern_environment,
@@ -497,6 +505,7 @@ def _lower_one_workflow(
     typed_workflow: TypedWorkflowDef,
     *,
     workflow_path: Path,
+    generated_private_workflow_names: frozenset[str],
     workflow_catalog: WorkflowCatalog,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
     extern_environment: ExternEnvironment,
@@ -519,10 +528,8 @@ def _lower_one_workflow(
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
-    if (
-        isinstance(typed_workflow.signature.return_type_ref, UnionTypeRef)
-        and _is_generated_private_workflow_name(typed_workflow.definition.name)
-    ):
+    is_generated_private_workflow = typed_workflow.definition.name in generated_private_workflow_names
+    if isinstance(typed_workflow.signature.return_type_ref, UnionTypeRef) and is_generated_private_workflow:
         for definition in authored_outputs.values():
             if isinstance(definition, dict) and definition.get("type") == "relpath":
                 definition["must_exist_target"] = False
@@ -550,6 +557,7 @@ def _lower_one_workflow(
         generated_input_spans=origin_inputs,
         authored_generated_inputs=set(authored_inputs),
         internal_generated_input_reasons={},
+        internal_generated_input_contracts={},
         generated_output_spans=origin_outputs,
         generated_path_spans={},
         generated_semantic_effects=[],
@@ -564,6 +572,7 @@ def _lower_one_workflow(
             }
         ),
         local_type_bindings={name: type_ref for name, type_ref in typed_workflow.signature.params},
+        is_generated_private_workflow=is_generated_private_workflow,
     )
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)
@@ -589,6 +598,8 @@ def _lower_one_workflow(
         }
         context.generated_input_spans[hidden_input_name] = origin
         context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
+    for hidden_input_name, contract_definition in context.internal_generated_input_contracts.items():
+        authored_inputs[hidden_input_name] = dict(contract_definition)
 
     authored_input_spans = {
         name: origin
@@ -789,6 +800,7 @@ class _LoweringContext:
     generated_input_spans: dict[str, LoweringOrigin]
     authored_generated_inputs: set[str]
     internal_generated_input_reasons: dict[str, str]
+    internal_generated_input_contracts: dict[str, dict[str, Any]]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: dict[str, LoweringOrigin]
     generated_semantic_effects: list[GeneratedSemanticEffectBinding]
@@ -798,6 +810,7 @@ class _LoweringContext:
     boundary_projection: WorkflowBoundaryProjection
     return_output_contracts: Mapping[str, Mapping[str, Any]]
     local_type_bindings: Mapping[str, TypeRef]
+    is_generated_private_workflow: bool
     phase_scope: "_ActivePhaseScope | None" = None
     iteration_scope: str | None = None
     active_procedure_calls: frozenset[str] = frozenset()
@@ -1431,7 +1444,7 @@ def _lower_provider_result(
     }
     if context.phase_scope is not None:
         use_active_phase_bundle = False
-        if not _is_generated_private_workflow_name(context.workflow_name):
+        if not context.is_generated_private_workflow:
             use_active_phase_bundle = _phase_prompt_inputs_are_direct(
                 (("inputs", tuple(expr.inputs)),),
                 context=context,
@@ -2137,7 +2150,7 @@ def _lower_resume_or_start(
     loader_hidden_input = f"__write_root__{reuse_loader_step_id}__result_bundle"
     loader_payload = json.dumps(
         {
-            "bundle_path": "${parent.steps."
+            "bundle_path": "${root.steps."
             + validator_step_name
             + ".artifacts.source_bundle_path}",
             "target_dsl_version": "2.14",
@@ -2145,7 +2158,7 @@ def _lower_resume_or_start(
             "structured_contract_kind": structured_contract_kind,
             "expected_contract_fingerprint": expected_contract_fingerprint,
             "structured_contract": structured_contract,
-            "source_bundle_sha256": "${parent.steps."
+            "source_bundle_sha256": "${root.steps."
             + validator_step_name
             + ".artifacts.source_bundle_sha256}",
         }
@@ -3211,6 +3224,8 @@ def _loop_projection_materialize_values(
                 field_path=field_path,
                 local_values=local_values,
             )
+        if isinstance(current_value, PhaseTargetExpr) and context is not None:
+            return _phase_target_inline_ref(current_value, context=context)
         return current_value
 
     values: list[dict[str, Any]] = []
@@ -3578,6 +3593,33 @@ def _lower_call_expr(
     for param_name, param_type in callee_signature.params:
         value_expr = binding_by_name.get(param_name)
         if value_expr is None:
+            requirement = getattr(callee_signature, "hidden_context_requirements", {}).get(param_name)
+            if (
+                getattr(context.signature, "allow_hidden_context_binding", False)
+                and isinstance(param_type, RecordTypeRef)
+                and param_type.name in {RUN_CONTEXT_NAME, PHASE_CONTEXT_NAME}
+            ):
+                if requirement is None:
+                    code = "promoted_entry_hidden_context_metadata_missing"
+                    ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
+                    if param_name in ambiguities:
+                        code = "promoted_entry_hidden_phase_ctx_ambiguous"
+                    raise _compile_error(
+                        code=code,
+                        message=f"promoted-entry hidden binding metadata is unavailable for `{param_name}`",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                with_bindings.update(
+                    _declare_runtime_context_hidden_inputs(
+                        context=context,
+                        param_name=param_name,
+                        param_type=param_type,
+                        requirement=requirement,
+                        source_expr=expr,
+                    )
+                )
+                continue
             if param_name in callee_signature.param_defaults:
                 continue
             raise _compile_error(
@@ -3873,6 +3915,7 @@ def _lower_procedure_call_expr(
         generated_input_spans=context.generated_input_spans,
         authored_generated_inputs=context.authored_generated_inputs,
         internal_generated_input_reasons=context.internal_generated_input_reasons,
+        internal_generated_input_contracts=context.internal_generated_input_contracts,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         generated_semantic_effects=context.generated_semantic_effects,
@@ -3885,6 +3928,7 @@ def _lower_procedure_call_expr(
             **context.local_type_bindings,
             **_procedure_signature_local_type_bindings(procedure),
         },
+        is_generated_private_workflow=context.is_generated_private_workflow,
         phase_scope=context.phase_scope,
         iteration_scope=context.iteration_scope,
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
@@ -4145,6 +4189,12 @@ def _lower_match_expr(
     )
     cases: dict[str, Any] = {}
     hidden_inputs: dict[str, LoweringOrigin] = {}
+    shared_union_bundle_input = (
+        f"__write_root__{match_step_id}__result_bundle"
+        if isinstance(result_type, UnionTypeRef)
+        and not context.is_generated_private_workflow
+        else None
+    )
     for arm in match_expr.arms:
         case_name = f"{match_step_name}__{arm.variant_name.lower()}"
         case_steps, case_terminal = _lower_conditional_branch_expr(
@@ -4158,6 +4208,18 @@ def _lower_match_expr(
                 binding_terminal=binding_terminal,
             ),
         )
+        if isinstance(result_type, UnionTypeRef) and shared_union_bundle_input is not None:
+            case_steps, case_terminal = _normalize_union_match_case_terminal(
+                case_name=case_name,
+                case_steps=case_steps,
+                case_terminal=case_terminal,
+                result_type=result_type,
+                variant_name=arm.variant_name,
+                shared_bundle_input_name=shared_union_bundle_input,
+                context=context,
+                span=arm.body.span,
+                form_path=arm.body.form_path,
+            )
         case_outputs = _conditional_case_outputs(
             case_terminal,
             output_contracts=output_contracts,
@@ -4252,6 +4314,135 @@ def _lower_effectful_binding_expr(
             step_name_prefix=step_name_prefix,
         ),
         local_values=local_values,
+    )
+
+
+def _normalize_union_match_case_terminal(
+    *,
+    case_name: str,
+    case_steps: list[dict[str, Any]],
+    case_terminal: _TerminalResult,
+    result_type: UnionTypeRef,
+    variant_name: str,
+    shared_bundle_input_name: str,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Normalize one union-returning match case onto a shared bundle path."""
+
+    step_name = f"{case_name}__result_bundle"
+    step_id = _normalize_generated_step_id(step_name)
+    bundle_contract = derive_structured_result_contract(
+        result_type,
+        workflow_name=context.workflow_name,
+        step_id=step_name,
+        span=span,
+        form_path=form_path,
+    )
+    authored_contract = dict(bundle_contract.payload)
+    authored_contract["path"] = f"${{inputs.{shared_bundle_input_name}}}"
+    context.generated_path_spans[authored_contract["path"]] = LoweringOrigin(span=span, form_path=form_path)
+    values = [
+        {
+            "name": "variant",
+            "source": {"literal": variant_name},
+            "contract": _surface_contract_from_structured_field(authored_contract["discriminant"]),
+        }
+    ]
+    normalized_field_names = {"variant"}
+    for field in authored_contract.get("shared_fields", ()):
+        output_ref = case_terminal.output_refs.get(f"return__{field['name']}")
+        if not isinstance(output_ref, str):
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"match case did not expose shared union field `{field['name']}`",
+                span=span,
+                form_path=form_path,
+            )
+        values.append(
+            {
+                "name": field["name"],
+                "source": {
+                    "ref": _conditional_case_ref(output_ref, terminal_step_name=case_terminal.step_name)
+                },
+                "contract": _surface_contract_from_structured_field(field),
+            }
+        )
+        normalized_field_names.add(field["name"])
+    for field in authored_contract["variants"][variant_name]["fields"]:
+        output_ref = case_terminal.output_refs.get(f"return__{field['name']}")
+        if not isinstance(output_ref, str):
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"match case did not expose union field `{field['name']}` for `{variant_name}`",
+                span=span,
+                form_path=form_path,
+            )
+        values.append(
+            {
+                "name": field["name"],
+                "source": {
+                    "ref": _conditional_case_ref(output_ref, terminal_step_name=case_terminal.step_name)
+                },
+                "contract": _surface_contract_from_structured_field(field),
+            }
+        )
+        normalized_field_names.add(field["name"])
+    placeholders = _boundary_placeholder_literals(
+        result_type,
+        span=span,
+        form_path=form_path,
+    )
+    for field_name, definition in _union_output_contracts(
+        result_type,
+        payload=authored_contract,
+        span=span,
+        form_path=form_path,
+    ).items():
+        if field_name in normalized_field_names:
+            continue
+        placeholder_name = f"return__{field_name}"
+        if placeholder_name not in placeholders:
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"match case could not synthesize placeholder for union field `{field_name}`",
+                span=span,
+                form_path=form_path,
+            )
+        values.append(
+            {
+                "name": field_name,
+                "source": {"literal": placeholders[placeholder_name]},
+                "contract": dict(definition),
+            }
+        )
+    step = {
+        **_materialize_values_step(step_name=step_name, step_id=step_id, values=values),
+        bundle_contract.contract_kind: authored_contract,
+    }
+    output_refs: dict[str, str] = {}
+    for field in derive_workflow_boundary_fields(
+        result_type,
+        generated_name="return",
+        source_path=("return",),
+        span=span,
+        form_path=form_path,
+    ):
+        field_path = _normalize_union_field_path(field.source_path[1:])
+        output_refs[field.generated_name] = f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
+    return (
+        [*case_steps, step],
+        _TerminalResult(
+            step_name=step_name,
+            step_id=step_id,
+            output_refs=output_refs,
+            output_kind="step",
+            hidden_inputs={
+                **case_terminal.hidden_inputs,
+                shared_bundle_input_name: LoweringOrigin(span=span, form_path=form_path),
+            },
+        ),
     )
 
 
@@ -6261,6 +6452,71 @@ def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tupl
     )
 
 
+def _runtime_context_default_value(
+    *,
+    requirement: PromotedEntryHiddenContextRequirement,
+    source_path: tuple[str, ...],
+) -> str | None:
+    param_name = requirement.param_name
+    phase_name = requirement.phase_name
+    if source_path == (param_name, "run", "run-id") or source_path == (param_name, "run-id"):
+        return None
+    if source_path == (param_name, "run", "state-root") or source_path == (param_name, "state-root"):
+        return "state/run"
+    if source_path == (param_name, "run", "artifact-root") or source_path == (param_name, "artifact-root"):
+        return "artifacts/run"
+    if requirement.context_kind != PHASE_CONTEXT_NAME or phase_name is None:
+        return None
+    if source_path == (param_name, "phase-name"):
+        return phase_name
+    if source_path == (param_name, "state-root"):
+        return f"state/{phase_name}"
+    if source_path == (param_name, "artifact-root"):
+        return f"artifacts/{phase_name}"
+    return None
+
+
+def _declare_runtime_context_hidden_inputs(
+    *,
+    context: _LoweringContext,
+    param_name: str,
+    param_type: RecordTypeRef,
+    requirement: PromotedEntryHiddenContextRequirement,
+    source_expr: Any,
+) -> dict[str, Any]:
+    """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
+
+    origin = _origin_from_context_source(context, source_expr)
+    with_bindings: dict[str, Any] = {}
+    for flattened_field in derive_workflow_boundary_fields(
+        param_type,
+        generated_name=param_name,
+        source_path=(param_name,),
+        span=origin.span,
+        form_path=origin.form_path,
+    ):
+        contract_definition = dict(flattened_field.contract_definition)
+        default_value = _runtime_context_default_value(
+            requirement=requirement,
+            source_path=flattened_field.source_path,
+        )
+        if default_value is not None:
+            contract_definition["default"] = default_value
+        context.internal_generated_input_contracts.setdefault(
+            flattened_field.generated_name,
+            contract_definition,
+        )
+        context.generated_input_spans.setdefault(flattened_field.generated_name, origin)
+        context.internal_generated_input_reasons.setdefault(
+            flattened_field.generated_name,
+            "runtime_owned_context",
+        )
+        with_bindings[flattened_field.generated_name] = {
+            "ref": f"inputs.{flattened_field.generated_name}",
+        }
+    return with_bindings
+
+
 def _managed_inputs_from_bundle(bundle: LoadedWorkflowBundle | None) -> tuple[str, ...]:
     """Return generated write-root inputs declared by an imported bundle."""
 
@@ -7006,12 +7262,6 @@ def _uses_legacy_phase_prompt_input_prelude(expr: ProviderResultExpr) -> bool:
         for target_expr in report_targets
         if isinstance(target_expr, PhaseTargetExpr)
     } == {"execution-report", "progress-report"}
-
-
-def _is_generated_private_workflow_name(workflow_name: str) -> bool:
-    """Return whether one lowering context targets a compiler-generated private workflow."""
-
-    return workflow_name.startswith("%") and ".v1" in workflow_name
 
 
 def _phase_prompt_inputs_are_direct(
@@ -8442,7 +8692,56 @@ def _structured_result_bundle_input_name(step: Mapping[str, object] | SurfaceSte
         path = contract.get("path")
         if isinstance(path, str) and path.startswith("${inputs.") and path.endswith("}"):
             return path.removeprefix("${inputs.").removesuffix("}")
+    if isinstance(step, Mapping):
+        match_block = step.get("match")
+        if isinstance(match_block, Mapping):
+            shared_bundle_input: str | None = None
+            for case in (match_block.get("cases") or {}).values():
+                if not isinstance(case, Mapping):
+                    return None
+                terminal_step_name = _mapping_terminal_step_name(case.get("outputs"))
+                if terminal_step_name is None:
+                    return None
+                terminal_step = _find_authored_step_by_name(case.get("steps"), terminal_step_name)
+                if terminal_step is None:
+                    return None
+                bundle_input = _structured_result_bundle_input_name(terminal_step)
+                if bundle_input is None:
+                    return None
+                if shared_bundle_input is None:
+                    shared_bundle_input = bundle_input
+                    continue
+                if shared_bundle_input != bundle_input:
+                    return None
+            return shared_bundle_input
     return None
+
+
+def _mapping_terminal_step_name(outputs: Any) -> str | None:
+    """Recover the one terminal step name referenced by one outputs mapping."""
+
+    if not isinstance(outputs, Mapping):
+        return None
+    terminal_step_name: str | None = None
+    for output_spec in outputs.values():
+        if not isinstance(output_spec, Mapping):
+            continue
+        source = output_spec.get("from")
+        if not isinstance(source, Mapping):
+            continue
+        ref = source.get("ref")
+        if not isinstance(ref, str):
+            continue
+        match = re.match(r"^(?:self|root)\.steps\.([^.]+)\.artifacts\.[^.]+$", ref)
+        if match is None:
+            continue
+        candidate = match.group(1)
+        if terminal_step_name is None:
+            terminal_step_name = candidate
+            continue
+        if terminal_step_name != candidate:
+            return None
+    return terminal_step_name
 
 
 def _find_authored_step_by_name(steps: Any, step_name: str) -> Mapping[str, object] | None:
@@ -8639,9 +8938,121 @@ def _lower_union_variant_expr(
     assert isinstance(typed_expr.type_ref, UnionTypeRef)
     step_name = context.step_name_prefix
     step_id = _normalize_generated_step_id(step_name)
+    if step_name != context.workflow_name:
+        values: list[dict[str, Any]] = []
+        placeholders = _boundary_placeholder_literals(
+            typed_expr.type_ref,
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+        )
+        active_field_names = {name for name, _ in union_expr.fields}
+        for field in derive_workflow_boundary_fields(
+            typed_expr.type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+        ):
+            field_path = _normalize_union_field_path(field.source_path[1:])
+            field_name = field_path[0] if field_path else ""
+            contract = dict(field.contract_definition)
+            if field_name == "variant":
+                source = {"literal": union_expr.variant_name}
+            elif field_name in active_field_names:
+                leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
+                leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
+                if isinstance(leaf_value, LiteralExpr):
+                    source = {"literal": leaf_value.value}
+                elif isinstance(leaf_value, str):
+                    source = {"ref": leaf_value}
+                else:
+                    raise _compile_error(
+                        code="workflow_return_not_exportable",
+                        message=(
+                            f"union return field `{field.generated_name}` must lower from an existing step artifact "
+                            "or literal in this Stage 3 slice"
+                        ),
+                        span=leaf_expr.span,
+                        form_path=leaf_expr.form_path,
+                    )
+            else:
+                source = {"literal": placeholders[field.generated_name]}
+                if contract.get("type") == "relpath":
+                    contract["must_exist_target"] = False
+            values.append(
+                {
+                    "name": field.generated_name,
+                    "source": source,
+                    "contract": contract,
+                }
+            )
+        _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
+        step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)
+        return [step], _TerminalResult(
+            step_name=step_name,
+            step_id=step_id,
+            output_refs={
+                field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+                for field in derive_workflow_boundary_fields(
+                    typed_expr.type_ref,
+                    generated_name="return",
+                    source_path=("return",),
+                    span=union_expr.span,
+                    form_path=union_expr.form_path,
+                )
+            },
+            output_kind="step",
+            hidden_inputs={},
+        )
+    hidden_input_name = f"__write_root__{step_id}__result_bundle"
+    bundle_contract = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=step_name,
+        span=union_expr.span,
+        form_path=union_expr.form_path,
+    )
+    authored_contract = dict(bundle_contract.payload)
+    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
     values: list[dict[str, Any]] = []
-    placeholders = _boundary_placeholder_literals(typed_expr.type_ref, span=union_expr.span, form_path=union_expr.form_path)
-    active_field_names = {name for name, _ in union_expr.fields}
+    values.append(
+        {
+            "name": "variant",
+            "source": {"literal": union_expr.variant_name},
+            "contract": _surface_contract_from_structured_field(authored_contract["discriminant"]),
+        }
+    )
+    for field in authored_contract.get("shared_fields", ()):
+        values.append(
+            {
+                "name": field["name"],
+                "source": _union_variant_materialize_source(
+                    union_expr,
+                    field_path=(field["name"],),
+                    local_values=local_values,
+                ),
+                "contract": _surface_contract_from_structured_field(field),
+            }
+        )
+    for field in authored_contract["variants"][union_expr.variant_name]["fields"]:
+        values.append(
+            {
+                "name": field["name"],
+                "source": _union_variant_materialize_source(
+                    union_expr,
+                    field_path=(field["name"],),
+                    local_values=local_values,
+                ),
+                "contract": _surface_contract_from_structured_field(field),
+            }
+        )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, union_expr)
+    step = {
+        **_materialize_values_step(step_name=step_name, step_id=step_id, values=values),
+        bundle_contract.contract_kind: authored_contract,
+    }
+    output_refs = {}
     for field in derive_workflow_boundary_fields(
         typed_expr.type_ref,
         generated_name="return",
@@ -8650,55 +9061,13 @@ def _lower_union_variant_expr(
         form_path=union_expr.form_path,
     ):
         field_path = _normalize_union_field_path(field.source_path[1:])
-        field_name = field_path[0] if field_path else ""
-        contract = dict(field.contract_definition)
-        if field_name == "variant":
-            source = {"literal": union_expr.variant_name}
-        elif field_name in active_field_names:
-            leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
-            leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
-            if isinstance(leaf_value, LiteralExpr):
-                source = {"literal": leaf_value.value}
-            elif isinstance(leaf_value, str):
-                source = {"ref": leaf_value}
-            else:
-                raise _compile_error(
-                    code="workflow_return_not_exportable",
-                    message=(
-                        f"union return field `{field.generated_name}` must lower from an existing step artifact "
-                        "or literal in this Stage 3 slice"
-                    ),
-                    span=leaf_expr.span,
-                    form_path=leaf_expr.form_path,
-                )
-        else:
-            source = {"literal": placeholders[field.generated_name]}
-            if contract.get("type") == "relpath":
-                contract["must_exist_target"] = False
-        values.append(
-            {
-                "name": field.generated_name,
-                "source": source,
-                "contract": contract,
-            }
-        )
-    _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
-    step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)
+        output_refs[field.generated_name] = f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
     return [step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
-        output_refs={
-            field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
-            for field in derive_workflow_boundary_fields(
-                typed_expr.type_ref,
-                generated_name="return",
-                source_path=("return",),
-                span=union_expr.span,
-                form_path=union_expr.form_path,
-            )
-        },
+        output_refs=output_refs,
         output_kind="step",
-        hidden_inputs={},
+        hidden_inputs={hidden_input_name: _origin_from_context_source(context, union_expr)},
     )
 
 
@@ -8725,6 +9094,31 @@ def _render_existing_output_ref(
     ):
         return value
     return None
+
+
+def _union_variant_materialize_source(
+    union_expr: UnionVariantExpr,
+    *,
+    field_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Render one union-variant leaf as a materialize-artifacts source."""
+
+    leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
+    leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
+    if isinstance(leaf_value, LiteralExpr):
+        return {"literal": leaf_value.value}
+    if isinstance(leaf_value, str):
+        return {"ref": leaf_value}
+    raise _compile_error(
+        code="workflow_return_not_exportable",
+        message=(
+            f"union return field `{'__'.join(field_path)}` must lower from an existing step artifact "
+            "or literal in this Stage 3 slice"
+        ),
+        span=leaf_expr.span,
+        form_path=leaf_expr.form_path,
+    )
 
 
 def _template_for_ref(ref: str) -> str:
@@ -8870,6 +9264,7 @@ def _copy_context_with_phase_scope(
         generated_input_spans=context.generated_input_spans,
         authored_generated_inputs=context.authored_generated_inputs,
         internal_generated_input_reasons=context.internal_generated_input_reasons,
+        internal_generated_input_contracts=context.internal_generated_input_contracts,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         generated_semantic_effects=context.generated_semantic_effects,
@@ -8879,6 +9274,7 @@ def _copy_context_with_phase_scope(
         boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         local_type_bindings=context.local_type_bindings,
+        is_generated_private_workflow=context.is_generated_private_workflow,
         phase_scope=phase_scope,
         iteration_scope=context.iteration_scope,
         active_procedure_calls=context.active_procedure_calls,
@@ -8908,6 +9304,7 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         generated_input_spans=context.generated_input_spans,
         authored_generated_inputs=context.authored_generated_inputs,
         internal_generated_input_reasons=context.internal_generated_input_reasons,
+        internal_generated_input_contracts=context.internal_generated_input_contracts,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         generated_semantic_effects=context.generated_semantic_effects,
@@ -8917,6 +9314,7 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         local_type_bindings=context.local_type_bindings,
+        is_generated_private_workflow=context.is_generated_private_workflow,
         phase_scope=context.phase_scope,
         iteration_scope=context.iteration_scope,
         active_procedure_calls=context.active_procedure_calls,
@@ -8953,6 +9351,7 @@ def _context_with_local_type_binding(
         generated_input_spans=context.generated_input_spans,
         authored_generated_inputs=context.authored_generated_inputs,
         internal_generated_input_reasons=context.internal_generated_input_reasons,
+        internal_generated_input_contracts=context.internal_generated_input_contracts,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         generated_semantic_effects=context.generated_semantic_effects,
@@ -8962,6 +9361,7 @@ def _context_with_local_type_binding(
         boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         local_type_bindings={**dict(context.local_type_bindings), binding_name: binding_type},
+        is_generated_private_workflow=context.is_generated_private_workflow,
         phase_scope=context.phase_scope,
         iteration_scope=context.iteration_scope,
         active_procedure_calls=context.active_procedure_calls,
@@ -8995,6 +9395,7 @@ def _copy_context_with_iteration_scope(
         generated_input_spans=context.generated_input_spans,
         authored_generated_inputs=context.authored_generated_inputs,
         internal_generated_input_reasons=context.internal_generated_input_reasons,
+        internal_generated_input_contracts=context.internal_generated_input_contracts,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         generated_semantic_effects=context.generated_semantic_effects,
@@ -9004,6 +9405,7 @@ def _copy_context_with_iteration_scope(
         boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         local_type_bindings=context.local_type_bindings,
+        is_generated_private_workflow=context.is_generated_private_workflow,
         phase_scope=context.phase_scope,
         iteration_scope=iteration_scope,
         active_procedure_calls=context.active_procedure_calls,
@@ -10393,6 +10795,16 @@ def _validate_one_lowered_workflow(
         workflow,
         workflow_path=loader._current_workflow_path,
         imported_bundles=imported_bundles,
+        managed_write_root_inputs=tuple(
+            item.generated_name
+            for item in lowered_workflow.boundary_projection.generated_internal_inputs
+            if item.reason == "managed_write_root"
+        ),
+        runtime_context_inputs=tuple(
+            item.generated_name
+            for item in lowered_workflow.boundary_projection.generated_internal_inputs
+            if item.reason == "runtime_owned_context"
+        ),
         validation_backend=loader,
         workflow_is_imported=workflow_is_imported,
     )

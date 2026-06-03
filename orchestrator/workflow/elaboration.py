@@ -86,6 +86,7 @@ def elaborate_surface_workflow(
     workflow_path: Any,
     imported_bundles: Mapping[str, Any],
     managed_write_root_inputs: tuple[str, ...] = (),
+    runtime_context_inputs: tuple[str, ...] = (),
     validation_backend: SurfaceWorkflowValidationBackend | None = None,
     workflow_is_imported: bool = False,
 ) -> SurfaceWorkflow | None:
@@ -94,6 +95,7 @@ def elaborate_surface_workflow(
     surface_workflow = deepcopy(dict(workflow))
     version = str(surface_workflow.get("version", ""))
     managed_inputs = tuple(managed_write_root_inputs)
+    runtime_inputs = tuple(runtime_context_inputs)
 
     if validation_backend is not None:
         validation_backend.validate_top_level(validation_workflow, version)
@@ -174,6 +176,7 @@ def elaborate_surface_workflow(
                 workflow_path=bundle.provenance.workflow_path,
                 source_root=bundle.provenance.source_root,
                 managed_write_root_inputs=bundle.provenance.managed_write_root_inputs,
+                runtime_context_inputs=bundle.provenance.runtime_context_inputs,
                 workflow_name=bundle.surface.name,
                 output_names=tuple(bundle.surface.outputs),
             )
@@ -184,6 +187,7 @@ def elaborate_surface_workflow(
         workflow_path=workflow_path,
         source_root=workflow_path.parent,
         managed_write_root_inputs=managed_inputs,
+        runtime_context_inputs=runtime_inputs,
         imported_aliases=tuple(imported_bundles.keys()),
     )
 

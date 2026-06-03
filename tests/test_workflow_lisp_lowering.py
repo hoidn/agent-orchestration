@@ -11,6 +11,7 @@ from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inpu
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
+    compile_stage3_entrypoint,
     compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
@@ -66,6 +67,7 @@ PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding
 LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
+PROMOTED_ENTRY_BOOTSTRAP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -1543,6 +1545,194 @@ def test_compile_stage3_entrypoint_omits_imported_defaulted_call_bindings(tmp_pa
     assert lowered["steps"][0]["call"] == "defaults_pkg/helper::helper"
     assert lowered["steps"][0]["with"]["required_path"] == {"ref": "inputs.required_path"}
     assert "optional_report" not in lowered["steps"][0]["with"]
+
+
+def test_compile_stage3_entrypoint_same_file_later_helper_emits_hidden_context_call_bindings(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "same_file_promoted_entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule same_file_promoted_entry)",
+                "  (export promoted-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ResumeInputs",
+                "    (report_path WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report_path WorkReport))",
+                "  (defworkflow promoted-entry",
+                "    ((inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :inputs inputs))",
+                "  (defworkflow helper",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record WorkflowOutput",
+                "        :report_path inputs.report_path))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(tmp_path,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    ).entry_result
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "same_file_promoted_entry::promoted-entry"
+    )
+    call_step = next(step for step in lowered.authored_mapping["steps"] if step.get("call"))
+
+    assert call_step["call"] == "same_file_promoted_entry::helper"
+    assert {
+        name: call_step["with"][name]
+        for name in (
+            "phase-ctx__run__run-id",
+            "phase-ctx__run__state-root",
+            "phase-ctx__run__artifact-root",
+            "phase-ctx__phase-name",
+            "phase-ctx__state-root",
+            "phase-ctx__artifact-root",
+        )
+    } == {
+        "phase-ctx__run__run-id": {"ref": "inputs.phase-ctx__run__run-id"},
+        "phase-ctx__run__state-root": {"ref": "inputs.phase-ctx__run__state-root"},
+        "phase-ctx__run__artifact-root": {"ref": "inputs.phase-ctx__run__artifact-root"},
+        "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__phase-name"},
+        "phase-ctx__state-root": {"ref": "inputs.phase-ctx__state-root"},
+        "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__artifact-root"},
+    }
+
+
+def test_compile_stage3_entrypoint_promoted_entry_emits_hidden_context_call_bindings(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        PROMOTED_ENTRY_BOOTSTRAP_FIXTURE,
+        source_roots=(FIXTURES / "valid",),
+        command_boundaries={
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    ).entry_result
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == (
+            "phase_stdlib_resume_or_start_promoted_entry_bootstrap::"
+            "promoted-entry-resume-plan-gate-wrapper"
+        )
+    )
+    call_step = next(step for step in lowered.authored_mapping["steps"] if step.get("call"))
+
+    assert {
+        item.generated_name: item.reason for item in lowered.boundary_projection.generated_internal_inputs
+    } == {
+        "phase-ctx__run__run-id": "runtime_owned_context",
+        "phase-ctx__run__state-root": "runtime_owned_context",
+        "phase-ctx__run__artifact-root": "runtime_owned_context",
+        "phase-ctx__phase-name": "runtime_owned_context",
+        "phase-ctx__state-root": "runtime_owned_context",
+        "phase-ctx__artifact-root": "runtime_owned_context",
+    }
+    assert {
+        name: call_step["with"][name]
+        for name in (
+            "phase-ctx__run__run-id",
+            "phase-ctx__run__state-root",
+            "phase-ctx__run__artifact-root",
+            "phase-ctx__phase-name",
+            "phase-ctx__state-root",
+            "phase-ctx__artifact-root",
+        )
+    } == {
+        "phase-ctx__run__run-id": {"ref": "inputs.phase-ctx__run__run-id"},
+        "phase-ctx__run__state-root": {"ref": "inputs.phase-ctx__run__state-root"},
+        "phase-ctx__run__artifact-root": {"ref": "inputs.phase-ctx__run__artifact-root"},
+        "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__phase-name"},
+        "phase-ctx__state-root": {"ref": "inputs.phase-ctx__state-root"},
+        "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__artifact-root"},
+    }
+
+
+def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_selected_entry_workflow(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "src"
+    workflow_path = source_root / "promoted_pkg" / "entry.orc"
+    workflow_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_module(
+        workflow_path,
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule promoted_pkg/entry)",
+                "  (import library/phase_stdlib_resume_or_start_promoted_entry_bootstrap_helper",
+                "    :as bootstrap",
+                "    :only (ResumeInputs PlanGateWrapperSurfaceResult resume-plan-gate-wrapper))",
+                "  (export promoted-entry-resume-plan-gate-wrapper helper-wrapper)",
+                "  (defworkflow promoted-entry-resume-plan-gate-wrapper",
+                "    ((inputs bootstrap.ResumeInputs))",
+                "    -> bootstrap.PlanGateWrapperSurfaceResult",
+                "    (call bootstrap.resume-plan-gate-wrapper",
+                "      :inputs inputs))",
+                "  (defworkflow helper-wrapper",
+                "    ((inputs bootstrap.ResumeInputs))",
+                "    -> bootstrap.PlanGateWrapperSurfaceResult",
+                "    (call bootstrap.resume-plan-gate-wrapper",
+                "      :inputs inputs)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(source_root, FIXTURES / "valid"),
+            command_boundaries={
+                "resolve_plan_gate": ExternalToolBinding(
+                    name="resolve_plan_gate",
+                    stable_command=("python", "scripts/resolve_plan_gate.py"),
+                ),
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "phase-ctx" in diagnostic.message
 
 
 def test_compile_stage3_module_rejects_same_file_call_record_leaf_without_ref(tmp_path: Path) -> None:

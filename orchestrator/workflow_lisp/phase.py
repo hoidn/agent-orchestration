@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
+from typing import TYPE_CHECKING, Any
 
 from .definitions import PathDef
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -17,6 +18,9 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
 )
+
+if TYPE_CHECKING:
+    from .workflows import WorkflowSignature
 
 
 RUN_CONTEXT_NAME = "RunCtx"
@@ -63,6 +67,15 @@ class PhaseScope:
     target_fields: Mapping[str, str] = field(default_factory=dict)
     target_types: Mapping[str, PathTypeRef] = field(default_factory=dict)
     uses_legacy_bridge: bool = False
+
+
+@dataclass(frozen=True)
+class PromotedEntryHiddenContextRequirement:
+    """Compiler-owned hidden context binding metadata for promoted-entry callers."""
+
+    param_name: str
+    context_kind: str
+    phase_name: str | None = None
 
 
 def is_implementation_attempt_result_type(type_ref: TypeRef) -> bool:
@@ -259,6 +272,68 @@ def resolve_phase_target_type(
     if not isinstance(context_type, RecordTypeRef):
         raise TypeError(f"phase scope context `{phase_scope.context_record_name}` must resolve to a record type")
     return type_env.record_field(context_type, field_name, span=span, form_path=form_path)
+
+
+def derive_promoted_entry_hidden_context_metadata(
+    signature: "WorkflowSignature",
+    body_expr: Any,
+) -> tuple[
+    Mapping[str, PromotedEntryHiddenContextRequirement],
+    Mapping[str, tuple[str, ...]],
+]:
+    """Derive hidden-context eligibility metadata from one typed workflow body."""
+
+    requirements: dict[str, PromotedEntryHiddenContextRequirement] = {}
+    ambiguities: dict[str, tuple[str, ...]] = {}
+    for param_name, type_ref in signature.params:
+        if isinstance(type_ref, RecordTypeRef) and type_ref.name == RUN_CONTEXT_NAME:
+            requirements[param_name] = PromotedEntryHiddenContextRequirement(
+                param_name=param_name,
+                context_kind=RUN_CONTEXT_NAME,
+            )
+            continue
+        if not isinstance(type_ref, RecordTypeRef) or type_ref.name != PHASE_CONTEXT_NAME:
+            continue
+        phase_names = tuple(sorted(_collect_with_phase_names(body_expr, ctx_name=param_name)))
+        if len(phase_names) == 1:
+            requirements[param_name] = PromotedEntryHiddenContextRequirement(
+                param_name=param_name,
+                context_kind=PHASE_CONTEXT_NAME,
+                phase_name=phase_names[0],
+            )
+        elif len(phase_names) > 1:
+            ambiguities[param_name] = phase_names
+    return requirements, ambiguities
+
+
+def _collect_with_phase_names(expr: Any, *, ctx_name: str) -> set[str]:
+    phase_names: set[str] = set()
+
+    def _visit(node: Any) -> None:
+        if node is None:
+            return
+        if isinstance(node, WithPhaseExpr):
+            if isinstance(node.ctx_expr, NameExpr) and node.ctx_expr.name == ctx_name:
+                phase_names.add(node.phase_name)
+            _visit(node.ctx_expr)
+            _visit(node.body)
+            return
+        if is_dataclass(node):
+            for field_info in fields(node):
+                _visit(getattr(node, field_info.name))
+            return
+        if isinstance(node, Mapping):
+            for item in node.values():
+                _visit(item)
+            return
+        if isinstance(node, (tuple, list)):
+            for item in node:
+                _visit(item)
+
+    from .expressions import NameExpr, WithPhaseExpr
+
+    _visit(expr)
+    return phase_names
 
 
 def _require_record_field_type(

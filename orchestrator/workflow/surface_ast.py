@@ -120,6 +120,7 @@ class WorkflowProvenance:
     workflow_path: Path
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
+    runtime_context_inputs: tuple[str, ...] = ()
     imported_aliases: tuple[str, ...] = ()
     frontend_kind: str | None = None
     frontend_build_root: Path | None = None
@@ -137,6 +138,7 @@ class ImportedWorkflowMetadata:
     workflow_path: Path
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
+    runtime_context_inputs: tuple[str, ...] = ()
     workflow_name: Optional[str] = None
     output_names: tuple[str, ...] = ()
 

@@ -34,6 +34,7 @@ class CoreWorkflowImport:
     workflow_path: Path
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
+    runtime_context_inputs: tuple[str, ...] = ()
     workflow_name: str | None = None
     output_names: tuple[str, ...] = ()
 
@@ -387,6 +388,7 @@ def _import_from_surface(
         workflow_path=metadata.workflow_path,
         source_root=metadata.source_root,
         managed_write_root_inputs=metadata.managed_write_root_inputs,
+        runtime_context_inputs=metadata.runtime_context_inputs,
         workflow_name=workflow_name,
         output_names=output_names,
     )
@@ -732,6 +734,7 @@ def _surface_workflow_from_core_ast(core_workflow_ast: CoreWorkflowAST) -> Surfa
                     workflow_path=metadata.workflow_path,
                     source_root=metadata.source_root,
                     managed_write_root_inputs=metadata.managed_write_root_inputs,
+                    runtime_context_inputs=metadata.runtime_context_inputs,
                     workflow_name=metadata.workflow_name,
                     output_names=metadata.output_names,
                 )
@@ -933,6 +936,7 @@ def _import_to_json(metadata: CoreWorkflowImport) -> dict[str, Any]:
         "workflow_path": str(metadata.workflow_path),
         "source_root": str(metadata.source_root),
         "managed_write_root_inputs": list(metadata.managed_write_root_inputs),
+        "runtime_context_inputs": list(metadata.runtime_context_inputs),
         "workflow_name": metadata.workflow_name,
         "output_names": list(metadata.output_names),
     }

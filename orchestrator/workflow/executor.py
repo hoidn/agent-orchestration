@@ -69,6 +69,7 @@ from .loaded_bundle import (
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
     workflow_provenance,
+    workflow_runtime_context_inputs,
     workflow_runtime_input_contracts,
 )
 from .loops import LoopExecutor
@@ -127,6 +128,34 @@ from .adjudication import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RUN_CONTEXT_INPUT_SUFFIXES = frozenset({"run-id", "state-root", "artifact-root"})
+_PHASE_CONTEXT_INPUT_SUFFIXES = frozenset(
+    {
+        "run__run-id",
+        "run__state-root",
+        "run__artifact-root",
+        "phase-name",
+        "state-root",
+        "artifact-root",
+    }
+)
+
+
+def _path_safe_frame_scope_token(frame_id: str) -> str:
+    """Return one bounded path-safe token for nested call-frame storage."""
+
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    normalized = "".join(char if char in allowed else "_" for char in frame_id).strip("._-")
+    while ".." in normalized:
+        normalized = normalized.replace("..", "._")
+    if not normalized:
+        normalized = "call_frame"
+    digest = sha256(frame_id.encode("utf-8")).hexdigest()[:12]
+    max_prefix_length = 96 - len(digest) - 1
+    if len(normalized) > max_prefix_length:
+        normalized = normalized[:max_prefix_length].rstrip("._-") or "call_frame"
+    return f"{normalized}_{digest}"
 
 
 def _display_workflow_path(workspace: Path, workflow_path: Any) -> str:
@@ -197,7 +226,7 @@ class _CallFrameStateManager:
         self.call_step_id = call_step_id
         self.import_alias = import_alias
         self.run_id = parent_manager.run_id
-        frame_root_name = frame_id.replace("/", "_").replace(":", "_")
+        frame_root_name = _path_safe_frame_scope_token(frame_id)
         self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
         self.logs_dir = self.run_root / "logs"
         self.run_root.mkdir(parents=True, exist_ok=True)
@@ -816,14 +845,7 @@ class WorkflowExecutor:
         }
 
     def _path_safe_frame_scope(self, frame_id: str) -> str:
-        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        normalized = "".join(char if char in allowed else "_" for char in frame_id).strip("._-")
-        while ".." in normalized:
-            normalized = normalized.replace("..", "._")
-        if not normalized:
-            normalized = "call_frame"
-        digest = sha256(frame_id.encode("utf-8")).hexdigest()[:12]
-        return f"{normalized}_{digest}"
+        return _path_safe_frame_scope_token(frame_id)
 
     def _step_identity(
         self,
@@ -1890,6 +1912,71 @@ class WorkflowExecutor:
             if isinstance(input_name, str)
         }
 
+    def _entry_runtime_context_bindings(self) -> Dict[str, Any]:
+        """Return deterministic runtime-owned hidden context bindings for entry workflows."""
+
+        if not isinstance(self.state_manager, StateManager):
+            return {}
+        contracts = self._workflow_input_contracts()
+        bindings: Dict[str, Any] = {}
+        for input_name in workflow_runtime_context_inputs(self.loaded_bundle):
+            if not isinstance(input_name, str):
+                continue
+            if input_name.endswith("__run-id"):
+                bindings[input_name] = self.state_manager.run_id
+                continue
+            contract = contracts.get(input_name, {})
+            default_value = contract.get("default") if isinstance(contract, dict) else None
+            if default_value is not None:
+                bindings[input_name] = default_value
+        return bindings
+
+    def _runtime_context_inputs_missing_provenance(self) -> tuple[str, ...]:
+        """Return hidden runtime-context inputs present in contracts but absent from provenance."""
+
+        if not isinstance(self.state_manager, StateManager):
+            return ()
+
+        contracts = self._workflow_input_contracts()
+        if not contracts:
+            return ()
+
+        compiler_recorded_inputs = {
+            input_name
+            for input_name in self.loaded_bundle.surface.provenance.runtime_context_inputs
+            if isinstance(input_name, str) and input_name in contracts
+        }
+        if not compiler_recorded_inputs:
+            return ()
+
+        grouped_suffixes: Dict[str, set[str]] = {}
+        grouped_names: Dict[str, Dict[str, str]] = {}
+        for input_name in compiler_recorded_inputs:
+            if not isinstance(input_name, str):
+                continue
+            prefix, separator, suffix = input_name.partition("__")
+            if not separator or not suffix:
+                continue
+            grouped_suffixes.setdefault(prefix, set()).add(suffix)
+            grouped_names.setdefault(prefix, {})[suffix] = input_name
+
+        inferred_inputs: set[str] = set()
+        for prefix, suffixes in grouped_suffixes.items():
+            if _RUN_CONTEXT_INPUT_SUFFIXES.issubset(suffixes):
+                inferred_inputs.update(grouped_names[prefix][suffix] for suffix in _RUN_CONTEXT_INPUT_SUFFIXES)
+            if _PHASE_CONTEXT_INPUT_SUFFIXES.issubset(suffixes):
+                inferred_inputs.update(grouped_names[prefix][suffix] for suffix in _PHASE_CONTEXT_INPUT_SUFFIXES)
+
+        if not inferred_inputs:
+            return ()
+
+        recorded_inputs = {
+            input_name
+            for input_name in workflow_runtime_context_inputs(self.loaded_bundle)
+            if isinstance(input_name, str)
+        }
+        return tuple(sorted(input_name for input_name in inferred_inputs if input_name not in recorded_inputs))
+
     def _ensure_entry_managed_write_root_bindings(
         self,
         state: Dict[str, Any],
@@ -1922,6 +2009,62 @@ class WorkflowExecutor:
                 {
                     "scope": "workflow_inputs",
                     "reason": "managed_write_root_override",
+                    "input": input_name,
+                    "value": self._json_safe_runtime_value(current_value),
+                    "expected": expected_value,
+                },
+            )
+
+        if changed:
+            self._persist_bound_inputs(state)
+        return None
+
+    def _ensure_entry_runtime_context_bindings(
+        self,
+        state: Dict[str, Any],
+        *,
+        resume: bool,
+    ) -> Optional[Dict[str, Any]]:
+        """Allocate or validate runtime-owned hidden context inputs for entry workflows."""
+
+        missing_metadata_inputs = self._runtime_context_inputs_missing_provenance()
+        if missing_metadata_inputs:
+            return self._contract_violation_result(
+                "Workflow input binding failed",
+                {
+                    "scope": "workflow_inputs",
+                    "reason": "promoted_entry_hidden_context_metadata_missing",
+                    "inputs": list(missing_metadata_inputs),
+                },
+            )
+
+        runtime_bindings = self._entry_runtime_context_bindings()
+        if not runtime_bindings:
+            return None
+
+        bound_inputs = state.get('bound_inputs', {})
+        if not isinstance(bound_inputs, dict):
+            bound_inputs = {}
+            state['bound_inputs'] = bound_inputs
+
+        changed = False
+        for input_name, expected_value in runtime_bindings.items():
+            if input_name not in bound_inputs:
+                bound_inputs[input_name] = expected_value
+                changed = True
+                continue
+
+            current_value = bound_inputs[input_name]
+            if current_value == expected_value:
+                continue
+            if resume and current_value == expected_value:
+                continue
+
+            return self._contract_violation_result(
+                "Workflow input binding failed",
+                {
+                    "scope": "workflow_inputs",
+                    "reason": "promoted_entry_hidden_context_override",
                     "input": input_name,
                     "value": self._json_safe_runtime_value(current_value),
                     "expected": expected_value,
@@ -1976,6 +2119,14 @@ class WorkflowExecutor:
         if managed_input_error is not None:
             state['status'] = 'failed'
             state['error'] = managed_input_error.get('error')
+            self._persist_bound_inputs(state)
+            self.state_manager.update_run_error(state['error'] if isinstance(state.get('error'), dict) else None)
+            self.state_manager.update_status('failed')
+            return self.state_manager.load().to_dict()
+        runtime_context_error = self._ensure_entry_runtime_context_bindings(state, resume=resume)
+        if runtime_context_error is not None:
+            state['status'] = 'failed'
+            state['error'] = runtime_context_error.get('error')
             self._persist_bound_inputs(state)
             self.state_manager.update_run_error(state['error'] if isinstance(state.get('error'), dict) else None)
             self.state_manager.update_status('failed')

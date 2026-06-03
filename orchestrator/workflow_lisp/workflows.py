@@ -25,6 +25,7 @@ from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import elaborate_expression
 from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
+from .phase import derive_promoted_entry_hidden_context_metadata, PromotedEntryHiddenContextRequirement
 from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
 from .spans import SourceSpan
@@ -213,6 +214,9 @@ class WorkflowSignature:
     span: SourceSpan
     form_path: tuple[str, ...]
     param_defaults: Mapping[str, WorkflowParamDefault] = field(default_factory=dict)
+    hidden_context_requirements: Mapping[str, PromotedEntryHiddenContextRequirement] = field(default_factory=dict)
+    hidden_context_ambiguities: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    allow_hidden_context_binding: bool = False
 
 
 @dataclass(frozen=True)
@@ -498,6 +502,7 @@ def build_workflow_catalog(
     imported_signatures: Mapping[str, WorkflowSignature] | None = None,
     lookup_aliases: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
+    allow_hidden_context_callers: bool = False,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
 
@@ -601,6 +606,25 @@ def build_workflow_catalog(
         definitions_by_name[workflow_def.name] = workflow_def
         signatures_by_name[workflow_def.name] = signature
 
+    if allow_hidden_context_callers:
+        selected_workflow_name = _selected_hidden_context_entry_workflow_name(
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
+        )
+        if selected_workflow_name is not None:
+            signature = signatures_by_name[selected_workflow_name]
+            signatures_by_name[selected_workflow_name] = WorkflowSignature(
+                name=signature.name,
+                params=signature.params,
+                return_type_ref=signature.return_type_ref,
+                span=signature.span,
+                form_path=signature.form_path,
+                param_defaults=signature.param_defaults,
+                hidden_context_requirements=signature.hidden_context_requirements,
+                hidden_context_ambiguities=signature.hidden_context_ambiguities,
+                allow_hidden_context_binding=True,
+            )
+
     for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
         if imported_name in signatures_by_name:
             if imported_signatures is not None and imported_name in imported_signatures:
@@ -631,6 +655,23 @@ def build_workflow_catalog(
         definitions_by_name=definitions_by_name,
         imported_bundles_by_name=dict(imported_workflow_bundles or {}),
     )
+
+
+def _selected_hidden_context_entry_workflow_name(
+    *,
+    workflow_defs: tuple[WorkflowDef, ...],
+    signatures_by_name: Mapping[str, WorkflowSignature],
+) -> str | None:
+    """Return the exact entry workflow allowed to use promoted hidden bindings."""
+
+    for workflow_def in workflow_defs:
+        signature = signatures_by_name.get(workflow_def.name)
+        if signature is None:
+            continue
+        if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params):
+            continue
+        return workflow_def.name
+    return None
 
 
 def _signature_from_imported_bundle(
@@ -1030,6 +1071,52 @@ def typecheck_workflow_definitions(
 
     externs = extern_environment or ExternEnvironment(bindings_by_name={})
     command_boundaries = command_boundary_environment
+    procedure_names = frozenset() if procedure_catalog is None else frozenset(procedure_catalog.signatures_by_name)
+    function_names = (
+        frozenset()
+        if function_catalog is None
+        else frozenset(function_catalog.signatures_by_name)
+    )
+    elaborated_bodies: dict[str, object] = {}
+    for workflow_def in workflow_defs:
+        signature = workflow_catalog.signatures_by_name[workflow_def.name]
+        value_env: dict[str, TypeRef] = {
+            param_name: type_ref for param_name, type_ref in signature.params
+        }
+        for extern_name, binding in externs.bindings_by_name.items():
+            if isinstance(binding, ProviderExtern):
+                value_env[extern_name] = PrimitiveTypeRef(name="Provider")
+            else:
+                value_env[extern_name] = PrimitiveTypeRef(name="Prompt")
+
+        if isinstance(workflow_def.body, SyntaxNode):
+            body_expr = elaborate_expression(
+                workflow_def.body,
+                bound_names=frozenset(value_env),
+                procedure_names=procedure_names,
+                function_names=function_names,
+                function_name_resolver=function_name_resolver,
+                procedure_name_resolver=procedure_name_resolver,
+                workflow_name_resolver=workflow_name_resolver,
+            )
+        else:
+            body_expr = workflow_def.body
+        elaborated_bodies[workflow_def.name] = body_expr
+        hidden_context_requirements, hidden_context_ambiguities = (
+            derive_promoted_entry_hidden_context_metadata(signature, body_expr)
+        )
+        workflow_catalog.signatures_by_name[workflow_def.name] = WorkflowSignature(
+            name=signature.name,
+            params=signature.params,
+            return_type_ref=signature.return_type_ref,
+            span=signature.span,
+            form_path=signature.form_path,
+            param_defaults=signature.param_defaults,
+            hidden_context_requirements=hidden_context_requirements,
+            hidden_context_ambiguities=hidden_context_ambiguities,
+            allow_hidden_context_binding=signature.allow_hidden_context_binding,
+        )
+
     typed_workflows: list[TypedWorkflowDef] = []
     for workflow_def in workflow_defs:
         seen_names: set[str] = set()
@@ -1056,24 +1143,8 @@ def typecheck_workflow_definitions(
             else:
                 value_env[extern_name] = PrimitiveTypeRef(name="Prompt")
 
-        procedure_names = frozenset() if procedure_catalog is None else frozenset(procedure_catalog.signatures_by_name)
-        if isinstance(workflow_def.body, SyntaxNode):
-            body_expr = elaborate_expression(
-                workflow_def.body,
-                bound_names=frozenset(value_env),
-                procedure_names=procedure_names,
-                function_names=(
-                    frozenset()
-                    if function_catalog is None
-                    else frozenset(function_catalog.signatures_by_name)
-                ),
-                function_name_resolver=function_name_resolver,
-                procedure_name_resolver=procedure_name_resolver,
-                workflow_name_resolver=workflow_name_resolver,
-            )
-        else:
-            body_expr = workflow_def.body
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
+        body_expr = elaborated_bodies[workflow_def.name]
         set_active_workflow_signature(signature)
         set_active_reusable_state_producer_context(reusable_state_producer_context)
         try:
