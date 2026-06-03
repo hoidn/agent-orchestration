@@ -1018,7 +1018,13 @@ def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imp
         for checkpoint in bundle.runtime_plan.resume_checkpoints
         if checkpoint.checkpoint_kind == "repeat_until_frame"
     )
+    loop_node_id = next(
+        node_id
+        for node_id, projection in bundle.projection.repeat_until_nodes.items()
+        if projection.frame_key == repeat_step["name"]
+    )
     assert frame_checkpoint.presentation_key == repeat_step["name"]
+    assert bundle.projection.repeat_until_frame_key(loop_node_id) == repeat_step["name"]
     assert frame_checkpoint.step_id.startswith("root.")
 
 
@@ -1034,6 +1040,10 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
         "artifacts/work/seed_execution_report.md",
         "artifacts/work/design_review_prompt.md",
         "artifacts/work/fix_plan_prompt.md",
+        "artifacts/work/placeholder.txt",
+        "artifacts/work/loop-placeholder.txt",
+        "artifacts/review/placeholder.txt",
+        "artifacts/review/loop-placeholder.txt",
     ):
         target = tmp_path / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1059,19 +1069,12 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
         if workflow.typed_workflow.definition.name == "phase_stdlib_review_loop::review-revise-loop-demo"
     )
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
-    hidden_inputs = tuple(
-        sorted(
-            {
-                name
-                for name in workflow_input_contracts(bundle)
-                if isinstance(name, str) and name.startswith("__write_root__")
-            }
-            | {
-                match
-                for match in re.findall(r"\$\{inputs\.(__write_root__[^}]+)\}", json.dumps(authored))
-            }
-        )
+    loop_node_id = next(
+        node_id
+        for node_id, projection in bundle.projection.repeat_until_nodes.items()
+        if projection.frame_key == repeat_step["name"]
     )
+    frame_key = bundle.projection.repeat_until_frame_key(loop_node_id)
 
     run_id = "phase-stdlib-review-loop-resume"
     state_manager = StateManager(workspace=tmp_path, run_id=run_id)
@@ -1082,10 +1085,6 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
             "completed__execution_report_path": "artifacts/work/seed_execution_report.md",
             "inputs__design_review_prompt": "artifacts/work/design_review_prompt.md",
             "inputs__fix_plan_prompt": "artifacts/work/fix_plan_prompt.md",
-            **{
-                hidden_input: f".orchestrate/generated/{hidden_input}.json"
-                for hidden_input in hidden_inputs
-            },
         },
     )
 
@@ -1155,12 +1154,12 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
 
         control["review_calls"] += 1
         if control["review_calls"] == 1:
-            _touch("artifacts/work/review_round_1.md")
+            _touch("artifacts/review/review_round_1.md")
             _write_bundle(
                 bundle_path,
                 {
                     "variant": "REVISE",
-                    "revise_review_report": "artifacts/work/review_round_1.md",
+                    "revise_review_report": "artifacts/review/review_round_1.md",
                     "findings": {
                         "schema_version": "ReviewFindings.v1",
                         "items_path": _write_findings("artifacts/work/review_round_1_findings.json"),
@@ -1171,13 +1170,13 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
         if not control["resume_mode"]:
             return _failure("forced review interruption")
         _touch("artifacts/work/checks_report.md")
-        _touch("artifacts/work/review_round_2.md")
+        _touch("artifacts/review/review_round_2.md")
         _write_bundle(
             bundle_path,
             {
                 "variant": "APPROVED",
                 "checks_report": "artifacts/work/checks_report.md",
-                "review_report": "artifacts/work/review_round_2.md",
+                "review_report": "artifacts/review/review_round_2.md",
                 "review_decision": "APPROVE",
                 "findings": {
                     "schema_version": "ReviewFindings.v1",
@@ -1192,10 +1191,17 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
     ):
         first_run = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
         assert first_run["status"] == "failed"
+        frame_result = first_run["steps"][repeat_step["name"]]
+        assert frame_result["error"]["message"] == "repeat_until body step failed"
+        assert frame_result["error"]["context"]["iteration"] == 1
 
-        persisted = json.loads((tmp_path / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8"))
-        assert persisted["repeat_until"][repeat_step["name"]]["current_iteration"] == 1
-        assert persisted["repeat_until"][repeat_step["name"]]["completed_iterations"] == [0]
+        persisted = json.loads(
+            (tmp_path / ".orchestrate" / "runs" / run_id / "state.json").read_text(encoding="utf-8")
+        )
+        assert persisted.get("error") is None
+        assert persisted["repeat_until"][frame_key]["current_iteration"] == 1
+        assert persisted["repeat_until"][frame_key]["completed_iterations"] == [0]
+        assert frame_key in persisted["steps"]
 
         control["resume_mode"] = True
         resumed_state = WorkflowExecutor(
@@ -1206,3 +1212,5 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
         ).execute(run_id=run_id, resume=True)
 
     assert resumed_state["status"] == "completed"
+    assert resumed_state["repeat_until"][frame_key]["completed_iterations"] == [0, 1]
+    assert frame_key in resumed_state["steps"]

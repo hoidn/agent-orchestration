@@ -332,6 +332,7 @@ def test_projection_formats_repeat_until_and_for_each_iteration_step_keys(tmp_pa
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     projection = bundle.projection
 
+    assert projection.repeat_until_frame_key("root.review_loop") == "ReviewLoop"
     assert projection.repeat_until_step_key(
         "root.review_loop",
         1,

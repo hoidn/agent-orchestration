@@ -1167,6 +1167,7 @@ def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resu
     assert call_checkpoint.iteration_owner_node_id == "root.review_loop"
     assert call_checkpoint.iteration_step_id_suffix == "iteration_body.run_review_loop"
     assert frame_checkpoint.checkpoint_kind == "repeat_until_frame"
+    assert frame_checkpoint.presentation_key == bundle.projection.repeat_until_frame_key("root.review_loop")
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.review_loop"]
 
 
@@ -1197,6 +1198,9 @@ def test_frontend_generated_loop_recur_runtime_plan_preserves_repeat_until_resum
     )
 
     assert frame_checkpoint.checkpoint_kind == "repeat_until_frame"
+    assert frame_checkpoint.presentation_key == bundle.projection.repeat_until_frame_key(
+        "root.loop_recur_minimal__loop"
+    )
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.loop_recur_minimal__loop"]
 
 

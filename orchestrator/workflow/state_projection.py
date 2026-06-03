@@ -185,6 +185,13 @@ class WorkflowStateProjection:
             raise KeyError(f"Unknown repeat_until node id '{loop_node_id}'")
         return projection.step_key(iteration_index, nested_node_id)
 
+    def repeat_until_frame_key(self, loop_node_id: str) -> str:
+        """Return the canonical persisted/reporting frame key for one typed repeat-until node."""
+        projection = self.repeat_until_nodes.get(loop_node_id)
+        if projection is None:
+            raise KeyError(f"Unknown repeat_until node id '{loop_node_id}'")
+        return projection.frame_key
+
     def for_each_step_key(self, for_each_node_id: str, iteration_index: int, nested_node_id: str) -> str:
         """Format the persisted/reporting key for one for-each iteration node."""
         projection = self.for_each_nodes.get(for_each_node_id)

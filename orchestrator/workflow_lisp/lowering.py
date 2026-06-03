@@ -599,6 +599,22 @@ def _lower_one_workflow(
         }
         context.generated_input_spans[hidden_input_name] = origin
         context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
+    for path_template, origin in context.generated_path_spans.items():
+        if not isinstance(path_template, str):
+            continue
+        match = re.fullmatch(r"\$\{inputs\.(__write_root__[^}]+)\}", path_template)
+        if match is None:
+            continue
+        hidden_input_name = match.group(1)
+        authored_inputs.setdefault(
+            hidden_input_name,
+            {
+                "kind": "relpath",
+                "type": "relpath",
+            },
+        )
+        context.generated_input_spans.setdefault(hidden_input_name, origin)
+        context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
     for hidden_input_name, contract_definition in context.internal_generated_input_contracts.items():
         authored_inputs[hidden_input_name] = dict(contract_definition)
 
