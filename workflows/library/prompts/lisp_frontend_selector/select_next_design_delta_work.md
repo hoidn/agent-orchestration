@@ -22,6 +22,10 @@ Decision rules:
 Do not select unrelated baseline/frontend work unless it is required to satisfy
 the target delta without violating the baseline design.
 
+If run state contains a blocked design gap with
+`recovery_status: PREREQUISITE_WORK_PENDING`, select or draft the prerequisite
+target-delta work needed to unblock that gap before unrelated target-delta work.
+
 Refactoring may be selected when it is the best next step toward completing the
 target delta, but only as a bounded expansion-enabling pass.
 

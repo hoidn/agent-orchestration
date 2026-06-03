@@ -40,6 +40,9 @@ def main() -> int:
     route = json.loads(Path(args.pre_selection_bundle_path).read_text(encoding="utf-8")).get("pre_selection_route")
     if route == "SELECT_NORMAL_WORK":
         status = _read_status(args.normal_status_path)
+    elif route == "SELECT_PREREQUISITE_WORK":
+        selected_status = _read_status(args.normal_status_path)
+        status = "CONTINUE" if selected_status == "CONTINUE" else "BLOCKED"
     elif route == "RECOVER_BLOCKED_DESIGN_GAP":
         recovery_status = _read_recovery_status(args.recovery_record_status_path)
         if recovery_status == "RUN_RECOVERED_GAP":

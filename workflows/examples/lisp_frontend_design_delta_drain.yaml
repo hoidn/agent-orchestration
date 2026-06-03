@@ -182,6 +182,10 @@ steps:
                 json_pointer: /selector_state_root
                 type: relpath
                 under: state
+              - name: prerequisite_selector_state_root
+                json_pointer: /prerequisite_selector_state_root
+                type: relpath
+                under: state
               - name: design_gap_architect_state_root
                 json_pointer: /design_gap_architect_state_root
                 type: relpath
@@ -214,7 +218,7 @@ steps:
               - name: pre_selection_route
                 json_pointer: /pre_selection_route
                 type: enum
-                allowed: ["SELECT_NORMAL_WORK", "RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED"]
+                allowed: ["SELECT_NORMAL_WORK", "SELECT_PREREQUISITE_WORK", "RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED"]
               - name: design_gap_id
                 json_pointer: /design_gap_id
                 type: string
@@ -280,6 +284,40 @@ steps:
                     with:
                       state_root:
                         ref: parent.steps.PrepareIterationPaths.artifacts.selector_state_root
+                      steering_path:
+                        ref: inputs.steering_path
+                      target_design_path:
+                        ref: inputs.target_design_path
+                      baseline_design_path:
+                        ref: inputs.baseline_design_path
+                      manifest_path:
+                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
+                      progress_ledger_path:
+                        ref: inputs.progress_ledger_path
+                      run_state_path:
+                        ref: inputs.run_state_target_path
+              SELECT_PREREQUISITE_WORK:
+                id: run_prerequisite_recovery_selector_path
+                outputs:
+                  selection_status:
+                    kind: scalar
+                    type: enum
+                    allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+                    from:
+                      ref: self.steps.RunPrerequisiteRecoverySelector.artifacts.selection_status
+                  selection_bundle_path:
+                    type: relpath
+                    under: state
+                    must_exist_target: true
+                    from:
+                      ref: self.steps.RunPrerequisiteRecoverySelector.artifacts.selection_bundle_path
+                steps:
+                  - name: RunPrerequisiteRecoverySelector
+                    id: run_prerequisite_recovery_selector
+                    call: selector
+                    with:
+                      state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.prerequisite_selector_state_root
                       steering_path:
                         ref: inputs.steering_path
                       target_design_path:
@@ -501,11 +539,17 @@ steps:
         - name: WriteNormalIterationStatus
           id: write_normal_iteration_status
           when:
-            compare:
-              left:
-                ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
-              op: eq
-              right: SELECT_NORMAL_WORK
+            any_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: SELECT_NORMAL_WORK
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: SELECT_PREREQUISITE_WORK
           command:
             - python
             - workflows/library/scripts/write_lisp_frontend_drain_status.py
@@ -576,6 +620,11 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: GAP_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: PREREQUISITE_GAP_REQUIRED
           provider: ${inputs.implementation_execute_provider}
           input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_prior_blocked_design_gap.md
           timeout_sec: 3600
@@ -607,11 +656,17 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
-              - compare:
-                  left:
-                    ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                  op: eq
-                  right: TARGET_DESIGN_REVISION_REQUIRED
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: PREREQUISITE_GAP_REQUIRED
               - compare:
                   left:
                     ref: self.steps.ReviseBlockedDesignGap.artifacts.design_revision_decision
@@ -648,11 +703,17 @@ steps:
                     ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
                   op: eq
                   right: RECOVER_BLOCKED_DESIGN_GAP
-              - compare:
-                  left:
-                    ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                  op: eq
-                  right: TARGET_DESIGN_REVISION_REQUIRED
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: PREREQUISITE_GAP_REQUIRED
           command:
             - python
             - workflows/library/scripts/write_lisp_frontend_design_revision_iteration_decision.py

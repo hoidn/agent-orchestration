@@ -62,6 +62,12 @@ def _record_blocked(
     architecture_path: str = "",
     plan_path: str = "",
     recovery_event_id: str = "",
+    recovery_status: str = "",
+    prerequisite_gap_hint: str = "",
+    prerequisite_selection_bundle_path: str = "",
+    waiting_on_prerequisite_gap_id: str = "",
+    prerequisite_recovery_status: str = "",
+    original_blocked_gap_id: str = "",
 ) -> None:
     key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
     blocked = dict(state.get(key, {}))
@@ -74,6 +80,12 @@ def _record_blocked(
         "architecture_path": architecture_path,
         "plan_path": plan_path,
         "recovery_event_id": recovery_event_id,
+        "recovery_status": recovery_status,
+        "prerequisite_gap_hint": prerequisite_gap_hint,
+        "prerequisite_selection_bundle_path": prerequisite_selection_bundle_path,
+        "waiting_on_prerequisite_gap_id": waiting_on_prerequisite_gap_id,
+        "prerequisite_recovery_status": prerequisite_recovery_status,
+        "original_blocked_gap_id": original_blocked_gap_id,
     }
     entry.update({key: value for key, value in optional_fields.items() if value})
     blocked[item_id] = entry
@@ -140,6 +152,12 @@ def main() -> int:
     blocked.add_argument("--architecture-path", default="")
     blocked.add_argument("--plan-path", default="")
     blocked.add_argument("--recovery-event-id", default="")
+    blocked.add_argument("--recovery-status", default="")
+    blocked.add_argument("--prerequisite-gap-hint", default="")
+    blocked.add_argument("--prerequisite-selection-bundle-path", default="")
+    blocked.add_argument("--waiting-on-prerequisite-gap-id", default="")
+    blocked.add_argument("--prerequisite-recovery-status", default="")
+    blocked.add_argument("--original-blocked-gap-id", default="")
     design_revision = sub.add_parser("design_revision")
     design_revision.add_argument("--item-id", required=True)
     design_revision.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
@@ -212,6 +230,12 @@ def main() -> int:
             architecture_path=args.architecture_path,
             plan_path=args.plan_path,
             recovery_event_id=args.recovery_event_id,
+            recovery_status=args.recovery_status,
+            prerequisite_gap_hint=args.prerequisite_gap_hint,
+            prerequisite_selection_bundle_path=args.prerequisite_selection_bundle_path,
+            waiting_on_prerequisite_gap_id=args.waiting_on_prerequisite_gap_id,
+            prerequisite_recovery_status=args.prerequisite_recovery_status,
+            original_blocked_gap_id=args.original_blocked_gap_id,
         )
         if args.summary_path:
             summary_path = Path(args.summary_path)

@@ -80,7 +80,7 @@ Status contract:
 
 - Modify `prompts/classify_lisp_frontend_blocked_implementation_recovery.md` or the currently referenced classifier prompt file
   - Distinguish current gap design revision from target design revision, terminal block, and prerequisite/dependency work.
-  - Keep deterministic routing in the workflow; the prompt only classifies from evidence.
+  - Keep state transitions and validation deterministic in the workflow. Provider prompts may classify semantic blocker routes and, for prerequisite recovery, select or decline prerequisite work from structured context.
 
 - Modify `tests/test_lisp_frontend_autonomous_drain_runtime.py`
   - Replace tests that encode "gap design recovery continues without target edit" as a final outcome.
@@ -102,11 +102,22 @@ Blocked design-gap state should use one durable shape, regardless of whether the
   "architecture_path": "docs/plans/.../implementation_architecture.md",
   "plan_path": "docs/plans/.../implementation_plan.md",
   "recovery_event_id": "stable-id-for-this-block",
+  "recovery_status": "CLASSIFIED",
+  "prerequisite_selection_bundle_path": "",
+  "waiting_on_prerequisite_gap_id": "",
+  "prerequisite_recovery_status": "",
+  "original_blocked_gap_id": "",
   "retry_count": 0
 }
 ```
 
 Minimum required fields for a recoverable blocked design gap are: item id, `reason`, `recovery_route`, `recovery_reason`, `progress_report_path`, `implementation_state_path`, `architecture_path`, `plan_path` or plan-target path, and stable `recovery_event_id`. Fields not consumed by detection, revision, validation, retry preparation, or evidence reporting may stay optional, but this minimum durable basis must be present before a recoverable block may return `CONTINUE`.
+
+Prerequisite recovery may also carry `recovery_status`,
+`prerequisite_selection_bundle_path`, `waiting_on_prerequisite_gap_id`,
+`prerequisite_recovery_status`, and `original_blocked_gap_id`. These fields
+become required before claiming that the workflow can automatically retry the
+original gap after prerequisite completion.
 
 `reason` is the stable block category and must be `implementation_blocked` for recoverable implementation blocks. Classifier causes such as `implementation_architecture_under_scoped`, `target_design_contract_gap`, or `prerequisite_gap_required` belong in `recovery_reason`. The detector must not infer missing `recovery_route`, `recovery_reason`, or `recovery_event_id`; missing required recovery fields produce an explicit `BLOCKED` pre-selection result.
 
@@ -126,8 +137,10 @@ Use one route vocabulary for startup blocks and in-run blocks:
 
 - `PREREQUISITE_GAP_REQUIRED`
   - Do not pretend the current gap design was revised.
-  - Record the dependency/prerequisite work needed.
-  - If prerequisite scheduling is unsupported in this tranche, keep the item in `blocked_design_gaps` with `recovery_route=PREREQUISITE_GAP_REQUIRED` and return terminal `BLOCKED` with a precise prerequisite reason.
+  - Keep the original gap in `blocked_design_gaps` as waiting on prerequisite work.
+  - Route through a recovery-specific prerequisite-selection branch that calls the existing selector prompt with run-state context.
+  - Use `SELECT_PREREQUISITE_WORK` as the pre-selection route for that branch; it is distinct from ordinary `SELECT_NORMAL_WORK`.
+  - Terminally block only on explicit provider decline, malformed provider output, invalid/out-of-scope/self-referential prerequisite selection, unsafe scheduling, or missing evidence.
 
 - `TERMINAL_BLOCKED`
   - Record a terminal block and stop the drain.
@@ -236,6 +249,7 @@ Test cases:
 
 - no blocked design gaps -> `pre_selection_route: SELECT_NORMAL_WORK`;
 - one blocked design gap with enough artifacts -> `pre_selection_route: RECOVER_BLOCKED_DESIGN_GAP`;
+- one blocked design gap with `recovery_route=PREREQUISITE_GAP_REQUIRED` and `recovery_status=PREREQUISITE_WORK_PENDING` -> `pre_selection_route: SELECT_PREREQUISITE_WORK`;
 - blocked design gap missing required architecture/plan/progress evidence -> `pre_selection_route: BLOCKED` with reason.
 - blocked design gap missing `recovery_route`, `recovery_reason`, or `recovery_event_id` -> `pre_selection_route: BLOCKED` with reason.
 
@@ -290,10 +304,11 @@ Add tests that assert:
 Avoid nested control-flow brittleness. Prefer a small recovery detector/route adapter that emits a unified pre-selection route:
 
 - `RECOVER_BLOCKED_DESIGN_GAP`
+- `SELECT_PREREQUISITE_WORK`
 - `SELECT_NORMAL_WORK`
 - `BLOCKED`
 
-Then one `match` routes the repeat body. The adapter must not reimplement normal selector behavior. It may detect blocked recovery state and emit `SELECT_NORMAL_WORK` when no blocked item is present; the existing imported `selector` remains the only normal-selection authority and is called only from the `SELECT_NORMAL_WORK` branch.
+Then one `match` routes the repeat body. The adapter must not reimplement normal selector behavior. It may detect blocked recovery state and emit `SELECT_NORMAL_WORK` when no blocked item is present; the existing imported `selector` remains the only normal-selection authority and is called from `SELECT_NORMAL_WORK` and the recovery-specific `SELECT_PREREQUISITE_WORK` branch.
 
 If the DSL cannot express that without excessive churn, keep `SelectNextWork` as a separate step but guard it behind a preceding `match` whose non-recovery branch is the only place normal selection happens.
 
@@ -331,6 +346,8 @@ Add script-level tests for `resolve_lisp_frontend_drain_iteration_status.py`:
 | `pre_selection_route` | recovery status | recovered item status | expected drain status |
 | --- | --- | --- | --- |
 | `SELECT_NORMAL_WORK` | ignored | ignored | normal selection status |
+| `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `CONTINUE` | `CONTINUE` |
+| `SELECT_PREREQUISITE_WORK` | ignored | normal/selected status `DONE` / `BLOCKED` | `BLOCKED` until a prerequisite satisfaction recorder exists |
 | `RECOVER_BLOCKED_DESIGN_GAP` | `RUN_RECOVERED_GAP` | `CONTINUE` / `BLOCKED` | recovered item status |
 | `RECOVER_BLOCKED_DESIGN_GAP` | `CONTINUE` | ignored | `CONTINUE` |
 | `RECOVER_BLOCKED_DESIGN_GAP` | `BLOCKED` | ignored | `BLOCKED` |
@@ -393,7 +410,7 @@ Recorder status split:
 - In that initial block record, write `reason=implementation_blocked` and write the classifier cause to `recovery_reason`; add a recorder-to-detector handoff regression that records through this script and immediately detects through `detect_lisp_frontend_blocked_design_gap_recovery.py`.
 - Drain-level `GAP_DESIGN_REVISION_REQUIRED` after `design_revision_decision=REVISED`: record the gap-design revision and write `RUN_RECOVERED_GAP`.
 - Drain-level `TARGET_DESIGN_REVISION_REQUIRED` after review `APPROVE`: record the target-design revision and write `RUN_RECOVERED_GAP`.
-- Any blocked, exhausted, prerequisite, terminal, unsafe, or missing-evidence route: keep/update blocked state and write `BLOCKED`.
+- Any blocked, exhausted, terminal, unsafe, missing-evidence, or invalid prerequisite-selection route: keep/update blocked state and write `BLOCKED`. `PREREQUISITE_GAP_REQUIRED` itself is recoverable and should not write terminal `BLOCKED` merely because prerequisite work is not complete yet.
 
 - [ ] **Step 4: Run work-item tests**
 
@@ -439,25 +456,50 @@ The prompt should classify from concrete evidence:
 
 Do not ask the prompt to manage loop state or choose the next workflow step.
 
-- [ ] **Step 3: Implement deterministic route handling**
+- [ ] **Step 3: Implement prompt-selected prerequisite recovery**
 
-For `PREREQUISITE_GAP_REQUIRED`, do one of these explicit behaviors:
+For `PREREQUISITE_GAP_REQUIRED`:
 
-- materialize and run the prerequisite design gap if it can be identified deterministically; or
-- keep the current item visibly blocked with `recovery_route=PREREQUISITE_GAP_REQUIRED` and terminally block the drain with a precise missing-prerequisite reason.
+- keep the current item visibly blocked with `recovery_route=PREREQUISITE_GAP_REQUIRED`;
+- route to `SELECT_PREREQUISITE_WORK`, which invokes the existing selector prompt before unrelated normal selection;
+- validate the provider-selected prerequisite through the selector output schema, path safety, membership, no self-dependency, artifact existence, and existing work-item contracts;
+- record the selected prerequisite bundle/id/path before claiming the original gap can be retried;
+- run selected prerequisite work before retrying the original gap;
+- transition the original gap from `PREREQUISITE_WORK_PENDING` to `RETRY_READY` only after a structured prerequisite satisfaction record proves the prerequisite completed;
+- terminally block only on explicit provider decline, invalid selection, unsafe scheduling, or missing evidence.
+
+This task requires a concrete satisfaction recorder/validator, for example
+`record_lisp_frontend_prerequisite_recovery_outcome.py`, that consumes the
+prerequisite selection bundle, selected work-item status, original blocked gap
+id, and run state. It owns the transition:
+
+- selected prerequisite completed with valid relation -> original blocked gap
+  `recovery_status=RETRY_READY`;
+- provider decline, selector `DONE`, selector `BLOCKED`, invalid relation,
+  self-dependency, out-of-scope path, or missing evidence -> original blocked
+  gap remains visible and the drain returns `BLOCKED` with a recorded reason.
+
+Until that recorder/validator exists, `SELECT_PREREQUISITE_WORK` must never turn
+selector `DONE` into drain `DONE`; it may pass through only `CONTINUE` from
+actually selected work and must fail closed to `BLOCKED` for selector
+non-selection.
 
 Do not map prerequisite work to `GAP_DESIGN_REVISION_REQUIRED`.
 
 - [ ] **Step 4: Add fixture coverage**
 
-Add one provider fixture where the recovery classifier returns `PREREQUISITE_GAP_REQUIRED`.
+Add provider fixtures where the recovery classifier returns `PREREQUISITE_GAP_REQUIRED`.
 
 Expected:
 
 - current gap remains blocked;
 - current gap remains visibly blocked;
-- normal selection does not hide the prerequisite;
-- drain terminal state makes the prerequisite visible if it cannot be run.
+- prerequisite selection runs before unrelated normal selection;
+- provider decline or invalid/self-referential/out-of-scope prerequisite selection blocks with a precise recorded reason;
+- original gap retries after prerequisite completion only after the selected prerequisite and satisfaction record are durable.
+- resolver coverage proves `SELECT_PREREQUISITE_WORK` maps selected-work
+  `CONTINUE` to `CONTINUE`, and selector `DONE`/`BLOCKED` to `BLOCKED` until
+  satisfaction recording exists.
 
 ## Task 7: End-To-End Workflow Verification
 
@@ -507,6 +549,9 @@ Run the fixture-backed runtime test that exercises:
 
 - normal selected gap blocks;
 - recovery revises the right design surface;
+- prerequisite selection uses `SELECT_PREREQUISITE_WORK`;
+- selector `DONE`/`BLOCKED` during prerequisite recovery does not complete the drain;
+- prerequisite completion records satisfaction before original-gap retry;
 - same gap retries;
 - no unrelated selection happens while unresolved.
 
@@ -523,11 +568,14 @@ git diff --check -- \
   workflows/library/scripts/update_lisp_frontend_run_state.py \
   workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py \
   workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py \
+  workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py \
   workflows/library/scripts/detect_lisp_frontend_prior_blocked_design_gap.py \
   workflows/library/scripts/materialize_lisp_frontend_recovered_design_gap_draft.py \
   workflows/library/scripts/prepare_lisp_frontend_recovered_design_gap_work_item.py \
   workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py \
   workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py \
+  workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md \
+  workflows/library/lisp_frontend_design_delta_selector.v214.yaml \
   workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py \
   workflows/library/scripts/write_lisp_frontend_drain_status.py \
   workflows/library/scripts/write_lisp_frontend_relpath_value.py \

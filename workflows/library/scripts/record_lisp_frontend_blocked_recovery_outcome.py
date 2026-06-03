@@ -60,7 +60,14 @@ def _write_outputs(
     drain.write_text(status + "\n", encoding="utf-8")
 
 
-def _run_update(args: argparse.Namespace, command: str, reason: str) -> int:
+def _run_update(
+    args: argparse.Namespace,
+    command: str,
+    reason: str,
+    *,
+    recovery_status: str = "",
+    prerequisite_gap_hint: str = "",
+) -> int:
     state_reason = "implementation_blocked" if command == "blocked" else reason
     command_args = [
         "python",
@@ -90,6 +97,8 @@ def _run_update(args: argparse.Namespace, command: str, reason: str) -> int:
             "--architecture-path": _architecture_path(args),
             "--plan-path": args.plan_path,
             "--recovery-event-id": args.recovery_event_id,
+            "--recovery-status": recovery_status,
+            "--prerequisite-gap-hint": prerequisite_gap_hint,
         }
         for flag, value in optional.items():
             if value:
@@ -178,7 +187,39 @@ def main() -> int:
             return _run_update(args, "blocked", "design_revision_exhausted")
         raise SystemExit(f"Unexpected target design review decision: {decision}")
     if route == "PREREQUISITE_GAP_REQUIRED":
-        return _run_update(args, "blocked", reason)
+        if args.terminal_action == "block":
+            return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
+        if revision_report_exists:
+            report = json.loads(revision_report_path.read_text(encoding="utf-8"))
+            revision_decision = str(report.get("design_revision_decision") or "").strip()
+            if revision_decision == "BLOCKED":
+                return _run_update(args, "blocked", "prerequisite_target_design_revision_blocked")
+            if revision_decision != "REVISED":
+                raise SystemExit(f"Unexpected prerequisite target design revision decision: {revision_decision}")
+            decision = _read_value_or_path(args.target_design_review_decision)
+            if decision == "APPROVE":
+                result = _run_update(
+                    args,
+                    "blocked",
+                    reason,
+                    recovery_status="PREREQUISITE_WORK_PENDING",
+                    prerequisite_gap_hint=str(report.get("summary") or "").strip(),
+                )
+                if result == 0:
+                    Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+                return result
+            if decision in {"REVISE", "BLOCKED"}:
+                return _run_update(
+                    args,
+                    "blocked",
+                    "prerequisite_target_design_revision_exhausted",
+                    recovery_status="TARGET_DESIGN_REVISION_REQUIRED",
+                )
+            raise SystemExit(f"Unexpected prerequisite target design review decision: {decision}")
+        result = _run_update(args, "blocked", reason, recovery_status="TARGET_DESIGN_REVISION_REQUIRED")
+        if result == 0:
+            Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+        return result
 
     if route == "TERMINAL_BLOCKED" or args.terminal_action == "block":
         return _run_update(args, "blocked", "implementation_blocked")

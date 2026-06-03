@@ -39,12 +39,14 @@ def main() -> int:
     payload = {
         "iteration_state_root": iteration_root.as_posix(),
         "selector_state_root": (iteration_root / "selector").as_posix(),
+        "prerequisite_selector_state_root": (iteration_root / "prerequisite-selector").as_posix(),
         "design_gap_architect_state_root": (iteration_root / "design-gap-architect").as_posix(),
         "backlog_work_item_state_root": (iteration_root / "backlog-work-item").as_posix(),
         "design_gap_work_item_state_root": (iteration_root / "design-gap-work-item").as_posix(),
     }
     for key in (
         "selector_state_root",
+        "prerequisite_selector_state_root",
         "design_gap_architect_state_root",
         "backlog_work_item_state_root",
         "design_gap_work_item_state_root",

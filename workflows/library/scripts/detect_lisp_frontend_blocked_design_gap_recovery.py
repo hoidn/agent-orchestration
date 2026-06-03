@@ -63,12 +63,17 @@ def _block_payload(reason: str) -> dict[str, str]:
     }
 
 
-def _none_payload() -> dict[str, str]:
+def _none_payload(
+    recovery_route: str = "NOT_APPLICABLE",
+    recovery_reason: str = "not_blocked",
+    *,
+    pre_selection_route: str = "SELECT_NORMAL_WORK",
+) -> dict[str, str]:
     return {
-        "pre_selection_route": "SELECT_NORMAL_WORK",
+        "pre_selection_route": pre_selection_route,
         "design_gap_id": "",
-        "recovery_route": "NOT_APPLICABLE",
-        "recovery_reason": "not_blocked",
+        "recovery_route": recovery_route,
+        "recovery_reason": recovery_reason,
         "progress_report_path": "",
         "architecture_path": "",
         "plan_path": "",
@@ -104,6 +109,13 @@ def _recovery_payload(
             return _block_payload("missing_blocked_recovery_reason")
         if not recovery_event_id:
             return _block_payload("missing_blocked_recovery_event_id")
+        recovery_status = str(entry.get("recovery_status") or "").strip()
+        if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_WORK_PENDING":
+            return _none_payload(
+                recovery_route=recovery_route,
+                recovery_reason=recovery_reason,
+                pre_selection_route="SELECT_PREREQUISITE_WORK",
+            )
         progress_path = _find_progress_report(artifact_work_root, design_gap_id, entry)
         if progress_path is None:
             return _block_payload("missing_blocked_progress_report")
