@@ -37,14 +37,34 @@ def _invalid(reason: str, *, output_path: Path) -> int:
     return 0
 
 
+def _validate_current_target(draft: dict[str, Any], targets: dict[str, Any]) -> None:
+    for field in (
+        "design_gap_id",
+        "architecture_path",
+        "work_item_context_path",
+        "check_commands_path",
+        "plan_target_path",
+    ):
+        draft_value = str(draft.get(field) or "").strip()
+        target_value = str(targets.get(field) or "").strip()
+        if draft_value != target_value:
+            raise ValueError(
+                f"Draft field {field}={draft_value!r} does not match current architecture target {target_value!r}"
+            )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--draft-bundle-path", required=True)
+    parser.add_argument("--architecture-targets-path")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     try:
         draft_path = REPO_ROOT / _safe_relpath(args.draft_bundle_path, under="state", must_exist=True)
+        targets_path = None
+        if args.architecture_targets_path:
+            targets_path = REPO_ROOT / _safe_relpath(args.architecture_targets_path, under="state", must_exist=True)
         output_rel = _safe_relpath(args.output, under="state", must_exist=False)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
@@ -74,6 +94,11 @@ def main() -> int:
         checks = _load_json(REPO_ROOT / checks_path)
         if not isinstance(checks, list) or not [str(item).strip() for item in checks if str(item).strip()]:
             raise ValueError("check_commands_path must contain a non-empty JSON list")
+        if targets_path is not None:
+            targets = _load_json(targets_path)
+            if not isinstance(targets, dict):
+                raise ValueError("architecture_targets_path must contain a JSON object")
+            _validate_current_target(draft, targets)
     except (ValueError, json.JSONDecodeError) as exc:
         return _invalid(str(exc), output_path=output_path)
 

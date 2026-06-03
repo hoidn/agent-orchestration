@@ -175,6 +175,8 @@ steps:
       - workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py
       - --draft-bundle-path
       - ${inputs.state_root}/draft-bundle.json
+      - --architecture-targets-path
+      - ${inputs.state_root}/architecture-targets.json
       - --output
       - ${inputs.state_root}/architecture-validation.json
     output_bundle:

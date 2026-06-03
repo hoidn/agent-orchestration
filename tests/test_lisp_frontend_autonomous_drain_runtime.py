@@ -516,6 +516,70 @@ def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
+def test_architecture_validator_rejects_stale_draft_for_current_target(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    stale_architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/old-gap/implementation_architecture.md"
+    target_architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/new-gap/implementation_architecture.md"
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    stale_plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/old-gap/execution_plan.md"
+    target_plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/new-gap/execution_plan.md"
+    stale_architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    target_architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    stale_architecture_path.write_text("# Old Gap Architecture\n", encoding="utf-8")
+    target_architecture_path.write_text("# New Gap Architecture\n", encoding="utf-8")
+    context_path.write_text("# Gap Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -c \"print('gap-check')\""]) + "\n", encoding="utf-8")
+    draft_path = workspace / "state/gap/draft-bundle.json"
+    draft_path.write_text(
+        json.dumps(
+            {
+                "draft_status": "DRAFTED",
+                "design_gap_id": "old-gap",
+                "architecture_path": stale_architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": stale_plan_path.relative_to(workspace).as_posix(),
+                "summary": "Stale gap architecture.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    targets_path = workspace / "state/gap/architecture-targets.json"
+    targets_path.write_text(
+        json.dumps(
+            {
+                "design_gap_id": "new-gap",
+                "architecture_path": target_architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": target_plan_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = workspace / "state/gap/validation.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+        "--draft-bundle-path",
+        draft_path.relative_to(workspace).as_posix(),
+        "--architecture-targets-path",
+        targets_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["architecture_validation_status"] == "INVALID"
+    assert "does not match current architecture target" in payload["reason"]
+
+
 def test_architecture_index_lists_prior_docs_and_excludes_current_target(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)
