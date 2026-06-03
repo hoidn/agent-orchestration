@@ -699,6 +699,52 @@ steps:
                 type: enum
                 allowed: ["REVISED", "BLOCKED"]
 
+        - name: PrepareBlockedDesignRevisionReviewReportPath
+          id: prepare_blocked_design_revision_review_report_path
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: PREREQUISITE_GAP_REQUIRED
+              - compare:
+                  left:
+                    ref: self.steps.ReviseBlockedDesignGap.artifacts.design_revision_decision
+                  op: eq
+                  right: REVISED
+          command:
+            - python
+            - workflows/library/scripts/write_lisp_frontend_relpath_value.py
+            - --value
+            - ${inputs.artifact_review_root}/blocked-design-revision-iteration-${loop.index}-review.json
+            - --under
+            - artifacts/review
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-target-path.txt
+          expected_outputs:
+            - name: design_revision_review_report_path
+              path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-target-path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: false
+
         - name: ReviewBlockedTargetDesignRevision
           id: review_blocked_target_design_revision
           when:
@@ -738,18 +784,71 @@ steps:
               - ${inputs.baseline_design_path}
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-progress-report.md
               - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-report.json
+              - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-target-path.txt
             inject:
               mode: content
+          expected_outputs:
+            - name: design_revision_review_decision
+              path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE"]
+
+        - name: ValidateBlockedDesignRevisionReviewReportPath
+          id: validate_blocked_design_revision_review_report_path
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: ne
+                  right: RETRY_READY
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: PREREQUISITE_GAP_REQUIRED
+              - compare:
+                  left:
+                    ref: self.steps.ReviseBlockedDesignGap.artifacts.design_revision_decision
+                  op: eq
+                  right: REVISED
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ReviewBlockedTargetDesignRevision.artifacts.design_revision_review_decision
+                      op: eq
+                      right: APPROVE
+                  - compare:
+                      left:
+                        ref: self.steps.ReviewBlockedTargetDesignRevision.artifacts.design_revision_review_decision
+                      op: eq
+                      right: REVISE
+          command:
+            - python
+            - workflows/library/scripts/write_lisp_frontend_relpath_value.py
+            - --value
+            - ${steps.PrepareBlockedDesignRevisionReviewReportPath.artifacts.design_revision_review_report_path}
+            - --under
+            - artifacts/review
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-report-path.txt
           expected_outputs:
             - name: design_revision_review_report_path
               path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-report-path.txt
               type: relpath
               under: artifacts/review
               must_exist_target: true
-            - name: design_revision_review_decision
-              path: ${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-decision.txt
-              type: enum
-              allowed: ["APPROVE", "REVISE"]
 
         - name: WriteBlockedDesignRevisionDecision
           id: write_blocked_design_revision_decision

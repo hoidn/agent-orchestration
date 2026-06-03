@@ -2107,7 +2107,9 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
     for step_name in [
         "ClassifyBlockedImplementationRecovery",
         "ReviseBlockedDesignGap",
+        "PrepareBlockedDesignRevisionReviewReportPath",
         "ReviewBlockedTargetDesignRevision",
+        "ValidateBlockedDesignRevisionReviewReportPath",
         "WriteBlockedDesignRevisionDecision",
         "RecordBlockedRecoveryOutcome",
         "RecordPrerequisiteRetryReadyOutcome",
@@ -2123,6 +2125,54 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
     materializer_condition = json.dumps(recover["MaterializeRecoveredBlockedGapDraft"]["when"])
     assert "RETRY_READY" in materializer_condition
     assert "RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status" in materializer_condition
+
+
+def test_blocked_target_design_revision_review_report_path_is_command_owned():
+    workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text())
+    drain = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
+    repeat_steps = drain["repeat_until"]["steps"]
+    names = [step["name"] for step in repeat_steps]
+
+    assert names.index("PrepareBlockedDesignRevisionReviewReportPath") < names.index(
+        "ReviewBlockedTargetDesignRevision"
+    )
+    assert names.index("ReviewBlockedTargetDesignRevision") < names.index(
+        "ValidateBlockedDesignRevisionReviewReportPath"
+    )
+
+    prepare = next(step for step in repeat_steps if step["name"] == "PrepareBlockedDesignRevisionReviewReportPath")
+    assert any(part.endswith("write_lisp_frontend_relpath_value.py") for part in prepare["command"])
+    assert "${inputs.artifact_review_root}/blocked-design-revision-iteration-${loop.index}-review.json" in prepare[
+        "command"
+    ]
+    prepared_output = prepare["expected_outputs"][0]
+    assert prepared_output == {
+        "name": "design_revision_review_report_path",
+        "path": "${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-target-path.txt",
+        "type": "relpath",
+        "under": "artifacts/review",
+        "must_exist_target": False,
+    }
+
+    review = next(step for step in repeat_steps if step["name"] == "ReviewBlockedTargetDesignRevision")
+    assert "${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-target-path.txt" in (
+        review["depends_on"]["required"]
+    )
+    assert [output["name"] for output in review["expected_outputs"]] == ["design_revision_review_decision"]
+
+    validate = next(step for step in repeat_steps if step["name"] == "ValidateBlockedDesignRevisionReviewReportPath")
+    assert any(part.endswith("write_lisp_frontend_relpath_value.py") for part in validate["command"])
+    assert "${steps.PrepareBlockedDesignRevisionReviewReportPath.artifacts.design_revision_review_report_path}" in (
+        validate["command"]
+    )
+    validated_output = validate["expected_outputs"][0]
+    assert validated_output == {
+        "name": "design_revision_review_report_path",
+        "path": "${inputs.drain_state_root}/iterations/${loop.index}/blocked-design-revision-review-report-path.txt",
+        "type": "relpath",
+        "under": "artifacts/review",
+        "must_exist_target": True,
+    }
 
 
 def _condition_has_pre_selection_recovery_guard(condition: dict) -> bool:
@@ -2659,7 +2709,11 @@ def _revise_blocked_gap_design(workspace: Path) -> None:
 
 def _write_blocked_design_revision_review_approve(workspace: Path) -> None:
     root = _blocked_recovery_iteration_root(workspace)
-    report = workspace / "artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/blocked-design-revision-review.md"
+    target_pointer = root / "blocked-design-revision-review-target-path.txt"
+    if target_pointer.exists():
+        report = workspace / target_pointer.read_text(encoding="utf-8").strip()
+    else:
+        report = workspace / "artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/blocked-design-revision-review.md"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text("# Design Revision Review\n\nApproved.\n", encoding="utf-8")
     (root / "blocked-design-revision-review-report-path.txt").write_text(
