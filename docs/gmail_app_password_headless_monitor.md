@@ -70,11 +70,12 @@ python -m orchestrator monitor \
 
 ## Launch In tmux
 
-Run this from a shell where the two `WORKFLOW_MONITOR_SMTP_*` variables are set:
+If the Gmail credentials are in `~/.config/orchestrator/monitor.env`, source
+that file in the tmux command:
 
 ```bash
 tmux -S /tmp/claude-tmux-sockets/claude.sock new -d -s orchestrator-monitor \
-  'cd /home/ollie/Documents/agent-orchestration && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml'
+  'cd /home/ollie/Documents/agent-orchestration && source ~/.config/orchestrator/monitor.env && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml'
 ```
 
 Check output:

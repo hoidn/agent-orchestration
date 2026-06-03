@@ -68,15 +68,23 @@ python -m orchestrator monitor \
 
 ## Headless Operation
 
-Run under tmux:
+Run under tmux. If credentials live in an env file, source it in the tmux
+command so the monitor process receives the SMTP variables without putting
+secrets in the repository:
 
 ```bash
-tmux new-session -s orchestrator-monitor \
-  'python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml'
+tmux -S /tmp/claude-tmux-sockets/claude.sock new -d -s orchestrator-monitor \
+  'cd /home/ollie/Documents/agent-orchestration && source ~/.config/orchestrator/monitor.env && python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml'
 ```
 
 A systemd user service can run the same command if the service environment
 provides the SMTP credential variables.
+
+Inspect the tmux monitor process:
+
+```bash
+tmux -S /tmp/claude-tmux-sockets/claude.sock capture-pane -p -J -t orchestrator-monitor:0.0 -S -100
+```
 
 ## Event Meanings
 
