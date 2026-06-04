@@ -154,6 +154,57 @@ def _definition_context(path: Path):
     return syntax_module, module, type_env
 
 
+def _typecheck_top_level_names() -> set[str]:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    return _module_top_level_names(source_path)
+
+
+def _module_top_level_names(source_path: Path) -> set[str]:
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+    }
+
+
+def test_typecheck_facade_keeps_generated_local_procedure_helpers_after_let_proc_split() -> None:
+    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+    typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
+    dispatch_source = (package_dir / "typecheck_dispatch.py").read_text(encoding="utf-8")
+    procedure_source = (package_dir / "procedure_typecheck.py").read_text(encoding="utf-8")
+    dispatch_top_level_names = _module_top_level_names(package_dir / "typecheck_dispatch.py")
+    procedure_top_level_names = _module_top_level_names(package_dir / "procedure_typecheck.py")
+
+    assert hasattr(typecheck_module, "consume_generated_local_procedures")
+    assert hasattr(typecheck_module, "reset_generated_local_procedure_state")
+    assert hasattr(typecheck_module, "set_active_workflow_signature")
+    assert hasattr(typecheck_module, "clear_active_workflow_signature")
+    assert hasattr(typecheck_module, "set_active_reusable_state_producer_context")
+    assert hasattr(typecheck_module, "clear_active_reusable_state_producer_context")
+    assert (package_dir / "procedure_typecheck.py").is_file()
+    assert "_typecheck_let_proc" not in _typecheck_top_level_names()
+    assert "typecheck_let_proc_expr(" in procedure_source
+    assert "from .typecheck_dispatch import _typecheck_let_proc" not in procedure_source
+    assert "return _typecheck_let_proc(" not in procedure_source
+    assert {
+        "LocalProcRewriteBinding",
+        "_rewrite_local_proc_references",
+        "_expr_returns_local_proc_value",
+        "_replace_eliminated_let_procs",
+    } <= procedure_top_level_names
+    assert dispatch_top_level_names.isdisjoint(
+        {
+            "_typecheck_let_proc",
+            "LocalProcRewriteBinding",
+            "_rewrite_local_proc_references",
+            "_expr_returns_local_proc_value",
+            "_replace_eliminated_let_procs",
+        }
+    )
+    assert "if isinstance(expr, LetProcExpr):" not in dispatch_source
+
+
 def test_elaborate_defproc_parses_forall_and_where_metadata(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "parametric_proc_metadata.orc",

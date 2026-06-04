@@ -1,5 +1,6 @@
 import inspect
 import importlib
+import ast
 from pathlib import Path
 from typing import get_args
 
@@ -58,6 +59,40 @@ def _expression_syntax(source: str, *, form_path: tuple[str, ...] = FORM_PATH) -
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _workflow_lisp_package_dir() -> Path:
+    return Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+
+
+def _typecheck_top_level_names() -> set[str]:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+    }
+
+
+def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> None:
+    typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
+    package_dir = _workflow_lisp_package_dir()
+    context_path = package_dir / "typecheck_context.py"
+    dispatch_path = package_dir / "typecheck_dispatch.py"
+    dispatch_source = dispatch_path.read_text(encoding="utf-8")
+
+    assert typecheck_module.typecheck_expression is typecheck_expression
+    assert context_path.is_file()
+    assert dispatch_path.is_file()
+    assert inspect.getsourcefile(typecheck_module.TypedExpr) == str(context_path)
+    assert "_typecheck" not in _typecheck_top_level_names()
+    assert "_ACTIVE_FUNCTION_CATALOG" not in dispatch_source
+    assert "_ACTIVE_PROC_REF_VALUE_ENV" not in dispatch_source
+    assert "_ACTIVE_VALUE_EXPR_ENV" not in dispatch_source
+    assert "_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY" not in dispatch_source
+    assert "snapshot_session_state" in dispatch_source
+    assert "restore_session_state" in dispatch_source
 
 
 def test_frontend_type_environment_resolves_stage1_definitions() -> None:

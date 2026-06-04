@@ -1,3 +1,5 @@
+import ast
+import importlib
 from pathlib import Path
 
 import pytest
@@ -63,6 +65,32 @@ def _workflow_ref_command_boundaries() -> dict[str, ExternalToolBinding]:
             stable_command=("python", "scripts/run_checks.py"),
         )
     }
+
+
+def _typecheck_top_level_names() -> set[str]:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+    }
+
+
+def test_workflow_ref_owner_split_moves_non_procedure_call_typing_out_of_typecheck_facade() -> None:
+    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+    dispatch_source = (package_dir / "typecheck_dispatch.py").read_text(encoding="utf-8")
+
+    assert (package_dir / "typecheck_calls.py").is_file()
+    top_level_names = _typecheck_top_level_names()
+    assert "_typecheck_workflow_ref_argument" not in top_level_names
+    assert "_validate_selector_workflow_ref" not in top_level_names
+    assert "_validate_run_item_workflow_ref" not in top_level_names
+    assert "_validate_gap_drafter_workflow_ref" not in top_level_names
+    assert "if isinstance(expr, CallExpr):" not in dispatch_source
+    assert "if isinstance(expr, FunctionCallExpr):" not in dispatch_source
+    assert "typecheck_call_expr(" in dispatch_source
+    assert "typecheck_function_call_expr(" in dispatch_source
 
 
 def test_workflow_ref_same_file_higher_order_calls_compile_and_validate(tmp_path: Path) -> None:

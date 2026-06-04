@@ -1,3 +1,6 @@
+import ast
+import importlib
+import inspect
 from pathlib import Path
 
 import pytest
@@ -34,6 +37,34 @@ def _expression_syntax(source: str, *, form_path: tuple[str, ...] = FORM_PATH) -
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _typecheck_top_level_names() -> set[str]:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+    }
+
+
+def test_variant_proof_owner_split_moves_proof_types_out_of_typecheck_facade() -> None:
+    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+    proof_path = package_dir / "typecheck_proofs.py"
+    dispatch_path = package_dir / "typecheck_dispatch.py"
+    dispatch_source = dispatch_path.read_text(encoding="utf-8")
+    typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
+
+    assert proof_path.is_file()
+    assert inspect.getsourcefile(typecheck_module.ProofFact) == str(proof_path)
+    assert inspect.getsourcefile(typecheck_module.ProofScope) == str(proof_path)
+    assert "ProofFact" not in _typecheck_top_level_names()
+    assert "ProofScope" not in _typecheck_top_level_names()
+    assert "def _resolve_field_access(" not in dispatch_source
+    assert "if isinstance(expr, MatchExpr):" not in dispatch_source
+    assert "typecheck_match_expr(" in dispatch_source
+    assert "typecheck_field_access_expr(" in dispatch_source
 
 
 def test_typecheck_match_requires_union_subject_and_exhaustive_variants() -> None:

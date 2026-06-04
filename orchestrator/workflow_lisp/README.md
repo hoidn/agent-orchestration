@@ -39,7 +39,10 @@ reader.py
   -> type_env.py
   -> expressions.py
   -> typecheck.py
+  -> typecheck_context.py / typecheck_dispatch.py
+  -> typecheck_proofs.py / typecheck_effects.py / typecheck_calls.py
   -> procedure_typecheck.py
+  -> phase_stdlib_typecheck.py
   -> workflows.py / procedures.py
   -> procedure_specialization.py
   -> compiler.py
@@ -69,6 +72,8 @@ split generic lowering coordination from procedure-lowering ownership.
 - `procedure_typecheck.py`: procedure-call typing, generated helper procedure
   typing, and procedure-definition typing ownership behind the `typecheck.py`
   and `compiler.py` compatibility facades.
+- `phase_stdlib_typecheck.py`: owner seam for review-loop stdlib-bridge
+  typing and contract validation while that temporary bridge still exists.
 - `procedure_specialization.py`: compile-time ProcRef / WorkflowRef
   specialization discovery, request materialization, deterministic naming,
   private-workflow eligibility for specialized procedures, and
@@ -81,8 +86,18 @@ split generic lowering coordination from procedure-lowering ownership.
   `output_bundle`, `variant_output`, input, and output contracts.
 - `compiler.py`: compile-stage coordinator facade and compatibility surface for
   procedure typing/specialization entrypoints.
-- `typecheck.py`: top-level expression dispatcher and compatibility surface for
-  procedure typing hooks.
+- `typecheck.py`: stable compatibility facade for callers and tests. Keep
+  imports here stable even when family ownership moves.
+- `typecheck_context.py`: shared `TypedExpr`, recursive typecheck context,
+  diagnostics helpers, and mutable pass-session state seams.
+- `typecheck_dispatch.py`: recursive expression dispatcher and coordinator for
+  the family owners below.
+- `typecheck_proofs.py`: proof-scope data shapes plus variant-proof and
+  field-access typing helpers.
+- `typecheck_effects.py`: provider-result and command-result typing helpers,
+  extern-operand validation, and effect-visibility checks.
+- `typecheck_calls.py`: workflow, workflow-ref, proc-ref, and function-call
+  typing helpers outside `procedure_typecheck.py`.
 - `lowering/__init__.py`: stable lowering facade for callers and tests.
 - `lowering/core.py`: lowering coordinator, shared lowering helpers, source
   maps, and calls into the existing workflow validation path; it is no longer
@@ -118,3 +133,7 @@ test-only rejection harness for disabled/design-fixture closure cases; it must
 not participate in ordinary compilation, and normal Workflow Lisp artifacts
 must not emit runtime-closure payloads, registries, or invocation nodes.
 `let-proc` remains compile-time-only.
+
+Future structural-constraint, imported-`.orc`, and review-loop follow-on work
+should target the dedicated typecheck owner files above instead of adding more
+family logic directly to `typecheck.py`.

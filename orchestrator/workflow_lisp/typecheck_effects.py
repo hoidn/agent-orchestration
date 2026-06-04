@@ -1,0 +1,350 @@
+"""Effect-bearing typecheck ownership for Workflow Lisp."""
+
+from __future__ import annotations
+
+from .effects import (
+    EMPTY_EFFECT_SUMMARY,
+    UsesCommandEffect,
+    UsesProviderEffect,
+    effect_summary_from_direct,
+    merge_effect_summaries,
+)
+from .expressions import CommandResultExpr, ExprNode, LiteralExpr, NameExpr, ProviderResultExpr
+from .type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef
+
+
+def typecheck_expected_extern_operand(
+    expr: ExprNode,
+    *,
+    expected_primitive: str,
+    context,
+    recurse,
+    typed_factory,
+):
+    if isinstance(expr, NameExpr) and expr.name not in context.value_env:
+        return typed_factory(
+            expr=expr,
+            type_ref=PrimitiveTypeRef(name=expected_primitive),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    return recurse(expr)
+
+
+def _literal_string(expr: ExprNode) -> str | None:
+    if isinstance(expr, LiteralExpr) and expr.literal_kind == "string" and isinstance(expr.value, str):
+        return expr.value
+    return None
+
+
+def validate_command_argv(
+    expr: CommandResultExpr,
+    binding,
+) -> None:
+    from . import typecheck as compat
+
+    argv = list(expr.argv)
+    first = _literal_string(argv[0]) if argv else None
+    if first:
+        packed_head = first.split()
+        if len(packed_head) >= 2:
+            head = packed_head[0]
+            flag = packed_head[1]
+            if head.startswith("python") and flag in {"-c", "-"}:
+                compat._raise_error(
+                    "inline Python command glue is not allowed in `command-result`",
+                    code="inline_python_command_in_workflow",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            if head in {"bash", "sh"} and flag in {"-c", "-lc"}:
+                compat._raise_error(
+                    "one-string shell wrappers are not allowed in `command-result`",
+                    code="command_result_argv_invalid",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+    if len(argv) >= 2:
+        second = _literal_string(argv[1])
+        if first and first.startswith("python") and second in {"-c", "-"}:
+            compat._raise_error(
+                "inline Python command glue is not allowed in `command-result`",
+                code="inline_python_command_in_workflow",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        if first in {"bash", "sh"} and second in {"-c", "-lc"}:
+            compat._raise_error(
+                "inline shell command glue is not allowed in `command-result`",
+                code="inline_shell_command_in_workflow",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+    if not argv:
+        compat._raise_error(
+            "`command-result` requires a non-empty argv list",
+            code="command_result_argv_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if binding is None:
+        return
+    stable_prefix = list(binding.stable_command)
+    if len(argv) < len(stable_prefix):
+        compat._raise_error(
+            f"`command-result` `{expr.step_name}` must start with the stable command {' '.join(stable_prefix)!r}",
+            code="command_result_argv_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    for index, token in enumerate(stable_prefix):
+        actual = _literal_string(argv[index])
+        if actual != token:
+            compat._raise_error(
+                f"`command-result` `{expr.step_name}` must start with the stable command {' '.join(stable_prefix)!r}",
+                code="command_result_argv_invalid",
+                span=expr.argv[index].span,
+                form_path=expr.argv[index].form_path,
+                expansion_stack=expr.argv[index].expansion_stack,
+            )
+    if len(argv) == 1:
+        only = _literal_string(argv[0])
+        if only and (" " in only or ";" in only or "|" in only):
+            compat._raise_error(
+                "one-string shell wrappers are not allowed in `command-result`",
+                code="command_result_argv_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+
+
+def validate_semantic_command_adapter_usage(
+    expr: CommandResultExpr,
+    binding,
+) -> None:
+    from . import typecheck as compat
+
+    effects = set(binding.effects)
+    if "resource_transition" in effects or "ledger_update" in effects:
+        compat._raise_error(
+            "resource movement must use `resource-transition` instead of a raw `command-result` adapter call",
+            code="resource_move_without_transition",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if "resume_state_reuse" in effects:
+        compat._raise_error(
+            "reusable-state gating must use `resume-or-start` instead of a raw `command-result` adapter call",
+            code="recovery_gate_without_resume_or_start",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+
+def _span_contains(outer, inner) -> bool:
+    if outer is None:
+        return False
+    if outer.start.path != inner.start.path or outer.end.path != inner.end.path:
+        return False
+    return outer.start.offset <= inner.start.offset and inner.end.offset <= outer.end.offset
+
+
+def is_macro_introduced_effect(
+    span,
+    expansion_stack: tuple[object, ...],
+) -> bool:
+    for frame in expansion_stack:
+        definition_span = getattr(frame, "definition_span", None)
+        if _span_contains(definition_span, span):
+            return True
+    return False
+
+
+def typecheck_provider_result_expr(
+    expr: ProviderResultExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    from . import typecheck as compat
+    from .workflows import PromptExtern, ProviderExtern
+
+    if is_macro_introduced_effect(expr.span, expr.expansion_stack):
+        compat._raise_required_lint(
+            "macro expansion introduced a hidden provider effect; move the `provider-result` to authored workflow code",
+            code="macro_hidden_effect",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    return_type = context.type_env.resolve_type(
+        expr.returns_type_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+        compat._raise_error(
+            f"`provider-result` must return a record or union type, got `{expr.returns_type_name}`",
+            code="provider_result_return_type_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    typed_provider = typecheck_expected_extern_operand(
+        expr.provider,
+        expected_primitive="Provider",
+        context=context,
+        recurse=recurse,
+        typed_factory=typed_factory,
+    )
+    typed_prompt = typecheck_expected_extern_operand(
+        expr.prompt,
+        expected_primitive="Prompt",
+        context=context,
+        recurse=recurse,
+        typed_factory=typed_factory,
+    )
+    if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
+        compat._raise_error(
+            "`provider-result` provider operand must resolve to `Provider`",
+            code="provider_result_provider_invalid",
+            span=expr.provider.span,
+            form_path=expr.provider.form_path,
+            expansion_stack=expr.provider.expansion_stack,
+        )
+    if typed_prompt.type_ref != PrimitiveTypeRef(name="Prompt"):
+        compat._raise_error(
+            "`provider-result` prompt operand must resolve to `Prompt`",
+            code="provider_result_prompt_invalid",
+            span=expr.prompt.span,
+            form_path=expr.prompt.form_path,
+            expansion_stack=expr.prompt.expansion_stack,
+        )
+    if not isinstance(expr.provider, NameExpr) or context.extern_environment is None:
+        compat._raise_error(
+            "`provider-result` requires a compiler-known provider extern",
+            code="provider_result_provider_invalid",
+            span=expr.provider.span,
+            form_path=expr.provider.form_path,
+            expansion_stack=expr.provider.expansion_stack,
+        )
+    provider_binding = context.extern_environment.bindings_by_name.get(expr.provider.name)
+    if not isinstance(provider_binding, ProviderExtern):
+        compat._raise_error(
+            f"`provider-result` provider `{expr.provider.name}` is not a declared provider extern",
+            code="provider_result_provider_invalid",
+            span=expr.provider.span,
+            form_path=expr.provider.form_path,
+            expansion_stack=expr.provider.expansion_stack,
+        )
+    if not isinstance(expr.prompt, NameExpr) or context.extern_environment is None:
+        compat._raise_error(
+            "`provider-result` requires a compiler-known prompt extern",
+            code="provider_result_prompt_invalid",
+            span=expr.prompt.span,
+            form_path=expr.prompt.form_path,
+            expansion_stack=expr.prompt.expansion_stack,
+        )
+    prompt_binding = context.extern_environment.bindings_by_name.get(expr.prompt.name)
+    if not isinstance(prompt_binding, PromptExtern):
+        compat._raise_error(
+            f"`provider-result` prompt `{expr.prompt.name}` is not a declared prompt extern",
+            code="provider_result_prompt_invalid",
+            span=expr.prompt.span,
+            form_path=expr.prompt.form_path,
+            expansion_stack=expr.prompt.expansion_stack,
+        )
+    input_summaries = []
+    for input_expr in expr.inputs:
+        typed_input = recurse(input_expr)
+        input_summaries.append(typed_input.effect_summary)
+    provider_name = expr.provider.name if isinstance(expr.provider, NameExpr) else "provider-result"
+    provider_summary = effect_summary_from_direct(
+        direct_effects=(UsesProviderEffect(subject=tuple(provider_name.split("."))),)
+    )
+    return typed_factory(
+        expr=expr,
+        type_ref=return_type,
+        effect=merge_effect_summaries(
+            typed_provider.effect_summary,
+            typed_prompt.effect_summary,
+            *input_summaries,
+            provider_summary,
+        ),
+    )
+
+
+def typecheck_command_result_expr(
+    expr: CommandResultExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    from . import typecheck as compat
+    from .workflows import CertifiedAdapterBinding
+
+    if is_macro_introduced_effect(expr.span, expr.expansion_stack):
+        compat._raise_required_lint(
+            "macro expansion introduced a hidden command effect; move the `command-result` to authored workflow code",
+            code="macro_hidden_effect",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    arg_summaries = []
+    for arg_expr in expr.argv:
+        typed_arg = recurse(arg_expr)
+        arg_summaries.append(typed_arg.effect_summary)
+    command_binding = None
+    if context.command_boundary_environment is not None:
+        command_binding = context.command_boundary_environment.bindings_by_name.get(expr.step_name)
+        if command_binding is None:
+            compat._raise_error(
+                f"`command-result` `{expr.step_name}` is missing command boundary metadata",
+                code="command_adapter_missing_contract",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        validate_command_argv(expr, command_binding)
+    else:
+        validate_command_argv(expr, None)
+    return_type = context.type_env.resolve_type(
+        expr.returns_type_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+        compat._raise_error(
+            f"`command-result` must return a record or union type, got `{expr.returns_type_name}`",
+            code="command_result_return_type_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(command_binding, CertifiedAdapterBinding):
+        validate_semantic_command_adapter_usage(expr, command_binding)
+        if command_binding.output_type_name != expr.returns_type_name:
+            compat._raise_error(
+                f"`command-result` `{expr.step_name}` must return `{command_binding.output_type_name}`",
+                code="command_result_return_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+    command_summary = effect_summary_from_direct(
+        direct_effects=(UsesCommandEffect(subject=(expr.step_name,)),)
+    )
+    return typed_factory(
+        expr=expr,
+        type_ref=return_type,
+        effect=merge_effect_summaries(*arg_summaries, command_summary),
+    )

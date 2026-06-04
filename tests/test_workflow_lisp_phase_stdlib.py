@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import hashlib
+import importlib
 import json
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -3461,6 +3463,54 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
 
     assert exit_code == 0
     assert json.loads(captured.out) == {"variant": "MISSING_ARTIFACT"}
+
+
+def _typecheck_top_level_names() -> set[str]:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    return _module_top_level_names(source_path)
+
+
+def _module_top_level_names(source_path: Path) -> set[str]:
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+    }
+
+
+def test_review_loop_owner_split_moves_stdlib_bridge_typing_out_of_typecheck_facade() -> None:
+    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+    stdlib_owner_path = package_dir / "phase_stdlib_typecheck.py"
+    owner_source = stdlib_owner_path.read_text(encoding="utf-8")
+    dispatch_top_level_names = _module_top_level_names(package_dir / "typecheck_dispatch.py")
+    owner_top_level_names = _module_top_level_names(stdlib_owner_path)
+    top_level_names = _typecheck_top_level_names()
+
+    assert stdlib_owner_path.is_file()
+    assert "typecheck_stdlib_specialization_expr" in owner_source
+    assert {
+        "_phase_review_loop_result_contract_impl",
+        "_phase_review_loop_typecheck_impl",
+        "_specialize_phase_review_loop_request",
+        "_review_loop_generated_prefix",
+        "_review_loop_generated_procedure_name",
+        "_generated_expr_span",
+        "_initial_review_loop_report_expr",
+    } <= owner_top_level_names
+    assert "_typecheck_stdlib_specialization_expr" not in top_level_names
+    assert "_validate_review_loop_result_contract" not in top_level_names
+    assert dispatch_top_level_names.isdisjoint(
+        {
+            "_phase_review_loop_result_contract_impl",
+            "_phase_review_loop_typecheck_impl",
+            "_specialize_phase_review_loop_request",
+            "_review_loop_generated_prefix",
+            "_review_loop_generated_procedure_name",
+            "_generated_expr_span",
+            "_initial_review_loop_report_expr",
+        }
+    )
 
 
 def test_validate_reusable_phase_state_rejects_symlinked_external_bundle_path(

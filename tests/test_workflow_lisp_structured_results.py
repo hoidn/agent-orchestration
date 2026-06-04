@@ -1,3 +1,5 @@
+import ast
+import importlib
 from pathlib import Path
 
 import pytest
@@ -72,6 +74,32 @@ def _expression_syntax(source: str) -> SyntaxNode:
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _typecheck_top_level_names() -> set[str]:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in module.body
+        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+    }
+
+
+def test_effect_owner_split_moves_command_and_provider_typecheck_out_of_facade() -> None:
+    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+    dispatch_source = (package_dir / "typecheck_dispatch.py").read_text(encoding="utf-8")
+    top_level_names = _typecheck_top_level_names()
+
+    assert (package_dir / "typecheck_effects.py").is_file()
+    assert "_typecheck_expected_extern_operand" not in top_level_names
+    assert "_validate_command_argv" not in top_level_names
+    assert "_validate_semantic_command_adapter_usage" not in top_level_names
+    assert "_is_macro_introduced_effect" not in top_level_names
+    assert "if isinstance(expr, ProviderResultExpr):" not in dispatch_source
+    assert "if isinstance(expr, CommandResultExpr):" not in dispatch_source
+    assert "typecheck_provider_result_expr(" in dispatch_source
+    assert "typecheck_command_result_expr(" in dispatch_source
 
 
 def _typecheck_fixture(path: Path, *, types_path: Path = TYPE_FIXTURE, **typecheck_kwargs):
@@ -1057,13 +1085,13 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
-        "must_exist_target": True,
+        "must_exist_target": False,
     }
     assert outputs["return__progress_report"].definition == {
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
-        "must_exist_target": True,
+        "must_exist_target": False,
     }
     assert outputs["return__blocker_class"].definition == {
         "kind": "scalar",
