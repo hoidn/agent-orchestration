@@ -764,6 +764,87 @@ def test_work_item_terminal_keeps_external_dependency_blocked_for_recovery_class
     }
 
 
+def test_blocked_recovery_user_decision_with_repo_scope_evidence_is_recoverable(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_path = workspace / "state/blocked-implementation-recovery.json"
+    output_path = workspace / "state/blocked-recovery-route.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "TERMINAL_BLOCKED",
+                "reason": "user_decision_required",
+                "summary": (
+                    "The selected gap is mostly implemented, but verification exposed "
+                    "repo-local adapter and contract/import-boundary failures outside "
+                    "the approved implementation slice."
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py"),
+        "--terminal-route",
+        "IMPLEMENTATION_BLOCKED",
+        "--work-item-source",
+        "DESIGN_GAP",
+        "--classifier-bundle-path",
+        bundle_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+        "reason": "implementation_architecture_under_scoped",
+    }
+
+
+def test_blocked_recovery_explicit_external_user_decision_stays_terminal(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_path = workspace / "state/blocked-implementation-recovery.json"
+    output_path = workspace / "state/blocked-recovery-route.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "TERMINAL_BLOCKED",
+                "reason": "user_decision_required",
+                "summary": (
+                    "The blocker requires external human authority and cannot be "
+                    "represented as a design change."
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py"),
+        "--terminal-route",
+        "IMPLEMENTATION_BLOCKED",
+        "--work-item-source",
+        "DESIGN_GAP",
+        "--classifier-bundle-path",
+        bundle_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "blocked_recovery_route": "TERMINAL_BLOCKED",
+        "reason": "user_decision_required",
+    }
+
+
 def test_update_run_state_records_design_revision_without_terminal_item_state(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -2835,11 +2916,11 @@ def _write_blocked_implementation_state(workspace: Path, blocker_class: str, pro
     raise AssertionError("No pending implementation phase root found")
 
 
-def _write_blocked_recovery_bundle(workspace: Path, route: str, reason: str) -> None:
+def _write_blocked_recovery_bundle(workspace: Path, route: str, reason: str, summary: str | None = None) -> None:
     payload = {
         "blocked_recovery_route": route,
         "reason": reason,
-        "summary": f"{route} selected for test.",
+        "summary": summary or f"{route} selected for test.",
     }
     targets: list[Path] = []
     for root in sorted(workspace.glob("state/**/design-gap-work-item")):
@@ -2880,6 +2961,7 @@ def _classify_blocked_recovery_terminal(workspace: Path) -> None:
         workspace,
         "TERMINAL_BLOCKED",
         "user_decision_required",
+        summary="External human authority is required and cannot be represented as a design change.",
     )
 
 
