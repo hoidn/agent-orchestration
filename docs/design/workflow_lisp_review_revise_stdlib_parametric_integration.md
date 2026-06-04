@@ -11,6 +11,7 @@ Related docs:
 - `docs/plans/2026-05-23-workflow-lisp-refactoring-backlog.md`
 - `docs/plans/2026-06-02-workflow-lisp-low-hanging-refactor-plan.md`
 - `docs/plans/2026-06-02-workflow-lisp-generic-orc-expansion-refactor.md`
+- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-owner-seam-split-prerequisite/implementation_architecture.md`
 - `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
 - `docs/design/workflow_lisp_structural_parametric_constraints.md`
 - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
@@ -83,6 +84,12 @@ revised to adopt the parametric route:
    - fix concrete hazards;
    - add characterization coverage;
    - decide the lowering package/facade boundary;
+   - land the selected owner-seam split when procedure seams still live only in
+     oversized public facades;
+   - decompose `lowering/core.py` by lowering family when it remains the
+     mixed owner for non-procedure lowering behavior after the owner-seam split;
+   - decompose `typecheck.py` by typechecking family before structural
+     constraints or parametric specialization add more behavior there;
    - introduce shared expression traversal coverage;
    - optionally add `TypecheckContext` and coherent lowering helper extraction
      where needed.
@@ -232,6 +239,11 @@ The ownership split is:
   characterization coverage, lowering package/facade decision, shared
   expression traversal utility, lowering extern/type helper extraction, and
   package-root narrowing.
+
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-owner-seam-split-prerequisite/implementation_architecture.md`
+: Owns the dedicated prerequisite slice that lands the exact post-split owner
+  modules required by Sections 8.1, 9.4, and Stage 1 whenever those seams still
+  live only inside oversized public facades.
 
 `2026-06-02-workflow-lisp-generic-orc-expansion-refactor.md`
 : Owns Track A generic `.orc` expansion substrate, form registry and extension
@@ -398,6 +410,52 @@ expansion Track A:
 - P0.5 Keep maintained Python frontend modules at or below 2,000 physical lines
   per file, or split them before adding new Track A/type-system behavior.
 
+If a follow-on slice needs to add behavior in seams that are still owned only by
+oversized public facades, that follow-on slice is blocked until a dedicated
+owner-seam split prerequisite lands. The minimum owner-seam split for this
+route must establish explicit post-split owners for:
+
+- procedure-call typechecking integration;
+- specialization discovery and materialization integration;
+- procedure-call lowering, provenance, and lowering-boundary runtime-erasure
+  checks.
+
+For selection and planning purposes, treat that owner-seam split as a distinct
+prerequisite gap rather than as incidental cleanup inside the blocked follow-on
+feature slice. The intended prerequisite gap id is
+`workflow-lisp-owner-seam-split-prerequisite`; future Track A or parametric
+plans should route to that gap first whenever the required seam owners have not
+already landed.
+
+After that owner-seam split lands, do not treat the rest of
+`lowering/core.py` as complete merely because the procedure-specific seams moved
+out. If `lowering/core.py` remains a large mixed owner for provider/command
+effects, records/unions/projection, control-flow lowering, workflow calls,
+source-map/origin bookkeeping, stdlib/temp intrinsic lowering, and validation
+remapping, the next refactor target is a separate family-decomposition gap. The
+intended gap id is `workflow-lisp-lowering-core-family-decomposition`.
+
+That follow-on gap is a target-delta obligation whenever later Track A,
+parametric, or stdlib-review-loop work would otherwise add behavior to
+`lowering/core.py`. It should split by semantic lowering family behind the
+stable `orchestrator.workflow_lisp.lowering` facade, not by arbitrary line
+ranges.
+
+`typecheck.py` has the same status for structural constraints and parametric
+specialization. If it remains the mixed owner for expression dispatch,
+review-loop bridge validation, stdlib specialization typing, proof/field
+helpers, command validation, workflow-ref checks, `let-proc` handling, lint
+raising, and diagnostics, the next refactor target before structural-parametric
+work is a separate typecheck-family decomposition gap. The intended gap id is
+`workflow-lisp-typecheck-family-decomposition`.
+
+That gap should introduce `TypecheckContext` or an equivalent explicit context
+boundary, then split semantic typechecking families behind the stable
+`orchestrator.workflow_lisp.typecheck` compatibility surface. It is a
+target-delta obligation whenever structural constraints, parametric
+specialization, imported `.orc` expansion, or stdlib-review-loop work would
+otherwise add behavior directly to `typecheck.py`.
+
 Rationale: these items reduce the chance that a new generic expansion path is
 parsed, elaborated, or typechecked correctly while being missed by purity checks,
 extern discovery, ProcRef discovery, source maps, or lowering analysis.
@@ -509,7 +567,145 @@ Acceptance:
 - no behavior changes occur in the pure move;
 - focused lowering tests pass.
 
-### 9.4 Introduce Shared Expression Traversal
+### 9.4 Split Oversized Public Facade Owner Seams Before New Type-System Work
+
+When the relevant seams still live only inside oversized public facades such as
+`typecheck.py`, `compiler.py`, or `lowering.py`, the next prerequisite is not
+Track A or parametric feature work. The next prerequisite is a dedicated
+behavior-preserving owner-seam split that moves those responsibilities behind
+the existing public facade before new generic-expansion or type-system behavior
+lands there.
+
+That prerequisite is not merely an acceptance note on the broader low-hanging
+refactor tranche. It is a standalone prerequisite gap for selection and
+handoff: `workflow-lisp-owner-seam-split-prerequisite`. If a blocked run shows
+that the required seams still live only in the public facades, the next action
+is to select or draft that gap rather than reopening the blocked Track A or
+parametric slice.
+
+This prerequisite may use a package facade or sibling helper modules, but the
+result must make the seam ownership explicit enough that follow-on feature plans
+can target a stable owner module instead of extending the public coordination
+facade directly.
+
+Required seam ownership after the split:
+
+- procedure-call typechecking integration has an exact owner file path;
+- specialization discovery and materialization integration has an exact owner
+  file path;
+- procedure-call lowering, provenance, and lowering-boundary runtime-erasure
+  checks have an exact owner file path.
+
+Acceptance:
+
+- the exact post-split owner file path is recorded for each required seam;
+- the public facades remain compatibility/import facades rather than the only
+  seam owners;
+- touched owner modules for those seams are at or below 2,000 physical lines,
+  or are split again before new Track A or parametric/type-system behavior is
+  added there;
+- follow-on Track A or parametric plans cite the landed owner-module paths
+  rather than naming only the public facade.
+
+### 9.5 Decompose `lowering/core.py` By Lowering Family
+
+After `workflow-lisp-owner-seam-split-prerequisite` lands, the remaining
+`lowering/core.py` coordinator must not become the default home for every new
+lowering feature. If it still owns multiple unrelated lowering families, draft
+and run a separate behavior-preserving decomposition gap before adding new
+Track A, parametric, or stdlib-review-loop behavior to those families.
+
+The intended follow-on gap id is
+`workflow-lisp-lowering-core-family-decomposition`.
+
+The split should preserve the public facade:
+
+- `orchestrator.workflow_lisp.lowering` remains the stable public import;
+- `lowering/core.py` remains the coordinator for public lowering entrypoints,
+  workflow ordering, and validation handoff;
+- family modules own the actual behavior for their semantic area.
+
+Initial target family owners:
+
+- `lowering/origins.py` for lowering origins, source-map coverage, validation
+  subject bindings, and generated semantic-effect provenance;
+- `lowering/context.py` for lowering context/result structs and active lowering
+  scope state;
+- `lowering/effects.py` for `provider-result`, `command-result`, command
+  boundary handling, and effect-output materialization;
+- `lowering/control.py` for `let*`, `if`, `match`, and `loop/recur`
+  integration;
+- `lowering/values.py` for records, unions, projections, materialization, and
+  output contract field construction;
+- `lowering/workflow_calls.py` for workflow calls, workflow refs, callee
+  specialization, and lowered-callee dependency integration;
+- existing `lowering/procedures.py` remains the procedure lowering owner.
+
+Acceptance:
+
+- the family modules above exist or the implementation architecture records a
+  narrower equivalent owner map with rationale;
+- `lowering/core.py` no longer contains the real implementations for every
+  major lowering family;
+- `lowering/core.py` stays below the maintained-module line cap or records an
+  explicit residual split target before more lowering behavior is added there;
+- public imports through `orchestrator.workflow_lisp.lowering` remain
+  compatible;
+- focused lowering, source-map, validation-remapping, procedure, workflow-ref,
+  provider/command, match/loop, and structured-result tests pass or any
+  pre-existing unrelated failures are recorded with exact evidence.
+
+### 9.6 Decompose `typecheck.py` By Typechecking Family
+
+Before structural constraints or parametric specialization add more behavior to
+`typecheck.py`, split the current mixed typechecker into explicit family owners
+behind the existing `orchestrator.workflow_lisp.typecheck` compatibility
+surface.
+
+The intended follow-on gap id is
+`workflow-lisp-typecheck-family-decomposition`.
+
+The split should preserve current diagnostics, spans, form paths, expansion
+stacks, effect summaries, proof behavior, and public imports. It should not
+change Workflow Lisp semantics.
+
+Initial target family owners:
+
+- `typecheck/context.py` or equivalent for `TypecheckContext`, active catalogs,
+  reusable-state context, active workflow signature, and shared diagnostic
+  helpers;
+- `typecheck/dispatch.py` or equivalent for the top-level expression dispatcher
+  and family routing;
+- `typecheck/proofs.py` for `ProofScope`, variant proof facts, field/projection
+  proof checks, and variant-field access diagnostics;
+- `typecheck/effects.py` for provider/command effect validation, command argv
+  validation, certified-adapter checks, and effect compatibility helpers;
+- `typecheck/calls.py` for workflow refs, workflow calls, function calls, and
+  callable argument compatibility not already owned by procedure-specific
+  modules;
+- existing `procedure_typecheck.py` remains the procedure-call and generated
+  procedure typing owner;
+- a legacy/std-bridge owner, if still needed, isolates review-loop bridge and
+  `StdlibSpecializationExpr` typing until the promoted stdlib route removes
+  that path.
+
+Acceptance:
+
+- the family modules above exist or the implementation architecture records a
+  narrower equivalent owner map with rationale;
+- `typecheck.py` remains a compatibility/coordinator surface rather than the
+  real owner for every major typechecking family;
+- `typecheck.py` stays below the maintained-module line cap or records an
+  explicit residual split target before more typechecking behavior is added
+  there;
+- diagnostics remain stable for representative failures in command validation,
+  workflow/procedure calls, variant proof, `let-proc`, stdlib specialization,
+  and reusable-state typechecking;
+- focused typecheck, procedure, workflow-ref, phase-stdlib, command-adapter,
+  and structural-result tests pass or any pre-existing unrelated failures are
+  recorded with exact evidence.
+
+### 9.7 Introduce Shared Expression Traversal
 
 Introduce a small shared traversal utility before adding more expression forms or
 expansion outputs.
@@ -1498,6 +1694,19 @@ Tasks:
 - add focused characterization coverage for affected pass boundaries;
 - record any pre-existing failures with exact commands and outputs;
 - decide lowering package/facade boundary;
+- land the standalone
+  `workflow-lisp-owner-seam-split-prerequisite` slice when the relevant
+  typecheck, specialization, or lowering-boundary responsibilities still live
+  only in the public facades;
+- land the standalone
+  `workflow-lisp-lowering-core-family-decomposition` slice when
+  `lowering/core.py` remains the mixed owner for non-procedure lowering
+  families that future Track A, parametric, or stdlib-review-loop work would
+  need to extend;
+- land the standalone `workflow-lisp-typecheck-family-decomposition` slice when
+  `typecheck.py` remains the mixed owner for typechecking families that
+  structural constraints, parametric specialization, imported `.orc` expansion,
+  or stdlib-review-loop work would need to extend;
 - introduce shared expression traversal utility;
 - add traversal coverage over all `ExprNode` variants or explicit
   leaf/specialized classification.
@@ -1507,6 +1716,18 @@ Acceptance:
 - compileall passes;
 - focused tests pass or pre-existing failures are recorded;
 - lowering package/facade decision is made before helper extraction;
+- exact post-split owner paths are recorded for procedure-call typechecking,
+  specialization discovery/materialization, and procedure-call lowering/
+  provenance/runtime-erasure before new Track A or parametric behavior lands in
+  those seams;
+- exact post-split owner paths are recorded for provider/command effects,
+  values/projection, control flow, workflow-call integration, source-map/origin
+  bookkeeping, and validation-remapping before new behavior lands in those
+  lowering families;
+- exact post-split owner paths are recorded for typechecking context,
+  dispatcher routing, proof/field validation, effect/command validation,
+  callable checks, and any remaining stdlib bridge typing before new behavior
+  lands in those typechecking families;
 - new expression forms have one obvious traversal update point;
 - purity/extern/ProcRef discovery cannot silently miss unknown `ExprNode`
   containers.
@@ -1984,6 +2205,15 @@ the following must pass:
 - Concrete hazards are fixed or explicitly documented as not applicable.
 - Characterization coverage exists for pass boundaries touched by Track A.
 - Lowering package/facade boundary is decided before helper extraction.
+- Procedure-call typechecking, specialization discovery/materialization, and
+  lowering-boundary provenance/runtime-erasure each have an explicit post-split
+  owner module rather than remaining only in oversized public facades.
+- Non-procedure lowering families that Track A, parametric, or
+  stdlib-review-loop work would extend have explicit owner modules rather than
+  remaining only in `lowering/core.py`.
+- Typechecking families that structural constraints, parametric specialization,
+  imported `.orc` expansion, or stdlib-review-loop work would extend have
+  explicit owner modules rather than remaining only in `typecheck.py`.
 - Shared expression traversal covers every `ExprNode` variant or explicit
   leaf/specialized classification.
 - Track A form registry exists.
@@ -2085,7 +2315,19 @@ Proceed in this order:
    - characterization coverage;
    - lowering package/facade decision;
    - shared expression traversal coverage.
-3. Implement Track A:
+3. Land the standalone owner-seam prerequisite gap
+   `workflow-lisp-owner-seam-split-prerequisite` whenever the selected
+   procedure seams still live only inside oversized public facades.
+4. Land the standalone lowering-family decomposition gap
+   `workflow-lisp-lowering-core-family-decomposition` whenever
+   `lowering/core.py` remains the mixed owner for non-procedure lowering
+   families that Track A, parametric, or stdlib-review-loop work would extend.
+5. Land the standalone typecheck-family decomposition gap
+   `workflow-lisp-typecheck-family-decomposition` whenever `typecheck.py`
+   remains the mixed owner for typechecking families that structural
+   constraints, parametric specialization, imported `.orc` expansion, or
+   stdlib-review-loop work would extend.
+6. Implement Track A:
    - `FormKind` / `FormSpec` registry;
    - registry-routed elaboration;
    - reserved-name derivation/checking;
@@ -2094,8 +2336,8 @@ Proceed in this order:
    - imported source maps;
    - imported effect visibility;
    - generic ProcRef specialization.
-4. Add generic `loop/recur` exhaustion projection.
-5. Add minimal structural generics:
+7. Add generic `loop/recur` exhaustion projection.
+8. Add minimal structural generics:
    - `:forall`;
    - `is-record`;
    - `has-field`;
@@ -2103,18 +2345,18 @@ Proceed in this order:
    - ordinary `ProcRef` parameter typing over signatures that mention resolved
      type parameters;
    - variant-proof preservation.
-6. Implement `std/phase.orc` `review-revise-loop` returning exact
+9. Implement `std/phase.orc` `review-revise-loop` returning exact
    `ReviewLoopResult`.
-7. Project workflow-specific terminal unions outside the stdlib loop where
+10. Project workflow-specific terminal unions outside the stdlib loop where
    needed, using ordinary proof-gated matches.
-8. Use terminal-constructor ProcRefs or field-mapping extensions only if a
+11. Use terminal-constructor ProcRefs or field-mapping extensions only if a
    later design explicitly reopens stdlib-internal caller-owned terminal
    construction.
-9. Prove `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, `EXHAUSTED`, source-map,
+12. Prove `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, `EXHAUSTED`, source-map,
    resume, caller-projection, and evidence-authority fixtures.
-10. Remove `ReviewReviseLoopExpr` from the promoted path.
-11. Gate migration through machine-computed parity evidence.
-12. Continue broader backlog cleanup after the semantic route is stable.
+13. Remove `ReviewReviseLoopExpr` from the promoted path.
+14. Gate migration through machine-computed parity evidence.
+15. Continue broader backlog cleanup after the semantic route is stable.
 
 The key architectural move is not to move the existing Python branch into a
 macro. The key move is to make the frontend refactor-safe first, then make
