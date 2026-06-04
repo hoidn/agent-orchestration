@@ -319,6 +319,9 @@ def _private_workflow_binding_local_value(
         _procedure_signature_local_type_bindings,
         _resolve_inline_expr_value,
     )
+    from .lowering.workflow_calls import _managed_write_root_binding_step
+
+    _ = _managed_write_root_binding_step
 
     step_name = f"{binding_name}__{expr.step_name}" if isinstance(expr, CommandResultExpr) else binding_name
     if _is_inline_let_binding_expr(expr):

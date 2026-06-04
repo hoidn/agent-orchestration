@@ -269,8 +269,6 @@ def _lower_procedure_call_expr(
         _compile_error,
         _inline_procedure_step_prefix,
         _lower_expression,
-        _managed_write_root_binding_step,
-        _managed_write_root_requirements_for_callable,
         _normalize_generated_step_id,
         _render_call_binding_ref,
         _render_record_call_bindings,
@@ -281,6 +279,10 @@ def _lower_procedure_call_expr(
         _flatten_boundary_leaf_paths,
         _procedure_signature_local_type_bindings,
         _resolve_inline_expr_value,
+    )
+    from .workflow_calls import (
+        _managed_write_root_binding_step,
+        _managed_write_root_requirements_for_callable,
     )
 
     expr = typed_expr.expr
