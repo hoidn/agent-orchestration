@@ -55,6 +55,17 @@ def _is_completed(state: dict[str, Any], *, source: str, item_id: str) -> bool:
     return False
 
 
+def _completed_waiting_prerequisite(state: dict[str, Any], *, original_gap_id: str) -> tuple[str, str]:
+    original = dict((state.get("blocked_design_gaps") or {}).get(original_gap_id) or {})
+    prerequisite_id = str(original.get("waiting_on_prerequisite_gap_id") or "").strip()
+    if not prerequisite_id:
+        return "", ""
+    source = str(original.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
+    if _is_completed(state, source=source, item_id=prerequisite_id):
+        return source, prerequisite_id
+    return "", ""
+
+
 def _is_blocked(state: dict[str, Any], *, source: str, item_id: str) -> bool:
     if source == "DESIGN_GAP":
         return item_id in (state.get("blocked_design_gaps") or {})
@@ -184,6 +195,32 @@ def main() -> int:
         reason = "missing_prerequisite_relation"
         prerequisite_status = "BLOCKED_UNRECOVERABLE"
     elif selected_source == "DESIGN_GAP" and selected_id == original_gap_id:
+        completed_source, completed_id = _completed_waiting_prerequisite(state, original_gap_id=original_gap_id)
+        if completed_id:
+            _record_original(
+                state,
+                original_gap_id=original_gap_id,
+                selection_path=selection_path,
+                selected_source=completed_source,
+                selected_id=completed_id,
+                status="RETRY_READY",
+                prerequisite_status="COMPLETED",
+                reason="prerequisite_completed",
+            )
+            return _finish(
+                state_path=state_path,
+                state=state,
+                summary_path=Path(args.summary_path),
+                drain_status_path=Path(args.drain_status_path),
+                summary={
+                    "record_status": "RETRY_READY",
+                    "original_blocked_gap_id": original_gap_id,
+                    "selected_prerequisite_id": completed_id,
+                    "selected_prerequisite_source": completed_source,
+                    "reason": "prerequisite_completed",
+                },
+                drain_status="CONTINUE",
+            )
         reason = "self_prerequisite_selection"
         prerequisite_status = "BLOCKED_UNRECOVERABLE"
     elif _is_completed(state, source=selected_source, item_id=selected_id):

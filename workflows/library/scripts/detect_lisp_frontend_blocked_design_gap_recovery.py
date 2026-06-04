@@ -45,6 +45,18 @@ def _gap_design_paths(architecture_index_root: Path, design_gap_id: str, entry: 
     )
 
 
+def _is_completed_prerequisite(state: dict[str, Any], entry: dict[str, Any]) -> bool:
+    prerequisite_id = str(entry.get("waiting_on_prerequisite_gap_id") or "").strip()
+    if not prerequisite_id:
+        return False
+    source = str(entry.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
+    if source == "DESIGN_GAP":
+        return prerequisite_id in set(state.get("completed_design_gaps") or [])
+    if source == "BACKLOG_ITEM":
+        return prerequisite_id in set(state.get("completed_items") or [])
+    return False
+
+
 def _block_payload(reason: str) -> dict[str, str]:
     return {
         "pre_selection_route": "BLOCKED",
@@ -116,14 +128,17 @@ def _recovery_payload(
             return _block_payload("missing_blocked_recovery_event_id")
         recovery_status = str(entry.get("recovery_status") or "").strip()
         if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_WORK_PENDING":
-            return _none_payload(
-                recovery_route=recovery_route,
-                recovery_reason=recovery_reason,
-                pre_selection_route="SELECT_PREREQUISITE_WORK",
-                design_gap_id=design_gap_id,
-                recovery_event_id=recovery_event_id,
-                recovery_status=recovery_status,
-            )
+            if _is_completed_prerequisite(state, entry):
+                recovery_status = "RETRY_READY"
+            else:
+                return _none_payload(
+                    recovery_route=recovery_route,
+                    recovery_reason=recovery_reason,
+                    pre_selection_route="SELECT_PREREQUISITE_WORK",
+                    design_gap_id=design_gap_id,
+                    recovery_event_id=recovery_event_id,
+                    recovery_status=recovery_status,
+                )
         progress_path = _find_progress_report(artifact_work_root, design_gap_id, entry)
         if progress_path is None:
             return _block_payload("missing_blocked_progress_report")
