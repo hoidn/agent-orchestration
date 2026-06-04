@@ -233,7 +233,12 @@ def test_lowering_owner_split_moves_selected_helpers_out_of_core() -> None:
     }
 
 
-def test_lowering_family_decomposition_creates_target_owner_modules() -> None:
+def test_lowering_owner_split_creates_context_and_origins_modules() -> None:
+    for name in ("context", "origins"):
+        assert _lowering_owner_source_path(name).is_file()
+
+
+def test_lowering_family_owner_modules_exist_across_full_target_map() -> None:
     for name in (
         "context",
         "origins",
@@ -246,7 +251,20 @@ def test_lowering_family_decomposition_creates_target_owner_modules() -> None:
         assert _lowering_owner_source_path(name).is_file()
 
 
-def test_lowering_family_decomposition_moves_non_procedure_owners_out_of_core() -> None:
+def test_lowering_owner_split_moves_context_and_origins_out_of_core() -> None:
+    assert _top_level_definition_counts(
+        _lowering_source_path(),
+        "LoweringOrigin",
+        "_raise_remapped_validation_error",
+        "_LoweringContext",
+    ) == {
+        "LoweringOrigin": 0,
+        "_raise_remapped_validation_error": 0,
+        "_LoweringContext": 0,
+    }
+
+
+def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core() -> None:
     assert _top_level_definition_counts(
         _lowering_source_path(),
         "LoweringOrigin",
@@ -293,7 +311,7 @@ def test_lowering_family_decomposition_moves_non_procedure_owners_out_of_core() 
     }
 
 
-def test_lowering_family_decomposition_gives_origins_and_phase_stdlib_real_ownership() -> None:
+def test_lowering_provenance_owner_split_gives_origins_real_ownership() -> None:
     assert _top_level_definition_counts(
         _lowering_owner_source_path("origins"),
         "LoweringOrigin",
@@ -304,6 +322,9 @@ def test_lowering_family_decomposition_gives_origins_and_phase_stdlib_real_owner
         "LoweringOriginMap": 1,
         "_raise_remapped_validation_error": 1,
     }
+
+
+def test_lowering_full_family_owners_receive_real_implementations() -> None:
     assert _top_level_definition_counts(
         _lowering_owner_source_path("phase_stdlib"),
         "_lower_with_phase",

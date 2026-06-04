@@ -1,0 +1,140 @@
+"""Shared lowering state objects and context-copy helpers."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
+
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+
+from ..contracts import WorkflowBoundaryProjection
+from ..phase import PhaseScope
+from ..procedures import TypedProcedureDef
+from ..type_env import FrontendTypeEnvironment, TypeRef
+from ..workflows import (
+    CommandBoundaryEnvironment,
+    ExternEnvironment,
+    TypedWorkflowDef,
+    WorkflowCatalog,
+)
+from .origins import GeneratedSemanticEffectBinding, LoweringOrigin
+
+
+@dataclass
+class _TerminalResult:
+    """Outputs produced by the last lowered expression in a workflow fragment."""
+
+    step_name: str
+    step_id: str
+    output_refs: Mapping[str, str]
+    output_kind: str
+    hidden_inputs: Mapping[str, LoweringOrigin]
+
+
+@dataclass(frozen=True)
+class _NormalizedBindingResult:
+    """One normalized `let*` binding shared across lowering entrypoints."""
+
+    binding_type: TypeRef | None
+    emitted_steps: list[dict[str, Any]]
+    terminal: _TerminalResult | None
+    local_value: Any | None
+
+
+@dataclass
+class _LoweringContext:
+    """Mutable state threaded through expression lowering."""
+
+    workflow_name: str
+    step_name_prefix: str
+    workflow_path: Path
+    signature: object
+    authored_input_contracts: Mapping[str, Mapping[str, Any]]
+    workflow_catalog: WorkflowCatalog
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle]
+    extern_environment: ExternEnvironment
+    command_boundary_environment: CommandBoundaryEnvironment
+    lowered_callees: Mapping[str, object]
+    typed_procedures: Mapping[str, TypedProcedureDef]
+    workflows_by_name: Mapping[str, TypedWorkflowDef]
+    ensure_workflow_lowered: Any
+    specialize_workflow: Any
+    type_env: FrontendTypeEnvironment
+    step_spans: dict[str, LoweringOrigin]
+    generated_input_spans: dict[str, LoweringOrigin]
+    authored_generated_inputs: set[str]
+    internal_generated_input_reasons: dict[str, str]
+    internal_generated_input_contracts: dict[str, dict[str, Any]]
+    generated_output_spans: Mapping[str, LoweringOrigin]
+    generated_path_spans: dict[str, LoweringOrigin]
+    generated_semantic_effects: list[GeneratedSemanticEffectBinding]
+    top_level_artifacts: dict[str, Any]
+    inline_call_counters: dict[str, int]
+    origin_notes: tuple[str, ...]
+    boundary_projection: WorkflowBoundaryProjection
+    return_output_contracts: Mapping[str, Mapping[str, Any]]
+    local_type_bindings: Mapping[str, TypeRef]
+    is_generated_private_workflow: bool
+    phase_scope: _ActivePhaseScope | None = None
+    iteration_scope: str | None = None
+    active_procedure_calls: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class _ActivePhaseScope:
+    """Derived state and artifact refs installed by `with-phase`."""
+
+    scope: PhaseScope
+    bundle_path_ref: str
+    target_refs: Mapping[str, str]
+    temp_bundle_path_ref: str | None = None
+    snapshot_root_ref: str | None = None
+    candidate_root_ref: str | None = None
+    runtime_phase_name_ref: str | None = None
+
+
+def _copy_context_with_phase_scope(
+    context: _LoweringContext,
+    phase_scope: _ActivePhaseScope,
+) -> _LoweringContext:
+    """Clone lowering context while installing the active phase scope."""
+
+    return replace(context, phase_scope=phase_scope)
+
+
+def _copy_context_with_step_prefix(
+    context: _LoweringContext,
+    *,
+    step_name_prefix: str,
+) -> _LoweringContext:
+    """Clone context state while changing the generated step-name prefix."""
+
+    return replace(context, step_name_prefix=step_name_prefix)
+
+
+def _context_with_local_type_binding(
+    context: _LoweringContext,
+    *,
+    binding_name: str,
+    binding_type: TypeRef | None,
+) -> _LoweringContext:
+    """Return a context extended with one resolved local binding type."""
+
+    if binding_type is None:
+        return context
+    return replace(
+        context,
+        local_type_bindings={**dict(context.local_type_bindings), binding_name: binding_type},
+    )
+
+
+def _copy_context_with_iteration_scope(
+    context: _LoweringContext,
+    *,
+    iteration_scope: str | None,
+) -> _LoweringContext:
+    """Clone context state while changing the active loop-iteration scope."""
+
+    return replace(context, iteration_scope=iteration_scope)

@@ -266,9 +266,9 @@ def _lower_procedure_call_expr(
     """
 
     from ..procedure_specialization import specialize_typed_procedure
+    from .context import _LoweringContext, _TerminalResult
+    from .origins import _record_step_origin
     from .core import (
-        _LoweringContext,
-        _TerminalResult,
         _compile_error,
         _flatten_boundary_leaf_paths,
         _inline_procedure_step_prefix,
@@ -277,7 +277,6 @@ def _lower_procedure_call_expr(
         _managed_write_root_requirements_for_callable,
         _normalize_generated_step_id,
         _procedure_signature_local_type_bindings,
-        _record_step_origin,
         _render_call_binding_ref,
         _render_record_call_bindings,
         _resolve_inline_expr_value,
