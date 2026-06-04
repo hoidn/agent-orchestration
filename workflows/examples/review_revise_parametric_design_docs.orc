@@ -114,7 +114,7 @@
                  :fix-provider providers.design-docs.fix
                  :review-prompt prompts.design-docs.review
                  :fix-prompt prompts.design-docs.fix
-                 :max 3
+                 :max 20
                  :returns ParametricDesignReviewLoopResult)))
         (match review
           ((APPROVED approved)
