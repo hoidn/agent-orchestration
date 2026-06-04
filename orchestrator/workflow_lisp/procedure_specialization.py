@@ -124,7 +124,7 @@ def _procedure_private_body_valid(
 ) -> bool:
     """Return whether a procedure body exports only workflow-boundary values."""
 
-    from .lowering.core import (
+    from .lowering.values import (
         _procedure_signature_local_type_bindings,
         _procedure_signature_local_values,
     )
@@ -314,9 +314,8 @@ def _private_workflow_binding_local_value(
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
 
-    from .lowering.core import (
-        _binding_terminal_for_match_subject,
-        _is_inline_let_binding_expr,
+    from .lowering.core import _binding_terminal_for_match_subject, _is_inline_let_binding_expr
+    from .lowering.values import (
         _procedure_signature_local_type_bindings,
         _resolve_inline_expr_value,
     )
@@ -422,7 +421,7 @@ def _private_workflow_local_value_for_type(
 ) -> Any | None:
     """Build the local-value projection a structured step would expose."""
 
-    from .lowering.core import _build_output_step_local_value
+    from .lowering.values import _build_output_step_local_value
 
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         output_refs = {
@@ -453,7 +452,7 @@ def _private_workflow_body_exports_step_backed_outputs(
 ) -> bool:
     """Check that a private workflow body returns step-backed outputs."""
 
-    from .lowering.core import (
+    from .lowering.values import (
         _procedure_signature_local_type_bindings,
         _resolve_inline_expr_value,
     )
@@ -627,7 +626,11 @@ def _record_outputs_are_step_backed(
 ) -> bool:
     """Return whether all record return fields resolve to existing step refs."""
 
-    from .lowering.core import _flatten_boundary_leaf_paths, _record_expr_value_at_path, _render_existing_output_ref
+    from .lowering.values import (
+        _flatten_boundary_leaf_paths,
+        _record_expr_value_at_path,
+        _render_existing_output_ref,
+    )
 
     if not isinstance(return_type_ref, RecordTypeRef):
         return False
@@ -647,7 +650,7 @@ def _union_variant_outputs_are_step_backed(
 ) -> bool:
     """Return whether one union variant can lower through a private workflow seam."""
 
-    from .lowering.core import (
+    from .lowering.values import (
         _flatten_boundary_leaf_paths,
         _normalize_union_field_path,
         _render_existing_output_ref,
@@ -682,7 +685,8 @@ def _inline_outputs_are_step_backed(
 ) -> bool:
     """Return whether one inline alias resolves to existing step-backed refs."""
 
-    from .lowering.core import _flatten_boundary_leaf_paths, _flatten_inline_output_refs, _resolve_inline_expr_value
+    from .lowering.core import _flatten_inline_output_refs
+    from .lowering.values import _flatten_boundary_leaf_paths, _resolve_inline_expr_value
 
     output_refs = _flatten_inline_output_refs(_resolve_inline_expr_value(expr, local_values=local_values))
     if not output_refs:

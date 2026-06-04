@@ -167,11 +167,8 @@ def _procedure_private_call_site_analysis(
 ) -> tuple[Mapping[str, int], Mapping[str, bool]]:
     """Count procedure call sites and whether each can cross a workflow boundary."""
 
-    from .core import (
-        _build_record_step_local_value,
-        _resolve_expr_local_value,
-        _signature_local_values,
-    )
+    from .core import _resolve_expr_local_value, _signature_local_values
+    from .values import _build_record_step_local_value
 
     typed_procedures_by_name = {
         procedure.definition.name: procedure for procedure in typed_procedures
@@ -270,18 +267,20 @@ def _lower_procedure_call_expr(
     from .origins import _record_step_origin
     from .core import (
         _compile_error,
-        _flatten_boundary_leaf_paths,
         _inline_procedure_step_prefix,
         _lower_expression,
         _managed_write_root_binding_step,
         _managed_write_root_requirements_for_callable,
         _normalize_generated_step_id,
-        _procedure_signature_local_type_bindings,
         _render_call_binding_ref,
         _render_record_call_bindings,
-        _resolve_inline_expr_value,
         _resolved_proc_ref_value,
         _resolved_workflow_ref_value,
+    )
+    from .values import (
+        _flatten_boundary_leaf_paths,
+        _procedure_signature_local_type_bindings,
+        _resolve_inline_expr_value,
     )
 
     expr = typed_expr.expr

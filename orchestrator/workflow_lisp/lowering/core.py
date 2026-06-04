@@ -183,6 +183,16 @@ from .origins import (
     LoweringOriginMap,
     ValidationSubjectBinding,
 )
+from .values import (
+    _build_output_step_local_value,
+    _build_record_local_value,
+    _build_record_step_local_value,
+    _flatten_boundary_leaf_paths,
+    _procedure_signature_local_type_bindings,
+    _procedure_signature_local_values,
+    _render_existing_output_ref,
+    _resolve_inline_expr_value,
+)
 from .phase_stdlib import (
     assert_review_loop_special_lowerer_allowed,
     review_loop_result_case_outputs as review_loop_result_case_outputs_owner,
@@ -7126,23 +7136,6 @@ def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -
     return local_value
 
 
-def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
-    """Convert flattened terminal output refs into nested local-value shape."""
-
-    local_value: dict[str, Any] = {}
-    for output_name, ref in output_refs.items():
-        field_path = output_name.removeprefix("return__").split("__")
-        current = local_value
-        for field_name in field_path[:-1]:
-            next_current = current.get(field_name)
-            if not isinstance(next_current, dict):
-                next_current = {}
-                current[field_name] = next_current
-            current = next_current
-        current[field_path[-1]] = ref
-    return local_value
-
-
 def _match_arm_local_values(
     *,
     local_values: Mapping[str, Any],
@@ -7236,43 +7229,6 @@ def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ..
             current[field_name] = nested
         current = nested
     current[field_path[-1]] = ref
-
-
-def _flatten_boundary_leaf_paths(
-    type_ref: RecordTypeRef | UnionTypeRef,
-    *,
-    generated_name: str,
-    field_path: tuple[str, ...] = (),
-) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Return generated boundary names paired with frontend field paths."""
-
-    if isinstance(type_ref, UnionTypeRef):
-        return tuple(
-            (field.generated_name, field.source_path[1:])
-            for field in derive_workflow_boundary_fields(
-                type_ref,
-                generated_name=generated_name,
-                source_path=("return",),
-                span=type_ref.definition.span,
-                form_path=("workflow-lisp", "defunion", type_ref.name),
-            )
-        )
-    flattened: list[tuple[str, tuple[str, ...]]] = []
-    for field in type_ref.definition.fields:
-        field_type = type_ref.field_types[field.name]
-        next_generated_name = f"{generated_name}__{field.name}"
-        next_field_path = field_path + (field.name,)
-        if isinstance(field_type, RecordTypeRef):
-            flattened.extend(
-                _flatten_boundary_leaf_paths(
-                    field_type,
-                    generated_name=next_generated_name,
-                    field_path=next_field_path,
-                )
-            )
-            continue
-        flattened.append((next_generated_name, next_field_path))
-    return tuple(flattened)
 
 
 def _flatten_record_output_refs(step_name: str, type_ref: RecordTypeRef) -> dict[str, str]:

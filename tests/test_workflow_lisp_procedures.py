@@ -1251,7 +1251,7 @@ def test_specialization_owner_split_stops_importing_private_workflow_eligibility
     assert "_procedure_private_body_valid" not in imported_from_core
 
 
-def test_specialization_owner_split_stops_importing_value_and_call_helpers_from_core() -> None:
+def test_specialization_owner_split_stops_importing_value_helpers_from_core() -> None:
     source_path = _procedure_specialization_source_path()
     imported_from_core = _imported_symbols_from(source_path, "lowering.core")
 
@@ -1263,7 +1263,6 @@ def test_specialization_owner_split_stops_importing_value_and_call_helpers_from_
             "_render_existing_output_ref",
             "_normalize_union_field_path",
             "_union_variant_expr_value_at_path",
-            "_managed_write_root_binding_step",
         }
     )
 
@@ -1276,6 +1275,13 @@ def test_specialization_owner_split_stops_importing_value_and_call_helpers_from_
         "_normalize_union_field_path",
         "_union_variant_expr_value_at_path",
     } <= imported_from_values
+
+
+def test_specialization_workflow_call_imports_managed_write_root_helper() -> None:
+    source_path = _procedure_specialization_source_path()
+    imported_from_core = _imported_symbols_from(source_path, "lowering.core")
+
+    assert "_managed_write_root_binding_step" not in imported_from_core
 
     imported_from_workflow_calls = _imported_symbols_from(source_path, "lowering.workflow_calls")
     assert "_managed_write_root_binding_step" in imported_from_workflow_calls
