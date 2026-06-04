@@ -13,8 +13,9 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.syntax import build_syntax_module
+from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -200,6 +201,34 @@ def test_validate_pure_function_expr_rejects_unknown_expression_containers() -> 
     assert diagnostic.code == "pure_function_has_effect"
     assert "unsupported" in diagnostic.message
     assert "expression container" in diagnostic.message
+
+
+def test_validate_pure_function_expr_allows_pure_loop_state_children() -> None:
+    functions = _functions_module()
+    parse_tree = read_sexpr_text(
+        '(loop-state (status String "ok") (report WorkReport report-path))',
+        source_path="loop_state_function.orc",
+    )
+    datum = parse_tree.items[0]
+    expr = functions.elaborate_expression(
+        SyntaxNode(
+            datum=datum,
+            span=datum.span,
+            module_path="loop_state_function.orc",
+            form_path=("workflow-lisp", "defun", "summarize"),
+        ),
+        bound_names=frozenset({"report-path"}),
+    )
+    function_def = functions.FunctionDef(
+        name="summarize",
+        params=(),
+        return_type_name="String",
+        body=expr,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+    functions._validate_pure_function_expr(expr, function_def=function_def)
 
 
 def test_compile_stage3_rejects_helper_cycles(tmp_path: Path) -> None:

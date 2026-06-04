@@ -1,11 +1,14 @@
 import ast
 import importlib
+import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _infer_stage3_effect_summaries,
@@ -2840,6 +2843,218 @@ def test_compile_stage3_entrypoint_registers_imported_procedure_signatures(tmp_p
     )
 
     assert "neurips/procedures::build-checks" in result.entry_result.procedure_catalog.signatures_by_name
+
+
+def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_field(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "loop_state_seed"
+    _write_module(
+        source_root / "stdlib" / "types.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/types)",
+            "  (export ReviewReportPath ReviewFindings)",
+            "  (defpath ReviewReportPath",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ReviewFindings",
+            "    (items_path ReviewReportPath))",
+            ")",
+        ],
+    )
+    _write_module(
+        source_root / "stdlib" / "loop_state.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/loop_state)",
+            "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
+            "  (export seed-completed)",
+            "  (defproc seed-completed",
+            "    :forall (CompletedT)",
+            "    ((completed CompletedT)",
+            "     (findings ReviewFindings)",
+            "     (report_path ReviewReportPath))",
+            "    :where ((CompletedT is-record))",
+            "    -> CompletedT",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let* ((state",
+            "             (loop-state",
+            "               (completed CompletedT completed)",
+            "               (findings ReviewFindings findings)",
+            "               (report_path ReviewReportPath report_path))))",
+            "      state.completed)))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
+            "  (import stdlib/loop_state :as loop-state :only (seed-completed))",
+            "  (export orchestrate)",
+            "  (defrecord CompletedSurface",
+            "    (report ReviewReportPath))",
+            "  (defworkflow orchestrate",
+            "    ((completed CompletedSurface)",
+            "     (findings ReviewFindings)",
+            "     (report_path ReviewReportPath))",
+            "    -> CompletedSurface",
+            "    (loop-state.seed-completed completed findings report_path)))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    specialized = next(
+        procedure
+        for procedure in result.entry_result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "stdlib/loop_state::seed-completed"
+    )
+
+    assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
+    assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
+    bundle = next(iter(result.validated_bundles_by_name.values()))
+    serialized_payloads = (
+        json.dumps(workflow_executable_ir_to_json(bundle.ir), sort_keys=True),
+        json.dumps(workflow_semantic_ir_to_json(bundle.semantic_ir), sort_keys=True),
+    )
+    for payload in serialized_payloads:
+        assert "TypeParamRef" not in payload
+        assert "%loop-state." not in payload
+
+
+def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_carrier(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "loop_state_update"
+    _write_module(
+        source_root / "stdlib" / "types.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/types)",
+            "  (export ReviewReportPath ReviewFindings)",
+            "  (defpath ReviewReportPath",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ReviewFindings",
+            "    (items_path ReviewReportPath))",
+            ")",
+        ],
+    )
+    _write_module(
+        source_root / "stdlib" / "loop_state.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/loop_state)",
+            "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
+            "  (export update-completed)",
+            "  (defproc update-completed",
+            "    :forall (CompletedT)",
+            "    ((completed CompletedT)",
+            "     (replacement CompletedT)",
+            "     (findings ReviewFindings)",
+            "     (report_path ReviewReportPath))",
+            "    :where ((CompletedT is-record))",
+            "    -> CompletedT",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let* ((state",
+            "             (loop-state",
+            "               (completed CompletedT completed)",
+            "               (findings ReviewFindings findings)",
+            "               (report_path ReviewReportPath report_path)))",
+            "           (updated",
+            "             (loop-state :like state :completed replacement)))",
+            "      updated.completed)))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
+            "  (import stdlib/loop_state :as loop-state :only (update-completed))",
+            "  (export orchestrate)",
+            "  (defrecord CompletedSurface",
+            "    (report ReviewReportPath))",
+            "  (defworkflow orchestrate",
+            "    ((completed CompletedSurface)",
+            "     (replacement CompletedSurface)",
+            "     (findings ReviewFindings)",
+            "     (report_path ReviewReportPath))",
+            "    -> CompletedSurface",
+            "    (loop-state.update-completed completed replacement findings report_path)))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    specialized = next(
+        procedure
+        for procedure in result.entry_result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "stdlib/loop_state::update-completed"
+    )
+
+    assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
+    assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
+    bundle = next(iter(result.validated_bundles_by_name.values()))
+    serialized_payloads = (
+        json.dumps(workflow_executable_ir_to_json(bundle.ir), sort_keys=True),
+        json.dumps(workflow_semantic_ir_to_json(bundle.semantic_ir), sort_keys=True),
+    )
+    for payload in serialized_payloads:
+        assert "TypeParamRef" not in payload
+        assert "%loop-state." not in payload
 
 
 def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_path: Path) -> None:

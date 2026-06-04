@@ -158,7 +158,14 @@ def typecheck_procedure_definitions(
             where_clauses=signature.where_clauses,
             type_env=type_env,
         )
+        value_env.update(
+            {
+                type_param.name: TypeParamRef(name=type_param.name)
+                for type_param in signature.type_params
+            }
+        )
         if specialization is not None:
+            value_env.update(dict(getattr(specialization, "type_bindings", {})))
             value_env.update(dict(getattr(specialization, "bound_param_types", {})))
             proc_ref_value_env.update(dict(getattr(specialization, "proc_ref_bindings", {})))
             shared_union_field_capabilities = tuple(

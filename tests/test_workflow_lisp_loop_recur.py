@@ -277,6 +277,43 @@ def test_lowering_loop_recur_supports_literal_initial_state(tmp_path: Path) -> N
     ]
 
 
+def test_lowering_loop_recur_supports_authored_loop_state_seed(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_loop_state_seed.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord LoopResult",
+                "    (report WorkReport))",
+                "  (defworkflow loop-recur-loop-state-seed",
+                "    ((report-path WorkReport))",
+                "    -> LoopResult",
+                "    (loop/recur",
+                "      :max 1",
+                "      :state (loop-state",
+                "               (report WorkReport report-path)",
+                "               (done Bool true))",
+                "      (fn (current)",
+                "        (if current.done",
+                "          (done (record LoopResult :report current.report))",
+                "          (continue current))))))",
+            ]
+        ),
+    )
+
+    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
+    authored = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+
+    assert "state__report" in repeat_step["repeat_until"]["outputs"]
+
+
 def test_lowering_loop_recur_supports_relpath_result_projection(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "loop_recur_relpath_result.orc",
@@ -627,7 +664,7 @@ def test_loop_recur_union_result_lowers_seed_state_router_for_first_iteration(tm
     }
 
 
-def test_loop_recur_exhaustion_projection_keeps_terminal_relpath_required_at_result_boundary(
+def test_loop_recur_exhaustion_projection_relaxes_variant_relpath_at_result_boundary(
     tmp_path: Path,
 ) -> None:
     workflow_path = _write_module(
@@ -702,4 +739,4 @@ def test_loop_recur_exhaustion_projection_keeps_terminal_relpath_required_at_res
     assert exhausted_case["outputs"]["return__last_report"]["from"] == {
         "ref": "root.steps.loop-recur-exhaustion-missing-projection__loop.artifacts.result__last_report"
     }
-    assert authored["outputs"]["return__last_report"]["must_exist_target"] is True
+    assert authored["outputs"]["return__last_report"]["must_exist_target"] is False

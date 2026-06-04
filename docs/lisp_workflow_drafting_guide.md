@@ -1351,6 +1351,35 @@ Every loop must have:
 
 Exhaustion should be a typed result when it is part of workflow semantics.
 
+### 17.1 `loop-state`
+
+Use `loop-state` when `loop/recur` needs a typed local carrier but the carrier
+does not deserve a top-level reusable `defrecord`.
+
+```lisp
+(loop/recur
+  :max 2
+  :state (loop-state
+           (report ReviewReportPath report_path)
+           (done Bool false))
+  (fn (current)
+    (if current.done
+      (done current.report)
+      (continue (loop-state :like current :done true)))))
+```
+
+`loop-state` rules:
+
+- carriers are local and compile-time-only; the generated carrier name is not a
+  public runtime contract;
+- seed fields use `(field-name TypeName value)` and updates use
+  `(loop-state :like existing :field replacement ...)`;
+- use `loop-state` as the author-facing way to keep typed loop-frame state
+  without introducing a generic top-level record just for one loop;
+- runtime-forbidden values cannot be carried across the loop boundary,
+  including `ProcRef[...]`, `WorkflowRef[...]`, provider refs, prompt refs, and
+  `Json`.
+
 ## 18. Effects
 
 Procedural abstraction must not hide effects.

@@ -21,6 +21,8 @@ from .expressions import (
     LetProcExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
     LoopRecurExpr,
     MatchExpr,
     NameExpr,
@@ -104,6 +106,10 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return ()
     if isinstance(expr, RecordExpr):
         return tuple(field_expr for _, field_expr in expr.fields)
+    if isinstance(expr, LoopStateSeedExpr):
+        return tuple(field.value_expr for field in expr.fields)
+    if isinstance(expr, LoopStateUpdateExpr):
+        return (expr.base_expr,) + tuple(field_expr for _, field_expr in expr.overrides)
     if isinstance(expr, UnionVariantExpr):
         return tuple(field_expr for _, field_expr in expr.fields)
     if isinstance(expr, LetStarExpr):

@@ -215,6 +215,17 @@ _FORM_SPECS = (
         rationale="Record construction elaborates through the core expression elaborator.",
     ),
     _spec(
+        "loop-state",
+        kind=FormKind.CORE_SPECIAL,
+        owner_module="loop_state",
+        introduced_in="workflow_lisp_frontend_parametric_loop_state",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="loop_state",
+        rationale="Loop-frame carrier authoring elaborates through the dedicated loop-state route.",
+    ),
+    _spec(
         "variant",
         kind=FormKind.CORE_SPECIAL,
         owner_module="expressions",
@@ -578,4 +589,3 @@ def stdlib_request_kind_has_feature(request_kind: str, tag: str) -> bool:
     """Return whether one temporary stdlib specialization request carries a tag."""
 
     return tag in _STDLIB_REQUEST_KIND_FEATURES.get(request_kind, frozenset())
-

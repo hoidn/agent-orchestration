@@ -1387,42 +1387,42 @@ def test_review_loop_valid_fixture_preserves_review_report_and_findings_roots(tm
     assert outputs["return__findings__items_path"]["under"] == "artifacts/work"
 
 
-def test_authored_loop_recur_review_findings_state_keeps_strict_relpath_contracts(
+def test_authored_loop_state_review_findings_keeps_strict_relpath_contracts(
     tmp_path: Path,
 ) -> None:
     module_path = _write_module(
-        tmp_path / "authored_loop_recur_review_findings.orc",
+        tmp_path / "authored_loop_state_review_findings.orc",
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
-                "  (defmodule authored_loop_recur_review_findings)",
+                "  (defmodule authored_loop_state_review_findings)",
                 "  (import std/phase :only (ReviewFindings))",
-                "  (defrecord LoopState",
-                "    (latest_findings ReviewFindings)",
-                "    (done Bool))",
-                "  (defworkflow authored-loop-recur-review-findings",
-                "    ((state LoopState))",
-                "    -> LoopState",
+                "  (defworkflow authored-loop-state-review-findings",
+                "    ((findings ReviewFindings))",
+                "    -> ReviewFindings",
                 "    (loop/recur",
                 "      :max 2",
-                "      :state state",
+                "      :state (loop-state",
+                "               (latest_findings ReviewFindings findings)",
+                "               (done Bool false))",
                 "      (fn (current)",
                 "        (if current.done",
-                "          (done current)",
-                "          (continue current))))))",
+                "          (done current.latest_findings)",
+                "          (continue (loop-state :like current :done true)))))))",
             ]
         )
         + "\n",
     )
-    result = _compile(module_path, tmp_path=tmp_path)
+    result = _compile(module_path, tmp_path=tmp_path, validate_shared=True)
 
-    authored = next(
-        workflow.authored_mapping
+    lowered = next(
+        workflow
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.endswith("::authored-loop-recur-review-findings")
+        if workflow.typed_workflow.definition.name.endswith("::authored-loop-state-review-findings")
     )
+    authored = lowered.authored_mapping
     repeat_step = next(step for step in authored["steps"] if step["name"].endswith("__loop"))
     outputs = repeat_step["repeat_until"]["outputs"]
 
@@ -1445,6 +1445,14 @@ def test_authored_loop_recur_review_findings_state_keeps_strict_relpath_contract
     )
 
     assert carried_contract["must_exist_target"] is True
+    assert any(
+        name.endswith("state__latest_findings__items_path")
+        for name in lowered.origin_map.generated_path_spans
+    )
+    assert any(
+        origin.span.start.path.endswith("authored_loop_state_review_findings.orc")
+        for origin in lowered.origin_map.generated_path_spans.values()
+    )
 
 
 def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:

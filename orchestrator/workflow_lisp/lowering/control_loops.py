@@ -39,7 +39,7 @@ from .context import (
     _LoweringContext,
     _TerminalResult,
 )
-from .origins import LoweringOrigin, _record_step_origin
+from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 from .values import (
     _assign_nested_local_value,
     _build_record_step_local_value,
@@ -239,13 +239,12 @@ def _control_lower_loop_recur_impl(
                 local_values=local_values,
             ),
             "steps": [*current_state_steps, *body_steps],
-            "outputs": {
-                name: {
-                    **definition,
-                    "from": {"ref": f"self.steps.{body_terminal.step_name}.artifacts.{name}"},
-                }
-                for name, definition in loop_output_contracts.items()
-            },
+            "outputs": _loop_repeat_outputs_from_terminal(
+                loop_output_contracts=loop_output_contracts,
+                terminal=body_terminal,
+                span=expr.span,
+                form_path=expr.form_path,
+            ),
             "condition": {
                 "compare": {
                     "left": {"ref": f"self.outputs.{LOOP_STATUS_OUTPUT_NAME}"},
@@ -726,6 +725,10 @@ def _lower_loop_body_expr(
             lowering_core.classify_condition_expr(expr.condition_expr, type_ref=PrimitiveTypeRef(name="Bool")),
             local_values=local_values,
         )
+        branch_local_values = {
+            name: _loop_parent_scope_value(value)
+            for name, value in local_values.items()
+        }
         then_steps, then_terminal = _lower_loop_body_expr(
             expr.then_expr,
             loop_binding_name=loop_binding_name,
@@ -733,7 +736,7 @@ def _lower_loop_body_expr(
             result_projection=result_projection,
             result_type=result_type,
             context=context,
-            local_values=local_values,
+            local_values=branch_local_values,
             binding_terminal=binding_terminal,
             body_step_name=f"{body_step_name}__then",
             active_variant_name=active_variant_name,
@@ -745,7 +748,7 @@ def _lower_loop_body_expr(
             result_projection=result_projection,
             result_type=result_type,
             context=context,
-            local_values=local_values,
+            local_values=branch_local_values,
             binding_terminal=binding_terminal,
             body_step_name=f"{body_step_name}__else",
             active_variant_name=active_variant_name,
@@ -979,6 +982,30 @@ def _loop_output_contracts(
     return outputs
 
 
+def _loop_repeat_outputs_from_terminal(
+    *,
+    loop_output_contracts: Mapping[str, Mapping[str, Any]],
+    terminal: _TerminalResult,
+    span,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    outputs: dict[str, Any] = {}
+    for output_name, definition in loop_output_contracts.items():
+        output_ref = terminal.output_refs.get(output_name)
+        if not isinstance(output_ref, str):
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"`loop/recur` body did not expose projected output `{output_name}`",
+                span=span,
+                form_path=form_path,
+            )
+        outputs[output_name] = {
+            **dict(definition),
+            "from": {"ref": _conditional_case_ref(output_ref, terminal_step_name=terminal.step_name)},
+        }
+    return outputs
+
+
 def _loop_projection_materialize_values(
     expr: Any,
     *,
@@ -989,6 +1016,8 @@ def _loop_projection_materialize_values(
     allow_missing_target_fields: frozenset[str] = frozenset(),
     allow_missing_active_fields: bool = False,
 ) -> list[dict[str, Any]]:
+    from ..loop_state import loop_state_field_origin
+
     resolved_value = _resolve_inline_expr_value(expr, local_values=local_values)
 
     def current_value_for(field_path: tuple[str, ...]) -> Any:
@@ -1022,14 +1051,25 @@ def _loop_projection_materialize_values(
         discriminant_name = projection.union_projection.discriminant_field.generated_name
         for field in projection.flattened_fields:
             contract_allow_missing = frozenset()
+            relative_path = field.source_path[1:]
+            if field.contract_definition.get("type") in {"path", "relpath"}:
+                field_origin = loop_state_field_origin(expr, relative_path)
+                if field_origin is not None:
+                    context.generated_path_spans.setdefault(
+                        f"{context.step_name_prefix}.{field.generated_name}",
+                        _origin_from_context_source(context, field_origin),
+                    )
             if field.generated_name == discriminant_name:
                 source: dict[str, Any] = {"literal": active_variant_name}
             elif field.generated_name in shared_field_names or field.generated_name in active_variant_fields:
-                relative_path = field.source_path[1:]
                 current_value = current_value_for(relative_path)
                 if isinstance(current_value, LiteralExpr):
                     source = {"literal": current_value.value}
                 elif isinstance(current_value, GeneratedRelpathSeedExpr):
+                    context.generated_path_spans.setdefault(
+                        current_value.literal_path,
+                        _origin_from_context_source(context, current_value),
+                    )
                     source = {"literal": current_value.literal_path}
                 elif isinstance(current_value, str):
                     source = {"ref": current_value}
@@ -1059,10 +1099,21 @@ def _loop_projection_materialize_values(
         return values
     for field in projection.flattened_fields:
         relative_path = field.source_path[1:]
+        if field.contract_definition.get("type") in {"path", "relpath"}:
+            field_origin = loop_state_field_origin(expr, relative_path)
+            if field_origin is not None:
+                context.generated_path_spans.setdefault(
+                    f"{context.step_name_prefix}.{field.generated_name}",
+                    _origin_from_context_source(context, field_origin),
+                )
         current_value = current_value_for(relative_path)
         if isinstance(current_value, LiteralExpr):
             source = {"literal": current_value.value}
         elif isinstance(current_value, GeneratedRelpathSeedExpr):
+            context.generated_path_spans.setdefault(
+                current_value.literal_path,
+                _origin_from_context_source(context, current_value),
+            )
             source = {"literal": current_value.literal_path}
         elif isinstance(current_value, str):
             source = {"ref": current_value}

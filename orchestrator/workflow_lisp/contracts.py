@@ -255,13 +255,22 @@ def derive_workflow_signature_contracts(
             )
             flattened_inputs.append(flattened_field)
 
-    for flattened_field in derive_workflow_boundary_fields(
+    return_fields = derive_workflow_boundary_fields(
         signature.return_type_ref,
         generated_name="return",
         source_path=("return",),
         span=signature.span,
         form_path=signature.form_path,
-    ):
+    )
+    if isinstance(signature.return_type_ref, UnionTypeRef):
+        return_fields = _relax_variant_only_relpath_outputs(
+            signature.return_type_ref,
+            return_fields,
+            span=signature.span,
+            form_path=signature.form_path,
+        )
+
+    for flattened_field in return_fields:
         outputs[flattened_field.generated_name] = SurfaceContract(
             name=flattened_field.generated_name,
             kind=flattened_field.contract_definition["kind"],
@@ -288,6 +297,48 @@ def derive_workflow_signature_contracts(
             flattened_outputs=tuple(flattened_outputs),
         ),
     )
+
+
+def _relax_variant_only_relpath_outputs(
+    type_ref: UnionTypeRef,
+    fields: tuple[FlattenedContractField, ...],
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[FlattenedContractField, ...]:
+    """Do not require inactive union-variant relpaths at the flat output boundary.
+
+    The selected variant's producer contract still validates its active relpath
+    fields. A flattened workflow output has no variant proof, so requiring every
+    variant-only relpath to exist would make valid alternate variants fail at
+    workflow-output export time.
+    """
+
+    projection = derive_union_workflow_boundary_projection(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
+    variant_only_names = {
+        field.generated_name
+        for variant_fields in projection.variant_fields.values()
+        for field in variant_fields
+    }
+    relaxed: list[FlattenedContractField] = []
+    for field in fields:
+        if field.generated_name not in variant_only_names:
+            relaxed.append(field)
+            continue
+        definition = dict(field.contract_definition)
+        if definition.get("type") == "relpath" and definition.get("must_exist_target"):
+            definition["must_exist_target"] = False
+            field = FlattenedContractField(
+                generated_name=field.generated_name,
+                source_path=field.source_path,
+                contract_definition=definition,
+            )
+        relaxed.append(field)
+    return tuple(relaxed)
 
 
 def _apply_workflow_input_defaults(

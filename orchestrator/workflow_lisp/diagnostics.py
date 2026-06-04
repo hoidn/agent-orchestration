@@ -142,6 +142,14 @@ _TYPE_CODES = frozenset(
         "parametric_constraint_unsatisfied",
         "procedure_return_type_invalid",
         "workflow_call_unknown",
+        "loop_state_requires_typed_fields",
+        "loop_state_duplicate_field",
+        "loop_state_like_not_loop_state",
+        "loop_state_unknown_field",
+        "loop_state_field_type_mismatch",
+        "loop_state_runtime_transport_forbidden",
+        "loop_state_unresolved_type_parameter",
+        "loop_state_not_projectable",
     }
 )
 _LOWERING_SURFACE_CODES = frozenset(

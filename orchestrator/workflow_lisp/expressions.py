@@ -88,6 +88,39 @@ class RecordExpr:
 
 
 @dataclass(frozen=True)
+class LoopStateField:
+    """One authored loop-state seed field."""
+
+    name: str
+    type_name: str
+    value_expr: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class LoopStateSeedExpr:
+    """One loop-state seed form with explicit typed fields."""
+
+    fields: tuple[LoopStateField, ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class LoopStateUpdateExpr:
+    """One loop-state update form based on an existing carrier."""
+
+    base_expr: "ExprNode"
+    overrides: tuple[tuple[str, "ExprNode"], ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class UnionVariantExpr:
     """One union-variant constructor."""
 
@@ -441,6 +474,8 @@ ExprNode = (
     | LiteralExpr
     | FieldAccessExpr
     | RecordExpr
+    | LoopStateSeedExpr
+    | LoopStateUpdateExpr
     | UnionVariantExpr
     | LetStarExpr
     | IfExpr
@@ -839,6 +874,7 @@ def _route_proc_ref(
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
     return {
         "record": _elaborate_record,
+        "loop_state": _elaborate_loop_state,
         "variant": _elaborate_variant,
         "let_star": _elaborate_letstar,
         "if": _elaborate_if,
@@ -917,6 +953,179 @@ def _elaborate_record(
     return RecordExpr(
         type_name=type_identifier.resolved_name,
         fields=tuple(fields),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_loop_state(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> LoopStateSeedExpr | LoopStateUpdateExpr:
+    if len(datum.items) < 2:
+        _raise_error(
+            "`loop-state` requires typed field entries or `:like` plus overrides",
+            code="loop_state_requires_typed_fields",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    first_item = datum.items[1]
+    if isinstance(first_item, SyntaxKeyword):
+        return _elaborate_loop_state_update(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    return _elaborate_loop_state_seed(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+
+
+def _elaborate_loop_state_seed(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> LoopStateSeedExpr:
+    fields: list[LoopStateField] = []
+    seen_fields: set[str] = set()
+    for field_node in datum.items[1:]:
+        if not isinstance(field_node, SyntaxList) or len(field_node.items) != 3:
+            _raise_error(
+                "`loop-state` seed fields must use `(field Type value)` entries",
+                code="loop_state_requires_typed_fields",
+                span=field_node.span,
+                form_path=form_path,
+                expansion_stack=field_node.expansion_stack,
+            )
+        name_node = syntax_identifier(field_node.items[0])
+        type_node = syntax_identifier(field_node.items[1])
+        value_node = field_node.items[2]
+        if name_node is None or type_node is None:
+            _raise_error(
+                "`loop-state` seed fields must use `(field Type value)` entries",
+                code="loop_state_requires_typed_fields",
+                span=field_node.span,
+                form_path=form_path,
+                expansion_stack=field_node.expansion_stack,
+            )
+        if name_node.resolved_name in seen_fields:
+            _raise_error(
+                f"duplicate loop-state field `{name_node.display_name}`",
+                code="loop_state_duplicate_field",
+                span=name_node.span,
+                form_path=form_path,
+                expansion_stack=name_node.expansion_stack,
+            )
+        seen_fields.add(name_node.resolved_name)
+        fields.append(
+            LoopStateField(
+                name=name_node.resolved_name,
+                type_name=type_node.resolved_name,
+                value_expr=_elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+                span=field_node.span,
+                form_path=form_path,
+                expansion_stack=field_node.expansion_stack,
+            )
+        )
+    return LoopStateSeedExpr(
+        fields=tuple(fields),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_loop_state_update(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> LoopStateUpdateExpr:
+    if len(datum.items) < 4 or not isinstance(datum.items[1], SyntaxKeyword) or datum.items[1].value != ":like":
+        _raise_error(
+            "`loop-state` updates must start with `:like` and a base expression",
+            code="loop_state_requires_typed_fields",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    base_node = datum.items[2]
+    if isinstance(base_node, SyntaxKeyword):
+        _raise_error(
+            "`loop-state :like` requires a base expression before overrides",
+            code="loop_state_requires_typed_fields",
+            span=base_node.span,
+            form_path=form_path,
+            expansion_stack=base_node.expansion_stack,
+        )
+    override_nodes = datum.items[3:]
+    if len(override_nodes) % 2 != 0:
+        _raise_error(
+            "`loop-state :like` requires keyword/value override pairs",
+            code="loop_state_requires_typed_fields",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    seen_fields: set[str] = set()
+    overrides: list[tuple[str, ExprNode]] = []
+    for index in range(0, len(override_nodes), 2):
+        keyword_node = override_nodes[index]
+        value_node = override_nodes[index + 1]
+        if not isinstance(keyword_node, SyntaxKeyword):
+            _raise_error(
+                "`loop-state :like` overrides must use keyword/value pairs",
+                code="loop_state_requires_typed_fields",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        field_name = keyword_node.value[1:]
+        if field_name in seen_fields:
+            _raise_error(
+                f"duplicate loop-state field `{field_name}`",
+                code="loop_state_duplicate_field",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        seen_fields.add(field_name)
+        overrides.append(
+            (
+                field_name,
+                _elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            )
+        )
+    return LoopStateUpdateExpr(
+        base_expr=_elaborate(
+            base_node,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        overrides=tuple(overrides),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

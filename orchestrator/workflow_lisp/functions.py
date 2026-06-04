@@ -21,6 +21,9 @@ from .expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateField,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
     LoopRecurExpr,
     MatchArm,
     MatchExpr,
@@ -361,6 +364,39 @@ def _normalize_expr(
                 for field_name, field_expr in expr.fields
             ),
         )
+    if isinstance(expr, LoopStateSeedExpr):
+        return replace(
+            expr,
+            fields=tuple(
+                LoopStateField(
+                    name=field.name,
+                    type_name=field.type_name,
+                    value_expr=_normalize_expr(
+                        field.value_expr,
+                        typed_functions_by_name=typed_functions_by_name,
+                    ),
+                    span=field.span,
+                    form_path=field.form_path,
+                    expansion_stack=field.expansion_stack,
+                )
+                for field in expr.fields
+            ),
+        )
+    if isinstance(expr, LoopStateUpdateExpr):
+        return replace(
+            expr,
+            base_expr=_normalize_expr(
+                expr.base_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+            overrides=tuple(
+                (
+                    field_name,
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name),
+                )
+                for field_name, field_expr in expr.overrides
+            ),
+        )
     if isinstance(expr, UnionVariantExpr):
         return replace(
             expr,
@@ -496,6 +532,54 @@ def _clone_function_expr(
                     ),
                 )
                 for field_name, field_expr in expr.fields
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, LoopStateSeedExpr):
+        return replace(
+            expr,
+            fields=tuple(
+                LoopStateField(
+                    name=field.name,
+                    type_name=field.type_name,
+                    value_expr=_clone_function_expr(
+                        field.value_expr,
+                        span=span,
+                        form_path=form_path,
+                        expansion_stack=expansion_stack,
+                    ),
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                for field in expr.fields
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, LoopStateUpdateExpr):
+        return replace(
+            expr,
+            base_expr=_clone_function_expr(
+                expr.base_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            overrides=tuple(
+                (
+                    field_name,
+                    _clone_function_expr(
+                        field_expr,
+                        span=span,
+                        form_path=form_path,
+                        expansion_stack=expansion_stack,
+                    ),
+                )
+                for field_name, field_expr in expr.overrides
             ),
             span=span,
             form_path=form_path,
@@ -679,6 +763,21 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return None
     if isinstance(expr, RecordExpr):
         for _, field_expr in expr.fields:
+            violation = _find_purity_violation(field_expr)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, LoopStateSeedExpr):
+        for field in expr.fields:
+            violation = _find_purity_violation(field.value_expr)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, LoopStateUpdateExpr):
+        violation = _find_purity_violation(expr.base_expr)
+        if violation is not None:
+            return violation
+        for _, field_expr in expr.overrides:
             violation = _find_purity_violation(field_expr)
             if violation is not None:
                 return violation

@@ -14,6 +14,8 @@ from ..expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
     NameExpr,
     PhaseTargetExpr,
     ProcRefLiteralExpr,
@@ -282,6 +284,10 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
         return expr
     if isinstance(expr, ProcRefLiteralExpr | BindProcExpr):
         return expr
+    if isinstance(expr, LoopStateSeedExpr):
+        return _loop_state_seed_inline_value(expr, local_values=local_values)
+    if isinstance(expr, LoopStateUpdateExpr):
+        return _loop_state_update_inline_value(expr, local_values=local_values)
     if isinstance(expr, LetStarExpr):
         child_locals = dict(local_values)
         for binding_name, binding_expr in expr.bindings:
@@ -319,6 +325,46 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
             local_values=local_values,
         )
     return expr
+
+
+def _loop_state_seed_inline_value(
+    expr: LoopStateSeedExpr,
+    *,
+    local_values: Mapping[str, Any],
+) -> Any:
+    inline_value: dict[str, Any] = {}
+    for field in expr.fields:
+        resolved_value = _resolve_inline_expr_value(field.value_expr, local_values=local_values)
+        if resolved_value is None:
+            return expr
+        inline_value[field.name] = resolved_value
+    return inline_value
+
+
+def _loop_state_update_inline_value(
+    expr: LoopStateUpdateExpr,
+    *,
+    local_values: Mapping[str, Any],
+) -> Any:
+    base_value = _resolve_inline_expr_value(expr.base_expr, local_values=local_values)
+    if not isinstance(base_value, Mapping):
+        return expr
+    updated_value = {name: _clone_inline_value(value) for name, value in base_value.items()}
+    for field_name, field_expr in expr.overrides:
+        resolved_value = _resolve_inline_expr_value(field_expr, local_values=local_values)
+        if resolved_value is None:
+            return expr
+        updated_value[field_name] = resolved_value
+    return updated_value
+
+
+def _clone_inline_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: _clone_inline_value(item)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:

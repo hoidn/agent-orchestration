@@ -42,6 +42,8 @@ from .expressions import (
     LetProcExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
     LoopRecurExpr,
     MatchArm,
     MatchExpr,
@@ -62,6 +64,7 @@ from .expressions import (
     WithPhaseExpr,
 )
 from .loops import LoopControlTypeRef, ensure_loop_projectable_type
+from .loop_state import typecheck_loop_state_expr as typecheck_loop_state_expr_owner
 from .procedure_refs import (
     BoundProcArg,
     ProcRefAuthoritySource,
@@ -488,6 +491,15 @@ def _typecheck(
             context=context,
             recurse=recurse,
             typed_factory=_typed,
+        )
+    if isinstance(expr, (LoopStateSeedExpr, LoopStateUpdateExpr)):
+        return typecheck_loop_state_expr_owner(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+            raise_error=_raise_error,
+            type_label=_type_label,
         )
     if isinstance(expr, RecordExpr):
         record_type = type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)

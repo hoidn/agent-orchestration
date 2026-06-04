@@ -73,6 +73,8 @@ from ..expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
     LoopRecurExpr,
     MatchExpr,
     NameExpr,
@@ -609,6 +611,13 @@ def _lower_one_workflow(
     )
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)
+    steps, terminal = _normalize_top_level_terminal(
+        typed_workflow=typed_workflow,
+        authored_outputs=authored_outputs,
+        steps=steps,
+        terminal=terminal,
+        context=context,
+    )
 
     if context.origin_notes:
         noted_origin = LoweringOrigin(
@@ -861,6 +870,66 @@ def _normalize_generated_step_id(raw_name: str) -> str:
     if not normalized[0].isalpha():
         normalized = f"S_{normalized}"
     return normalized
+
+
+def _normalize_top_level_terminal(
+    *,
+    typed_workflow: TypedWorkflowDef,
+    authored_outputs: Mapping[str, dict[str, Any]],
+    steps: list[dict[str, Any]],
+    terminal: _TerminalResult,
+    context: _LoweringContext,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Ensure public workflow outputs lower from a concrete root step."""
+
+    if all(
+        isinstance(source_ref, str) and source_ref.startswith("root.steps.")
+        for source_ref in terminal.output_refs.values()
+    ):
+        return steps, terminal
+
+    step_name = f"{typed_workflow.definition.name}__return"
+    step_id = _normalize_generated_step_id(step_name)
+    values = []
+    output_refs: dict[str, str] = {}
+    for output_name, definition in authored_outputs.items():
+        source_ref = terminal.output_refs.get(output_name)
+        if not isinstance(source_ref, str):
+            field_name = output_name.removeprefix("return__")
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"workflow `{typed_workflow.definition.name}` cannot export return field `{field_name}`",
+                span=typed_workflow.definition.body.span,
+                form_path=typed_workflow.definition.body.form_path,
+            )
+        values.append(
+            {
+                "name": output_name,
+                "source": {"ref": source_ref},
+                "contract": dict(definition),
+            }
+        )
+        output_refs[output_name] = f"root.steps.{step_name}.artifacts.{output_name}"
+    _record_step_origin(
+        context,
+        step_name=step_name,
+        step_id=step_id,
+        source=typed_workflow.typed_body.expr,
+    )
+    return [
+        *steps,
+        _materialize_values_step(
+            step_name=step_name,
+            step_id=step_id,
+            values=values,
+        ),
+    ], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=output_refs,
+        output_kind="step",
+        hidden_inputs=terminal.hidden_inputs,
+    )
 
 
 def _observed_statement_families(steps: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
@@ -1316,6 +1385,24 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, LoopStateSeedExpr):
+        from ..loop_state import carrier_metadata_for_expr
+
+        metadata = carrier_metadata_for_expr(expr)
+        if metadata is None:
+            return None
+        return context.type_env.resolve_type(
+            metadata.generated_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, LoopStateUpdateExpr):
+        base_type = _resolve_lowering_expr_type(expr.base_expr, context=context)
+        if base_type is None:
+            return None
+        from ..loop_state import carrier_metadata_for_type
+
+        return base_type if carrier_metadata_for_type(base_type) is not None else None
     if isinstance(expr, UnionVariantExpr):
         return context.type_env.resolve_type(
             expr.type_name,
