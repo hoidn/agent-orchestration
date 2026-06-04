@@ -314,11 +314,8 @@ def _private_workflow_binding_local_value(
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
 
-    from .lowering.core import _binding_terminal_for_match_subject, _is_inline_let_binding_expr
-    from .lowering.values import (
-        _procedure_signature_local_type_bindings,
-        _resolve_inline_expr_value,
-    )
+    from .lowering.control import _binding_terminal_for_match_subject, _is_inline_let_binding_expr
+    from .lowering.values import _procedure_signature_local_type_bindings, _resolve_inline_expr_value
     from .lowering.workflow_calls import _managed_write_root_binding_step
 
     _ = _managed_write_root_binding_step
@@ -578,8 +575,8 @@ def _match_outputs_are_step_backed(
 ) -> bool:
     """Return whether every match arm exports step-backed outputs."""
 
-    from .lowering.core import _binding_terminal_for_inline_match, _match_arm_local_values, _resolve_inline_expr_value
-
+    from .lowering.control import _binding_terminal_for_inline_match, _match_arm_local_values
+    from .lowering.values import _resolve_inline_expr_value
     binding_terminal = _binding_terminal_for_inline_match(
         _resolve_inline_expr_value(match_expr.subject, local_values=local_values)
     )
@@ -688,8 +685,11 @@ def _inline_outputs_are_step_backed(
 ) -> bool:
     """Return whether one inline alias resolves to existing step-backed refs."""
 
-    from .lowering.core import _flatten_inline_output_refs
-    from .lowering.values import _flatten_boundary_leaf_paths, _resolve_inline_expr_value
+    from .lowering.values import (
+        _flatten_boundary_leaf_paths,
+        _flatten_inline_output_refs,
+        _resolve_inline_expr_value,
+    )
 
     output_refs = _flatten_inline_output_refs(_resolve_inline_expr_value(expr, local_values=local_values))
     if not output_refs:

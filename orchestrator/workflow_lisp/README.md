@@ -99,13 +99,34 @@ split generic lowering coordination from procedure-lowering ownership.
 - `typecheck_calls.py`: workflow, workflow-ref, proc-ref, and function-call
   typing helpers outside `procedure_typecheck.py`.
 - `lowering/__init__.py`: stable lowering facade for callers and tests.
-- `lowering/core.py`: lowering coordinator, shared lowering helpers, source
-  maps, and calls into the existing workflow validation path; it is no longer
-  the owner of procedure-lowering policy or provenance logic.
+- `lowering/core.py`: lowering coordinator and compatibility surface for the
+  shared validation handoff; family ownership now lives in the dedicated owner
+  modules below rather than in one mixed lowering sink.
 - `lowering/procedures.py`: procedure call-site lowering analysis, actual
   procedure lowering, provenance-note ownership, generated private-workflow
   synthesis, and runtime-erasure guards for compile-time-only procedure
   metadata.
+- `lowering/control.py`: stable control-family facade.
+- `lowering/control_dispatch.py`: expression dispatch plus `let*` and `if`
+  lowering ownership.
+- `lowering/control_match.py`: match lowering, branch projection, and
+  match-bound local-value ownership.
+- `lowering/control_loops.py`: bounded `loop/recur` lowering ownership.
+- `lowering/values.py`: record/union projection, inline value resolution, and
+  step-backed return materialization ownership.
+- `lowering/workflow_calls.py`: workflow-call lowering, call-binding rendering,
+  and managed write-root helper ownership.
+- `lowering/effects.py`: primitive `provider-result` / `command-result`
+  lowering ownership.
+- `lowering/phase_stdlib.py`: stable phase/resource/drain facade plus
+  review-loop bridge quarantine.
+- `lowering/phase_scope.py`: `with-phase` scope and prompt-input prelude
+  ownership.
+- `lowering/phase_flow.py`: `run-provider-phase`, `produce-one-of`, and
+  `resume-or-start` lowering ownership.
+- `lowering/phase_resource.py`: `resource-transition` and
+  `finalize-selected-item` lowering ownership.
+- `lowering/phase_drain.py`: `backlog-drain` lowering ownership.
 
 ## Component Design Docs
 

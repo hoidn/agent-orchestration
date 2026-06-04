@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from ..contracts import derive_workflow_boundary_fields
+from ..contracts import derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     BindProcExpr,
@@ -22,7 +22,11 @@ from ..expressions import (
     WorkflowRefLiteralExpr,
 )
 from ..procedures import TypedProcedureDef
-from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef
+from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from ..typecheck import TypedExpr
+from . import core as lowering_core
+from .context import _LoweringContext, _TerminalResult
+from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 
 
 def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str, ...]) -> LispFrontendCompileError:
@@ -36,6 +40,76 @@ def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str,
                 phase="lowering",
             ),
         )
+    )
+
+
+def _compile_error(*args, **kwargs):
+    return lowering_core._compile_error(*args, **kwargs)
+
+
+def _normalize_generated_step_id(*args, **kwargs):
+    return lowering_core._normalize_generated_step_id(*args, **kwargs)
+
+
+def _materialize_values_step(*args, **kwargs):
+    return lowering_core._materialize_values_step(*args, **kwargs)
+
+
+def _surface_contract_from_structured_field(*args, **kwargs):
+    return lowering_core._surface_contract_from_structured_field(*args, **kwargs)
+
+
+def _boundary_placeholder_literals(
+    type_ref: TypeRef,
+    *,
+    span,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    placeholders: dict[str, Any] = {}
+    for field in derive_workflow_boundary_fields(
+        type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=span,
+        form_path=form_path,
+    ):
+        definition = field.contract_definition
+        field_type = definition.get("type")
+        if field_type == "bool":
+            placeholders[field.generated_name] = False
+        elif field_type == "integer":
+            placeholders[field.generated_name] = 0
+        elif field_type == "enum":
+            allowed = definition.get("allowed", [])
+            placeholders[field.generated_name] = allowed[0] if isinstance(allowed, list) and allowed else ""
+        elif field_type == "relpath":
+            under = definition.get("under", "artifacts")
+            placeholders[field.generated_name] = f"{under}/placeholder.txt"
+        else:
+            placeholders[field.generated_name] = ""
+    return placeholders
+
+
+def _union_variant_materialize_source(
+    union_expr: UnionVariantExpr,
+    *,
+    field_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
+    leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
+    if isinstance(leaf_value, LiteralExpr):
+        return {"literal": leaf_value.value}
+    if isinstance(leaf_value, str):
+        return {"ref": leaf_value}
+    raise _compile_error(
+        code="workflow_return_not_exportable",
+        message=(
+            f"union return field `{'__'.join(field_path)}` must lower from an existing step artifact "
+            "or literal in this Stage 3 slice"
+        ),
+        span=leaf_expr.span,
+        form_path=leaf_expr.form_path,
     )
 
 
@@ -110,6 +184,24 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
         local_values.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
         local_values.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
         local_values.update(dict(getattr(procedure.specialization, "value_bindings", {})))
+    return local_values
+
+
+def _signature_local_values(typed_workflow: Any) -> dict[str, Any]:
+    """Seed local value refs from a workflow signature."""
+
+    signature = typed_workflow.signature
+    local_values: dict[str, Any] = {}
+    for param_name, param_type in signature.params:
+        if isinstance(param_type, RecordTypeRef):
+            local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name)
+        else:
+            local_values[param_name] = f"inputs.{param_name}"
+    specialization = getattr(typed_workflow, "specialization", None)
+    if specialization is not None:
+        local_values.update(dict(getattr(specialization, "workflow_ref_bindings", {})))
+        local_values.update(dict(getattr(specialization, "proc_ref_bindings", {})))
+        local_values.update(dict(getattr(specialization, "value_bindings", {})))
     return local_values
 
 
@@ -246,6 +338,26 @@ def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, 
     return local_value
 
 
+def _flatten_inline_output_refs(local_value: Any) -> dict[str, str]:
+    """Flatten nested local-value mappings back into generated output refs."""
+
+    if not isinstance(local_value, Mapping):
+        return {}
+    output_refs: dict[str, str] = {}
+
+    def visit(value: Any, *, path: tuple[str, ...]) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if isinstance(key, str):
+                    visit(item, path=path + (key,))
+            return
+        if isinstance(value, str):
+            output_refs[f"return__{'__'.join(path)}"] = value
+
+    visit(local_value, path=())
+    return output_refs
+
+
 def _flatten_boundary_leaf_paths(
     type_ref: RecordTypeRef | UnionTypeRef,
     *,
@@ -361,3 +473,294 @@ def _render_existing_output_ref(
     if value.startswith(("root.steps.", "self.steps.", "parent.steps.", "inputs.")):
         return value
     return None
+
+
+def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ...], ref: str) -> None:
+    """Assign a flattened ref into a nested local-value mapping."""
+
+    current = target
+    for field_name in field_path[:-1]:
+        nested = current.get(field_name)
+        if not isinstance(nested, dict):
+            nested = {}
+            current[field_name] = nested
+        current = nested
+    current[field_path[-1]] = ref
+
+
+def _flatten_record_output_refs(step_name: str, type_ref: RecordTypeRef) -> dict[str, str]:
+    """Build flattened workflow return refs for a record-producing step."""
+
+    return {
+        f"return__{'__'.join(field_path)}": f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
+        for _, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name="return")
+    }
+
+def _render_provider_artifact_ref(provider_step_name: str, field_access: FieldAccessExpr) -> str | None:
+    """Render a provider result field access as a step artifact ref."""
+
+    if not field_access.fields:
+        return None
+    return f"root.steps.{provider_step_name}.artifacts.{'__'.join(field_access.fields)}"
+
+
+def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
+    """Return flattened output refs for a record or union result type."""
+
+    if isinstance(type_ref, RecordTypeRef):
+        return _flatten_record_output_refs(step_name, type_ref)
+    if isinstance(type_ref, UnionTypeRef):
+        return {
+            output_name: f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
+            for output_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name="return")
+        }
+    return {}
+
+
+def _flatten_return_output_names(context: _LoweringContext) -> tuple[str, ...]:
+    """Return flattened output names for the active workflow return contract."""
+
+    return tuple(f"return__{field_name}" for field_name in context.return_output_contracts)
+
+
+def _return_field_path(field_name: str) -> tuple[str, ...]:
+    """Convert a flattened return field name into a nested field path."""
+
+    return tuple(field_name.split("__"))
+
+def _inline_expr_field_value(
+    expr: Any,
+    *,
+    field_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+    context: _LoweringContext | None = None,
+) -> Any:
+    """Resolve one projected leaf from an inline branch expression."""
+
+    if isinstance(expr, RecordExpr):
+        value = _record_expr_value_at_path(expr, field_path)
+        if isinstance(value, PhaseTargetExpr) and context is not None:
+            return _phase_target_inline_ref(value, context=context)
+        return _resolve_inline_expr_value(value, local_values=local_values)
+    if isinstance(expr, UnionVariantExpr):
+        value = _union_variant_expr_value_at_path(expr, field_path)
+        if isinstance(value, PhaseTargetExpr) and context is not None:
+            return _phase_target_inline_ref(value, context=context)
+        return _resolve_inline_expr_value(value, local_values=local_values)
+    if isinstance(expr, PhaseTargetExpr) and context is not None:
+        return _phase_target_inline_ref(expr, context=context)
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if field_path:
+        return _resolve_nested_local_value(value, field_path)
+    return value
+
+
+def _phase_target_inline_ref(expr: PhaseTargetExpr, *, context: _LoweringContext) -> str:
+    """Resolve a direct phase-target projection to the active phase reference."""
+
+    phase_scope = context.phase_scope
+    if phase_scope is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="phase-target lowering requires an active phase scope",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    target_ref = phase_scope.target_refs.get(expr.target_name)
+    if target_ref is None:
+        raise _compile_error(
+            code="phase_target_unknown",
+            message=f"`phase-target` does not support `{expr.target_name}` in this slice",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    return target_ref
+
+def _lower_record_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Project a record return expression from existing step-backed refs."""
+
+    record_expr = typed_expr.expr
+    assert isinstance(record_expr, RecordExpr)
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    values: list[dict[str, Any]] = []
+    for field_name in context.return_output_contracts:
+        value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
+        source_ref = _render_existing_output_ref(value, local_values=local_values, context=context)
+        if source_ref is None:
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=(
+                    f"record return field `{field_name}` must lower from an existing step artifact "
+                    "or structured statement output in this Stage 3 slice"
+                ),
+                span=record_expr.span,
+                form_path=record_expr.form_path,
+            )
+        values.append(
+            {
+                "name": field_name,
+                "source": {"ref": source_ref},
+                "contract": dict(context.return_output_contracts[field_name]),
+            }
+        )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=record_expr)
+    step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)
+    return [step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=_record_output_refs(step_name, typed_expr.type_ref),
+        output_kind="step",
+        hidden_inputs={},
+    )
+
+
+def _lower_union_variant_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Materialize one compiler-generated union variant through workflow outputs."""
+
+    union_expr = typed_expr.expr
+    assert isinstance(union_expr, UnionVariantExpr)
+    assert isinstance(typed_expr.type_ref, UnionTypeRef)
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    if step_name != context.workflow_name:
+        values: list[dict[str, Any]] = []
+        placeholders = _boundary_placeholder_literals(
+            typed_expr.type_ref,
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+        )
+        active_field_names = {name for name, _ in union_expr.fields}
+        for field in derive_workflow_boundary_fields(
+            typed_expr.type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=union_expr.span,
+            form_path=union_expr.form_path,
+        ):
+            field_path = _normalize_union_field_path(field.source_path[1:])
+            field_name = field_path[0] if field_path else ""
+            contract = dict(field.contract_definition)
+            if field_name == "variant":
+                source = {"literal": union_expr.variant_name}
+            elif field_name in active_field_names:
+                leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
+                leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
+                if isinstance(leaf_value, LiteralExpr):
+                    source = {"literal": leaf_value.value}
+                elif isinstance(leaf_value, str):
+                    source = {"ref": leaf_value}
+                else:
+                    raise _compile_error(
+                        code="workflow_return_not_exportable",
+                        message=(
+                            f"union return field `{field.generated_name}` must lower from an existing step artifact "
+                            "or literal in this Stage 3 slice"
+                        ),
+                        span=leaf_expr.span,
+                        form_path=leaf_expr.form_path,
+                    )
+            else:
+                source = {"literal": placeholders[field.generated_name]}
+                if contract.get("type") == "relpath":
+                    contract["must_exist_target"] = False
+            values.append(
+                {
+                    "name": field.generated_name,
+                    "source": source,
+                    "contract": contract,
+                }
+            )
+        _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
+        step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)
+        return [step], _TerminalResult(
+            step_name=step_name,
+            step_id=step_id,
+            output_refs={
+                field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+                for field in derive_workflow_boundary_fields(
+                    typed_expr.type_ref,
+                    generated_name="return",
+                    source_path=("return",),
+                    span=union_expr.span,
+                    form_path=union_expr.form_path,
+                )
+            },
+            output_kind="step",
+            hidden_inputs={},
+        )
+    hidden_input_name = f"__write_root__{step_id}__result_bundle"
+    bundle_contract = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=step_name,
+        span=union_expr.span,
+        form_path=union_expr.form_path,
+    )
+    authored_contract = dict(bundle_contract.payload)
+    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
+    values: list[dict[str, Any]] = []
+    values.append(
+        {
+            "name": "variant",
+            "source": {"literal": union_expr.variant_name},
+            "contract": _surface_contract_from_structured_field(authored_contract["discriminant"]),
+        }
+    )
+    for field in authored_contract.get("shared_fields", ()):
+        values.append(
+            {
+                "name": field["name"],
+                "source": _union_variant_materialize_source(
+                    union_expr,
+                    field_path=(field["name"],),
+                    local_values=local_values,
+                ),
+                "contract": _surface_contract_from_structured_field(field),
+            }
+        )
+    for field in authored_contract["variants"][union_expr.variant_name]["fields"]:
+        values.append(
+            {
+                "name": field["name"],
+                "source": _union_variant_materialize_source(
+                    union_expr,
+                    field_path=(field["name"],),
+                    local_values=local_values,
+                ),
+                "contract": _surface_contract_from_structured_field(field),
+            }
+        )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, union_expr)
+    step = {
+        **_materialize_values_step(step_name=step_name, step_id=step_id, values=values),
+        bundle_contract.contract_kind: authored_contract,
+    }
+    output_refs = {}
+    for field in derive_workflow_boundary_fields(
+        typed_expr.type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=union_expr.span,
+        form_path=union_expr.form_path,
+    ):
+        field_path = _normalize_union_field_path(field.source_path[1:])
+        output_refs[field.generated_name] = f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
+    return [step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=output_refs,
+        output_kind="step",
+        hidden_inputs={hidden_input_name: _origin_from_context_source(context, union_expr)},
+    )

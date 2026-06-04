@@ -177,6 +177,22 @@ def _module_mentions_symbol(path: Path, symbol: str) -> bool:
     return False
 
 
+def _function_imports_from_module(path: Path, function_name: str, module_name: str) -> bool:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in module.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.ImportFrom) and child.module == module_name:
+                return True
+    return False
+
+
+def _physical_line_count(path: Path) -> int:
+    with path.open("r", encoding="utf-8") as handle:
+        return sum(1 for _ in handle)
+
+
 def test_lowering_facade_exports_current_test_surface() -> None:
     lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
 
@@ -249,6 +265,20 @@ def test_lowering_family_owner_modules_exist_across_full_target_map() -> None:
         "phase_stdlib",
     ):
         assert _lowering_owner_source_path(name).is_file()
+    assert _physical_line_count(_lowering_source_path()) < 2000
+
+
+def test_lowering_second_level_owner_modules_exist_for_control_and_phase_families() -> None:
+    for name in (
+        "control_dispatch",
+        "control_match",
+        "control_loops",
+        "phase_scope",
+        "phase_flow",
+        "phase_resource",
+        "phase_drain",
+    ):
+        assert _lowering_owner_source_path(name).is_file()
 
 
 def test_lowering_owner_split_moves_context_and_origins_out_of_core() -> None:
@@ -280,6 +310,13 @@ def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core()
         "_managed_write_root_binding_step",
         "_build_output_step_local_value",
         "_flatten_boundary_leaf_paths",
+        "_inline_expr_field_value",
+        "_phase_target_inline_ref",
+        "_lower_record_expr",
+        "_lower_union_variant_expr",
+        "_render_existing_output_ref",
+        "_union_variant_materialize_source",
+        "_boundary_placeholder_literals",
         "_lower_with_phase",
         "_lower_run_provider_phase",
         "_lower_produce_one_of",
@@ -301,6 +338,13 @@ def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core()
         "_managed_write_root_binding_step": 0,
         "_build_output_step_local_value": 0,
         "_flatten_boundary_leaf_paths": 0,
+        "_inline_expr_field_value": 0,
+        "_phase_target_inline_ref": 0,
+        "_lower_record_expr": 0,
+        "_lower_union_variant_expr": 0,
+        "_render_existing_output_ref": 0,
+        "_union_variant_materialize_source": 0,
+        "_boundary_placeholder_literals": 0,
         "_lower_with_phase": 0,
         "_lower_run_provider_phase": 0,
         "_lower_produce_one_of": 0,
@@ -309,6 +353,45 @@ def test_lowering_full_family_owner_map_moves_non_procedure_owners_out_of_core()
         "_lower_finalize_selected_item": 0,
         "_lower_backlog_drain": 0,
     }
+    assert not _function_imports_from_module(
+        _lowering_owner_source_path("effects"),
+        "_lower_provider_result",
+        "core",
+    )
+    assert not _function_imports_from_module(
+        _lowering_owner_source_path("effects"),
+        "_lower_command_result",
+        "core",
+    )
+    assert not _function_imports_from_module(
+        _lowering_owner_source_path("workflow_calls"),
+        "_managed_write_root_requirements_for_callable",
+        "core",
+    )
+    assert not _function_imports_from_module(
+        _lowering_owner_source_path("workflow_calls"),
+        "_managed_write_root_bindings",
+        "core",
+    )
+    assert not _function_imports_from_module(
+        _lowering_owner_source_path("workflow_calls"),
+        "_lower_call_expr",
+        "core",
+    )
+    for function_name in (
+        "_lower_with_phase",
+        "_lower_run_provider_phase",
+        "_lower_produce_one_of",
+        "_lower_resume_or_start",
+        "_lower_resource_transition",
+        "_lower_finalize_selected_item",
+        "_lower_backlog_drain",
+    ):
+        assert not _function_imports_from_module(
+            _lowering_owner_source_path("phase_stdlib"),
+            function_name,
+            "core",
+        )
 
 
 def test_lowering_provenance_owner_split_gives_origins_real_ownership() -> None:
@@ -321,6 +404,27 @@ def test_lowering_provenance_owner_split_gives_origins_real_ownership() -> None:
         "LoweringOrigin": 1,
         "LoweringOriginMap": 1,
         "_raise_remapped_validation_error": 1,
+    }
+
+
+def test_lowering_value_owner_receives_remaining_projection_helpers() -> None:
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("values"),
+        "_inline_expr_field_value",
+        "_phase_target_inline_ref",
+        "_lower_record_expr",
+        "_lower_union_variant_expr",
+        "_render_existing_output_ref",
+        "_union_variant_materialize_source",
+        "_boundary_placeholder_literals",
+    ) == {
+        "_inline_expr_field_value": 1,
+        "_phase_target_inline_ref": 1,
+        "_lower_record_expr": 1,
+        "_lower_union_variant_expr": 1,
+        "_render_existing_output_ref": 1,
+        "_union_variant_materialize_source": 1,
+        "_boundary_placeholder_literals": 1,
     }
 
 
@@ -342,6 +446,171 @@ def test_lowering_full_family_owners_receive_real_implementations() -> None:
         "_lower_resource_transition": 1,
         "_lower_finalize_selected_item": 1,
         "_lower_backlog_drain": 1,
+    }
+
+
+def test_lowering_control_and_phase_facades_stop_being_large_owner_sinks() -> None:
+    control_path = _lowering_owner_source_path("control")
+    phase_impl_path = _lowering_owner_source_path("phase_impl")
+
+    assert _physical_line_count(control_path) < 2000
+    assert _physical_line_count(phase_impl_path) < 500
+    assert _top_level_definition_counts(
+        phase_impl_path,
+        "_phase_stdlib_lower_with_phase_impl",
+        "_phase_stdlib_lower_run_provider_phase_impl",
+        "_phase_stdlib_lower_produce_one_of_impl",
+        "_phase_stdlib_lower_resume_or_start_impl",
+        "_phase_stdlib_lower_resource_transition_impl",
+        "_phase_stdlib_lower_finalize_selected_item_impl",
+        "_phase_stdlib_lower_backlog_drain_impl",
+    ) == {
+        "_phase_stdlib_lower_with_phase_impl": 0,
+        "_phase_stdlib_lower_run_provider_phase_impl": 0,
+        "_phase_stdlib_lower_produce_one_of_impl": 0,
+        "_phase_stdlib_lower_resume_or_start_impl": 0,
+        "_phase_stdlib_lower_resource_transition_impl": 0,
+        "_phase_stdlib_lower_finalize_selected_item_impl": 0,
+        "_phase_stdlib_lower_backlog_drain_impl": 0,
+    }
+
+
+def test_lowering_split_owner_modules_receive_real_control_and_phase_implementations() -> None:
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("control_dispatch"),
+        "_lower_expression",
+        "_lower_let_star",
+        "_lower_if_expr",
+    ) == {
+        "_lower_expression": 1,
+        "_lower_let_star": 1,
+        "_lower_if_expr": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("control_match"),
+        "_lower_match_expr",
+        "_build_match_projection_anchor_step",
+        "_binding_terminal_for_match_subject",
+        "_binding_terminal_for_inline_match",
+        "_match_arm_local_values",
+    ) == {
+        "_lower_match_expr": 1,
+        "_build_match_projection_anchor_step": 1,
+        "_binding_terminal_for_match_subject": 1,
+        "_binding_terminal_for_inline_match": 1,
+        "_match_arm_local_values": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("control_loops"),
+        "_lower_loop_recur",
+    ) == {
+        "_lower_loop_recur": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_scope"),
+        "_lower_with_phase",
+        "_lower_composed_with_phase",
+        "_build_phase_prompt_input_prelude",
+        "_build_phase_stdlib_prompt_input_prelude",
+        "_flatten_phase_stdlib_prompt_inputs",
+    ) == {
+        "_lower_with_phase": 1,
+        "_lower_composed_with_phase": 1,
+        "_build_phase_prompt_input_prelude": 1,
+        "_build_phase_stdlib_prompt_input_prelude": 1,
+        "_flatten_phase_stdlib_prompt_inputs": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_flow"),
+        "_lower_run_provider_phase",
+        "_lower_produce_one_of",
+        "_lower_resume_or_start",
+    ) == {
+        "_lower_run_provider_phase": 1,
+        "_lower_produce_one_of": 1,
+        "_lower_resume_or_start": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_resource"),
+        "_lower_resource_transition",
+        "_lower_finalize_selected_item",
+    ) == {
+        "_lower_resource_transition": 1,
+        "_lower_finalize_selected_item": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_drain"),
+        "_lower_backlog_drain",
+    ) == {
+        "_lower_backlog_drain": 1,
+    }
+
+
+def test_lowering_control_impl_is_no_longer_a_real_owner_sink() -> None:
+    control_impl_path = _lowering_owner_source_path("control_impl")
+
+    assert _physical_line_count(control_impl_path) < 500
+    assert _top_level_definition_counts(
+        control_impl_path,
+        "_lower_expression",
+        "_lower_let_star",
+        "_lower_if_expr",
+        "_is_inline_let_binding_expr",
+        "_lower_match_expr",
+        "_build_match_projection_anchor_step",
+        "_binding_terminal_for_match_subject",
+        "_binding_terminal_for_inline_match",
+        "_match_arm_local_values",
+        "_lower_loop_recur",
+        "_materialize_values_step",
+        "_conditional_case_ref",
+        "_inline_procedure_step_prefix",
+    ) == {
+        "_lower_expression": 0,
+        "_lower_let_star": 0,
+        "_lower_if_expr": 0,
+        "_is_inline_let_binding_expr": 0,
+        "_lower_match_expr": 0,
+        "_build_match_projection_anchor_step": 0,
+        "_binding_terminal_for_match_subject": 0,
+        "_binding_terminal_for_inline_match": 0,
+        "_match_arm_local_values": 0,
+        "_lower_loop_recur": 0,
+        "_materialize_values_step": 0,
+        "_conditional_case_ref": 0,
+        "_inline_procedure_step_prefix": 0,
+    }
+
+
+def test_lowering_phase_helpers_is_no_longer_a_real_owner_sink() -> None:
+    phase_helpers_path = _lowering_owner_source_path("phase_helpers")
+
+    assert _physical_line_count(phase_helpers_path) < 500
+    assert _top_level_definition_counts(
+        phase_helpers_path,
+        "_phase_stdlib_lower_with_phase_impl",
+        "_lower_composed_with_phase",
+        "_build_phase_prompt_input_prelude",
+        "_build_phase_stdlib_prompt_input_prelude",
+        "_flatten_phase_stdlib_prompt_inputs",
+        "_phase_stdlib_lower_run_provider_phase_impl",
+        "_phase_stdlib_lower_produce_one_of_impl",
+        "_phase_stdlib_lower_resume_or_start_impl",
+        "_phase_stdlib_lower_resource_transition_impl",
+        "_phase_stdlib_lower_finalize_selected_item_impl",
+        "_phase_stdlib_lower_backlog_drain_impl",
+    ) == {
+        "_phase_stdlib_lower_with_phase_impl": 0,
+        "_lower_composed_with_phase": 0,
+        "_build_phase_prompt_input_prelude": 0,
+        "_build_phase_stdlib_prompt_input_prelude": 0,
+        "_flatten_phase_stdlib_prompt_inputs": 0,
+        "_phase_stdlib_lower_run_provider_phase_impl": 0,
+        "_phase_stdlib_lower_produce_one_of_impl": 0,
+        "_phase_stdlib_lower_resume_or_start_impl": 0,
+        "_phase_stdlib_lower_resource_transition_impl": 0,
+        "_phase_stdlib_lower_finalize_selected_item_impl": 0,
+        "_phase_stdlib_lower_backlog_drain_impl": 0,
     }
 
 

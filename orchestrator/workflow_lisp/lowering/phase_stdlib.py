@@ -14,6 +14,17 @@ from ..phase_stdlib import (
     is_review_loop_request_kind,
 )
 from ..type_env import UnionTypeRef
+from .phase_drain import _lower_backlog_drain as _phase_drain_lower
+from .phase_flow import (
+    _lower_produce_one_of as _phase_flow_lower_produce_one_of,
+    _lower_resume_or_start as _phase_flow_lower_resume_or_start,
+    _lower_run_provider_phase as _phase_flow_lower_run_provider_phase,
+)
+from .phase_resource import (
+    _lower_finalize_selected_item as _phase_resource_lower_finalize_selected_item,
+    _lower_resource_transition as _phase_resource_lower_resource_transition,
+)
+from .phase_scope import _lower_with_phase as _phase_scope_lower_with_phase
 
 
 def _walk_nodes(node: object):
@@ -186,3 +197,31 @@ def review_loop_result_output_contracts(
                 definition["must_exist_target"] = False
             outputs.setdefault(field["name"], definition)
     return outputs
+
+
+def _lower_with_phase(*args, **kwargs):
+    return _phase_scope_lower_with_phase(*args, **kwargs)
+
+
+def _lower_run_provider_phase(*args, **kwargs):
+    return _phase_flow_lower_run_provider_phase(*args, **kwargs)
+
+
+def _lower_produce_one_of(*args, **kwargs):
+    return _phase_flow_lower_produce_one_of(*args, **kwargs)
+
+
+def _lower_resume_or_start(*args, **kwargs):
+    return _phase_flow_lower_resume_or_start(*args, **kwargs)
+
+
+def _lower_resource_transition(*args, **kwargs):
+    return _phase_resource_lower_resource_transition(*args, **kwargs)
+
+
+def _lower_finalize_selected_item(*args, **kwargs):
+    return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
+
+
+def _lower_backlog_drain(*args, **kwargs):
+    return _phase_drain_lower(*args, **kwargs)

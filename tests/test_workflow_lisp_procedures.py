@@ -1259,6 +1259,7 @@ def test_specialization_owner_split_stops_importing_value_helpers_from_core() ->
         {
             "_build_output_step_local_value",
             "_flatten_boundary_leaf_paths",
+            "_flatten_inline_output_refs",
             "_record_expr_value_at_path",
             "_render_existing_output_ref",
             "_normalize_union_field_path",
@@ -1270,11 +1271,30 @@ def test_specialization_owner_split_stops_importing_value_helpers_from_core() ->
     assert {
         "_build_output_step_local_value",
         "_flatten_boundary_leaf_paths",
+        "_flatten_inline_output_refs",
         "_record_expr_value_at_path",
         "_render_existing_output_ref",
         "_normalize_union_field_path",
         "_union_variant_expr_value_at_path",
     } <= imported_from_values
+
+    control_owner_path = source_path.parent / "lowering" / "control.py"
+    if control_owner_path.is_file():
+        assert imported_from_core.isdisjoint(
+            {
+                "_binding_terminal_for_match_subject",
+                "_is_inline_let_binding_expr",
+                "_binding_terminal_for_inline_match",
+                "_match_arm_local_values",
+            }
+        )
+        imported_from_control = _imported_symbols_from(source_path, "lowering.control")
+        assert {
+            "_binding_terminal_for_match_subject",
+            "_is_inline_let_binding_expr",
+            "_binding_terminal_for_inline_match",
+            "_match_arm_local_values",
+        } <= imported_from_control
 
 
 def test_specialization_workflow_call_imports_managed_write_root_helper() -> None:
