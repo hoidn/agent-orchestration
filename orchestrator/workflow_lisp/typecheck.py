@@ -1451,167 +1451,24 @@ def _typecheck(
             ),
         )
     if isinstance(expr, ProcedureCallExpr):
-        if procedure_catalog is None:
-            raise TypeError("procedure_catalog is required for ProcedureCallExpr typechecking")
-        bound_proc_ref = _ACTIVE_PROC_REF_VALUE_ENV.get(expr.callee_name)
-        if bound_proc_ref is not None:
-            if len(expr.args) != len(bound_proc_ref.residual_params):
-                _raise_error(
-                    f"procedure `{expr.callee_name}` expected {len(bound_proc_ref.residual_params)} positional arguments but got {len(expr.args)}",
-                    code="procedure_arity_mismatch",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            arg_summaries: list[EffectSummary] = []
-            for arg_expr, (param_name, expected_type) in zip(expr.args, bound_proc_ref.residual_params, strict=True):
-                typed_arg = _typecheck(
-                    arg_expr,
-                    type_env=type_env,
-                    value_env=value_env,
-                    proof_scope=proof_scope,
-                    workflow_catalog=workflow_catalog,
-                    procedure_catalog=procedure_catalog,
-                    extern_environment=extern_environment,
-                    command_boundary_environment=command_boundary_environment,
-                    active_phase_scope=active_phase_scope,
-                    procedure_effects_by_name=procedure_effects_by_name,
-                    workflow_effects_by_name=workflow_effects_by_name,
-                    proc_ref_resolution_context=proc_ref_resolution_context,
-                )
-                arg_summaries.append(typed_arg.effect_summary)
-                if typed_arg.type_ref != expected_type:
-                    _raise_error(
-                        f"procedure argument `{param_name}` expected `{_type_label(expected_type)}`"
-                        f" but got `{_type_label(typed_arg.type_ref)}`",
-                        code="type_mismatch",
-                        span=arg_expr.span,
-                        form_path=arg_expr.form_path,
-                    )
-            callee_summary = procedure_effects_by_name.get(bound_proc_ref.call_target_name, EMPTY_EFFECT_SUMMARY)
-            procedure_summary = effect_summary_from_direct(
-                direct_effects=callee_summary.transitive_effects,
-                procedure_edges=(
-                    ProcedureCallEdge(
-                        callee_name=bound_proc_ref.call_target_name,
-                        span=expr.span,
-                        form_path=expr.form_path,
-                        expansion_stack=expr.expansion_stack,
-                    ),
-                ),
-            )
-            return _typed(
-                expr=expr,
-                type_ref=bound_proc_ref.return_type_ref,
-                effect=merge_effect_summaries(*arg_summaries, procedure_summary),
-            )
-        generic_proc_ref_type = value_env.get(expr.callee_name)
-        if isinstance(generic_proc_ref_type, ProcRefTypeRef):
-            if len(expr.args) != len(generic_proc_ref_type.param_type_refs):
-                _raise_error(
-                    f"procedure `{expr.callee_name}` expected {len(generic_proc_ref_type.param_type_refs)} positional arguments but got {len(expr.args)}",
-                    code="procedure_arity_mismatch",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            arg_summaries: list[EffectSummary] = []
-            for arg_expr, expected_type in zip(expr.args, generic_proc_ref_type.param_type_refs, strict=True):
-                typed_arg = _typecheck(
-                    arg_expr,
-                    type_env=type_env,
-                    value_env=value_env,
-                    proof_scope=proof_scope,
-                    workflow_catalog=workflow_catalog,
-                    procedure_catalog=procedure_catalog,
-                    extern_environment=extern_environment,
-                    command_boundary_environment=command_boundary_environment,
-                    active_phase_scope=active_phase_scope,
-                    procedure_effects_by_name=procedure_effects_by_name,
-                    workflow_effects_by_name=workflow_effects_by_name,
-                    proc_ref_resolution_context=proc_ref_resolution_context,
-                )
-                arg_summaries.append(typed_arg.effect_summary)
-                if typed_arg.type_ref != expected_type:
-                    _raise_error(
-                        f"procedure argument expected `{_type_label(expected_type)}`"
-                        f" but got `{_type_label(typed_arg.type_ref)}`",
-                        code="type_mismatch",
-                        span=arg_expr.span,
-                        form_path=arg_expr.form_path,
-                    )
-            return _typed(
-                expr=expr,
-                type_ref=generic_proc_ref_type.return_type_ref,
-                effect=merge_effect_summaries(*arg_summaries),
-            )
-        signature = procedure_catalog.signatures_by_name.get(expr.callee_name)
-        if signature is None:
-            if expr.callee_name in value_env:
-                _raise_error(
-                    f"bound name `{expr.callee_name}` is not a callable proc-ref",
-                    code="procedure_call_unknown",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            _raise_error(
-                f"unknown procedure callee `{expr.callee_name}`",
-                code="procedure_call_unknown",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        if len(expr.args) != len(signature.params):
-            _raise_error(
-                f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
-                code="procedure_arity_mismatch",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        arg_summaries: list[EffectSummary] = []
-        proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
-        for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
-            if isinstance(expected_type, WorkflowRefTypeRef):
-                typed_arg = _typecheck_workflow_ref_argument(
-                    arg_expr,
-                    expected_type=expected_type,
-                    value_env=value_env,
-                    workflow_catalog=workflow_catalog,
-                )
-                arg_summaries.append(typed_arg.effect_summary)
-                if not isinstance(arg_expr, (WorkflowRefLiteralExpr, NameExpr)):
-                    _raise_error(
-                        "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
-                        code="workflow_ref_literal_required",
-                        span=arg_expr.span,
-                        form_path=arg_expr.form_path,
-                    )
-                if typed_arg.type_ref != expected_type:
-                    _raise_error(
-                        f"workflow ref argument `{param_name}` does not match `{expected_type.name}`",
-                        code="workflow_ref_signature_invalid",
-                        span=arg_expr.span,
-                        form_path=arg_expr.form_path,
-                    )
-                continue
-            if isinstance(expected_type, ProcRefTypeRef):
-                typed_arg, resolved_proc_ref = _typecheck_proc_ref_argument(
-                    arg_expr,
-                    expected_type=expected_type,
-                    value_env=value_env,
-                    procedure_catalog=procedure_catalog,
-                    proc_ref_resolution_context=proc_ref_resolution_context,
-                )
-                arg_summaries.append(typed_arg.effect_summary)
-                if resolved_proc_ref is not None:
-                    proc_ref_bindings[param_name] = resolved_proc_ref
-                if typed_arg.type_ref != expected_type:
-                    _raise_error(
-                        f"procedure ref argument `{param_name}` does not match `{expected_type.name}`",
-                        code="proc_ref_signature_invalid",
-                        span=arg_expr.span,
-                        form_path=arg_expr.form_path,
-                    )
-                continue
-            typed_arg = _typecheck(
-                arg_expr,
+        from .procedure_typecheck import ProcedureTypecheckContext, typecheck_procedure_call_expr
+
+        return typecheck_procedure_call_expr(
+            expr,
+            context=ProcedureTypecheckContext(
+                value_env=value_env,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+                active_proc_ref_value_env=_ACTIVE_PROC_REF_VALUE_ENV,
+                generated_local_procedure_state=_ACTIVE_LET_PROC_REWRITE_RESULTS,
+            ),
+            recurse=lambda node: _typecheck(
+                node,
                 type_env=type_env,
                 value_env=value_env,
                 proof_scope=proof_scope,
@@ -1623,40 +1480,23 @@ def _typecheck(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
-            )
-            arg_summaries.append(typed_arg.effect_summary)
-            if typed_arg.type_ref != expected_type:
-                _raise_error(
-                    f"procedure argument `{param_name}` expected `{_type_label(expected_type)}`"
-                    f" but got `{_type_label(typed_arg.type_ref)}`",
-                    code="type_mismatch",
-                    span=arg_expr.span,
-                    form_path=arg_expr.form_path,
-                )
-        callee_name = (
-            proc_ref_call_specialization_name(signature.name, proc_ref_bindings)
-            if proc_ref_bindings
-            else signature.name
-        )
-        callee_summary = procedure_effects_by_name.get(
-            callee_name,
-            procedure_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY),
-        )
-        procedure_summary = effect_summary_from_direct(
-            direct_effects=callee_summary.transitive_effects,
-            procedure_edges=(
-                ProcedureCallEdge(
-                    callee_name=callee_name,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                ),
             ),
-        )
-        return _typed(
-            expr=expr,
-            type_ref=signature.return_type_ref,
-            effect=merge_effect_summaries(*arg_summaries, procedure_summary),
+            typecheck_workflow_ref_argument=lambda arg_expr, expected_type: _typecheck_workflow_ref_argument(
+                arg_expr,
+                expected_type=expected_type,
+                value_env=value_env,
+                workflow_catalog=workflow_catalog,
+            ),
+            typecheck_proc_ref_argument=lambda arg_expr, expected_type: _typecheck_proc_ref_argument(
+                arg_expr,
+                expected_type=expected_type,
+                value_env=value_env,
+                procedure_catalog=procedure_catalog,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            ),
+            typed_factory=_typed,
+            raise_error=_raise_error,
+            type_label=_type_label,
         )
     if isinstance(expr, FunctionCallExpr):
         if _ACTIVE_FUNCTION_CATALOG is None:
@@ -4346,35 +4186,24 @@ def _typecheck_generated_procedure(
     workflow_effects_by_name: Mapping[str, EffectSummary],
     proc_ref_resolution_context: ProcRefResolutionContext | None,
 ) -> TypedProcedureDef:
-    from .workflows import ProviderExtern
+    from .procedure_typecheck import ProcedureTypecheckContext, typecheck_generated_procedure
 
-    local_value_env = {name: type_ref for name, type_ref in signature.params}
-    if extern_environment is not None:
-        for extern_name, binding in extern_environment.bindings_by_name.items():
-            local_value_env[extern_name] = (
-                type_env.resolve_type("Provider", span=definition.span, form_path=definition.form_path)
-                if isinstance(binding, ProviderExtern)
-                else type_env.resolve_type("Prompt", span=definition.span, form_path=definition.form_path)
-            )
-    typed_body = typecheck_expression(
-        definition.body,
+    return typecheck_generated_procedure(
+        definition,
+        signature,
         type_env=type_env,
-        value_env=local_value_env,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        procedure_effects_by_name=procedure_effects_by_name,
-        workflow_effects_by_name=workflow_effects_by_name,
-        proc_ref_resolution_context=proc_ref_resolution_context,
-    )
-    return TypedProcedureDef(
-        definition=definition,
-        signature=signature,
-        typed_body=typed_body,
-        direct_effect_summary=typed_body.effect_summary,
-        transitive_effect_summary=typed_body.effect_summary,
-        resolved_lowering_mode=signature.requested_lowering_mode,
+        context=ProcedureTypecheckContext(
+            value_env={},
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
+            active_proc_ref_value_env=_ACTIVE_PROC_REF_VALUE_ENV,
+            generated_local_procedure_state=_ACTIVE_LET_PROC_REWRITE_RESULTS,
+        ),
     )
 
 

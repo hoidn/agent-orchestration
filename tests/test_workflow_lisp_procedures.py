@@ -1,3 +1,4 @@
+import ast
 import importlib
 from dataclasses import replace
 from pathlib import Path
@@ -139,12 +140,33 @@ def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
+def _procedure_specialization_source_path() -> Path:
+    path = Path(importlib.import_module("orchestrator.workflow_lisp.procedure_specialization").__file__)
+    assert path.is_file()
+    return path
+
+
 def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowering() -> None:
     compiler_path = Path(_compiler_module().__file__)
 
     assert "from .lowering import _specialize_typed_procedure" not in compiler_path.read_text(
         encoding="utf-8"
     )
+
+
+def test_specialization_owner_split_stops_importing_private_workflow_eligibility_from_core() -> None:
+    path = _procedure_specialization_source_path()
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+    imported_from_core = {
+        alias.name
+        for node in module.body
+        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == "lowering.core"
+        for alias in node.names
+    }
+
+    assert "_procedure_private_boundary_valid" not in imported_from_core
+    assert "_procedure_private_body_valid" not in imported_from_core
 
 
 def test_compiler_keeps_typecheck_procedure_definitions_compat_entrypoint() -> None:
@@ -1467,7 +1489,7 @@ def test_private_workflow_union_match_uses_private_workflow_metadata_not_name_he
         resolved_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
         generated_workflow_name="%custom.private-wrap",
     )
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.procedures")
     monkeypatch.setattr(
         lowering_module,
         "_resolve_procedure_lowering",

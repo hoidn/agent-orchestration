@@ -97,6 +97,11 @@ from .procedures import (
     with_call_graph,
 )
 from .procedure_refs import ProcRefResolutionContext, ResolvedProcRefValue, resolve_proc_ref_value
+from .procedure_specialization import (
+    bound_proc_ref_request as _bound_proc_ref_request_owner,
+    discover_proc_ref_specializations as _discover_proc_ref_specializations_owner,
+    procedure_catalog_with_specializations as _procedure_catalog_with_specializations_owner,
+)
 from .reader import read_sexpr_file
 from .source_map import build_source_map_document
 from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
@@ -2627,110 +2632,32 @@ def _typecheck_procedure_definitions(
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
-    """Typecheck procedure bodies against signatures, externs, and call catalogs."""
+    from .procedure_typecheck import typecheck_procedure_definitions
 
-    from .workflows import ExternEnvironment, ProviderExtern
-
-    externs = extern_environment or ExternEnvironment(bindings_by_name={})
-    typed_procedures: list[TypedProcedureDef] = []
-    for procedure_target in procedure_defs:
-        if isinstance(procedure_target, TypedProcedureDef):
-            procedure_def = procedure_target.definition
-            signature = procedure_target.signature
-            specialization = procedure_target.specialization
-        else:
-            procedure_def = procedure_target
-            signature = procedure_catalog.signatures_by_name[procedure_def.name]
-            specialization = None
-        value_env = {name: type_ref for name, type_ref in signature.params}
-        proc_ref_value_env = {}
-        if specialization is not None:
-            value_env.update(dict(getattr(specialization, "bound_param_types", {})))
-            proc_ref_value_env.update(dict(getattr(specialization, "proc_ref_bindings", {})))
-        for extern_name, binding in externs.bindings_by_name.items():
-            if isinstance(binding, ProviderExtern):
-                value_env[extern_name] = type_env.resolve_type(
-                    "Provider",
-                    span=procedure_def.span,
-                    form_path=procedure_def.form_path,
-                )
-            else:
-                value_env[extern_name] = type_env.resolve_type(
-                    "Prompt",
-                    span=procedure_def.span,
-                    form_path=procedure_def.form_path,
-                )
-        if isinstance(procedure_def.body, SyntaxNode):
-            body_expr = elaborate_expression(
-                procedure_def.body,
-                bound_names=frozenset(value_env),
-                procedure_names=frozenset(procedure_catalog.signatures_by_name),
-                function_names=(
-                    frozenset()
-                    if function_catalog is None
-                    else frozenset(function_catalog.signatures_by_name)
-                ),
-                function_name_resolver=function_name_resolver,
-                procedure_name_resolver=procedure_name_resolver,
-                workflow_name_resolver=workflow_name_resolver,
-            )
-        else:
-            body_expr = procedure_def.body
-        typed_body = typecheck_expression(
-            body_expr,
-            type_env=type_env,
-            value_env=value_env,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            function_catalog=function_catalog,
-            extern_environment=externs,
-            command_boundary_environment=command_boundary_environment,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            proc_ref_value_env=proc_ref_value_env,
-        )
-        if typed_body.type_ref != signature.return_type_ref:
-            raise LispFrontendCompileError(
-                (
-                    LispFrontendDiagnostic(
-                        code="procedure_return_type_invalid",
-                        message=(
-                            f"procedure `{procedure_def.name}` declared return type "
-                            f"`{procedure_def.return_type_name}` but body returned a different type"
-                        ),
-                        span=procedure_def.body.span,
-                        form_path=procedure_def.body.form_path,
-                        expansion_stack=procedure_def.body.expansion_stack,
-                    ),
-                )
-            )
-        typed_procedures.append(
-            TypedProcedureDef(
-                definition=procedure_def,
-                signature=signature,
-                typed_body=typed_body,
-                direct_effect_summary=typed_body.effect_summary,
-                transitive_effect_summary=typed_body.effect_summary,
-                specialization=specialization,
-            )
-        )
-    return tuple(typed_procedures)
+    return typecheck_procedure_definitions(
+        procedure_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        function_catalog=function_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        function_name_resolver=function_name_resolver,
+        procedure_name_resolver=procedure_name_resolver,
+        workflow_name_resolver=workflow_name_resolver,
+        proc_ref_resolution_context=proc_ref_resolution_context,
+    )
 
 
 def _procedure_catalog_with_specializations(
     procedure_catalog: ProcedureCatalog,
     typed_procedures: tuple[TypedProcedureDef, ...],
 ) -> ProcedureCatalog:
-    signatures_by_name = dict(procedure_catalog.signatures_by_name)
-    definitions_by_name = dict(procedure_catalog.definitions_by_name)
-    for procedure in typed_procedures:
-        signatures_by_name[procedure.signature.name] = procedure.signature
-        definitions_by_name[procedure.definition.name] = procedure.definition
-    return ProcedureCatalog(
-        signatures_by_name=signatures_by_name,
-        definitions_by_name=definitions_by_name,
-        call_graph=procedure_catalog.call_graph,
+    return _procedure_catalog_with_specializations_owner(
+        procedure_catalog,
+        typed_procedures,
     )
 
 
@@ -2744,36 +2671,12 @@ def _bound_proc_ref_request(
     origin_span=None,
     origin_form_path: tuple[str, ...] | None = None,
 ) -> TypedProcedureDef | None:
-    from .lowering import _specialize_typed_procedure
-
-    if not resolved.bound_args:
-        return None
-    base_procedure = typed_procedures_by_name.get(resolved.procedure_name)
-    if base_procedure is None:
-        return None
-    proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
-    value_bindings: dict[str, object] = {}
-    for binding in resolved.bound_args:
-        if isinstance(binding.type_ref, ProcRefTypeRef):
-            resolved_binding = resolve_proc_ref_value(
-                binding.value_expr,
-                procedure_catalog=procedure_catalog,
-                proc_ref_env=proc_ref_env,
-                expected_type=binding.type_ref,
-            )
-            if resolved_binding is not None:
-                proc_ref_bindings[binding.name] = resolved_binding
-            continue
-        value_bindings[binding.name] = binding.value_expr
-    return _specialize_typed_procedure(
-        base_procedure,
-        proc_ref_bindings=proc_ref_bindings,
-        value_bindings=value_bindings,
-        remaining_params=resolved.residual_params,
-        workflow_path=Path(base_procedure.definition.span.start.path),
-        type_env=type_env,
+    return _bound_proc_ref_request_owner(
+        resolved,
         typed_procedures_by_name=typed_procedures_by_name,
-        specialized_name=resolved.call_target_name,
+        procedure_catalog=procedure_catalog,
+        proc_ref_env=proc_ref_env,
+        type_env=type_env,
         origin_span=origin_span,
         origin_form_path=origin_form_path,
     )
@@ -2786,221 +2689,12 @@ def _discover_proc_ref_specializations(
     procedure_catalog: ProcedureCatalog,
     type_env: FrontendTypeEnvironment,
 ) -> tuple[TypedProcedureDef, ...]:
-    from .expressions import (
-        BacklogDrainExpr,
-        BindProcExpr,
-        CallExpr,
-        CommandResultExpr,
-        ContinueExpr,
-        DoneExpr,
-        FinalizeSelectedItemExpr,
-        IfExpr,
-        LetStarExpr,
-        LoopRecurExpr,
-        MatchExpr,
-        ProcedureCallExpr,
-        ProcRefLiteralExpr,
-        ProduceOneOfExpr,
-        ProviderResultExpr,
-        RecordExpr,
-        ResourceTransitionExpr,
-        ResumeOrStartExpr,
-        RunProviderPhaseExpr,
-        UnionVariantExpr,
-        WithPhaseExpr,
+    return _discover_proc_ref_specializations_owner(
+        typed_procedures=typed_procedures,
+        typed_workflows=typed_workflows,
+        procedure_catalog=procedure_catalog,
+        type_env=type_env,
     )
-
-    discovered: dict[str, TypedProcedureDef] = {}
-    typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
-
-    def record_specialization(
-        specialized: TypedProcedureDef | None,
-    ) -> None:
-        if specialized is None:
-            return
-        if specialized.definition.name in typed_procedures_by_name:
-            return
-        discovered.setdefault(specialized.definition.name, specialized)
-
-    def walk(node: object, proc_ref_env: Mapping[str, ResolvedProcRefValue]) -> None:
-        if isinstance(node, ProcedureCallExpr):
-            bound_proc_ref = proc_ref_env.get(node.callee_name)
-            if bound_proc_ref is not None:
-                record_specialization(
-                    _bound_proc_ref_request(
-                        bound_proc_ref,
-                        typed_procedures_by_name=typed_procedures_by_name,
-                        procedure_catalog=procedure_catalog,
-                        proc_ref_env=proc_ref_env,
-                        type_env=type_env,
-                        origin_span=node.span,
-                        origin_form_path=node.form_path,
-                    )
-                )
-            else:
-                signature = procedure_catalog.signatures_by_name.get(node.callee_name)
-                if signature is not None:
-                    proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
-                    for arg_expr, (param_name, param_type) in zip(node.args, signature.params, strict=True):
-                        if not isinstance(param_type, ProcRefTypeRef):
-                            continue
-                        resolved_binding = resolve_proc_ref_value(
-                            arg_expr,
-                            procedure_catalog=procedure_catalog,
-                            proc_ref_env=proc_ref_env,
-                            expected_type=param_type,
-                        )
-                        if resolved_binding is not None:
-                            proc_ref_bindings[param_name] = resolved_binding
-                    if proc_ref_bindings:
-                        from .lowering import _specialize_typed_procedure
-
-                        base_procedure = typed_procedures_by_name.get(signature.name)
-                        if base_procedure is not None:
-                            record_specialization(
-                                _specialize_typed_procedure(
-                                    base_procedure,
-                                    proc_ref_bindings=proc_ref_bindings,
-                                    remaining_params=tuple(
-                                        (param_name, param_type)
-                                        for param_name, param_type in signature.params
-                                        if param_name not in proc_ref_bindings
-                                    ),
-                                    workflow_path=Path(base_procedure.definition.span.start.path),
-                                    type_env=type_env,
-                                    typed_procedures_by_name=typed_procedures_by_name,
-                                    specialized_name=proc_ref_call_specialization_name(
-                                        signature.name,
-                                        proc_ref_bindings,
-                                    ),
-                                    origin_span=node.span,
-                                    origin_form_path=node.form_path,
-                                )
-                            )
-            for arg in node.args:
-                walk(arg, proc_ref_env)
-            return
-        if isinstance(node, LetStarExpr):
-            child_env = dict(proc_ref_env)
-            for binding_name, binding_expr in node.bindings:
-                walk(binding_expr, child_env)
-                resolved_binding = resolve_proc_ref_value(
-                    binding_expr,
-                    procedure_catalog=procedure_catalog,
-                    proc_ref_env=child_env,
-                )
-                if resolved_binding is not None:
-                    child_env[binding_name] = resolved_binding
-            walk(node.body, child_env)
-            return
-        if isinstance(node, MatchExpr):
-            walk(node.subject, proc_ref_env)
-            for arm in node.arms:
-                walk(arm.body, proc_ref_env)
-            return
-        if isinstance(node, IfExpr):
-            walk(node.condition_expr, proc_ref_env)
-            walk(node.then_expr, proc_ref_env)
-            walk(node.else_expr, proc_ref_env)
-            return
-        if isinstance(node, LoopRecurExpr):
-            walk(node.max_iterations_expr, proc_ref_env)
-            walk(node.initial_state_expr, proc_ref_env)
-            walk(node.body_expr, proc_ref_env)
-            if node.on_exhausted_result_expr is not None:
-                walk(node.on_exhausted_result_expr, proc_ref_env)
-            return
-        if isinstance(node, ContinueExpr):
-            walk(node.state_expr, proc_ref_env)
-            return
-        if isinstance(node, DoneExpr):
-            walk(node.result_expr, proc_ref_env)
-            return
-        if isinstance(node, RecordExpr):
-            for _, field_expr in node.fields:
-                walk(field_expr, proc_ref_env)
-            return
-        if isinstance(node, UnionVariantExpr):
-            for _, field_expr in node.fields:
-                walk(field_expr, proc_ref_env)
-            return
-        if isinstance(node, CallExpr):
-            for _, binding_expr in node.bindings:
-                walk(binding_expr, proc_ref_env)
-            return
-        if isinstance(node, ProviderResultExpr):
-            walk(node.provider, proc_ref_env)
-            walk(node.prompt, proc_ref_env)
-            for input_expr in node.inputs:
-                walk(input_expr, proc_ref_env)
-            return
-        if isinstance(node, CommandResultExpr):
-            for argv_expr in node.argv:
-                walk(argv_expr, proc_ref_env)
-            return
-        if isinstance(node, RunProviderPhaseExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.inputs_expr, proc_ref_env)
-            walk(node.provider, proc_ref_env)
-            walk(node.prompt, proc_ref_env)
-            return
-        if isinstance(node, ProduceOneOfExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            if node.producer.provider_expr is not None:
-                walk(node.producer.provider_expr, proc_ref_env)
-            if node.producer.prompt_expr is not None:
-                walk(node.producer.prompt_expr, proc_ref_env)
-            for input_expr in node.producer.inputs:
-                walk(input_expr, proc_ref_env)
-            for candidate in node.candidates:
-                for field in candidate.fields:
-                    if field.target_expr is not None:
-                        walk(field.target_expr, proc_ref_env)
-            return
-        if isinstance(node, ResumeOrStartExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.resume_from_expr, proc_ref_env)
-            walk(node.start_expr, proc_ref_env)
-            return
-        if isinstance(node, ResourceTransitionExpr):
-            walk(node.spec.ctx_expr, proc_ref_env)
-            if node.spec.when_expr is not None:
-                walk(node.spec.when_expr, proc_ref_env)
-            walk(node.spec.resource_expr, proc_ref_env)
-            walk(node.spec.ledger_expr, proc_ref_env)
-            return
-        if isinstance(node, FinalizeSelectedItemExpr):
-            walk(node.spec.ctx_expr, proc_ref_env)
-            walk(node.spec.selected_expr, proc_ref_env)
-            walk(node.spec.queue_transition_expr, proc_ref_env)
-            walk(node.spec.roadmap_expr, proc_ref_env)
-            walk(node.spec.plan_expr, proc_ref_env)
-            walk(node.spec.implementation_expr, proc_ref_env)
-            return
-        if isinstance(node, BacklogDrainExpr):
-            walk(node.spec.ctx_expr, proc_ref_env)
-            if node.spec.providers_expr is not None:
-                walk(node.spec.providers_expr, proc_ref_env)
-            walk(node.spec.max_iterations_expr, proc_ref_env)
-            return
-        if isinstance(node, WithPhaseExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.body, proc_ref_env)
-            return
-        if isinstance(node, BindProcExpr):
-            walk(node.base_expr, proc_ref_env)
-            for binding in node.bindings:
-                walk(binding.value_expr, proc_ref_env)
-            return
-        if isinstance(node, ProcRefLiteralExpr):
-            return
-
-    for procedure in typed_procedures:
-        proc_ref_env = dict(getattr(procedure.specialization, "proc_ref_bindings", {}))
-        walk(procedure.typed_body.expr, proc_ref_env)
-    for workflow in typed_workflows:
-        walk(workflow.typed_body.expr, {})
-    return tuple(discovered.values())
 
 
 def _infer_stage3_effect_summaries(

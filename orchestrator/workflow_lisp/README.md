@@ -39,14 +39,21 @@ reader.py
   -> type_env.py
   -> expressions.py
   -> typecheck.py
+  -> procedure_typecheck.py
   -> workflows.py / procedures.py
+  -> procedure_specialization.py
   -> compiler.py
-  -> lowering.py
+  -> lowering/__init__.py
+  -> lowering/core.py / lowering/procedures.py
   -> existing workflow loader/runtime
 ```
 
-`compiler.py` coordinates the pipeline. `lowering.py` is the boundary where
-typed frontend expressions become ordinary workflow dictionaries.
+`compiler.py` is the compile coordinator facade. `procedure_typecheck.py`
+owns procedure typing, `procedure_specialization.py` owns compile-time
+specialization discovery/materialization plus private-workflow eligibility for
+specialized procedures, and `lowering/__init__.py` preserves the public
+lowering import path while `lowering/core.py` and `lowering/procedures.py`
+split generic lowering coordination from procedure-lowering ownership.
 
 ## Main Data Shapes
 
@@ -59,14 +66,31 @@ typed frontend expressions become ordinary workflow dictionaries.
 - `workflows.py`: `defworkflow` definitions, call signatures, extern bindings,
   and command-boundary bindings.
 - `procedures.py`: `defproc` definitions and lowering policy.
+- `procedure_typecheck.py`: procedure-call typing, generated helper procedure
+  typing, and procedure-definition typing ownership behind the `typecheck.py`
+  and `compiler.py` compatibility facades.
+- `procedure_specialization.py`: compile-time ProcRef / WorkflowRef
+  specialization discovery, request materialization, deterministic naming,
+  private-workflow eligibility for specialized procedures, and
+  specialization-aware procedure catalog augmentation.
 - `procedure_refs.py`: compile-time `ProcRef[...]` resolution, `bind-proc`
   partial application, specialization naming, and residual-signature
   validation. ProcRef remains compile-time-only; runtime ProcRef transport and
   dynamic dispatch are still unsupported.
 - `contracts.py`: conversion from frontend record/union types to runtime
   `output_bundle`, `variant_output`, input, and output contracts.
-- `lowering.py`: generated steps, generated inputs, source maps, and calls into
-  the existing workflow validation path.
+- `compiler.py`: compile-stage coordinator facade and compatibility surface for
+  procedure typing/specialization entrypoints.
+- `typecheck.py`: top-level expression dispatcher and compatibility surface for
+  procedure typing hooks.
+- `lowering/__init__.py`: stable lowering facade for callers and tests.
+- `lowering/core.py`: lowering coordinator, shared lowering helpers, source
+  maps, and calls into the existing workflow validation path; it is no longer
+  the owner of procedure-lowering policy or provenance logic.
+- `lowering/procedures.py`: procedure call-site lowering analysis, actual
+  procedure lowering, provenance-note ownership, generated private-workflow
+  synthesis, and runtime-erasure guards for compile-time-only procedure
+  metadata.
 
 ## Component Design Docs
 

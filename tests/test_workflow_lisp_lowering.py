@@ -117,6 +117,22 @@ def _lowering_source_path() -> Path:
     return source_path
 
 
+def _procedure_lowering_source_path() -> Path:
+    procedures_path = Path(importlib.import_module("orchestrator.workflow_lisp.lowering.procedures").__file__)
+    assert procedures_path.is_file()
+    return procedures_path
+
+
+def _top_level_function_counts(path: Path, *names: str) -> dict[str, int]:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return {
+        name: sum(
+            1 for node in module.body if isinstance(node, ast.FunctionDef) and node.name == name
+        )
+        for name in names
+    }
+
+
 def test_lowering_facade_exports_current_test_surface() -> None:
     lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
 
@@ -134,25 +150,67 @@ def test_lowering_facade_exports_current_test_surface() -> None:
 
 def test_lowering_facade_source_defines_preflight_helpers_exactly_once() -> None:
     lowering_path = _lowering_source_path()
-    module = ast.parse(lowering_path.read_text(encoding="utf-8"), filename=str(lowering_path))
-    counts = {
-        name: sum(
-            1
-            for node in module.body
-            if isinstance(node, ast.FunctionDef) and node.name == name
-        )
-        for name in (
-            "_origin_for_workflow",
-            "_procedure_provenance_notes",
-            "_definition_only_module",
-        )
-    }
+    procedure_lowering_path = _procedure_lowering_source_path()
 
-    assert counts == {
+    assert _top_level_function_counts(
+        lowering_path,
+        "_origin_for_workflow",
+        "_definition_only_module",
+    ) == {
         "_origin_for_workflow": 1,
-        "_procedure_provenance_notes": 1,
         "_definition_only_module": 1,
     }
+    assert _top_level_function_counts(
+        procedure_lowering_path,
+        "_resolve_procedure_lowering",
+        "_lower_procedure_call_expr",
+        "_private_workflow_from_procedure",
+        "_procedure_provenance_notes",
+    ) == {
+        "_resolve_procedure_lowering": 1,
+        "_lower_procedure_call_expr": 1,
+        "_private_workflow_from_procedure": 1,
+        "_procedure_provenance_notes": 1,
+    }
+
+
+def test_lowering_owner_split_moves_selected_helpers_out_of_core() -> None:
+    assert _top_level_function_counts(
+        _lowering_source_path(),
+        "_resolve_procedure_lowering",
+        "_lower_procedure_call_expr",
+        "_private_workflow_from_procedure",
+        "_procedure_provenance_notes",
+    ) == {
+        "_resolve_procedure_lowering": 0,
+        "_lower_procedure_call_expr": 0,
+        "_private_workflow_from_procedure": 0,
+        "_procedure_provenance_notes": 0,
+    }
+
+
+def test_runtime_erasure_rejects_compile_time_only_proc_ref_values() -> None:
+    from orchestrator.workflow_lisp.lowering.procedures import _assert_runtime_erasure
+    from orchestrator.workflow_lisp.procedure_refs import ProcRefAuthoritySource, ResolvedProcRefValue
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+    from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _assert_runtime_erasure(
+            ResolvedProcRefValue(
+                procedure_name="helper",
+                signature_params=(("arg", PrimitiveTypeRef(name="String")),),
+                return_type_ref=PrimitiveTypeRef(name="String"),
+                authority_source=ProcRefAuthoritySource(kind="local", procedure_name="helper"),
+            ),
+            span=SourceSpan(
+                start=SourcePosition(path="runtime_erasure.orc", line=1, column=1, offset=0),
+                end=SourcePosition(path="runtime_erasure.orc", line=1, column=10, offset=9),
+            ),
+            form_path=("workflow-lisp", "defworkflow", "entry"),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "proc_runtime_erasure_failed"
 
 
 def _write_workflow_param_default_module(path: Path) -> Path:
@@ -1863,7 +1921,7 @@ def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
     original_build_loaded_workflow_bundle = lowering_module.build_loaded_workflow_bundle
     baseline = compile_stage3_module(
         STRUCTURED_RESULTS_FIXTURE,
@@ -2811,7 +2869,7 @@ def test_origin_map_assigns_stable_origin_keys_and_validation_subject_bindings(t
 
 
 def test_source_map_remap_prefers_structured_validation_subject_refs(tmp_path: Path) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
     raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
 
     result = compile_stage3_module(
@@ -2865,7 +2923,7 @@ def test_source_map_remap_prefers_structured_validation_subject_refs(tmp_path: P
 
 
 def test_source_map_remap_adds_compatibility_note_for_message_fallback(tmp_path: Path) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
     raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
 
     result = compile_stage3_module(
@@ -2904,7 +2962,7 @@ def test_source_map_remap_adds_compatibility_note_for_message_fallback(tmp_path:
 
 
 def test_source_map_remap_reports_missing_structured_subject_bindings(tmp_path: Path) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
     raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
 
     result = compile_stage3_module(
@@ -2948,7 +3006,7 @@ def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_re
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
     validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
 
     result = compile_stage3_module(
@@ -3004,7 +3062,7 @@ def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_re
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
     validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
 
     result = compile_stage3_module(
