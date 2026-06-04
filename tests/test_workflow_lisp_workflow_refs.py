@@ -143,6 +143,24 @@ def test_workflow_ref_forwarding_through_defproc_compiles_and_validates(tmp_path
     assert "entry" in result.validated_bundles
 
 
+def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_FIXTURES / "workflow_refs_forwarding.orc",
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    specialized_names = {
+        workflow.typed_workflow.definition.name
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.startswith("%workflow_refs_forwarding.")
+    }
+
+    assert specialized_names == {"%workflow_refs_forwarding.invoke-runner__spec__runner__echo_helper.v1"}
+    assert specialized_names <= set(result.validated_bundles)
+
+
 def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path: Path) -> None:
     result = compile_stage3_entrypoint(
         MODULE_FIXTURES / "workflow_refs" / "imported_entry.orc",

@@ -106,8 +106,34 @@ def _write_module(path: Path, body: str) -> Path:
     return path
 
 
-def test_lowering_source_defines_preflight_helpers_exactly_once() -> None:
+def _lowering_source_path() -> Path:
     lowering_path = Path(importlib.import_module("orchestrator.workflow_lisp.lowering").__file__)
+    if lowering_path.name != "__init__.py":
+        pytest.fail(
+            "expected orchestrator.workflow_lisp.lowering to be a package facade with __init__.py"
+        )
+    source_path = lowering_path.with_name("core.py")
+    assert source_path.is_file()
+    return source_path
+
+
+def test_lowering_facade_exports_current_test_surface() -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+
+    for name in (
+        "_resolve_procedure_lowering",
+        "_managed_write_root_bindings",
+        "_managed_write_root_requirements_for_callable",
+        "_observed_statement_families",
+        "_workflow_extern_requirements",
+        "lower_workflow_definitions",
+        "validate_lowered_workflows",
+    ):
+        assert hasattr(lowering_module, name)
+
+
+def test_lowering_facade_source_defines_preflight_helpers_exactly_once() -> None:
+    lowering_path = _lowering_source_path()
     module = ast.parse(lowering_path.read_text(encoding="utf-8"), filename=str(lowering_path))
     counts = {
         name: sum(

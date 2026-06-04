@@ -139,6 +139,21 @@ def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
+def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowering() -> None:
+    compiler_path = Path(_compiler_module().__file__)
+
+    assert "from .lowering import _specialize_typed_procedure" not in compiler_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_compiler_keeps_typecheck_procedure_definitions_compat_entrypoint() -> None:
+    compiler_module = _compiler_module()
+
+    assert callable(_typecheck_procedure_definitions)
+    assert compiler_module._typecheck_procedure_definitions is _typecheck_procedure_definitions
+
+
 def _infer_stage3_proc_ref_effects(path: Path):
     syntax_module = build_syntax_module(read_sexpr_file(path))
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
