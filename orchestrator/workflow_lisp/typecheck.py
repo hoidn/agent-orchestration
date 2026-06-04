@@ -4208,6 +4208,8 @@ def _generated_procedure_signature(
         requested_lowering_mode=requested_lowering_mode,
         span=span,
         form_path=form_path,
+        type_params=(),
+        where_clauses=(),
     )
 
 
@@ -4239,6 +4241,8 @@ def _generated_procedure_definition(
         span=span,
         form_path=form_path,
         expansion_stack=expansion_stack,
+        type_params=(),
+        where_clauses=(),
     )
 
 
@@ -5251,6 +5255,8 @@ def _typecheck_let_proc(
         requested_lowering_mode=ProcedureLoweringMode.AUTO,
         span=expr.binding.span,
         form_path=expr.binding.form_path,
+        type_params=(),
+        where_clauses=(),
     )
     generated_definition = ProcedureDef(
         name=generated_name,
@@ -5262,6 +5268,8 @@ def _typecheck_let_proc(
         span=expr.binding.span,
         form_path=expr.binding.form_path,
         expansion_stack=expr.binding.expansion_stack,
+        type_params=(),
+        where_clauses=(),
         generated_local_procedure=generated_metadata,
     )
     rewrite_binding = LocalProcRewriteBinding(

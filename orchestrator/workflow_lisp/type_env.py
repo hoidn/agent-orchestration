@@ -129,6 +129,13 @@ class ProcRefTypeRef:
 
 
 @dataclass(frozen=True)
+class TypeParamRef:
+    """One compile-time-only parametric type placeholder."""
+
+    name: str
+
+
+@dataclass(frozen=True)
 class OptionalTypeRef:
     """One resolved optional type reference."""
 
@@ -161,6 +168,7 @@ TypeRef = (
     | VariantCaseTypeRef
     | WorkflowRefTypeRef
     | ProcRefTypeRef
+    | TypeParamRef
     | OptionalTypeRef
     | ListTypeRef
     | MapTypeRef
@@ -298,6 +306,7 @@ class FrontendTypeEnvironment:
         span: SourceSpan,
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
+        local_type_params: frozenset[str] = frozenset(),
     ) -> TypeRef:
         return self._resolve_inline_type(
             name,
@@ -308,6 +317,7 @@ class FrontendTypeEnvironment:
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
 
     def record_field(
@@ -402,6 +412,7 @@ class FrontendTypeEnvironment:
         canonical_name_overrides: dict[str, str] | None = None,
         schema_names: frozenset[str] = frozenset(),
         expansion_stack: tuple[object, ...] = (),
+        local_type_params: frozenset[str] = frozenset(),
     ) -> TypeRef:
         parsed = parse_type_expression(
             name,
@@ -419,6 +430,7 @@ class FrontendTypeEnvironment:
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
 
 
@@ -433,6 +445,7 @@ def _resolve_parsed_type_expr(
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...],
+    local_type_params: frozenset[str],
 ) -> TypeRef:
     if isinstance(parsed, NamedTypeExpr):
         return _resolve_named_type(
@@ -444,6 +457,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
     if isinstance(parsed, OptionalTypeExpr):
         item_type_ref = _resolve_parsed_type_expr(
@@ -456,6 +470,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
         if _type_ref_contains_workflow_ref(item_type_ref):
             _raise_error(
@@ -485,6 +500,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
         if _type_ref_contains_workflow_ref(item_type_ref):
             _raise_error(
@@ -514,6 +530,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
         if not isinstance(key_type_ref, PrimitiveTypeRef) or key_type_ref.name != "String":
             _raise_error(
@@ -533,6 +550,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
         if _type_ref_contains_workflow_ref(value_type_ref):
             _raise_error(
@@ -567,6 +585,7 @@ def _resolve_parsed_type_expr(
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
+                local_type_params=local_type_params,
             )
             for param_type in parsed.param_types
         )
@@ -588,6 +607,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
         if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
             _raise_error(
@@ -622,6 +642,7 @@ def _resolve_parsed_type_expr(
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
+                local_type_params=local_type_params,
             )
             for param_type in parsed.param_types
         )
@@ -635,6 +656,7 @@ def _resolve_parsed_type_expr(
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            local_type_params=local_type_params,
         )
         return ProcRefTypeRef(
             name=authored_name,
@@ -654,7 +676,10 @@ def _resolve_named_type(
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...],
+    local_type_params: frozenset[str],
 ) -> TypeRef:
+    if name in local_type_params:
+        return TypeParamRef(name=name)
     lookup_name = canonical_name_overrides.get(name, name)
     local_ref = type_refs.get(lookup_name)
     if local_ref is not None:
@@ -707,6 +732,147 @@ def _render_type_expr(parsed: ParsedTypeExpr) -> str:
         params_label = f"({params})" if params else "()"
         return f"ProcRef[{params_label} -> {_render_type_expr(parsed.return_type)}]"
     raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
+
+
+def render_type_ref(type_ref: TypeRef) -> str:
+    if isinstance(type_ref, (PrimitiveTypeRef, PathTypeRef, RecordTypeRef, UnionTypeRef, OptionalTypeRef, ListTypeRef, MapTypeRef)):
+        return type_ref.name
+    if isinstance(type_ref, VariantCaseTypeRef):
+        return type_ref.union_name
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        params = " ".join(render_type_ref(param_type) for param_type in type_ref.param_type_refs)
+        params_label = f"({params})" if params else "()"
+        return f"WorkflowRef[{params_label} -> {render_type_ref(type_ref.return_type_ref)}]"
+    if isinstance(type_ref, ProcRefTypeRef):
+        params = " ".join(render_type_ref(param_type) for param_type in type_ref.param_type_refs)
+        params_label = render_type_ref(type_ref.param_type_refs[0]) if len(type_ref.param_type_refs) == 1 else f"({params})" if params else "()"
+        return f"ProcRef[{params_label} -> {render_type_ref(type_ref.return_type_ref)}]"
+    if isinstance(type_ref, TypeParamRef):
+        return type_ref.name
+    raise TypeError(f"unsupported type ref: {type(type_ref)!r}")
+
+
+def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> TypeRef:
+    """Rewrite compile-time type parameters to concrete type refs."""
+
+    if isinstance(type_ref, TypeParamRef):
+        return bindings.get(type_ref.name, type_ref)
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        param_type_refs = tuple(substitute_type_params(param, bindings) for param in type_ref.param_type_refs)
+        return_type_ref = substitute_type_params(type_ref.return_type_ref, bindings)
+        return WorkflowRefTypeRef(
+            name=f"WorkflowRef[({' '.join(render_type_ref(param) for param in param_type_refs)}) -> {render_type_ref(return_type_ref)}]",
+            param_type_refs=param_type_refs,
+            return_type_ref=return_type_ref,
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        param_type_refs = tuple(substitute_type_params(param, bindings) for param in type_ref.param_type_refs)
+        return_type_ref = substitute_type_params(type_ref.return_type_ref, bindings)
+        params = " ".join(render_type_ref(param) for param in param_type_refs)
+        params_label = render_type_ref(param_type_refs[0]) if len(param_type_refs) == 1 else f"({params})" if params else "()"
+        return ProcRefTypeRef(
+            name=f"ProcRef[{params_label} -> {render_type_ref(return_type_ref)}]",
+            param_type_refs=param_type_refs,
+            return_type_ref=return_type_ref,
+        )
+    if isinstance(type_ref, OptionalTypeRef):
+        item_type_ref = substitute_type_params(type_ref.item_type_ref, bindings)
+        return OptionalTypeRef(
+            name=f"Optional[{render_type_ref(item_type_ref)}]",
+            item_type_ref=item_type_ref,
+        )
+    if isinstance(type_ref, ListTypeRef):
+        item_type_ref = substitute_type_params(type_ref.item_type_ref, bindings)
+        return ListTypeRef(
+            name=f"List[{render_type_ref(item_type_ref)}]",
+            item_type_ref=item_type_ref,
+        )
+    if isinstance(type_ref, MapTypeRef):
+        key_type_ref = substitute_type_params(type_ref.key_type_ref, bindings)
+        value_type_ref = substitute_type_params(type_ref.value_type_ref, bindings)
+        return MapTypeRef(
+            name=f"Map[{render_type_ref(key_type_ref)}, {render_type_ref(value_type_ref)}]",
+            key_type_ref=key_type_ref,
+            value_type_ref=value_type_ref,
+        )
+    if isinstance(type_ref, RecordTypeRef):
+        return RecordTypeRef(
+            name=type_ref.name,
+            definition=type_ref.definition,
+            field_types={
+                field_name: substitute_type_params(field_type, bindings)
+                for field_name, field_type in type_ref.field_types.items()
+            },
+        )
+    if isinstance(type_ref, UnionTypeRef):
+        return UnionTypeRef(
+            name=type_ref.name,
+            definition=type_ref.definition,
+            variant_field_types={
+                variant_name: {
+                    field_name: substitute_type_params(field_type, bindings)
+                    for field_name, field_type in field_types.items()
+                }
+                for variant_name, field_types in type_ref.variant_field_types.items()
+            },
+        )
+    return type_ref
+
+
+def ensure_no_type_params(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+) -> None:
+    """Reject unresolved compile-time type parameters at monomorphic boundaries."""
+
+    unresolved = _first_type_param_ref(type_ref)
+    if unresolved is None:
+        return
+    _raise_error(
+        f"unresolved procedure type parameter `{unresolved.name}` cannot reach a monomorphic boundary",
+        code="type_param_unresolved",
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+
+
+def _first_type_param_ref(type_ref: TypeRef) -> TypeParamRef | None:
+    if isinstance(type_ref, TypeParamRef):
+        return type_ref
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        return _first_type_param_ref(type_ref.item_type_ref)
+    if isinstance(type_ref, MapTypeRef):
+        return _first_type_param_ref(type_ref.key_type_ref) or _first_type_param_ref(type_ref.value_type_ref)
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        for param_type in type_ref.param_type_refs:
+            unresolved = _first_type_param_ref(param_type)
+            if unresolved is not None:
+                return unresolved
+        return _first_type_param_ref(type_ref.return_type_ref)
+    if isinstance(type_ref, ProcRefTypeRef):
+        for param_type in type_ref.param_type_refs:
+            unresolved = _first_type_param_ref(param_type)
+            if unresolved is not None:
+                return unresolved
+        return _first_type_param_ref(type_ref.return_type_ref)
+    if isinstance(type_ref, RecordTypeRef):
+        for field_type in type_ref.field_types.values():
+            unresolved = _first_type_param_ref(field_type)
+            if unresolved is not None:
+                return unresolved
+        return None
+    if isinstance(type_ref, UnionTypeRef):
+        for field_types in type_ref.variant_field_types.values():
+            for field_type in field_types.values():
+                unresolved = _first_type_param_ref(field_type)
+                if unresolved is not None:
+                    return unresolved
+        return None
+    return None
 
 
 def _type_ref_contains_workflow_ref(type_ref: TypeRef) -> bool:

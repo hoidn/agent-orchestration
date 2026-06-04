@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import importlib
+
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -13,6 +15,12 @@ PARAMETRIC_REVIEW_PROMPT = (
 PARAMETRIC_FIX_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_parametric_design_docs" / "fix.md"
 )
+
+
+def _write_module(path: Path, body: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    return path
 
 
 def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
@@ -241,3 +249,61 @@ def test_review_revise_parametric_design_docs_example_validates_with_prompt_bind
         validate_shared=True,
         workspace_root=tmp_path,
     )
+
+
+def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Path) -> None:
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    request_cls = getattr(build_module, "FrontendBuildRequest")
+    module_path = _write_module(
+        tmp_path / "generic" / "module.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule generic/module)",
+                "  (export entry)",
+                "  (defrecord WorkflowInput",
+                "    (report String))",
+                "  (defproc apply-runner",
+                "    :forall (T)",
+                "    ((runner ProcRef[T -> T])",
+                "     (value T))",
+                "    -> T",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (runner value))",
+                "  (defproc echo-input",
+                "    ((value WorkflowInput))",
+                "    -> WorkflowInput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowInput",
+                "      :report value.report))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowInput",
+                "    (apply-runner (proc-ref echo-input) input)))",
+            ]
+        )
+        + "\n",
+    )
+
+    result = build_module.build_frontend_bundle(
+        request_cls(
+            source_path=module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            provider_externs_path=Path("tests/fixtures/workflow_lisp/cli/providers.json"),
+            prompt_externs_path=Path("tests/fixtures/workflow_lisp/cli/prompts.json"),
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=Path("tests/fixtures/workflow_lisp/cli/commands.json"),
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+    assert result.selected_workflow_name == "generic/module::entry"
+    assert result.validated_bundle.surface.name == "generic/module::entry"
+    assert result.validated_bundle.provenance.frontend_kind == "workflow_lisp"
+    assert result.artifact_paths["source_map"].is_file()

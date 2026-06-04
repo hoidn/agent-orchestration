@@ -468,6 +468,69 @@ def test_compile_stage3_entrypoint_resolves_imported_bind_proc_bases_to_canonica
     assert body.args[0].base_expr.target_name == "proc_refs/helper::helper"
 
 
+def test_compile_stage3_entrypoint_specializes_imported_parametric_proc_defs(tmp_path: Path) -> None:
+    source_root = tmp_path / "parametric_proc_imports"
+    _write_module(
+        source_root / "parametric" / "helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule parametric/helper)",
+                "  (export WorkflowInput apply-runner echo-input)",
+                "  (defrecord WorkflowInput",
+                "    (report String))",
+                "  (defproc apply-runner",
+                "    :forall (T)",
+                "    ((runner ProcRef[T -> T])",
+                "     (value T))",
+                "    -> T",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (runner value))",
+                "  (defproc echo-input",
+                "    ((value WorkflowInput))",
+                "    -> WorkflowInput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowInput",
+                "      :report value.report)))",
+            ]
+        ),
+    )
+    entry_path = _write_module(
+        source_root / "parametric" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule parametric/entry)",
+                "  (import parametric/helper :only (WorkflowInput apply-runner echo-input))",
+                "  (export entry)",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowInput",
+                "    (apply-runner (proc-ref echo-input) input)))",
+            ]
+        ),
+    )
+
+    result = _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
+    specialized = [
+        procedure
+        for procedure in result.entry_result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "parametric/helper::apply-runner"
+    ]
+
+    assert "parametric/helper::apply-runner" in result.entry_result.procedure_catalog.signatures_by_name
+    assert len(specialized) == 1
+    assert specialized[0].definition.name.startswith("%parametric-call.parametric.helper.apply_runner.")
+    assert specialized[0].signature.type_params == ()
+
+
 def test_compile_stage3_entrypoint_rejects_private_imported_proc_refs(tmp_path: Path) -> None:
     compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
     assert callable(compile_fn), "compile_stage3_entrypoint is missing"

@@ -1504,6 +1504,7 @@ def _compile_stage3_graph(
             function_name_resolver=local_function_resolver,
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
+            visible_typed_procedures_by_name=typed_procedures_by_name,
             proc_ref_resolution_context=ProcRefResolutionContext(
                 import_scope=import_scope,
                 local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs),
@@ -2731,16 +2732,25 @@ def _infer_stage3_effect_summaries(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
     review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
+    from .procedure_typecheck import (
+        consume_parametric_specialization_requests,
+        reset_parametric_specialization_requests,
+    )
+    from .procedure_specialization import specialize_typed_procedure
+
     reset_generated_local_procedure_state()
+    reset_parametric_specialization_requests()
     try:
         procedure_effects_by_name = dict(procedure_effects_by_name or {})
         workflow_effects_by_name = dict(workflow_effects_by_name or {})
+        visible_typed_procedures_by_name = dict(visible_typed_procedures_by_name or {})
         procedure_targets: dict[str, ProcedureDef | TypedProcedureDef] = {
             procedure_def.name: procedure_def for procedure_def in procedure_defs
         }
@@ -2769,12 +2779,41 @@ def _infer_stage3_effect_summaries(
                 procedure.definition.name: procedure
                 for procedure in consume_generated_local_procedures()
             }
+            pending_parametric_from_procedures = consume_parametric_specialization_requests()
             if generated_from_procedures:
                 typed_procedures = typed_procedures + tuple(
                     procedure
                     for name, procedure in generated_from_procedures.items()
                     if name not in {typed.definition.name for typed in typed_procedures}
                 )
+            if pending_parametric_from_procedures:
+                typed_by_name = {
+                    **visible_typed_procedures_by_name,
+                    **{procedure.definition.name: procedure for procedure in typed_procedures},
+                }
+                added_specialization = False
+                for request in pending_parametric_from_procedures:
+                    if request.specialized_name in procedure_targets:
+                        continue
+                    base_procedure = typed_by_name.get(request.base_name)
+                    if base_procedure is None:
+                        continue
+                    procedure_targets[request.specialized_name] = specialize_typed_procedure(
+                        base_procedure,
+                        type_bindings=request.type_bindings,
+                        proc_ref_bindings=request.proc_ref_bindings,
+                        remaining_params=request.remaining_params,
+                        workflow_path=Path(base_procedure.definition.span.start.path),
+                        type_env=type_env,
+                        typed_procedures_by_name=typed_by_name,
+                        specialized_name=request.specialized_name,
+                        origin_span=request.origin_span,
+                        origin_form_path=request.origin_form_path,
+                        defer_lowering_resolution=True,
+                    )
+                    added_specialization = True
+                if added_specialization:
+                    continue
             procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
             discovered_from_procedures = _discover_proc_ref_specializations(
                 typed_procedures=typed_procedures,
@@ -2819,6 +2858,7 @@ def _infer_stage3_effect_summaries(
                 procedure.definition.name: procedure
                 for procedure in consume_generated_local_procedures()
             }
+            pending_parametric_from_workflows = consume_parametric_specialization_requests()
             if generated_from_workflows:
                 typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
                 typed_procedures = typed_procedures + tuple(
@@ -2827,6 +2867,34 @@ def _infer_stage3_effect_summaries(
                     if name not in typed_procedures_by_name
                 )
                 procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
+            if pending_parametric_from_workflows:
+                typed_by_name = {
+                    **visible_typed_procedures_by_name,
+                    **{procedure.definition.name: procedure for procedure in typed_procedures},
+                }
+                added_specialization = False
+                for request in pending_parametric_from_workflows:
+                    if request.specialized_name in procedure_targets:
+                        continue
+                    base_procedure = typed_by_name.get(request.base_name)
+                    if base_procedure is None:
+                        continue
+                    procedure_targets[request.specialized_name] = specialize_typed_procedure(
+                        base_procedure,
+                        type_bindings=request.type_bindings,
+                        proc_ref_bindings=request.proc_ref_bindings,
+                        remaining_params=request.remaining_params,
+                        workflow_path=Path(base_procedure.definition.span.start.path),
+                        type_env=type_env,
+                        typed_procedures_by_name=typed_by_name,
+                        specialized_name=request.specialized_name,
+                        origin_span=request.origin_span,
+                        origin_form_path=request.origin_form_path,
+                        defer_lowering_resolution=True,
+                    )
+                    added_specialization = True
+                if added_specialization:
+                    continue
             discovered_from_workflows = _discover_proc_ref_specializations(
                 typed_procedures=typed_procedures,
                 typed_workflows=typed_workflows,
@@ -2895,6 +2963,7 @@ def _infer_stage3_effect_summaries(
         return typed_procedures, typed_workflows, procedure_catalog
     finally:
         reset_generated_local_procedure_state()
+        reset_parametric_specialization_requests()
 
 
 def _validate_procedure_effects_and_cycles(
@@ -2919,11 +2988,16 @@ def _validate_procedure_effects_and_cycles(
     resolved: dict[str, EffectSummary] = {}
     visiting: list[str] = []
 
-    def _is_proc_ref_specialization(procedure: TypedProcedureDef) -> bool:
+    def _is_compile_time_specialization(procedure: TypedProcedureDef) -> bool:
         return procedure.specialization is not None and (
-            getattr(procedure.specialization, "proc_ref_bindings", {})
+            getattr(procedure.specialization, "type_bindings", {})
+            or getattr(procedure.specialization, "workflow_ref_bindings", {})
+            or getattr(procedure.specialization, "proc_ref_bindings", {})
             or getattr(procedure.specialization, "value_bindings", {})
         )
+
+    def _is_parametric_specialization(procedure: TypedProcedureDef) -> bool:
+        return procedure.specialization is not None and bool(getattr(procedure.specialization, "type_bindings", {}))
 
     def _cycle_edge(source_name: str, target_name: str) -> ProcedureCallEdge | None:
         return next(
@@ -2936,7 +3010,7 @@ def _validate_procedure_effects_and_cycles(
         )
 
     def _cycle_diagnostic_label(procedure: TypedProcedureDef, *, proc_ref_cycle: bool) -> str:
-        if proc_ref_cycle and _is_proc_ref_specialization(procedure):
+        if proc_ref_cycle and _is_compile_time_specialization(procedure):
             return getattr(procedure.specialization, "base_name", procedure.definition.name)
         return procedure.definition.name
 
@@ -2963,13 +3037,25 @@ def _validate_procedure_effects_and_cycles(
             return resolved[name]
         if name in visiting:
             cycle_names = visiting[visiting.index(name):]
-            proc_ref_cycle = any(_is_proc_ref_specialization(typed_by_name[cycle_name]) for cycle_name in cycle_names)
+            proc_ref_cycle = any(_is_compile_time_specialization(typed_by_name[cycle_name]) for cycle_name in cycle_names)
+            parametric_cycle = any(
+                _is_parametric_specialization(typed_by_name[cycle_name]) for cycle_name in cycle_names
+            )
             raise LispFrontendCompileError(
                 tuple(
                     LispFrontendDiagnostic(
-                        code="proc_ref_specialization_cycle" if proc_ref_cycle else "proc_lowering_cycle",
+                        code=(
+                            "parametric_specialization_cycle"
+                            if parametric_cycle
+                            else "proc_ref_specialization_cycle"
+                            if proc_ref_cycle
+                            else "proc_lowering_cycle"
+                        ),
                         message=(
-                            "recursive procedure specialization cycle detected for "
+                            "recursive parametric procedure specialization cycle detected for "
+                            f"`{_cycle_diagnostic_label(typed_by_name[cycle_name], proc_ref_cycle=proc_ref_cycle)}`"
+                            if parametric_cycle
+                            else "recursive procedure specialization cycle detected for "
                             f"`{_cycle_diagnostic_label(typed_by_name[cycle_name], proc_ref_cycle=proc_ref_cycle)}`"
                             if proc_ref_cycle
                             else f"recursive procedure lowering cycle detected for `{cycle_name}`"

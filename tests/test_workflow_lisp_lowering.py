@@ -247,6 +247,24 @@ def test_runtime_erasure_rejects_compile_time_only_proc_ref_values() -> None:
     assert excinfo.value.diagnostics[0].code == "proc_runtime_erasure_failed"
 
 
+def test_parametric_specialization_rejects_leaked_type_params_before_runtime_lowering() -> None:
+    from orchestrator.workflow_lisp.lowering.procedures import _assert_runtime_erasure
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+    from orchestrator.workflow_lisp.type_env import TypeParamRef
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _assert_runtime_erasure(
+            {"return_type": TypeParamRef(name="T")},
+            span=SourceSpan(
+                start=SourcePosition(path="runtime_erasure.orc", line=1, column=1, offset=0),
+                end=SourcePosition(path="runtime_erasure.orc", line=1, column=10, offset=9),
+            ),
+            form_path=("workflow-lisp", "defworkflow", "entry"),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "proc_runtime_erasure_failed"
+
+
 def _write_workflow_param_default_module(path: Path) -> Path:
     return _write_module(
         path,

@@ -36,7 +36,9 @@ from .procedures import (
     ProcedureCallableSpecialization,
     ProcedureCatalog,
     ProcedureLoweringMode,
+    ProcedureParam,
     TypedProcedureDef,
+    parametric_specialization_name,
     proc_ref_specialization_name as proc_ref_call_specialization_name,
 )
 from .spans import SourceSpan
@@ -49,6 +51,8 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
     VariantCaseTypeRef,
+    render_type_ref,
+    substitute_type_params,
 )
 from .workflow_refs import ResolvedWorkflowRef, specialization_name
 from .workflows import TypedWorkflowDef, analyze_workflow_boundary_type
@@ -59,6 +63,7 @@ class ProcedureSpecializationRequest:
     """Compile-time-only specialization inputs for one procedure materialization."""
 
     procedure: TypedProcedureDef
+    type_bindings: Mapping[str, TypeRef]
     workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef]
     proc_ref_bindings: Mapping[str, ResolvedProcRefValue]
     value_bindings: Mapping[str, Any]
@@ -688,6 +693,7 @@ def _inline_outputs_are_step_backed(
 def specialize_typed_procedure(
     procedure: TypedProcedureDef,
     *,
+    type_bindings: Mapping[str, TypeRef] | None = None,
     workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef] | None = None,
     proc_ref_bindings: Mapping[str, ResolvedProcRefValue] | None = None,
     value_bindings: Mapping[str, Any] | None = None,
@@ -698,9 +704,11 @@ def specialize_typed_procedure(
     specialized_name: str | None = None,
     origin_span=None,
     origin_form_path: tuple[str, ...] | None = None,
+    defer_lowering_resolution: bool = False,
 ) -> TypedProcedureDef:
     request = ProcedureSpecializationRequest(
         procedure=procedure,
+        type_bindings=dict(type_bindings or {}),
         workflow_ref_bindings=dict(workflow_ref_bindings or {}),
         proc_ref_bindings=dict(proc_ref_bindings or {}),
         value_bindings=dict(value_bindings or {}),
@@ -711,9 +719,16 @@ def specialize_typed_procedure(
         origin_span=origin_span,
         origin_form_path=origin_form_path,
     )
+    substituted_signature_params = tuple(
+        (
+            name,
+            substitute_type_params(type_ref, dict(request.type_bindings)),
+        )
+        for name, type_ref in request.procedure.signature.params
+    )
     bound_param_types = {
         name: type_ref
-        for name, type_ref in request.procedure.signature.params
+        for name, type_ref in substituted_signature_params
         if (
             name in request.workflow_ref_bindings
             or name in request.proc_ref_bindings
@@ -723,14 +738,24 @@ def specialize_typed_procedure(
     bound_names = set(bound_param_types)
     if request.specialized_name is None:
         specialized_name = (
-            specialization_name(request.procedure.signature.name, request.workflow_ref_bindings)
-            if request.workflow_ref_bindings
-            else proc_ref_call_specialization_name(request.procedure.signature.name, request.proc_ref_bindings)
+            parametric_specialization_name(request.procedure.signature.name, request.type_bindings)
+            if request.type_bindings
+            else request.procedure.signature.name
         )
+        if request.workflow_ref_bindings:
+            specialized_name = specialization_name(specialized_name, request.workflow_ref_bindings)
+        if request.proc_ref_bindings:
+            specialized_name = proc_ref_call_specialization_name(specialized_name, request.proc_ref_bindings)
     else:
         specialized_name = request.specialized_name
+    substituted_return_type = substitute_type_params(
+        request.procedure.signature.return_type_ref,
+        dict(request.type_bindings),
+    )
     specialization = ProcedureCallableSpecialization(
         base_name=request.procedure.signature.name,
+        specialization_key=specialized_name,
+        type_bindings=request.type_bindings,
         workflow_ref_bindings=request.workflow_ref_bindings,
         proc_ref_bindings=request.proc_ref_bindings,
         value_bindings=request.value_bindings,
@@ -743,12 +768,37 @@ def specialize_typed_procedure(
         definition=replace(
             request.procedure.definition,
             name=specialized_name,
-            params=tuple(param for param in request.procedure.definition.params if param.name not in bound_names),
+            params=tuple(
+                ProcedureParam(
+                    name=param.name,
+                    type_name=render_type_ref(
+                        substitute_type_params(
+                            next(
+                                type_ref
+                                for param_name, type_ref in request.procedure.signature.params
+                                if param_name == param.name
+                            ),
+                            dict(request.type_bindings),
+                        )
+                    ),
+                    span=param.span,
+                    form_path=param.form_path,
+                    expansion_stack=param.expansion_stack,
+                )
+                for param in request.procedure.definition.params
+                if param.name not in bound_names
+            ),
+            return_type_name=render_type_ref(substituted_return_type),
+            type_params=(),
+            where_clauses=(),
         ),
         signature=replace(
             request.procedure.signature,
             name=specialized_name,
             params=request.remaining_params,
+            return_type_ref=substituted_return_type,
+            type_params=(),
+            where_clauses=(),
         ),
         typed_body=request.procedure.typed_body,
         direct_effect_summary=request.procedure.direct_effect_summary,
@@ -757,36 +807,37 @@ def specialize_typed_procedure(
         generated_workflow_name=None,
         specialization=specialization,
     )
-    boundary_valid = _procedure_private_boundary_valid(specialized)
-    body_valid = _procedure_private_body_valid(
-        specialized,
-        typed_procedures_by_name=request.typed_procedures_by_name,
-        type_env=type_env,
-    )
-    requested = request.procedure.signature.requested_lowering_mode
     mode = ProcedureLoweringMode.INLINE
-    if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-        if not boundary_valid or not body_valid:
-            raise LispFrontendCompileError(
-                (
-                    LispFrontendDiagnostic(
-                        code="proc_private_workflow_boundary_invalid",
-                        message=(
-                            f"procedure `{request.procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
-                            "after specialization because its body would not export step-backed outputs "
-                            "through the shared-validation seam"
-                        ),
-                        span=request.procedure.definition.span,
-                        form_path=request.procedure.definition.form_path,
-                    ),
-                )
-            )
-        mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
-    elif requested == ProcedureLoweringMode.AUTO and boundary_valid and body_valid:
-        mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
     generated_name = None
-    if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-        generated_name = f"%{request.workflow_path.stem}.{specialized_name}.v1"
+    if not defer_lowering_resolution:
+        boundary_valid = _procedure_private_boundary_valid(specialized)
+        body_valid = _procedure_private_body_valid(
+            specialized,
+            typed_procedures_by_name=request.typed_procedures_by_name,
+            type_env=type_env,
+        )
+        requested = request.procedure.signature.requested_lowering_mode
+        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            if not boundary_valid or not body_valid:
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="proc_private_workflow_boundary_invalid",
+                            message=(
+                                f"procedure `{request.procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
+                                "after specialization because its body would not export step-backed outputs "
+                                "through the shared-validation seam"
+                            ),
+                            span=request.procedure.definition.span,
+                            form_path=request.procedure.definition.form_path,
+                        ),
+                    )
+                )
+            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        elif requested == ProcedureLoweringMode.AUTO and boundary_valid and body_valid:
+            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            generated_name = f"%{request.workflow_path.stem}.{specialized_name}.v1"
     return replace(
         specialized,
         resolved_lowering_mode=mode,
@@ -898,6 +949,10 @@ def discover_proc_ref_specializations(
             else:
                 signature = procedure_catalog.signatures_by_name.get(node.callee_name)
                 if signature is not None:
+                    if len(node.args) != len(signature.params):
+                        for arg in node.args:
+                            walk(arg, proc_ref_env)
+                        return
                     proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
                     for arg_expr, (param_name, param_type) in zip(node.args, signature.params, strict=True):
                         if not isinstance(param_type, ProcRefTypeRef):

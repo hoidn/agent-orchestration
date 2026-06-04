@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .definitions import SyntaxNode
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -19,9 +19,23 @@ from .phase_stdlib import (
     DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
     ReviewLoopLegacyBridgePolicy,
 )
-from .procedures import ProcedureCatalog, ProcedureDef, TypedProcedureDef, proc_ref_specialization_name
-from .procedure_refs import ResolvedProcRefValue
-from .type_env import FrontendTypeEnvironment, ProcRefTypeRef, TypeRef, WorkflowRefTypeRef
+from .procedures import (
+    ProcedureCatalog,
+    ProcedureDef,
+    TypedProcedureDef,
+    parametric_specialization_name,
+    proc_ref_specialization_name,
+)
+from .procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
+from .type_env import (
+    FrontendTypeEnvironment,
+    ProcRefTypeRef,
+    TypeParamRef,
+    TypeRef,
+    WorkflowRefTypeRef,
+    ensure_no_type_params,
+    substitute_type_params,
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +52,36 @@ class ProcedureTypecheckContext:
     proc_ref_resolution_context: object | None
     active_proc_ref_value_env: Mapping[str, ResolvedProcRefValue]
     generated_local_procedure_state: object | None = None
+
+
+@dataclass(frozen=True)
+class PendingParametricProcedureSpecialization:
+    """One inferred generic procedure specialization request from typechecking."""
+
+    base_name: str
+    specialized_name: str
+    type_bindings: Mapping[str, TypeRef]
+    proc_ref_bindings: Mapping[str, ResolvedProcRefValue]
+    remaining_params: tuple[tuple[str, TypeRef], ...]
+    origin_span: object
+    origin_form_path: tuple[str, ...]
+
+
+_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS: dict[str, PendingParametricProcedureSpecialization] = {}
+
+
+def consume_parametric_specialization_requests() -> tuple[PendingParametricProcedureSpecialization, ...]:
+    global _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS
+
+    requests = tuple(_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS.values())
+    _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS = {}
+    return requests
+
+
+def reset_parametric_specialization_requests() -> None:
+    global _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS
+
+    _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS = {}
 
 
 def typecheck_procedure_definitions(
@@ -242,6 +286,16 @@ def typecheck_procedure_call_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
+    if signature.type_params:
+        return _typecheck_parametric_procedure_call(
+            expr,
+            signature=signature,
+            context=context,
+            recurse=recurse,
+            typed_factory=typed_factory,
+            raise_error=raise_error,
+            type_label=type_label,
+        )
     if len(expr.args) != len(signature.params):
         raise_error(
             f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
@@ -311,6 +365,254 @@ def typecheck_procedure_call_expr(
         type_ref=signature.return_type_ref,
         effect=merge_effect_summaries(*arg_summaries, procedure_summary),
     )
+
+
+def _typecheck_parametric_procedure_call(
+    expr: ProcedureCallExpr,
+    *,
+    signature,
+    context: ProcedureTypecheckContext,
+    recurse: Callable[[object], object],
+    typed_factory: Callable[..., object],
+    raise_error: Callable[..., None],
+    type_label: Callable[[TypeRef], str],
+) -> object:
+    if len(expr.args) != len(signature.params):
+        raise_error(
+            f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
+            code="procedure_arity_mismatch",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    type_bindings: dict[str, TypeRef] = {}
+    arg_summaries: list[EffectSummary] = []
+
+    for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
+        typed_arg = recurse(arg_expr)
+        arg_summaries.append(typed_arg.effect_summary)
+        _infer_parametric_type_bindings(
+            expected_type,
+            typed_arg.type_ref,
+            bindings=type_bindings,
+            raise_error=raise_error,
+            span=arg_expr.span,
+            form_path=arg_expr.form_path,
+        )
+    unresolved = [type_param.name for type_param in signature.type_params if type_param.name not in type_bindings]
+    if unresolved:
+        raise_error(
+            f"procedure `{expr.callee_name}` could not infer concrete bindings for type parameters {', '.join(unresolved)}",
+            code="parametric_type_binding_unresolved",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+    concrete_bindings = all(not _type_ref_contains_type_param(bound_type) for bound_type in type_bindings.values())
+
+    if not concrete_bindings:
+        return typed_factory(
+            expr=expr,
+            type_ref=substitute_type_params(signature.return_type_ref, type_bindings),
+            effect=merge_effect_summaries(*arg_summaries),
+        )
+
+    if signature.where_clauses:
+        raise_error(
+            f"procedure `{expr.callee_name}` uses `:where`, but structural parametric constraints are not implemented yet",
+            code="unsupported_parametric_constraint_surface",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+    concrete_return_type = substitute_type_params(signature.return_type_ref, type_bindings)
+    ensure_no_type_params(
+        concrete_return_type,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+    remaining_params: list[tuple[str, TypeRef]] = []
+    for param_name, param_type in signature.params:
+        concrete_param_type = substitute_type_params(param_type, type_bindings)
+        ensure_no_type_params(
+            concrete_param_type,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        remaining_params.append((param_name, concrete_param_type))
+
+    specialized_name = parametric_specialization_name(signature.name, type_bindings)
+    _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS[specialized_name] = PendingParametricProcedureSpecialization(
+        base_name=signature.name,
+        specialized_name=specialized_name,
+        type_bindings=dict(type_bindings),
+        proc_ref_bindings={},
+        remaining_params=tuple(remaining_params),
+        origin_span=expr.span,
+        origin_form_path=expr.form_path,
+    )
+    callee_summary = context.procedure_effects_by_name.get(
+        specialized_name,
+        context.procedure_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY),
+    )
+    procedure_summary = effect_summary_from_direct(
+        direct_effects=callee_summary.transitive_effects,
+        procedure_edges=(
+            ProcedureCallEdge(
+                callee_name=specialized_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+        ),
+    )
+    return typed_factory(
+        expr=replace(expr, callee_name=specialized_name),
+        type_ref=concrete_return_type,
+        effect=merge_effect_summaries(*arg_summaries, procedure_summary),
+    )
+
+
+def _infer_parametric_type_bindings(
+    expected_type: TypeRef,
+    actual_type: TypeRef,
+    *,
+    bindings: dict[str, TypeRef],
+    raise_error: Callable[..., None],
+    span,
+    form_path,
+) -> None:
+    if isinstance(expected_type, TypeParamRef):
+        bound = bindings.get(expected_type.name)
+        if bound is None:
+            bindings[expected_type.name] = actual_type
+            return
+        if bound != actual_type:
+            raise_error(
+                f"type parameter `{expected_type.name}` inferred multiple incompatible concrete types",
+                code="parametric_type_binding_ambiguous",
+                span=span,
+                form_path=form_path,
+            )
+        return
+    if type(expected_type) is not type(actual_type):
+        raise_error(
+            f"procedure argument expected `{type_label_for_inference(expected_type)}` but got `{type_label_for_inference(actual_type)}`",
+            code="type_mismatch",
+            span=span,
+            form_path=form_path,
+        )
+    if isinstance(expected_type, ProcRefTypeRef):
+        if len(expected_type.param_type_refs) != len(actual_type.param_type_refs):
+            raise_error(
+                "procedure ref argument arity does not match parametric signature",
+                code="proc_ref_signature_invalid",
+                span=span,
+                form_path=form_path,
+            )
+        for expected_param, actual_param in zip(expected_type.param_type_refs, actual_type.param_type_refs, strict=True):
+            _infer_parametric_type_bindings(
+                expected_param,
+                actual_param,
+                bindings=bindings,
+                raise_error=raise_error,
+                span=span,
+                form_path=form_path,
+            )
+        _infer_parametric_type_bindings(
+            expected_type.return_type_ref,
+            actual_type.return_type_ref,
+            bindings=bindings,
+            raise_error=raise_error,
+            span=span,
+            form_path=form_path,
+        )
+        return
+    if isinstance(expected_type, WorkflowRefTypeRef):
+        if len(expected_type.param_type_refs) != len(actual_type.param_type_refs):
+            raise_error(
+                "workflow ref argument arity does not match parametric signature",
+                code="workflow_ref_signature_invalid",
+                span=span,
+                form_path=form_path,
+            )
+        for expected_param, actual_param in zip(expected_type.param_type_refs, actual_type.param_type_refs, strict=True):
+            _infer_parametric_type_bindings(
+                expected_param,
+                actual_param,
+                bindings=bindings,
+                raise_error=raise_error,
+                span=span,
+                form_path=form_path,
+            )
+        _infer_parametric_type_bindings(
+            expected_type.return_type_ref,
+            actual_type.return_type_ref,
+            bindings=bindings,
+            raise_error=raise_error,
+            span=span,
+            form_path=form_path,
+        )
+        return
+    if hasattr(expected_type, "item_type_ref") and hasattr(actual_type, "item_type_ref"):
+        _infer_parametric_type_bindings(
+            expected_type.item_type_ref,
+            actual_type.item_type_ref,
+            bindings=bindings,
+            raise_error=raise_error,
+            span=span,
+            form_path=form_path,
+        )
+        return
+    if hasattr(expected_type, "key_type_ref") and hasattr(actual_type, "key_type_ref"):
+        _infer_parametric_type_bindings(
+            expected_type.key_type_ref,
+            actual_type.key_type_ref,
+            bindings=bindings,
+            raise_error=raise_error,
+            span=span,
+            form_path=form_path,
+        )
+        _infer_parametric_type_bindings(
+            expected_type.value_type_ref,
+            actual_type.value_type_ref,
+            bindings=bindings,
+            raise_error=raise_error,
+            span=span,
+            form_path=form_path,
+        )
+        return
+    if expected_type != actual_type:
+        raise_error(
+            f"procedure argument expected `{type_label_for_inference(expected_type)}` but got `{type_label_for_inference(actual_type)}`",
+            code="type_mismatch",
+            span=span,
+            form_path=form_path,
+        )
+
+
+def type_label_for_inference(type_ref: TypeRef) -> str:
+    return getattr(type_ref, "name", type(type_ref).__name__)
+
+
+def _type_ref_contains_type_param(type_ref: TypeRef) -> bool:
+    if isinstance(type_ref, TypeParamRef):
+        return True
+    if hasattr(type_ref, "item_type_ref"):
+        return _type_ref_contains_type_param(type_ref.item_type_ref)
+    if hasattr(type_ref, "key_type_ref"):
+        return _type_ref_contains_type_param(type_ref.key_type_ref) or _type_ref_contains_type_param(
+            type_ref.value_type_ref
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        return any(_type_ref_contains_type_param(param) for param in type_ref.param_type_refs) or _type_ref_contains_type_param(
+            type_ref.return_type_ref
+        )
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        return any(_type_ref_contains_type_param(param) for param in type_ref.param_type_refs) or _type_ref_contains_type_param(
+            type_ref.return_type_ref
+        )
+    return False
 
 
 def typecheck_generated_procedure(

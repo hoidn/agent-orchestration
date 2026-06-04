@@ -183,6 +183,60 @@ def _build_frontend_bundle_from_fixture(
     )
 
 
+def _build_parametric_frontend_bundle(tmp_path: Path) -> object:
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    request_cls = getattr(build_module, "FrontendBuildRequest")
+    module_path = tmp_path / "demo" / "module.orc"
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/module)",
+                "  (export entry)",
+                "  (defrecord WorkflowInput",
+                "    (report String))",
+                "  (defproc apply-runner",
+                "    :forall (T)",
+                "    ((runner ProcRef[T -> T])",
+                "     (value T))",
+                "    -> T",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (runner value))",
+                "  (defproc echo-input",
+                "    ((value WorkflowInput))",
+                "    -> WorkflowInput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowInput",
+                "      :report value.report))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowInput",
+                "    (apply-runner (proc-ref echo-input) input)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return build_module.build_frontend_bundle(
+        request_cls(
+            source_path=module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            provider_externs_path=Path("tests/fixtures/workflow_lisp/cli/providers.json"),
+            prompt_externs_path=Path("tests/fixtures/workflow_lisp/cli/prompts.json"),
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=Path("tests/fixtures/workflow_lisp/cli/commands.json"),
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
 def _statement_step_ids(workflow) -> list[str]:
     return [
         workflow.statements[statement_id].step_id.split(".")[-1]
@@ -436,6 +490,21 @@ def test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload
         "runtime_closure",
     ):
         assert marker not in serialized
+
+
+def test_compiled_bundle_erases_type_params_before_semantic_and_executable_surfaces(
+    tmp_path: Path,
+) -> None:
+    result = _build_parametric_frontend_bundle(tmp_path)
+    semantic_ir_payload = result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    executable_ir_payload = result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
+
+    for serialized in (semantic_ir_payload, executable_ir_payload):
+        assert "TypeParamRef" not in serialized
+        assert '"type_params"' not in serialized
+        assert '"where_clauses"' not in serialized
+        assert ":forall" not in serialized
+        assert "ProcRef[T -> T]" not in serialized
 
 
 def test_semantic_ir_helper_returns_shared_surface_from_loaded_bundle(tmp_path: Path) -> None:

@@ -35,6 +35,28 @@ class ProcedureParam:
     expansion_stack: ExpansionStack = ()
 
 
+@dataclass(frozen=True)
+class ProcedureTypeParam:
+    """One authored compile-time type parameter declared by `defproc`."""
+
+    name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ProcedureConstraintSyntax:
+    """One parsed `:where` clause retained as metadata for later slices."""
+
+    subject_name: str
+    constraint_name: str
+    args: tuple[str, ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
 class ProcedureLoweringMode(StrEnum):
     """Allowed lowering strategies for reusable workflow procedures."""
 
@@ -56,6 +78,8 @@ class ProcedureDef:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    type_params: tuple[ProcedureTypeParam, ...] = ()
+    where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
     generated_local_procedure: "GeneratedLocalProcedure | None" = None
 
 
@@ -70,6 +94,8 @@ class ProcedureSignature:
     requested_lowering_mode: ProcedureLoweringMode
     span: SourceSpan
     form_path: tuple[str, ...]
+    type_params: tuple[ProcedureTypeParam, ...] = ()
+    where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -78,6 +104,8 @@ class ProcedureCallableSpecialization:
 
     base_name: str
     specialized_name: str
+    specialization_key: str
+    type_bindings: Mapping[str, TypeRef]
     workflow_ref_bindings: Mapping[str, object]
     proc_ref_bindings: Mapping[str, object]
     value_bindings: Mapping[str, object]
@@ -142,6 +170,22 @@ def proc_ref_specialization_name(
     return f"%proc-ref-call.{normalized_base}.{digest}"
 
 
+def parametric_specialization_name(
+    base_name: str,
+    type_bindings: Mapping[str, TypeRef],
+) -> str:
+    digest = hashlib.sha1(
+        "|".join(
+            [
+                base_name,
+                *(f"{name}:{_type_ref_identity(type_ref)}" for name, type_ref in sorted(type_bindings.items())),
+            ]
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    normalized_base = base_name.replace("/", ".").replace("::", ".").replace("-", "_")
+    return f"%parametric-call.{normalized_base}.{digest}"
+
+
 def let_proc_generated_name(
     *,
     owner_callable_name: str,
@@ -173,6 +217,10 @@ def let_proc_generated_name(
     normalized_owner = owner_callable_name.replace("/", ".").replace("::", ".").replace("-", "_")
     normalized_local = local_name.replace("-", "_")
     return f"%let-proc.{normalized_owner}.{normalized_local}.{digest}"
+
+
+def _type_ref_identity(type_ref: TypeRef) -> str:
+    return repr(type_ref)
 
 
 def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[ProcedureDef, ...]:
@@ -209,11 +257,13 @@ def build_procedure_catalog(
                 )
             )
             continue
+        local_type_params = frozenset(type_param.name for type_param in procedure_def.type_params)
         return_type_ref = type_env.resolve_type(
             procedure_def.return_type_name,
             span=procedure_def.span,
             form_path=procedure_def.form_path,
             expansion_stack=procedure_def.expansion_stack,
+            local_type_params=local_type_params,
         )
         params: list[tuple[str, TypeRef]] = []
         for param in procedure_def.params:
@@ -225,6 +275,7 @@ def build_procedure_catalog(
                         span=param.span,
                         form_path=param.form_path,
                         expansion_stack=param.expansion_stack,
+                        local_type_params=local_type_params,
                     ),
                 )
             )
@@ -236,6 +287,8 @@ def build_procedure_catalog(
             requested_lowering_mode=procedure_def.requested_lowering_mode,
             span=procedure_def.span,
             form_path=procedure_def.form_path,
+            type_params=procedure_def.type_params,
+            where_clauses=procedure_def.where_clauses,
         )
         definitions_by_name[procedure_def.name] = procedure_def
     for alias_name, canonical_name in (lookup_aliases or {}).items():
@@ -300,23 +353,80 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
             form_path=form.form_path,
             expansion_stack=form.expansion_stack,
         )
-    params_node = datum.items[2]
+    index = 2
+    type_params: tuple[ProcedureTypeParam, ...] = ()
+    if _keyword_value(datum.items[index]) == ":forall":
+        type_params = _elaborate_type_params(datum.items[index + 1] if index + 1 < len(datum.items) else None, form)
+        index += 2
+
+    if index >= len(datum.items):
+        _raise_parse_error(
+            "procedure params must be a list",
+            span=form.span,
+            form_path=form.form_path,
+            expansion_stack=form.expansion_stack,
+        )
+    params_node = datum.items[index]
     if not isinstance(params_node, SyntaxList):
+        if _keyword_value(params_node) in {":forall", ":where"}:
+            _raise_invalid_parametric_clause(
+                "parametric `defproc` clauses must appear in `:forall`, params, `:where`, `->` order",
+                node=params_node,
+                form=form,
+            )
         _raise_parse_error(
             "procedure params must be a list",
             span=params_node.span,
             form_path=form.form_path,
             expansion_stack=params_node.expansion_stack,
         )
-    arrow_node = syntax_identifier(datum.items[3])
-    if arrow_node is None or arrow_node.resolved_name != "->":
+
+    index += 1
+    if _keyword_value(datum.items[index]) == ":forall":
+        _raise_invalid_parametric_clause(
+            "parametric `defproc` clauses must appear in `:forall`, params, `:where`, `->` order",
+            node=datum.items[index],
+            form=form,
+        )
+
+    where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
+    if _keyword_value(datum.items[index]) == ":where":
+        where_clauses = _elaborate_where_clauses(
+            datum.items[index + 1] if index + 1 < len(datum.items) else None,
+            form=form,
+            declared_type_params=frozenset(type_param.name for type_param in type_params),
+        )
+        index += 2
+
+    if index >= len(datum.items):
         _raise_parse_error(
             "procedure return separator must be `->`",
-            span=datum.items[3].span,
+            span=form.span,
             form_path=form.form_path,
-            expansion_stack=datum.items[3].expansion_stack,
+            expansion_stack=form.expansion_stack,
         )
-    return_type_node = datum.items[4]
+    arrow_node = syntax_identifier(datum.items[index])
+    if arrow_node is None or arrow_node.resolved_name != "->":
+        if _keyword_value(datum.items[index]) in {":forall", ":where"}:
+            _raise_invalid_parametric_clause(
+                "parametric `defproc` clauses must appear in `:forall`, params, `:where`, `->` order",
+                node=datum.items[index],
+                form=form,
+            )
+        _raise_parse_error(
+            "procedure return separator must be `->`",
+            span=datum.items[index].span,
+            form_path=form.form_path,
+            expansion_stack=datum.items[index].expansion_stack,
+        )
+    if index + 1 >= len(datum.items):
+        _raise_parse_error(
+            "procedure return type must be a symbol",
+            span=form.span,
+            form_path=form.form_path,
+            expansion_stack=form.expansion_stack,
+        )
+    return_type_node = datum.items[index + 1]
     return_type_identifier = syntax_identifier(return_type_node)
     if return_type_identifier is None:
         _raise_parse_error(
@@ -326,7 +436,7 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
             expansion_stack=return_type_node.expansion_stack,
         )
 
-    sections = list(datum.items[5:])
+    sections = list(datum.items[index + 2 :])
     if not sections:
         _raise_missing_effects(form)
     lowering_mode = ProcedureLoweringMode.AUTO
@@ -403,7 +513,110 @@ def _elaborate_procedure_definition(form: SyntaxNode) -> ProcedureDef:
         span=form.span,
         form_path=form.form_path,
         expansion_stack=form.expansion_stack,
+        type_params=type_params,
+        where_clauses=where_clauses,
     )
+
+
+def _elaborate_type_params(raw_node: object | None, form: SyntaxNode) -> tuple[ProcedureTypeParam, ...]:
+    if not isinstance(raw_node, SyntaxList):
+        _raise_invalid_parametric_clause(
+            "`defproc` `:forall` must be followed by a list of type-parameter names",
+            node=form,
+            form=form,
+        )
+    seen: set[str] = set()
+    type_params: list[ProcedureTypeParam] = []
+    for item in raw_node.items:
+        identifier = syntax_identifier(item)
+        if identifier is None:
+            _raise_invalid_parametric_clause(
+                "`defproc` `:forall` entries must be symbols",
+                node=item,
+                form=form,
+            )
+        if identifier.resolved_name in seen:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="procedure_type_param_duplicate",
+                        message=f"duplicate procedure type parameter `{identifier.display_name}`",
+                        span=identifier.span,
+                        form_path=form.form_path,
+                        expansion_stack=identifier.expansion_stack,
+                    ),
+                )
+            )
+        seen.add(identifier.resolved_name)
+        type_params.append(
+            ProcedureTypeParam(
+                name=identifier.resolved_name,
+                span=identifier.span,
+                form_path=form.form_path,
+                expansion_stack=identifier.expansion_stack,
+            )
+        )
+    if not type_params:
+        _raise_invalid_parametric_clause(
+            "`defproc` `:forall` must declare at least one type parameter",
+            node=raw_node,
+            form=form,
+        )
+    return tuple(type_params)
+
+
+def _elaborate_where_clauses(
+    raw_node: object | None,
+    *,
+    form: SyntaxNode,
+    declared_type_params: frozenset[str],
+) -> tuple[ProcedureConstraintSyntax, ...]:
+    if not isinstance(raw_node, SyntaxList):
+        _raise_invalid_where_clause("`defproc` `:where` must be followed by a list of clauses", node=form, form=form)
+    clauses: list[ProcedureConstraintSyntax] = []
+    for clause in raw_node.items:
+        if not isinstance(clause, SyntaxList) or len(clause.items) < 2:
+            _raise_invalid_where_clause("`defproc` `:where` clauses must be lists of `(TypeParam constraint ...)`", node=clause, form=form)
+        subject_identifier = syntax_identifier(clause.items[0])
+        constraint_identifier = syntax_identifier(clause.items[1])
+        if subject_identifier is None or constraint_identifier is None:
+            _raise_invalid_where_clause("`defproc` `:where` clause subjects and constraints must be symbols", node=clause, form=form)
+        if subject_identifier.resolved_name not in declared_type_params:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="procedure_type_param_unknown",
+                        message=(
+                            f"`:where` clause references undeclared procedure type parameter "
+                            f"`{subject_identifier.display_name}`"
+                        ),
+                        span=subject_identifier.span,
+                        form_path=form.form_path,
+                        expansion_stack=subject_identifier.expansion_stack,
+                    ),
+                )
+            )
+        args: list[str] = []
+        for arg in clause.items[2:]:
+            identifier = syntax_identifier(arg)
+            if identifier is None:
+                _raise_invalid_where_clause(
+                    "`defproc` `:where` clause arguments must be symbols",
+                    node=arg,
+                    form=form,
+                )
+            args.append(identifier.resolved_name)
+        clauses.append(
+            ProcedureConstraintSyntax(
+                subject_name=subject_identifier.resolved_name,
+                constraint_name=constraint_identifier.resolved_name,
+                args=tuple(args),
+                span=clause.span,
+                form_path=form.form_path,
+                expansion_stack=clause.expansion_stack,
+            )
+        )
+    return tuple(clauses)
 
 
 def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> ProcedureParam:
@@ -481,6 +694,42 @@ def _raise_invalid_lowering(form: SyntaxNode) -> None:
             ),
         )
     )
+
+
+def _raise_invalid_parametric_clause(message: str, *, node: object, form: SyntaxNode) -> None:
+    span = getattr(node, "span", form.span)
+    expansion_stack = getattr(node, "expansion_stack", form.expansion_stack)
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="procedure_type_param_clause_invalid",
+                message=message,
+                span=span,
+                form_path=form.form_path,
+                expansion_stack=expansion_stack,
+            ),
+        )
+    )
+
+
+def _raise_invalid_where_clause(message: str, *, node: object, form: SyntaxNode) -> None:
+    span = getattr(node, "span", form.span)
+    expansion_stack = getattr(node, "expansion_stack", form.expansion_stack)
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="procedure_where_clause_invalid",
+                message=message,
+                span=span,
+                form_path=form.form_path,
+                expansion_stack=expansion_stack,
+            ),
+        )
+    )
+
+
+def _keyword_value(node: object) -> str | None:
+    return node.value if isinstance(node, SyntaxKeyword) else None
 
 
 def _raise_parse_error(

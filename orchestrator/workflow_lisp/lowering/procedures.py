@@ -32,9 +32,11 @@ from ..type_env import (
     FrontendTypeEnvironment,
     ProcRefTypeRef,
     RecordTypeRef,
+    TypeParamRef,
     TypeRef,
     UnionTypeRef,
     WorkflowRefTypeRef,
+    render_type_ref,
 )
 from ..workflow_refs import ResolvedWorkflowRef
 from ..workflows import (
@@ -62,6 +64,7 @@ _COMPILE_TIME_ONLY_RUNTIME_TYPES = (
     ProcRefLiteralExpr,
     WorkflowRefLiteralExpr,
     ProcRefTypeRef,
+    TypeParamRef,
     WorkflowRefTypeRef,
     ResolvedProcRefValue,
     ResolvedWorkflowRef,
@@ -285,6 +288,7 @@ def _lower_procedure_call_expr(
     expr = typed_expr.expr
     assert isinstance(expr, ProcedureCallExpr)
     arg_exprs = expr.args
+    parent_origin_notes = context.origin_notes
     plan = ProcedureLoweringPlan(
         selected_procedure=context.typed_procedures.get(expr.callee_name),
         resolved_args=tuple(arg_exprs),
@@ -437,8 +441,16 @@ def _lower_procedure_call_expr(
         chosen_lowering_mode=procedure.resolved_lowering_mode,
     )
     canonical_name = procedure.signature.name if procedure is not None else expr.callee_name
+    procedure_notes = _merge_origin_notes(
+        parent_origin_notes,
+        _procedure_provenance_notes(
+            expr,
+            procedure,
+            typed_procedures=context.typed_procedures,
+        ),
+    )
     if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
-        context.origin_notes = _procedure_provenance_notes(expr, procedure)
+        context.origin_notes = procedure_notes
         assert procedure.generated_workflow_name is not None
         if procedure.generated_workflow_name not in context.workflows_by_name:
             mutable_workflows = context.workflows_by_name
@@ -500,7 +512,7 @@ def _lower_procedure_call_expr(
 
     prefix_ordinal = context.inline_call_counters.get(expr.callee_name, 0) + 1
     context.inline_call_counters[expr.callee_name] = prefix_ordinal
-    context.origin_notes = _procedure_provenance_notes(expr, procedure)
+    context.origin_notes = procedure_notes
     child_locals = dict(local_values)
     if procedure.specialization is not None:
         child_locals.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
@@ -539,7 +551,7 @@ def _lower_procedure_call_expr(
         generated_semantic_effects=context.generated_semantic_effects,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
-        origin_notes=_procedure_provenance_notes(expr, procedure),
+        origin_notes=procedure_notes,
         boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         local_type_bindings={
@@ -595,7 +607,12 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
     )
 
 
-def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedureDef) -> tuple[str, ...]:
+def _procedure_provenance_notes(
+    expr: ProcedureCallExpr,
+    procedure: TypedProcedureDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef] | None = None,
+) -> tuple[str, ...]:
     """Describe the source locations behind generated procedure code."""
 
     call = expr.span.start
@@ -605,6 +622,12 @@ def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedu
         f"procedure definition at {definition.path}:{definition.line}:{definition.column}",
     ]
     specialization = procedure.specialization
+    notes.extend(
+        _parametric_specialization_notes(
+            procedure,
+            typed_procedures=typed_procedures,
+        )
+    )
     if specialization is not None and (
         getattr(specialization, "proc_ref_bindings", {})
         or getattr(specialization, "value_bindings", {})
@@ -637,6 +660,48 @@ def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedu
                 f"consuming (proc-ref {generated_local.authored_local_name}) site at {start.path}:{start.line}:{start.column}"
             )
     return tuple(notes)
+
+
+def _parametric_specialization_notes(
+    procedure: TypedProcedureDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef] | None,
+    seen: frozenset[str] = frozenset(),
+) -> tuple[str, ...]:
+    specialization = procedure.specialization
+    if specialization is None:
+        return ()
+    notes: list[str] = []
+    if getattr(specialization, "type_bindings", {}):
+        rendered_bindings = ", ".join(
+            f"{name} = {render_type_ref(type_ref)}"
+            for name, type_ref in sorted(specialization.type_bindings.items())
+        )
+        notes.append(f"parametric specialization selected for `{specialization.base_name}`")
+        notes.append(f"parametric type bindings: {rendered_bindings}")
+    base_name = getattr(specialization, "base_name", None)
+    if (
+        typed_procedures is not None
+        and isinstance(base_name, str)
+        and base_name not in seen
+        and base_name in typed_procedures
+    ):
+        notes.extend(
+            _parametric_specialization_notes(
+                typed_procedures[base_name],
+                typed_procedures=typed_procedures,
+                seen=seen | {base_name},
+            )
+    )
+    return tuple(notes)
+
+
+def _merge_origin_notes(existing: tuple[str, ...], new: tuple[str, ...]) -> tuple[str, ...]:
+    merged: list[str] = []
+    for note in (*existing, *new):
+        if note not in merged:
+            merged.append(note)
+    return tuple(merged)
 
 
 def _assert_runtime_erasure(value: Any, *, span: SourceSpan, form_path: tuple[str, ...]) -> None:

@@ -146,6 +146,613 @@ def _procedure_specialization_source_path() -> Path:
     return path
 
 
+def _definition_context(path: Path):
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    return syntax_module, module, type_env
+
+
+def test_elaborate_defproc_parses_forall_and_where_metadata(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_metadata.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defproc carry",
+            "    :forall (T U)",
+            "    ((current T)",
+            "     (next U))",
+            "    :where ((T is-record)",
+            "            (U has-field report WorkReport))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    current))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    procedures = elaborate_procedure_definitions(syntax_module)
+
+    assert len(procedures) == 1
+    assert [param.name for param in procedures[0].type_params] == ["T", "U"]
+    assert [clause.subject_name for clause in procedures[0].where_clauses] == ["T", "U"]
+    assert [clause.constraint_name for clause in procedures[0].where_clauses] == ["is-record", "has-field"]
+    assert procedures[0].where_clauses[1].args == ("report", "WorkReport")
+
+
+def test_elaborate_defproc_rejects_duplicate_type_params(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_duplicate_type_params.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defproc carry",
+            "    :forall (T T)",
+            "    ((value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_procedure_definitions(syntax_module)
+
+    _assert_diagnostic_code(excinfo, "procedure_type_param_duplicate")
+
+
+def test_elaborate_defproc_rejects_invalid_parametric_clause_order(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_clause_order.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defproc carry",
+            "    ((value T))",
+            "    :forall (T)",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_procedure_definitions(syntax_module)
+
+    _assert_diagnostic_code(excinfo, "procedure_type_param_clause_invalid")
+
+
+def test_elaborate_defproc_rejects_where_subjects_not_declared_in_forall(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_unknown_where_subject.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defproc carry",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((U is-record))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_procedure_definitions(syntax_module)
+
+    _assert_diagnostic_code(excinfo, "procedure_type_param_unknown")
+
+
+def test_elaborate_defproc_rejects_malformed_where_clauses(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_malformed_where.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defproc carry",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where (T is-record)",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_procedure_definitions(syntax_module)
+
+    _assert_diagnostic_code(excinfo, "procedure_where_clause_invalid")
+
+
+def test_build_procedure_catalog_resolves_type_params_inside_nested_proc_ref_and_workflow_ref_types(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.type_env import ProcRefTypeRef, TypeParamRef, WorkflowRefTypeRef
+
+    path = _write_module(
+        tmp_path / "parametric_proc_nested_type_params.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defrecord WorkflowOutput",
+            "    (report String))",
+            "  (defproc invoke-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[(WorkflowRef[T -> WorkflowOutput]) -> WorkflowOutput])",
+            "     (target WorkflowRef[T -> WorkflowOutput]))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner target)))",
+        ],
+    )
+
+    syntax_module, module, type_env = _definition_context(path)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    signature = catalog.signatures_by_name["invoke-runner"]
+
+    assert [param.name for param in procedure_defs[0].type_params] == ["T"]
+    assert [param.name for param in signature.type_params] == ["T"]
+    assert isinstance(signature.params[0][1], ProcRefTypeRef)
+    assert isinstance(signature.params[0][1].param_type_refs[0], WorkflowRefTypeRef)
+    assert isinstance(signature.params[0][1].param_type_refs[0].param_type_refs[0], TypeParamRef)
+    assert isinstance(signature.params[1][1], WorkflowRefTypeRef)
+    assert isinstance(signature.params[1][1].param_type_refs[0], TypeParamRef)
+
+
+def test_build_procedure_catalog_resolves_type_param_refs(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.type_env import TypeParamRef
+
+    path = _write_module(
+        tmp_path / "parametric_proc_type_param_refs.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module, module, type_env = _definition_context(path)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    signature = catalog.signatures_by_name["identity"]
+
+    assert isinstance(signature.params[0][1], TypeParamRef)
+    assert isinstance(signature.return_type_ref, TypeParamRef)
+    assert signature.params[0][1].name == "T"
+    assert signature.return_type_ref.name == "T"
+
+
+def test_type_param_substitution_rewrites_nested_proc_ref_and_workflow_ref_types(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.type_env import (
+        ProcRefTypeRef,
+        RecordTypeRef,
+        WorkflowRefTypeRef,
+        ensure_no_type_params,
+        substitute_type_params,
+    )
+
+    path = _write_module(
+        tmp_path / "parametric_proc_substitution.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defrecord WorkflowOutput",
+            "    (report String))",
+            "  (defproc invoke-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[(WorkflowRef[T -> WorkflowOutput]) -> T]))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner entry))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (record WorkflowOutput :report input.report)))",
+        ],
+    )
+
+    syntax_module, module, type_env = _definition_context(path)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    signature = catalog.signatures_by_name["invoke-runner"]
+    concrete_input = type_env.resolve_type(
+        "WorkflowInput",
+        span=procedure_defs[0].span,
+        form_path=procedure_defs[0].form_path,
+    )
+
+    substituted = substitute_type_params(signature.params[0][1], {"T": concrete_input})
+    ensure_no_type_params(
+        substituted,
+        span=procedure_defs[0].span,
+        form_path=procedure_defs[0].form_path,
+    )
+
+    assert isinstance(substituted, ProcRefTypeRef)
+    assert isinstance(substituted.param_type_refs[0], WorkflowRefTypeRef)
+    assert isinstance(substituted.param_type_refs[0].param_type_refs[0], RecordTypeRef)
+    assert substituted.param_type_refs[0].param_type_refs[0].name == "WorkflowInput"
+    assert isinstance(substituted.return_type_ref, RecordTypeRef)
+    assert substituted.return_type_ref.name == "WorkflowInput"
+
+
+def test_nonempty_where_metadata_is_preserved_when_header_validation_succeeds(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_where_metadata.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defproc carry",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-field report WorkReport))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module, module, type_env = _definition_context(path)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    signature = catalog.signatures_by_name["carry"]
+
+    assert len(signature.where_clauses) == 1
+    assert signature.where_clauses[0].subject_name == "T"
+    assert signature.where_clauses[0].constraint_name == "has-field"
+    assert signature.where_clauses[0].args == ("report", "WorkReport")
+
+
+def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_specialization.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc apply-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> T])",
+            "     (value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defproc echo-input",
+            "    ((value WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowInput",
+            "      :report value.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (apply-runner (proc-ref echo-input) input)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = [
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+    ]
+
+    assert len(specialized) == 1
+    assert specialized[0].definition.name.startswith("%parametric-call.apply_runner.")
+    assert specialized[0].signature.type_params == ()
+    assert specialized[0].signature.return_type_ref.name == "WorkflowInput"
+
+
+def test_compile_stage3_reuses_equivalent_parametric_specializations(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_specialization_reuse.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc apply-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> T])",
+            "     (value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defproc echo-input",
+            "    ((value WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowInput",
+            "      :report value.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (let* ((first (apply-runner (proc-ref echo-input) input))",
+            "           (second (apply-runner (proc-ref echo-input) first)))",
+            "      second)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = [
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "apply-runner"
+    ]
+
+    assert len(specialized) == 1
+
+
+def test_compile_stage3_rejects_ambiguous_type_argument_bindings(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_binding_ambiguous.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord LeftValue",
+            "    (report String))",
+            "  (defrecord RightValue",
+            "    (report String))",
+            "  (defproc choose-left",
+            "    :forall (T)",
+            "    ((left T)",
+            "     (right T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    left)",
+            "  (defworkflow entry",
+            "    ((left LeftValue)",
+            "     (right RightValue))",
+            "    -> LeftValue",
+            "    (choose-left left right)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "parametric_type_binding_ambiguous")
+
+
+def test_compile_stage3_rejects_unresolved_type_parameters(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_binding_unresolved.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc identity",
+            "    :forall (T U)",
+            "    ((value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value)",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (identity input)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "parametric_type_binding_unresolved")
+
+
+def test_compile_stage3_rejects_nonempty_where_before_structural_constraints_land(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_where_rejected.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T is-record))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value)",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (identity input)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "unsupported_parametric_constraint_surface")
+
+
+def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_specialization_cycle.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc loop",
+            "    :forall (T)",
+            "    ((value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (loop value))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (loop input)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "parametric_specialization_cycle")
+
+
+def test_compile_stage3_supports_type_params_nested_inside_proc_ref_signatures(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_nested_proc_ref.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc apply-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> T])",
+            "     (value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defproc echo-input",
+            "    ((value WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowInput",
+            "      :report value.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (apply-runner (proc-ref echo-input) input)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "apply-runner"
+    )
+
+    assert specialized.signature.return_type_ref.name == "WorkflowInput"
+    assert "entry" in result.validated_bundles
+
+
+def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_nested_specialization.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc invoke-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> T])",
+            "     (value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defproc wrap",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> T])",
+            "     (value T))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (invoke-runner runner value))",
+            "  (defproc echo-input",
+            "    ((value WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowInput",
+            "      :report value.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (wrap (proc-ref echo-input) input)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = {
+        procedure.specialization.base_name: procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+    }
+
+    assert set(specialized) == {"invoke-runner", "wrap"}
+    assert specialized["wrap"].typed_body.expr.callee_name == specialized["invoke-runner"].definition.name
+    assert specialized["invoke-runner"].signature.return_type_ref.name == "WorkflowInput"
+    assert specialized["wrap"].signature.return_type_ref.name == "WorkflowInput"
+
+
 def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowering() -> None:
     compiler_path = Path(_compiler_module().__file__)
 

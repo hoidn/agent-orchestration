@@ -261,6 +261,7 @@ Deferred or future:
   state
 - dynamic runtime procedure dispatch
 - runtime-native atomic resource transitions beyond current certified adapters
+- generic `defworkflow` headers or type-parameterized workflow entrypoints
 
 Runtime closures remain future runtime-owned callable values. Current work only
 proves disabled-profile rejection and source-map diagnostics. Do not author
@@ -683,6 +684,16 @@ when a reviewed-phase helper should stay reusable across workflow boundaries;
 `:lowering auto` remains conservative and may still inline single-call-site
 helpers. Keep a `defworkflow` boundary when you want a public entrypoint or the
 workflow call shape itself is the authored API surface.
+
+Current parametric boundary: generic `defproc` headers with `:forall` are
+implemented for compile-time-only specialization. The compiler infers concrete
+type bindings from call sites, materializes monomorphic specializations before
+lowering, and erases those type parameters before runtime-visible artifacts
+such as lowered workflows, source maps, Semantic IR, and Executable IR are
+emitted. Non-empty `:where` clauses are currently parsed and validated only for
+header shape and declared type-parameter subjects, then rejected during
+semantic use until the structural-constraints slice lands. Generic
+`defworkflow` remains out of scope in the current compiler surface.
 
 ### 6.3 `defun`
 

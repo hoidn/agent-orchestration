@@ -64,6 +64,45 @@ def _build_source_map_document(
     return source_map_module, document, canonical_name
 
 
+def _write_parametric_source_map_module(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/module)",
+                "  (export entry)",
+                "  (defrecord WorkflowInput",
+                "    (report String))",
+                "  (defproc apply-runner",
+                "    :forall (T)",
+                "    ((runner ProcRef[T -> T])",
+                "     (value T))",
+                "    -> T",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (runner value))",
+                "  (defproc echo-input",
+                "    ((value WorkflowInput))",
+                "    -> WorkflowInput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowInput",
+                "      :report value.report))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowInput",
+                "    (apply-runner (proc-ref echo-input) input)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _walk_steps(raw_steps: object) -> tuple[dict[str, object], ...]:
     if not isinstance(raw_steps, list):
         return ()
@@ -199,6 +238,24 @@ def test_source_map_records_let_proc_authored_lineage(tmp_path: Path) -> None:
         for entry in workflow.step_ids.values()
         for note in entry.notes
     )
+
+
+def test_source_map_records_parametric_specialization_authored_lineage(tmp_path: Path) -> None:
+    path = _write_parametric_source_map_module(tmp_path / "demo" / "module.orc")
+    _, document, workflow_name = _build_source_map_document(
+        path,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+    notes = [
+        note
+        for entry in workflow.step_ids.values()
+        for note in entry.notes
+    ]
+
+    assert any("parametric specialization selected for `apply-runner`" in note for note in notes)
+    assert any("T = WorkflowInput" in note for note in notes)
 
 
 def test_source_map_validator_preserves_macro_origin_ownership_for_unmapped_executable_nodes(
