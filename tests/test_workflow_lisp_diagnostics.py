@@ -271,6 +271,18 @@ def test_serialize_diagnostic_includes_diagnostic_kind_for_required_lints_and_va
             "shared_validation",
             "shared_validation",
         ),
+        (
+            "stdlib_special_form_disallowed",
+            "typecheck",
+            "contract",
+            "frontend",
+        ),
+        (
+            "review_loop_special_lowerer_used",
+            "lowering",
+            "lowering_surface",
+            "frontend",
+        ),
     ],
 )
 def test_serialize_diagnostic_infers_validation_metadata_from_code(

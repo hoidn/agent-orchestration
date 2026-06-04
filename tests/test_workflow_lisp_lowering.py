@@ -117,6 +117,12 @@ def _lowering_source_path() -> Path:
     return source_path
 
 
+def _typecheck_source_path() -> Path:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
+    assert source_path.is_file()
+    return source_path
+
+
 def _procedure_lowering_source_path() -> Path:
     procedures_path = Path(importlib.import_module("orchestrator.workflow_lisp.lowering.procedures").__file__)
     assert procedures_path.is_file()
@@ -131,6 +137,26 @@ def _top_level_function_counts(path: Path, *names: str) -> dict[str, int]:
         )
         for name in names
     }
+
+
+def _module_mentions_symbol(path: Path, symbol: str) -> bool:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(module):
+        if isinstance(node, ast.Name) and node.id == symbol:
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == symbol:
+            return True
+        if isinstance(node, ast.ImportFrom):
+            if any(alias.name == symbol or alias.asname == symbol for alias in node.names):
+                return True
+        if isinstance(node, ast.Import):
+            if any(alias.asname == symbol or alias.name.rsplit(".", 1)[-1] == symbol for alias in node.names):
+                return True
+        if isinstance(node, ast.ClassDef) and node.name == symbol:
+            return True
+        if isinstance(node, ast.FunctionDef) and node.name == symbol:
+            return True
+    return False
 
 
 def test_lowering_facade_exports_current_test_surface() -> None:
@@ -187,6 +213,14 @@ def test_lowering_owner_split_moves_selected_helpers_out_of_core() -> None:
         "_private_workflow_from_procedure": 0,
         "_procedure_provenance_notes": 0,
     }
+
+
+def test_typecheck_does_not_import_review_loop_expr() -> None:
+    assert not _module_mentions_symbol(_typecheck_source_path(), "ReviewReviseLoopExpr")
+
+
+def test_lowering_does_not_import_review_loop_expr() -> None:
+    assert not _module_mentions_symbol(_lowering_source_path(), "ReviewReviseLoopExpr")
 
 
 def test_runtime_erasure_rejects_compile_time_only_proc_ref_values() -> None:

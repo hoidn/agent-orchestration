@@ -14,9 +14,13 @@ from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .form_registry import FormKind, get_form_spec
 from .phase_stdlib import (
+    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
     ProduceOneOfCandidateFieldSpec,
     ProduceOneOfCandidateSpec,
     ProduceOneOfProducerSpec,
+    ReviewLoopLegacyBridgePolicy,
+    ensure_review_loop_legacy_bridge_allowed,
+    is_review_loop_request_kind,
 )
 from .procedures import ProcedureParam
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
@@ -473,6 +477,7 @@ _ACTIVE_FUNCTION_NAMES = frozenset()
 _ACTIVE_LOCAL_PROC_NAMES = frozenset()
 _ACTIVE_LOOP_BODY_DEPTH = 0
 _ACTIVE_LET_PROC_DEPTH = 0
+_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
 
 _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
@@ -489,11 +494,12 @@ def elaborate_expression(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
 
     previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
     previous_function_names = _ACTIVE_FUNCTION_NAMES
@@ -501,12 +507,14 @@ def elaborate_expression(
     previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
     previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
     previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
+    previous_review_loop_policy = _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
     _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
     _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
     _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
     _ACTIVE_LOCAL_PROC_NAMES = frozenset()
     _ACTIVE_LET_PROC_DEPTH = 0
+    _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = review_loop_legacy_bridge_policy
     try:
         return _elaborate(
             syntax_node_datum(node),
@@ -521,6 +529,7 @@ def elaborate_expression(
         _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
         _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
         _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
+        _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = previous_review_loop_policy
 
 
 def _elaborate(
@@ -2184,13 +2193,20 @@ def _elaborate_stdlib_specialization(
             form_path=form_path,
             expansion_stack=datum.items[1].expansion_stack,
         )
-    if request_kind.resolved_name != "phase-review-loop":
+    if not is_review_loop_request_kind(request_kind.resolved_name):
         _raise_error(
             f"unknown stdlib specialization request `{request_kind.display_name}`",
             span=datum.items[1].span,
             form_path=form_path,
             expansion_stack=datum.items[1].expansion_stack,
         )
+    ensure_review_loop_legacy_bridge_allowed(
+        review_loop_legacy_bridge_policy=_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
+        request_kind=request_kind.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
     return _elaborate_phase_review_loop_specialization(
         datum,
         request_kind=request_kind.resolved_name,

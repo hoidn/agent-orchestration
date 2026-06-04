@@ -108,6 +108,10 @@ from ..phase import (
     RUN_CONTEXT_NAME,
 )
 from ..macros import collect_macro_catalog, expand_module_forms
+from ..phase_stdlib import (
+    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
+    ReviewLoopLegacyBridgePolicy,
+)
 from ..reader import read_sexpr_file
 from ..spans import SourceSpan
 from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
@@ -152,6 +156,11 @@ from ..workflows import (
     WorkflowSignature,
     TypedWorkflowDef,
     analyze_workflow_boundary_type,
+)
+from .phase_stdlib import (
+    assert_review_loop_special_lowerer_allowed,
+    review_loop_result_case_outputs as review_loop_result_case_outputs_owner,
+    review_loop_result_output_contracts as review_loop_result_output_contracts_owner,
 )
 
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
@@ -282,6 +291,7 @@ def lower_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment | None = None,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typechecked frontend workflows into shared workflow dictionaries.
 
@@ -291,6 +301,11 @@ def lower_workflow_definitions(
     that can be passed directly into the shared workflow validation pipeline.
     """
 
+    assert_review_loop_special_lowerer_allowed(
+        typed_workflows=typed_workflows,
+        typed_procedures=typed_procedures,
+        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
+    )
     typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
     from .procedures import _private_workflow_from_procedure, _resolve_procedure_lowering
 
@@ -8169,28 +8184,14 @@ def _review_loop_result_case_outputs(
 ) -> dict[str, Any]:
     """Build branch outputs for one review-loop terminal variant."""
 
-    if not isinstance(type_ref, UnionTypeRef):
-        raise _compile_error(
-            code="review_loop_result_contract_invalid",
-            message="`review-revise-loop` lowering requires a union return type",
-            span=span,
-            form_path=form_path,
-        )
-    contracts = _union_case_contract_definitions(
+    return review_loop_result_case_outputs_owner(
         type_ref,
         variant_name=variant_name,
-        workflow_name=context.workflow_name,
-        step_name=context.step_name_prefix,
+        source_step_name=source_step_name,
+        context=context,
         span=span,
         form_path=form_path,
     )
-    return {
-        field_name: {
-            **definition,
-            "from": {"ref": f"root.steps.{source_step_name}.artifacts.{field_name}"},
-        }
-        for field_name, definition in contracts.items()
-    }
 
 
 def _review_loop_result_output_contracts(
@@ -8202,15 +8203,9 @@ def _review_loop_result_output_contracts(
 ) -> dict[str, dict[str, Any]]:
     """Build all flattened output contracts for a review-loop result union."""
 
-    return _union_output_contracts(
+    return review_loop_result_output_contracts_owner(
         type_ref,
-        payload=derive_structured_result_contract(
-            type_ref,
-            workflow_name=context.workflow_name,
-            step_id=context.step_name_prefix,
-            span=span,
-            form_path=form_path,
-        ).payload,
+        context=context,
         span=span,
         form_path=form_path,
     )

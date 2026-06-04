@@ -15,6 +15,10 @@ from .effects import (
     merge_effect_summaries,
 )
 from .expressions import ProcedureCallExpr
+from .phase_stdlib import (
+    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
+    ReviewLoopLegacyBridgePolicy,
+)
 from .procedures import ProcedureCatalog, ProcedureDef, TypedProcedureDef, proc_ref_specialization_name
 from .procedure_refs import ResolvedProcRefValue
 from .type_env import FrontendTypeEnvironment, ProcRefTypeRef, TypeRef, WorkflowRefTypeRef
@@ -51,6 +55,7 @@ def typecheck_procedure_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context=None,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[TypedProcedureDef, ...]:
     from .typecheck import typecheck_expression
     from .workflows import ExternEnvironment, ProviderExtern
@@ -98,6 +103,7 @@ def typecheck_procedure_definitions(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
+                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
         else:
             body_expr = procedure_def.body
@@ -114,6 +120,7 @@ def typecheck_procedure_definitions(
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
             proc_ref_value_env=proc_ref_value_env,
+            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         if typed_body.type_ref != signature.return_type_ref:
             raise LispFrontendCompileError(

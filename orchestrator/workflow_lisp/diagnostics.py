@@ -150,6 +150,7 @@ _LOWERING_SURFACE_CODES = frozenset(
         "workflow_boundary_type_invalid",
         "workflow_boundary_collection_unsupported",
         "collection_element_type_unsupported",
+        "review_loop_special_lowerer_used",
     }
 )
 _MODULE_CODES = frozenset(
@@ -441,6 +442,8 @@ def _infer_validation_pass(code: str, phase: str | None) -> str:
         return "module"
     if code in _AUTHORITY_CODES:
         return "authority"
+    if code == "stdlib_special_form_disallowed":
+        return "contract"
     if code.startswith("workflow_ref_"):
         return "reference"
     if code in _EFFECT_CODES:

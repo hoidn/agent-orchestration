@@ -1,5 +1,7 @@
 import inspect
+import importlib
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
@@ -366,6 +368,33 @@ def test_elaborate_expression_rejects_stdlib_extension_without_import_route() ->
         )
 
     _assert_diagnostic_code(excinfo, "stdlib_extension_missing_import_route")
+
+
+def test_no_review_loop_expr_in_core_ast_union() -> None:
+    expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
+
+    expr_names = {expr_type.__name__ for expr_type in get_args(expressions.ExprNode)}
+    source = inspect.getsource(expressions)
+
+    assert "ReviewReviseLoopExpr" not in expr_names
+    assert not hasattr(expressions, "ReviewReviseLoopExpr")
+    assert "class ReviewReviseLoopExpr" not in source
+    assert "StdlibSpecializationExpr" in expr_names
+
+
+def test_review_revise_loop_not_elaborated_by_head_name() -> None:
+    registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+    expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
+
+    review_loop = registry.get_form_spec("review-revise-loop")
+    bridge = registry.get_form_spec("__stdlib-specialization__")
+    handlers = expressions._elaboration_route_handlers()
+
+    assert review_loop is not None and review_loop.elaboration_route is None
+    assert bridge is not None and bridge.elaboration_route == "stdlib_specialization"
+    assert "review-revise-loop" not in handlers
+    assert "__stdlib-specialization__" not in handlers
+    assert "stdlib_specialization" in handlers
 
 
 def test_elaborate_expression_rejects_top_level_definition_head_in_expression_position() -> None:

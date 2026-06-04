@@ -25,6 +25,7 @@ from orchestrator.workflow_lisp.contracts import is_review_findings_type
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import GeneratedRelpathSeedExpr, StdlibSpecializationExpr
+from orchestrator.workflow_lisp.phase_stdlib import ReviewLoopLegacyBridgePolicy
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
@@ -307,6 +308,7 @@ def _compile(
     tmp_path: Path,
     validate_shared: bool = False,
     imported_workflow_bundles=None,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = "allow",
 ):
     return compile_stage3_module(
         path,
@@ -341,6 +343,51 @@ def _compile(
         imported_workflow_bundles=imported_workflow_bundles,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
+        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
+    )
+
+
+def _compile_entrypoint(
+    path: Path,
+    *,
+    tmp_path: Path,
+    validate_shared: bool = False,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = "allow",
+):
+    return compile_stage3_entrypoint(
+        path,
+        source_roots=(path.parent,),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        validate_shared=validate_shared,
+        workspace_root=tmp_path,
+        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
     )
 
 
@@ -972,7 +1019,12 @@ def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tm
 def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface(tmp_path: Path) -> None:
     path = _rewrite_fixture(
         VALID_REVIEW_LOOP_FIXTURE,
-        replacements=(("  (import std/phase :only (review-revise-loop))\n", ""),),
+        replacements=(
+            (
+                "  (import std/phase :only (ReviewFindings review-revise-loop))\n",
+                "  (import std/phase :only (ReviewFindings))\n",
+            ),
+        ),
         tmp_path=tmp_path,
         filename="phase_stdlib_review_loop.orc",
     )
@@ -980,7 +1032,7 @@ def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(path)
 
-    _assert_diagnostic_code(excinfo, "procedure_call_unknown")
+    _assert_diagnostic_code(excinfo, "stdlib_extension_missing_import_route")
 
 
 def test_review_loop_specializes_to_ordinary_typed_forms(tmp_path: Path) -> None:
@@ -1000,6 +1052,54 @@ def test_review_loop_specializes_to_ordinary_typed_forms(tmp_path: Path) -> None
     )
 
     assert not surviving
+
+
+def test_review_loop_entrypoint_policy_allow_smoke(tmp_path: Path) -> None:
+    result = _compile_entrypoint(
+        VALID_REVIEW_LOOP_FIXTURE,
+        tmp_path=tmp_path,
+        review_loop_legacy_bridge_policy="allow",
+    )
+
+    assert any(
+        workflow.definition.name.endswith("::review-revise-loop-demo")
+        for workflow in result.entry_result.typed_workflows
+    )
+
+
+def test_review_loop_legacy_bridge_policy_allow_preserves_compatibility(tmp_path: Path) -> None:
+    result = _compile(
+        VALID_REVIEW_LOOP_FIXTURE,
+        tmp_path=tmp_path,
+        review_loop_legacy_bridge_policy="allow",
+    )
+
+    assert any(
+        workflow.definition.name.endswith("::review-revise-loop-demo")
+        for workflow in result.typed_workflows
+    )
+
+
+def test_review_loop_legacy_bridge_policy_deny_rejects_legacy_bridge(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            VALID_REVIEW_LOOP_FIXTURE,
+            tmp_path=tmp_path,
+            review_loop_legacy_bridge_policy="deny",
+        )
+
+    _assert_diagnostic_code(excinfo, "stdlib_special_form_disallowed")
+
+
+def test_review_loop_entrypoint_policy_deny_rejects_legacy_bridge(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_entrypoint(
+            VALID_REVIEW_LOOP_FIXTURE,
+            tmp_path=tmp_path,
+            review_loop_legacy_bridge_policy="deny",
+        )
+
+    _assert_diagnostic_code(excinfo, "stdlib_special_form_disallowed")
 
 
 def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path: Path) -> None:

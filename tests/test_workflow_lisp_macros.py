@@ -127,6 +127,19 @@ def test_form_registry_keeps_current_bindable_compiler_forms_bindable() -> None:
     }.isdisjoint(reserved)
 
 
+def test_review_revise_loop_not_reserved_core_macro_name() -> None:
+    registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+
+    reserved = registry.reserved_macro_names()
+    review_loop = registry.get_form_spec("review-revise-loop")
+    bridge = registry.get_form_spec("__stdlib-specialization__")
+
+    assert "review-revise-loop" not in reserved
+    assert "__stdlib-specialization__" in reserved
+    assert review_loop is not None and review_loop.macro_bindable is True
+    assert bridge is not None and bridge.macro_bindable is False
+
+
 def test_compile_stage1_reports_macro_expansion_cycles() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage1_module(FIXTURES / "invalid" / "macro_expansion_cycle.orc")

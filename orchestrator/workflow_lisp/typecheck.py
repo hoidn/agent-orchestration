@@ -80,7 +80,15 @@ from .phase import (
     is_implementation_attempt_result_type,
     resolve_phase_target_type,
 )
-from .phase_stdlib import ReusableStateValidationSpec
+from .phase_stdlib import (
+    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
+    ReusableStateValidationSpec,
+    ReviewLoopLegacyBridgePolicy,
+)
+from .phase_stdlib_typecheck import (
+    typecheck_stdlib_specialization_expr as typecheck_stdlib_specialization_expr_owner,
+    validate_review_loop_result_contract as validate_review_loop_result_contract_owner,
+)
 from .resource import (
     ensure_drain_context_type,
     ensure_finalize_selected_item_inputs,
@@ -152,6 +160,9 @@ _ACTIVE_GENERATED_LOCAL_PROCEDURES: dict[str, TypedProcedureDef] = {}
 _ACTIVE_LET_PROC_REWRITE_RESULTS: dict[int, ExprNode] = {}
 _ACTIVE_WORKFLOW_SIGNATURE = None
 _ACTIVE_REUSABLE_STATE_PRODUCER_CONTEXT: Mapping[str, object] | None = None
+_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
+
+
 def consume_generated_local_procedures() -> tuple[TypedProcedureDef, ...]:
     """Return and clear generated `let-proc` procedures from the active pass."""
 
@@ -386,20 +397,24 @@ def typecheck_expression(
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     proc_ref_value_env: Mapping[str, ResolvedProcRefValue] | None = None,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_CATALOG, _ACTIVE_PROC_REF_VALUE_ENV, _ACTIVE_VALUE_EXPR_ENV, _ACTIVE_LET_PROC_REWRITE_RESULTS
+    global _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
 
     active_proof = proof_scope or ProofScope(facts={})
     previous_function_catalog = _ACTIVE_FUNCTION_CATALOG
     previous_proc_ref_env = _ACTIVE_PROC_REF_VALUE_ENV
     previous_value_expr_env = _ACTIVE_VALUE_EXPR_ENV
     previous_let_proc_rewrites = _ACTIVE_LET_PROC_REWRITE_RESULTS
+    previous_review_loop_policy = _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
     _ACTIVE_FUNCTION_CATALOG = function_catalog
     _ACTIVE_PROC_REF_VALUE_ENV = proc_ref_value_env or {}
     _ACTIVE_VALUE_EXPR_ENV = {}
     _ACTIVE_LET_PROC_REWRITE_RESULTS = {}
+    _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = review_loop_legacy_bridge_policy
     try:
         typed = _typecheck(
             expr,
@@ -421,6 +436,7 @@ def typecheck_expression(
         _ACTIVE_PROC_REF_VALUE_ENV = previous_proc_ref_env
         _ACTIVE_VALUE_EXPR_ENV = previous_value_expr_env
         _ACTIVE_LET_PROC_REWRITE_RESULTS = previous_let_proc_rewrites
+        _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = previous_review_loop_policy
 
 
 def _typecheck(
@@ -2302,6 +2318,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
+            review_loop_legacy_bridge_policy=_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
         )
     if isinstance(expr, ResumeOrStartExpr):
         return_type = type_env.resolve_type(
@@ -2757,7 +2774,7 @@ def _require_phase_scope_name_match(
     )
 
 
-def _validate_review_loop_result_contract(
+def _legacy_validate_review_loop_result_contract(
     return_type: UnionTypeRef,
     *,
     type_env: FrontendTypeEnvironment,
@@ -2800,7 +2817,25 @@ def _validate_review_loop_result_contract(
                 span=span,
                 form_path=form_path,
             )
-def _typecheck_stdlib_specialization_expr(
+
+
+def _validate_review_loop_result_contract(
+    return_type: UnionTypeRef,
+    *,
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    validate_review_loop_result_contract_owner(
+        return_type,
+        type_env=type_env,
+        span=span,
+        form_path=form_path,
+        legacy_validator=_legacy_validate_review_loop_result_contract,
+    )
+
+
+def _legacy_typecheck_stdlib_specialization_expr(
     expr: StdlibSpecializationExpr,
     *,
     type_env: FrontendTypeEnvironment,
@@ -3022,6 +3057,40 @@ def _typecheck_stdlib_specialization_expr(
             typed_max.effect_summary,
             rewritten.effect_summary,
         ),
+    )
+
+
+def _typecheck_stdlib_specialization_expr(
+    expr: StdlibSpecializationExpr,
+    *,
+    type_env: FrontendTypeEnvironment,
+    value_env: dict[str, TypeRef],
+    proof_scope: ProofScope,
+    workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: "ProcedureCatalog | None",
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
+    active_phase_scope: PhaseScope | None,
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
+    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy,
+) -> TypedExpr:
+    return typecheck_stdlib_specialization_expr_owner(
+        expr,
+        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
+        legacy_typechecker=_legacy_typecheck_stdlib_specialization_expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
     )
 
 
