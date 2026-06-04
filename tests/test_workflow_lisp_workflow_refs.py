@@ -6,6 +6,13 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.expressions import NameExpr, ProduceOneOfExpr, ProviderResultExpr
+from orchestrator.workflow_lisp.phase_stdlib import (
+    ProduceOneOfCandidateFieldSpec,
+    ProduceOneOfCandidateSpec,
+    ProduceOneOfProducerSpec,
+)
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -77,6 +84,32 @@ def _typecheck_top_level_names() -> set[str]:
     }
 
 
+def _test_span(path: str) -> SourceSpan:
+    start = SourcePosition(path=path, line=1, column=1, offset=0)
+    end = SourcePosition(path=path, line=1, column=2, offset=1)
+    return SourceSpan(start=start, end=end)
+
+
+def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in module.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id == symbol:
+                return True
+            if isinstance(child, ast.Attribute) and child.attr == symbol:
+                return True
+            if isinstance(child, ast.ImportFrom):
+                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
+                    return True
+    return False
+
+
+def _name(name: str) -> NameExpr:
+    return NameExpr(name=name, span=_test_span(name), form_path=("workflow-lisp", "workflow-ref-test"))
+
+
 def test_workflow_ref_owner_split_moves_non_procedure_call_typing_out_of_typecheck_facade() -> None:
     package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
     dispatch_source = (package_dir / "typecheck_dispatch.py").read_text(encoding="utf-8")
@@ -91,6 +124,52 @@ def test_workflow_ref_owner_split_moves_non_procedure_call_typing_out_of_typeche
     assert "if isinstance(expr, FunctionCallExpr):" not in dispatch_source
     assert "typecheck_call_expr(" in dispatch_source
     assert "typecheck_function_call_expr(" in dispatch_source
+
+
+def test_workflow_ref_extern_owner_uses_shared_iter_child_exprs() -> None:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.workflow_refs").__file__)
+
+    assert _function_body_mentions_symbol(source_path, "collect_workflow_extern_names", "iter_child_exprs")
+
+
+def test_workflow_ref_extern_collection_descends_into_produce_one_of_candidate_targets() -> None:
+    from orchestrator.workflow_lisp.workflow_refs import collect_workflow_extern_names
+
+    expr = ProduceOneOfExpr(
+        returns_type_name="SelectionResult",
+        ctx_expr=_name("ctx"),
+        producer=ProduceOneOfProducerSpec(
+            kind="provider",
+            provider_expr=None,
+            prompt_expr=None,
+            inputs=(),
+        ),
+        candidates=(
+            ProduceOneOfCandidateSpec(
+                variant_name="APPROVED",
+                fields=(
+                    ProduceOneOfCandidateFieldSpec(
+                        field_name="result",
+                        target_expr=ProviderResultExpr(
+                            provider=_name("providers.execute"),
+                            prompt=_name("prompts.implementation.execute"),
+                            inputs=(),
+                            returns_type_name="ChecksResult",
+                            span=_test_span("provider-result"),
+                            form_path=("workflow-lisp", "workflow-ref-test"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        span=_test_span("produce-one-of"),
+        form_path=("workflow-lisp", "workflow-ref-test"),
+    )
+
+    providers, prompts = collect_workflow_extern_names(expr)
+
+    assert providers == {"providers.execute"}
+    assert prompts == {"prompts.implementation.execute"}
 
 
 def test_workflow_ref_same_file_higher_order_calls_compile_and_validate(tmp_path: Path) -> None:

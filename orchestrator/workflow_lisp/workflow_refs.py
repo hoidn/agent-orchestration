@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .expression_traversal import iter_child_exprs
 from .expressions import (
     CallExpr,
     CommandResultExpr,
@@ -278,71 +279,18 @@ def collect_workflow_extern_names(expr: Any) -> tuple[set[str], set[str]]:
                 providers.add(node.provider.name)
             if isinstance(node.prompt, NameExpr):
                 prompts.add(node.prompt.name)
-            for value in node.inputs:
-                walk(value)
-            return
-        if isinstance(node, RunProviderPhaseExpr):
+        elif isinstance(node, RunProviderPhaseExpr):
             if isinstance(node.provider, NameExpr):
                 providers.add(node.provider.name)
             if isinstance(node.prompt, NameExpr):
                 prompts.add(node.prompt.name)
-            walk(node.ctx_expr)
-            walk(node.inputs_expr)
-            return
-        if isinstance(node, UnionVariantExpr):
-            for _, value in node.fields:
-                walk(value)
-            return
-        if isinstance(node, ProduceOneOfExpr):
+        elif isinstance(node, ProduceOneOfExpr):
             if isinstance(node.producer.provider_expr, NameExpr):
                 providers.add(node.producer.provider_expr.name)
             if isinstance(node.producer.prompt_expr, NameExpr):
                 prompts.add(node.producer.prompt_expr.name)
-            walk(node.ctx_expr)
-            walk(node.producer.inputs)
-            return
-        if isinstance(node, LetStarExpr):
-            for _, value in node.bindings:
-                walk(value)
-            walk(node.body)
-            return
-        if isinstance(node, MatchExpr):
-            walk(node.subject)
-            for arm in node.arms:
-                walk(arm.body)
-            return
-        if isinstance(node, IfExpr):
-            walk(node.condition_expr)
-            walk(node.then_expr)
-            walk(node.else_expr)
-            return
-        if isinstance(node, LoopRecurExpr):
-            walk(node.max_iterations_expr)
-            walk(node.initial_state_expr)
-            walk(node.body_expr)
-            return
-        if isinstance(node, ContinueExpr):
-            walk(node.state_expr)
-            return
-        if isinstance(node, DoneExpr):
-            walk(node.result_expr)
-            return
-        if isinstance(node, RecordExpr):
-            for _, value in node.fields:
-                walk(value)
-            return
-        if isinstance(node, (CallExpr,)):
-            for _, value in node.bindings:
-                walk(value)
-            return
-        if isinstance(node, ProcedureCallExpr):
-            for value in node.args:
-                walk(value)
-            return
-        if isinstance(node, CommandResultExpr):
-            for value in node.argv:
-                walk(value)
-            return
+        for child in iter_child_exprs(node):
+            walk(child)
 
     walk(expr)
     return providers, prompts

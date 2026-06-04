@@ -2,6 +2,7 @@ import ast
 import importlib
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,8 @@ from orchestrator.workflow_lisp.expressions import (
     BindProcBinding,
     BindProcExpr,
     FinalizeSelectedItemExpr,
+    LetProcBinding,
+    LetProcExpr,
     LetStarExpr,
     LiteralExpr,
     NameExpr,
@@ -31,7 +34,9 @@ from orchestrator.workflow_lisp.expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
+    StdlibSpecializationExpr,
     UnionVariantExpr,
+    WithPhaseExpr,
 )
 from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering, lower_workflow_definitions
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
@@ -41,6 +46,7 @@ from orchestrator.workflow_lisp.procedures import (
     elaborate_procedure_definitions,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -117,6 +123,12 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
+def _test_span(path: str) -> SourceSpan:
+    start = SourcePosition(path=path, line=1, column=1, offset=0)
+    end = SourcePosition(path=path, line=1, column=2, offset=1)
+    return SourceSpan(start=start, end=end)
+
+
 def _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
     excinfo: pytest.ExceptionInfo[LispFrontendCompileError],
 ) -> None:
@@ -168,6 +180,22 @@ def _module_top_level_names(source_path: Path) -> set[str]:
     }
 
 
+def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in module.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id == symbol:
+                return True
+            if isinstance(child, ast.Attribute) and child.attr == symbol:
+                return True
+            if isinstance(child, ast.ImportFrom):
+                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
+                    return True
+    return False
+
+
 def _imported_symbols_from(source_path: Path, module_name: str) -> set[str]:
     module = ast.parse(source_path.read_text(encoding="utf-8"))
     imported: set[str] = set()
@@ -214,6 +242,55 @@ def test_typecheck_facade_keeps_generated_local_procedure_helpers_after_let_proc
         }
     )
     assert "if isinstance(expr, LetProcExpr):" not in dispatch_source
+
+
+def test_compiler_procedure_dependency_owner_uses_shared_walk_expr() -> None:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.compiler").__file__)
+
+    assert _function_body_mentions_symbol(source_path, "_procedure_dependencies", "walk_expr")
+
+
+def test_proc_ref_specialization_owner_uses_shared_iter_child_exprs() -> None:
+    source_path = _procedure_specialization_source_path()
+
+    assert _function_body_mentions_symbol(
+        source_path,
+        "discover_proc_ref_specializations",
+        "iter_child_exprs",
+    )
+
+
+def test_procedure_dependency_walker_descends_through_let_proc_expr() -> None:
+    dependency_walker = getattr(_compiler_module(), "_procedure_dependencies", None)
+    assert callable(dependency_walker), "_procedure_dependencies is missing"
+
+    span = _test_span("nested_procedure_dependency.orc")
+    expr = LetProcExpr(
+        binding=LetProcBinding(
+            local_name="local-helper",
+            params=(),
+            return_type_name="WorkflowOutput",
+            capture_names=(),
+            local_body=LiteralExpr(
+                value="noop",
+                literal_kind="string",
+                span=span,
+                form_path=("workflow-lisp", "defworkflow", "entry"),
+            ),
+            span=span,
+            form_path=("workflow-lisp", "defworkflow", "entry"),
+        ),
+        body=ProcedureCallExpr(
+            callee_name="run-helper",
+            args=(),
+            span=span,
+            form_path=("workflow-lisp", "defworkflow", "entry"),
+        ),
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "entry"),
+    )
+
+    assert dependency_walker(expr) == {"run-helper"}
 
 
 def test_elaborate_defproc_parses_structured_where_metadata(tmp_path: Path) -> None:

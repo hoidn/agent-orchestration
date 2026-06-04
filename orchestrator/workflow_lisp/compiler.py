@@ -42,6 +42,7 @@ from .diagnostics import (
     diagnostic_effective_severity,
     with_diagnostic_metadata,
 )
+from .expression_traversal import walk_expr
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
 from .effects import EffectSummary, ProcedureCallEdge, merge_effect_summaries
 from .expressions import (
@@ -3128,48 +3129,12 @@ def _validate_procedure_effects_and_cycles(
 
 def _procedure_dependencies(expr: object) -> set[str]:
     """Find direct procedure-call dependencies inside an expression tree."""
+    from .expressions import ExprNode, ProcedureCallExpr
 
-    from .expressions import LetStarExpr, MatchExpr, ProcedureCallExpr, RecordExpr, CallExpr, ProviderResultExpr, CommandResultExpr, WithPhaseExpr
-
-    dependencies: set[str] = set()
-
-    def walk(node: object) -> None:
-        if isinstance(node, ProcedureCallExpr):
-            dependencies.add(node.callee_name)
-            for arg in node.args:
-                walk(arg)
-            return
-        if isinstance(node, LetStarExpr):
-            for _, binding in node.bindings:
-                walk(binding)
-            walk(node.body)
-            return
-        if isinstance(node, MatchExpr):
-            walk(node.subject)
-            for arm in node.arms:
-                walk(arm.body)
-            return
-        if isinstance(node, RecordExpr):
-            for _, field_expr in node.fields:
-                walk(field_expr)
-            return
-        if isinstance(node, CallExpr):
-            for _, binding_expr in node.bindings:
-                walk(binding_expr)
-            return
-        if isinstance(node, ProviderResultExpr):
-            walk(node.provider)
-            walk(node.prompt)
-            for input_expr in node.inputs:
-                walk(input_expr)
-            return
-        if isinstance(node, CommandResultExpr):
-            for argv_expr in node.argv:
-                walk(argv_expr)
-            return
-        if isinstance(node, WithPhaseExpr):
-            walk(node.ctx_expr)
-            walk(node.body)
-
-    walk(expr)
-    return dependencies
+    if not isinstance(expr, ExprNode):
+        return set()
+    return {
+        node.callee_name
+        for node in walk_expr(expr)
+        if isinstance(node, ProcedureCallExpr)
+    }

@@ -10,6 +10,7 @@ from typing import Any
 
 from .contracts import derive_workflow_boundary_fields
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .expression_traversal import iter_child_exprs
 from .expressions import (
     BacklogDrainExpr,
     CallExpr,
@@ -909,29 +910,7 @@ def discover_proc_ref_specializations(
     procedure_catalog: ProcedureCatalog,
     type_env: FrontendTypeEnvironment,
 ) -> tuple[TypedProcedureDef, ...]:
-    from .expressions import (
-        BacklogDrainExpr,
-        BindProcExpr,
-        CallExpr,
-        CommandResultExpr,
-        ContinueExpr,
-        DoneExpr,
-        FinalizeSelectedItemExpr,
-        IfExpr,
-        LetStarExpr,
-        LoopRecurExpr,
-        MatchExpr,
-        ProcedureCallExpr,
-        ProcRefLiteralExpr,
-        ProduceOneOfExpr,
-        ProviderResultExpr,
-        RecordExpr,
-        ResourceTransitionExpr,
-        ResumeOrStartExpr,
-        RunProviderPhaseExpr,
-        UnionVariantExpr,
-        WithPhaseExpr,
-    )
+    from .expressions import LetStarExpr, ProcedureCallExpr
 
     discovered: dict[str, TypedProcedureDef] = {}
     typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
@@ -1018,107 +997,8 @@ def discover_proc_ref_specializations(
                     child_env[binding_name] = resolved_binding
             walk(node.body, child_env)
             return
-        if isinstance(node, MatchExpr):
-            walk(node.subject, proc_ref_env)
-            for arm in node.arms:
-                walk(arm.body, proc_ref_env)
-            return
-        if isinstance(node, IfExpr):
-            walk(node.condition_expr, proc_ref_env)
-            walk(node.then_expr, proc_ref_env)
-            walk(node.else_expr, proc_ref_env)
-            return
-        if isinstance(node, LoopRecurExpr):
-            walk(node.max_iterations_expr, proc_ref_env)
-            walk(node.initial_state_expr, proc_ref_env)
-            walk(node.body_expr, proc_ref_env)
-            if node.on_exhausted_result_expr is not None:
-                walk(node.on_exhausted_result_expr, proc_ref_env)
-            return
-        if isinstance(node, ContinueExpr):
-            walk(node.state_expr, proc_ref_env)
-            return
-        if isinstance(node, DoneExpr):
-            walk(node.result_expr, proc_ref_env)
-            return
-        if isinstance(node, RecordExpr):
-            for _, field_expr in node.fields:
-                walk(field_expr, proc_ref_env)
-            return
-        if isinstance(node, UnionVariantExpr):
-            for _, field_expr in node.fields:
-                walk(field_expr, proc_ref_env)
-            return
-        if isinstance(node, CallExpr):
-            for _, binding_expr in node.bindings:
-                walk(binding_expr, proc_ref_env)
-            return
-        if isinstance(node, ProviderResultExpr):
-            walk(node.provider, proc_ref_env)
-            walk(node.prompt, proc_ref_env)
-            for input_expr in node.inputs:
-                walk(input_expr, proc_ref_env)
-            return
-        if isinstance(node, CommandResultExpr):
-            for argv_expr in node.argv:
-                walk(argv_expr, proc_ref_env)
-            return
-        if isinstance(node, RunProviderPhaseExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.inputs_expr, proc_ref_env)
-            walk(node.provider, proc_ref_env)
-            walk(node.prompt, proc_ref_env)
-            return
-        if isinstance(node, ProduceOneOfExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            if node.producer.provider_expr is not None:
-                walk(node.producer.provider_expr, proc_ref_env)
-            if node.producer.prompt_expr is not None:
-                walk(node.producer.prompt_expr, proc_ref_env)
-            for input_expr in node.producer.inputs:
-                walk(input_expr, proc_ref_env)
-            for candidate in node.candidates:
-                for field in candidate.fields:
-                    if field.target_expr is not None:
-                        walk(field.target_expr, proc_ref_env)
-            return
-        if isinstance(node, ResumeOrStartExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.resume_from_expr, proc_ref_env)
-            walk(node.start_expr, proc_ref_env)
-            return
-        if isinstance(node, ResourceTransitionExpr):
-            walk(node.spec.ctx_expr, proc_ref_env)
-            if node.spec.when_expr is not None:
-                walk(node.spec.when_expr, proc_ref_env)
-            walk(node.spec.resource_expr, proc_ref_env)
-            walk(node.spec.ledger_expr, proc_ref_env)
-            return
-        if isinstance(node, FinalizeSelectedItemExpr):
-            walk(node.spec.ctx_expr, proc_ref_env)
-            walk(node.spec.selected_expr, proc_ref_env)
-            walk(node.spec.queue_transition_expr, proc_ref_env)
-            walk(node.spec.roadmap_expr, proc_ref_env)
-            walk(node.spec.plan_expr, proc_ref_env)
-            walk(node.spec.implementation_expr, proc_ref_env)
-            return
-        if isinstance(node, BacklogDrainExpr):
-            walk(node.spec.ctx_expr, proc_ref_env)
-            if node.spec.providers_expr is not None:
-                walk(node.spec.providers_expr, proc_ref_env)
-            walk(node.spec.max_iterations_expr, proc_ref_env)
-            return
-        if isinstance(node, WithPhaseExpr):
-            walk(node.ctx_expr, proc_ref_env)
-            walk(node.body, proc_ref_env)
-            return
-        if isinstance(node, BindProcExpr):
-            walk(node.base_expr, proc_ref_env)
-            for binding in node.bindings:
-                walk(binding.value_expr, proc_ref_env)
-            return
-        if isinstance(node, ProcRefLiteralExpr):
-            return
+        for child in iter_child_exprs(node):
+            walk(child, proc_ref_env)
 
     for procedure in typed_procedures:
         proc_ref_env = dict(getattr(procedure.specialization, "proc_ref_bindings", {}))

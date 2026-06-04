@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .expression_traversal import walk_expr
 from .expressions import (
     BacklogDrainExpr,
     CallExpr,
@@ -618,47 +619,11 @@ def _clone_function_expr(
 
 
 def _function_dependencies(expr: ExprNode) -> set[str]:
-    dependencies: set[str] = set()
-    if isinstance(expr, FunctionCallExpr):
-        dependencies.add(expr.callee_name)
-        for arg in expr.args:
-            dependencies.update(_function_dependencies(arg))
-        return dependencies
-    if isinstance(expr, RecordExpr):
-        for _, field_expr in expr.fields:
-            dependencies.update(_function_dependencies(field_expr))
-        return dependencies
-    if isinstance(expr, UnionVariantExpr):
-        for _, field_expr in expr.fields:
-            dependencies.update(_function_dependencies(field_expr))
-        return dependencies
-    if isinstance(expr, LetStarExpr):
-        for _, binding_expr in expr.bindings:
-            dependencies.update(_function_dependencies(binding_expr))
-        dependencies.update(_function_dependencies(expr.body))
-        return dependencies
-    if isinstance(expr, IfExpr):
-        dependencies.update(_function_dependencies(expr.condition_expr))
-        dependencies.update(_function_dependencies(expr.then_expr))
-        dependencies.update(_function_dependencies(expr.else_expr))
-        return dependencies
-    if isinstance(expr, MatchExpr):
-        dependencies.update(_function_dependencies(expr.subject))
-        for arm in expr.arms:
-            dependencies.update(_function_dependencies(arm.body))
-        return dependencies
-    if isinstance(expr, LoopRecurExpr):
-        dependencies.update(_function_dependencies(expr.max_iterations_expr))
-        dependencies.update(_function_dependencies(expr.initial_state_expr))
-        dependencies.update(_function_dependencies(expr.body_expr))
-        return dependencies
-    if isinstance(expr, ContinueExpr):
-        return _function_dependencies(expr.state_expr)
-    if isinstance(expr, DoneExpr):
-        return _function_dependencies(expr.result_expr)
-    if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr):
-        return dependencies
-    raise TypeError(f"unsupported helper dependency expression: {type(expr)!r}")
+    return {
+        node.callee_name
+        for node in walk_expr(expr)
+        if isinstance(node, FunctionCallExpr)
+    }
 
 
 def _validate_pure_function_expr(expr: ExprNode, *, function_def: FunctionDef) -> None:

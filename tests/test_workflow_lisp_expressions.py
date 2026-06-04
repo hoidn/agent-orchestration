@@ -8,22 +8,53 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.drain_stdlib import BacklogDrainSpec
 from orchestrator.workflow_lisp.parametric_constraints import SharedUnionFieldCapability
 from orchestrator.workflow_lisp.expressions import (
+    BacklogDrainExpr,
+    BindProcBinding,
+    BindProcExpr,
+    CommandResultExpr,
     ContinueExpr,
+    FinalizeSelectedItemExpr,
     FieldAccessExpr,
+    FunctionCallExpr,
+    IfExpr,
     LetProcExpr,
+    LetProcBinding,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
+    MatchArm,
     MatchExpr,
     NameExpr,
+    ProcedureCallExpr,
+    ProduceOneOfExpr,
+    ProviderResultExpr,
     RecordExpr,
     DoneExpr,
+    ResourceTransitionExpr,
+    ResumeOrStartExpr,
+    RunProviderPhaseExpr,
+    StdlibSpecializationExpr,
+    UnionVariantExpr,
+    WithPhaseExpr,
+    WorkflowRefLiteralExpr,
+    ProcRefLiteralExpr,
+    PhaseTargetExpr,
+    GeneratedRelpathSeedExpr,
+    CallExpr,
     elaborate_expression,
+)
+from orchestrator.workflow_lisp.phase_stdlib import (
+    ProduceOneOfCandidateFieldSpec,
+    ProduceOneOfCandidateSpec,
+    ProduceOneOfProducerSpec,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
@@ -62,6 +93,12 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
+def _test_span(path: str = "expression_traversal_test.orc") -> SourceSpan:
+    start = SourcePosition(path=path, line=1, column=1, offset=0)
+    end = SourcePosition(path=path, line=1, column=2, offset=1)
+    return SourceSpan(start=start, end=end)
+
+
 def _write_module(path: Path, lines: list[str]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -75,6 +112,29 @@ def _build_type_env_from_lines(tmp_path: Path, lines: list[str]) -> FrontendType
 
 def _workflow_lisp_package_dir() -> Path:
     return Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+
+
+def _traversal_module():
+    return importlib.import_module("orchestrator.workflow_lisp.expression_traversal")
+
+
+def _name(name: str) -> NameExpr:
+    return NameExpr(name=name, span=_test_span(name), form_path=FORM_PATH)
+
+
+def _literal(value: str | int | bool) -> LiteralExpr:
+    if isinstance(value, bool):
+        literal_kind = "bool"
+    elif isinstance(value, int):
+        literal_kind = "int"
+    else:
+        literal_kind = "string"
+    return LiteralExpr(
+        value=value,
+        literal_kind=literal_kind,
+        span=_test_span(str(value)),
+        form_path=FORM_PATH,
+    )
 
 
 def _typecheck_top_level_names() -> set[str]:
@@ -442,6 +502,351 @@ def test_review_revise_loop_not_elaborated_by_head_name() -> None:
     assert "review-revise-loop" not in handlers
     assert "__stdlib-specialization__" not in handlers
     assert "stdlib_specialization" in handlers
+
+
+def test_expression_traversal_module_exports_locked_surface() -> None:
+    traversal = _traversal_module()
+
+    assert callable(traversal.iter_child_exprs)
+    assert callable(traversal.walk_expr)
+
+
+def test_expression_traversal_leaf_classification_matches_exprnode_union() -> None:
+    expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
+
+    leaf_expr_types = {
+        NameExpr,
+        LiteralExpr,
+        FieldAccessExpr,
+        PhaseTargetExpr,
+        GeneratedRelpathSeedExpr,
+        WorkflowRefLiteralExpr,
+        ProcRefLiteralExpr,
+    }
+
+    assert leaf_expr_types <= set(get_args(expressions.ExprNode))
+
+
+def test_expression_traversal_direct_child_classification_matches_exprnode_union() -> None:
+    expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
+
+    leaf_expr_types = {
+        NameExpr,
+        LiteralExpr,
+        FieldAccessExpr,
+        PhaseTargetExpr,
+        GeneratedRelpathSeedExpr,
+        WorkflowRefLiteralExpr,
+        ProcRefLiteralExpr,
+    }
+    child_expr_types = {
+        RecordExpr,
+        UnionVariantExpr,
+        LetStarExpr,
+        IfExpr,
+        MatchExpr,
+        CallExpr,
+        FunctionCallExpr,
+        ProcedureCallExpr,
+        WithPhaseExpr,
+        BindProcExpr,
+        LetProcExpr,
+        ProviderResultExpr,
+        CommandResultExpr,
+        ContinueExpr,
+        DoneExpr,
+        LoopRecurExpr,
+        RunProviderPhaseExpr,
+        ProduceOneOfExpr,
+        StdlibSpecializationExpr,
+        ResumeOrStartExpr,
+        ResourceTransitionExpr,
+        FinalizeSelectedItemExpr,
+        BacklogDrainExpr,
+    }
+
+    expr_types = set(get_args(expressions.ExprNode))
+
+    assert leaf_expr_types | child_expr_types == expr_types
+    assert leaf_expr_types.isdisjoint(child_expr_types)
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected_children"),
+    [
+        pytest.param(
+            LetProcExpr(
+                binding=LetProcBinding(
+                    local_name="run-local",
+                    params=(),
+                    return_type_name="WorkflowOutput",
+                    capture_names=(),
+                    local_body=FunctionCallExpr(
+                        callee_name="helper",
+                        args=(_name("report"),),
+                        span=_test_span("let-proc-local"),
+                        form_path=FORM_PATH,
+                    ),
+                    span=_test_span("let-proc-binding"),
+                    form_path=FORM_PATH,
+                ),
+                body=ProcedureCallExpr(
+                    callee_name="invoke-runner",
+                    args=(_name("payload"),),
+                    span=_test_span("let-proc-body"),
+                    form_path=FORM_PATH,
+                ),
+                span=_test_span("let-proc"),
+                form_path=FORM_PATH,
+            ),
+            ("local_body", "body"),
+            id="let-proc",
+        ),
+        pytest.param(
+            LoopRecurExpr(
+                max_iterations_expr=_literal(3),
+                initial_state_expr=_name("state"),
+                binding_name="current",
+                body_expr=ContinueExpr(
+                    state_expr=_name("next-state"),
+                    span=_test_span("loop-body"),
+                    form_path=FORM_PATH,
+                ),
+                on_exhausted_result_expr=DoneExpr(
+                    result_expr=_name("exhausted"),
+                    span=_test_span("loop-exhausted"),
+                    form_path=FORM_PATH,
+                ),
+                span=_test_span("loop"),
+                form_path=FORM_PATH,
+            ),
+            (
+                "max_iterations_expr",
+                "initial_state_expr",
+                "body_expr",
+                "on_exhausted_result_expr",
+            ),
+            id="loop-recur",
+        ),
+        pytest.param(
+            ProduceOneOfExpr(
+                returns_type_name="SelectionResult",
+                ctx_expr=_name("ctx"),
+                producer=ProduceOneOfProducerSpec(
+                    kind="provider",
+                    provider_expr=_name("providers.execute"),
+                    prompt_expr=_name("prompts.implementation.execute"),
+                    inputs=(_name("producer-input"),),
+                ),
+                candidates=(
+                    ProduceOneOfCandidateSpec(
+                        variant_name="APPROVED",
+                        fields=(
+                            ProduceOneOfCandidateFieldSpec(
+                                field_name="result",
+                                target_expr=_name("candidate-target"),
+                            ),
+                            ProduceOneOfCandidateFieldSpec(
+                                field_name="sidecar",
+                                target_expr=None,
+                            ),
+                        ),
+                    ),
+                ),
+                span=_test_span("produce-one-of"),
+                form_path=FORM_PATH,
+            ),
+            (
+                "ctx_expr",
+                "producer.provider_expr",
+                "producer.prompt_expr",
+                "producer.inputs[0]",
+                "candidate.target_expr",
+            ),
+            id="produce-one-of",
+        ),
+        pytest.param(
+            ResourceTransitionExpr(
+                spec=ResourceTransitionSpec(
+                    transition_name="complete",
+                    ctx_expr=_name("ctx"),
+                    when_expr=_name("when-ready"),
+                    resource_expr=_name("resource"),
+                    from_queue_name="queued",
+                    to_queue_name="done",
+                    ledger_expr=_name("ledger"),
+                    event_name="completed",
+                ),
+                span=_test_span("resource-transition"),
+                form_path=FORM_PATH,
+            ),
+            ("spec.ctx_expr", "spec.when_expr", "spec.resource_expr", "spec.ledger_expr"),
+            id="resource-transition",
+        ),
+        pytest.param(
+            FinalizeSelectedItemExpr(
+                spec=FinalizeSelectedItemSpec(
+                    ctx_expr=_name("ctx"),
+                    selected_expr=_name("selected"),
+                    queue_transition_expr=_name("queue-transition"),
+                    roadmap_expr=_name("roadmap"),
+                    plan_expr=_name("plan"),
+                    implementation_expr=_name("implementation"),
+                ),
+                span=_test_span("finalize-selected-item"),
+                form_path=FORM_PATH,
+            ),
+            (
+                "spec.ctx_expr",
+                "spec.selected_expr",
+                "spec.queue_transition_expr",
+                "spec.roadmap_expr",
+                "spec.plan_expr",
+                "spec.implementation_expr",
+            ),
+            id="finalize-selected-item",
+        ),
+        pytest.param(
+            BacklogDrainExpr(
+                spec=BacklogDrainSpec(
+                    drain_name="drain",
+                    ctx_expr=_name("ctx"),
+                    selector_name="selector",
+                    run_item_name="runner",
+                    gap_drafter_name="drafter",
+                    providers_expr=_name("providers"),
+                    max_iterations_expr=_literal(5),
+                ),
+                span=_test_span("backlog-drain"),
+                form_path=FORM_PATH,
+            ),
+            ("spec.ctx_expr", "spec.providers_expr", "spec.max_iterations_expr"),
+            id="backlog-drain",
+        ),
+    ],
+)
+def test_expression_traversal_iter_child_exprs_preserves_locked_order(
+    expr: object,
+    expected_children: tuple[str, ...],
+) -> None:
+    traversal = _traversal_module()
+    labels: list[str] = []
+    children = traversal.iter_child_exprs(expr)
+
+    for child in children:
+        if child == getattr(getattr(expr, "binding", None), "local_body", object()):
+            labels.append("local_body")
+        elif child == getattr(expr, "body", object()):
+            labels.append("body")
+        elif child == getattr(expr, "max_iterations_expr", object()):
+            labels.append("max_iterations_expr")
+        elif child == getattr(expr, "initial_state_expr", object()):
+            labels.append("initial_state_expr")
+        elif child == getattr(expr, "body_expr", object()):
+            labels.append("body_expr")
+        elif child == getattr(expr, "on_exhausted_result_expr", object()):
+            labels.append("on_exhausted_result_expr")
+        elif child == getattr(expr, "ctx_expr", object()):
+            labels.append("ctx_expr")
+        elif child == getattr(getattr(expr, "producer", None), "provider_expr", object()):
+            labels.append("producer.provider_expr")
+        elif child == getattr(getattr(expr, "producer", None), "prompt_expr", object()):
+            labels.append("producer.prompt_expr")
+        elif child in getattr(getattr(expr, "producer", None), "inputs", ()):
+            labels.append("producer.inputs[0]")
+        elif (
+            isinstance(expr, ProduceOneOfExpr)
+            and child == expr.candidates[0].fields[0].target_expr
+        ):
+            labels.append("candidate.target_expr")
+        elif child == getattr(getattr(expr, "spec", None), "ctx_expr", object()):
+            labels.append("spec.ctx_expr")
+        elif child == getattr(getattr(expr, "spec", None), "when_expr", object()):
+            labels.append("spec.when_expr")
+        elif child == getattr(getattr(expr, "spec", None), "resource_expr", object()):
+            labels.append("spec.resource_expr")
+        elif child == getattr(getattr(expr, "spec", None), "ledger_expr", object()):
+            labels.append("spec.ledger_expr")
+        elif child == getattr(getattr(expr, "spec", None), "selected_expr", object()):
+            labels.append("spec.selected_expr")
+        elif child == getattr(getattr(expr, "spec", None), "queue_transition_expr", object()):
+            labels.append("spec.queue_transition_expr")
+        elif child == getattr(getattr(expr, "spec", None), "roadmap_expr", object()):
+            labels.append("spec.roadmap_expr")
+        elif child == getattr(getattr(expr, "spec", None), "plan_expr", object()):
+            labels.append("spec.plan_expr")
+        elif child == getattr(getattr(expr, "spec", None), "implementation_expr", object()):
+            labels.append("spec.implementation_expr")
+        elif child == getattr(getattr(expr, "spec", None), "providers_expr", object()):
+            labels.append("spec.providers_expr")
+        elif child == getattr(getattr(expr, "spec", None), "max_iterations_expr", object()):
+            labels.append("spec.max_iterations_expr")
+
+    assert tuple(labels) == expected_children
+
+
+def test_expression_traversal_walk_expr_is_preorder() -> None:
+    traversal = _traversal_module()
+    expr = WithPhaseExpr(
+        ctx_expr=_name("ctx"),
+        phase_name="implementation",
+        body=MatchExpr(
+            subject=_name("attempt"),
+            arms=(
+                MatchArm(
+                    variant_name="BLOCKED",
+                    binding_name="blocked",
+                    body=ContinueExpr(
+                        state_expr=FunctionCallExpr(
+                            callee_name="next-state",
+                            args=(_name("blocked"),),
+                            span=_test_span("continue-call"),
+                            form_path=FORM_PATH,
+                        ),
+                        span=_test_span("continue"),
+                        form_path=FORM_PATH,
+                    ),
+                    span=_test_span("blocked-arm"),
+                    form_path=FORM_PATH,
+                ),
+                MatchArm(
+                    variant_name="COMPLETED",
+                    binding_name="completed",
+                    body=DoneExpr(
+                        result_expr=ProcedureCallExpr(
+                            callee_name="finalize",
+                            args=(_name("completed"),),
+                            span=_test_span("done-call"),
+                            form_path=FORM_PATH,
+                        ),
+                        span=_test_span("done"),
+                        form_path=FORM_PATH,
+                    ),
+                    span=_test_span("completed-arm"),
+                    form_path=FORM_PATH,
+                ),
+            ),
+            span=_test_span("match"),
+            form_path=FORM_PATH,
+        ),
+        span=_test_span("with-phase"),
+        form_path=FORM_PATH,
+    )
+
+    walked = list(traversal.walk_expr(expr))
+
+    assert [type(node).__name__ for node in walked] == [
+        "WithPhaseExpr",
+        "NameExpr",
+        "MatchExpr",
+        "NameExpr",
+        "ContinueExpr",
+        "FunctionCallExpr",
+        "NameExpr",
+        "DoneExpr",
+        "ProcedureCallExpr",
+        "NameExpr",
+    ]
 
 
 def test_elaborate_expression_rejects_top_level_definition_head_in_expression_position() -> None:

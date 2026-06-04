@@ -15,6 +15,7 @@ from orchestrator.workflow.surface_ast import SurfaceStep
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..expression_traversal import iter_child_exprs
 from ..expressions import (
     BacklogDrainExpr,
     BindProcExpr,
@@ -312,28 +313,19 @@ def _workflow_extern_requirements(
                 provider_names.add(expr.provider.name)
             if isinstance(expr.prompt, NameExpr):
                 prompt_names.add(expr.prompt.name)
-            for value in expr.inputs:
-                walk(value)
-            return
-        if isinstance(expr, RunProviderPhaseExpr):
+        elif isinstance(expr, RunProviderPhaseExpr):
             if isinstance(expr.provider, NameExpr):
                 provider_names.add(expr.provider.name)
             if isinstance(expr.prompt, NameExpr):
                 prompt_names.add(expr.prompt.name)
-            walk(expr.ctx_expr)
-            walk(expr.inputs_expr)
-            return
-        if isinstance(expr, ProduceOneOfExpr):
+        elif isinstance(expr, ProduceOneOfExpr):
             if isinstance(expr.producer.provider_expr, NameExpr):
                 provider_names.add(expr.producer.provider_expr.name)
             if isinstance(expr.producer.prompt_expr, NameExpr):
                 prompt_names.add(expr.producer.prompt_expr.name)
-            for value in expr.producer.inputs:
-                walk(value)
-            return
         if isinstance(expr, ProcedureCallExpr):
-            for value in expr.args:
-                walk(value)
+            for child in iter_child_exprs(expr):
+                walk(child)
             procedure = typed_procedures.get(expr.callee_name)
             if procedure is None or procedure.definition.name in visiting_procedures:
                 return
@@ -341,43 +333,8 @@ def _workflow_extern_requirements(
             walk(procedure.typed_body.expr)
             visiting_procedures.remove(procedure.definition.name)
             return
-        if isinstance(expr, LetStarExpr):
-            for _, binding in expr.bindings:
-                walk(binding)
-            walk(expr.body)
-            return
-        if isinstance(expr, MatchExpr):
-            walk(expr.subject)
-            for arm in expr.arms:
-                walk(arm.body)
-            return
-        if isinstance(expr, IfExpr):
-            walk(expr.condition_expr)
-            walk(expr.then_expr)
-            walk(expr.else_expr)
-            return
-        if isinstance(expr, LoopRecurExpr):
-            walk(expr.max_iterations_expr)
-            walk(expr.initial_state_expr)
-            walk(expr.body_expr)
-            return
-        if isinstance(expr, ContinueExpr):
-            walk(expr.state_expr)
-            return
-        if isinstance(expr, DoneExpr):
-            walk(expr.result_expr)
-            return
-        if isinstance(expr, RecordExpr):
-            for _, value in expr.fields:
-                walk(value)
-            return
-        if isinstance(expr, CallExpr):
-            for _, value in expr.bindings:
-                walk(value)
-            return
-        if isinstance(expr, CommandResultExpr):
-            for value in expr.argv:
-                walk(value)
+        for child in iter_child_exprs(expr):
+            walk(child)
 
     walk(typed_workflow.typed_body.expr)
     return provider_names, prompt_names

@@ -3,6 +3,7 @@ import importlib
 from dataclasses import fields, is_dataclass
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,12 +22,15 @@ from orchestrator.workflow_lisp.expressions import (
     BacklogDrainExpr,
     CommandResultExpr,
     FinalizeSelectedItemExpr,
+    NameExpr,
     ProduceOneOfExpr,
+    ProcedureCallExpr,
     ProviderResultExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     StdlibSpecializationExpr,
+    WithPhaseExpr,
 )
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
@@ -53,6 +57,7 @@ from orchestrator.workflow_lisp.workflows import (
     typecheck_workflow_definitions,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 
@@ -185,6 +190,22 @@ def _function_imports_from_module(path: Path, function_name: str, module_name: s
         for child in ast.walk(node):
             if isinstance(child, ast.ImportFrom) and child.module == module_name:
                 return True
+    return False
+
+
+def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in module.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id == symbol:
+                return True
+            if isinstance(child, ast.Attribute) and child.attr == symbol:
+                return True
+            if isinstance(child, ast.ImportFrom):
+                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
+                    return True
     return False
 
 
@@ -520,6 +541,69 @@ def test_lowering_split_owner_modules_receive_real_control_and_phase_implementat
         "_build_phase_stdlib_prompt_input_prelude": 1,
         "_flatten_phase_stdlib_prompt_inputs": 1,
     }
+
+
+def test_phase_scope_extern_owner_uses_shared_iter_child_exprs() -> None:
+    source_path = _lowering_owner_source_path("phase_scope")
+
+    assert _function_body_mentions_symbol(source_path, "_workflow_extern_requirements", "iter_child_exprs")
+
+
+def test_workflow_extern_requirements_descend_through_with_phase_inside_same_file_procedure() -> None:
+    expr_span = SourceSpan(
+        start=SourcePosition(path="phase_scope_test.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="phase_scope_test.orc", line=1, column=2, offset=1),
+    )
+    provider_expr = ProviderResultExpr(
+        provider=NameExpr(
+            name="providers.execute",
+            span=expr_span,
+            form_path=("workflow-lisp", "defproc", "helper"),
+        ),
+        prompt=NameExpr(
+            name="prompts.implementation.execute",
+            span=expr_span,
+            form_path=("workflow-lisp", "defproc", "helper"),
+        ),
+        inputs=(),
+        returns_type_name="ChecksResult",
+        span=expr_span,
+        form_path=("workflow-lisp", "defproc", "helper"),
+    )
+    helper_proc = SimpleNamespace(
+        definition=SimpleNamespace(name="helper"),
+        typed_body=SimpleNamespace(
+            expr=WithPhaseExpr(
+                ctx_expr=NameExpr(
+                    name="ctx",
+                    span=expr_span,
+                    form_path=("workflow-lisp", "defproc", "helper"),
+                ),
+                phase_name="implementation",
+                body=provider_expr,
+                span=expr_span,
+                form_path=("workflow-lisp", "defproc", "helper"),
+            )
+        ),
+    )
+    workflow = SimpleNamespace(
+        typed_body=SimpleNamespace(
+            expr=ProcedureCallExpr(
+                callee_name="helper",
+                args=(),
+                span=expr_span,
+                form_path=("workflow-lisp", "defworkflow", "entry"),
+            )
+        )
+    )
+
+    provider_names, prompt_names = _workflow_extern_requirements(
+        workflow,
+        typed_procedures={"helper": helper_proc},
+    )
+
+    assert provider_names == {"providers.execute"}
+    assert prompt_names == {"prompts.implementation.execute"}
     assert _top_level_definition_counts(
         _lowering_owner_source_path("phase_flow"),
         "_lower_run_provider_phase",

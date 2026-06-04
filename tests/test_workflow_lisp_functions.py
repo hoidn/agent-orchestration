@@ -1,4 +1,5 @@
 import importlib
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -84,6 +85,22 @@ def _test_span(path: str) -> SourceSpan:
     start = SourcePosition(path=path, line=1, column=1, offset=0)
     end = SourcePosition(path=path, line=1, column=2, offset=1)
     return SourceSpan(start=start, end=end)
+
+
+def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in module.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and child.id == symbol:
+                return True
+            if isinstance(child, ast.Attribute) and child.attr == symbol:
+                return True
+            if isinstance(child, ast.ImportFrom):
+                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
+                    return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -251,6 +268,12 @@ def test_compile_stage3_normalizes_helper_calls_inside_if(tmp_path: Path) -> Non
 
     assert "FunctionCallExpr" not in repr(result.typed_workflows[0].typed_body.expr)
     assert "FunctionCallExpr" not in repr(result.typed_workflows[0].typed_body)
+
+
+def test_function_dependency_owner_uses_shared_walk_expr() -> None:
+    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.functions").__file__)
+
+    assert _function_body_mentions_symbol(source_path, "_function_dependencies", "walk_expr")
 
 
 def test_function_dependency_walker_descends_through_if_expr(tmp_path: Path) -> None:
