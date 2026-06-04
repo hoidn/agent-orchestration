@@ -117,6 +117,12 @@ def _lowering_source_path() -> Path:
     return source_path
 
 
+def _lowering_owner_source_path(name: str) -> Path:
+    source_path = _lowering_source_path().with_name(f"{name}.py")
+    assert source_path.is_file()
+    return source_path
+
+
 def _typecheck_source_path() -> Path:
     source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
     assert source_path.is_file()
@@ -134,6 +140,18 @@ def _top_level_function_counts(path: Path, *names: str) -> dict[str, int]:
     return {
         name: sum(
             1 for node in module.body if isinstance(node, ast.FunctionDef) and node.name == name
+        )
+        for name in names
+    }
+
+
+def _top_level_definition_counts(path: Path, *names: str) -> dict[str, int]:
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return {
+        name: sum(
+            1
+            for node in module.body
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name == name
         )
         for name in names
     }
@@ -212,6 +230,97 @@ def test_lowering_owner_split_moves_selected_helpers_out_of_core() -> None:
         "_lower_procedure_call_expr": 0,
         "_private_workflow_from_procedure": 0,
         "_procedure_provenance_notes": 0,
+    }
+
+
+def test_lowering_family_decomposition_creates_target_owner_modules() -> None:
+    for name in (
+        "context",
+        "origins",
+        "values",
+        "effects",
+        "control",
+        "workflow_calls",
+        "phase_stdlib",
+    ):
+        assert _lowering_owner_source_path(name).is_file()
+
+
+def test_lowering_family_decomposition_moves_non_procedure_owners_out_of_core() -> None:
+    assert _top_level_definition_counts(
+        _lowering_source_path(),
+        "LoweringOrigin",
+        "_raise_remapped_validation_error",
+        "_LoweringContext",
+        "_lower_provider_result",
+        "_lower_command_result",
+        "_lower_expression",
+        "_lower_let_star",
+        "_lower_match_expr",
+        "_lower_loop_recur",
+        "_lower_call_expr",
+        "_managed_write_root_binding_step",
+        "_build_output_step_local_value",
+        "_flatten_boundary_leaf_paths",
+        "_lower_with_phase",
+        "_lower_run_provider_phase",
+        "_lower_produce_one_of",
+        "_lower_resume_or_start",
+        "_lower_resource_transition",
+        "_lower_finalize_selected_item",
+        "_lower_backlog_drain",
+    ) == {
+        "LoweringOrigin": 0,
+        "_raise_remapped_validation_error": 0,
+        "_LoweringContext": 0,
+        "_lower_provider_result": 0,
+        "_lower_command_result": 0,
+        "_lower_expression": 0,
+        "_lower_let_star": 0,
+        "_lower_match_expr": 0,
+        "_lower_loop_recur": 0,
+        "_lower_call_expr": 0,
+        "_managed_write_root_binding_step": 0,
+        "_build_output_step_local_value": 0,
+        "_flatten_boundary_leaf_paths": 0,
+        "_lower_with_phase": 0,
+        "_lower_run_provider_phase": 0,
+        "_lower_produce_one_of": 0,
+        "_lower_resume_or_start": 0,
+        "_lower_resource_transition": 0,
+        "_lower_finalize_selected_item": 0,
+        "_lower_backlog_drain": 0,
+    }
+
+
+def test_lowering_family_decomposition_gives_origins_and_phase_stdlib_real_ownership() -> None:
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("origins"),
+        "LoweringOrigin",
+        "LoweringOriginMap",
+        "_raise_remapped_validation_error",
+    ) == {
+        "LoweringOrigin": 1,
+        "LoweringOriginMap": 1,
+        "_raise_remapped_validation_error": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_stdlib"),
+        "_lower_with_phase",
+        "_lower_run_provider_phase",
+        "_lower_produce_one_of",
+        "_lower_resume_or_start",
+        "_lower_resource_transition",
+        "_lower_finalize_selected_item",
+        "_lower_backlog_drain",
+    ) == {
+        "_lower_with_phase": 1,
+        "_lower_run_provider_phase": 1,
+        "_lower_produce_one_of": 1,
+        "_lower_resume_or_start": 1,
+        "_lower_resource_transition": 1,
+        "_lower_finalize_selected_item": 1,
+        "_lower_backlog_drain": 1,
     }
 
 

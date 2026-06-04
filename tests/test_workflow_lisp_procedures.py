@@ -168,6 +168,17 @@ def _module_top_level_names(source_path: Path) -> set[str]:
     }
 
 
+def _imported_symbols_from(source_path: Path, module_name: str) -> set[str]:
+    module = ast.parse(source_path.read_text(encoding="utf-8"))
+    imported: set[str] = set()
+    for node in ast.walk(module):
+        if not isinstance(node, ast.ImportFrom) or node.module != module_name:
+            continue
+        for alias in node.names:
+            imported.add(alias.asname or alias.name)
+    return imported
+
+
 def test_typecheck_facade_keeps_generated_local_procedure_helpers_after_let_proc_split() -> None:
     package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
     typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
@@ -1234,17 +1245,40 @@ def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowe
 
 def test_specialization_owner_split_stops_importing_private_workflow_eligibility_from_core() -> None:
     path = _procedure_specialization_source_path()
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-
-    imported_from_core = {
-        alias.name
-        for node in module.body
-        if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module == "lowering.core"
-        for alias in node.names
-    }
+    imported_from_core = _imported_symbols_from(path, "lowering.core")
 
     assert "_procedure_private_boundary_valid" not in imported_from_core
     assert "_procedure_private_body_valid" not in imported_from_core
+
+
+def test_specialization_owner_split_stops_importing_value_and_call_helpers_from_core() -> None:
+    source_path = _procedure_specialization_source_path()
+    imported_from_core = _imported_symbols_from(source_path, "lowering.core")
+
+    assert imported_from_core.isdisjoint(
+        {
+            "_build_output_step_local_value",
+            "_flatten_boundary_leaf_paths",
+            "_record_expr_value_at_path",
+            "_render_existing_output_ref",
+            "_normalize_union_field_path",
+            "_union_variant_expr_value_at_path",
+            "_managed_write_root_binding_step",
+        }
+    )
+
+    imported_from_values = _imported_symbols_from(source_path, "lowering.values")
+    assert {
+        "_build_output_step_local_value",
+        "_flatten_boundary_leaf_paths",
+        "_record_expr_value_at_path",
+        "_render_existing_output_ref",
+        "_normalize_union_field_path",
+        "_union_variant_expr_value_at_path",
+    } <= imported_from_values
+
+    imported_from_workflow_calls = _imported_symbols_from(source_path, "lowering.workflow_calls")
+    assert "_managed_write_root_binding_step" in imported_from_workflow_calls
 
 
 def test_compiler_keeps_typecheck_procedure_definitions_compat_entrypoint() -> None:
