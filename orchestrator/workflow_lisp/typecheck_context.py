@@ -15,6 +15,7 @@ from .phase_stdlib import (
     DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
     ReviewLoopLegacyBridgePolicy,
 )
+from .parametric_constraints import SharedUnionFieldCapability
 from .procedure_refs import ResolvedProcRefValue
 from .procedures import TypedProcedureDef
 from .spans import SourceSpan
@@ -58,6 +59,7 @@ class TypecheckSessionState:
     let_proc_rewrite_results: dict[int, ExprNode] = field(default_factory=dict)
     workflow_signature: object | None = None
     reusable_state_producer_context: Mapping[str, object] | None = None
+    shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = ()
     review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = (
         DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
     )
@@ -78,6 +80,7 @@ class TypecheckContext:
     procedure_effects_by_name: Mapping[str, EffectSummary]
     workflow_effects_by_name: Mapping[str, EffectSummary]
     proc_ref_resolution_context: object | None
+    shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...]
     session_state: TypecheckSessionState
 
 
@@ -103,6 +106,7 @@ def snapshot_session_state() -> TypecheckSessionState:
             if state.reusable_state_producer_context is None
             else dict(state.reusable_state_producer_context)
         ),
+        shared_union_field_capabilities=tuple(state.shared_union_field_capabilities),
         review_loop_legacy_bridge_policy=state.review_loop_legacy_bridge_policy,
     )
 
@@ -117,6 +121,7 @@ def restore_session_state(snapshot: TypecheckSessionState) -> None:
     state.let_proc_rewrite_results = dict(snapshot.let_proc_rewrite_results)
     state.workflow_signature = snapshot.workflow_signature
     state.reusable_state_producer_context = snapshot.reusable_state_producer_context
+    state.shared_union_field_capabilities = tuple(snapshot.shared_union_field_capabilities)
     state.review_loop_legacy_bridge_policy = snapshot.review_loop_legacy_bridge_policy
 
 

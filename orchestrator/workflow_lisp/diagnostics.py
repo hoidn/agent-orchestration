@@ -137,6 +137,9 @@ _TYPE_CODES = frozenset(
         "function_call_unknown",
         "function_arity_mismatch",
         "function_return_type_invalid",
+        "parametric_constraint_malformed",
+        "parametric_constraint_unknown",
+        "parametric_constraint_unsatisfied",
         "procedure_return_type_invalid",
         "workflow_call_unknown",
     }
@@ -171,6 +174,12 @@ _MODULE_CODES = frozenset(
         "definition_form_unknown",
         "target_dsl_unsupported",
         "language_version_unsupported",
+        "procedure_definition_duplicate",
+        "procedure_type_param_duplicate",
+        "procedure_type_param_clause_invalid",
+        "procedure_type_param_unknown",
+        "procedure_where_clause_invalid",
+        "procedure_where_field_requirement_invalid",
     }
 )
 _EFFECT_CODES = frozenset(

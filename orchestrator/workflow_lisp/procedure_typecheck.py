@@ -14,6 +14,7 @@ from .effects import (
     effect_summary_from_direct,
     merge_effect_summaries,
 )
+from .parametric_constraints import evaluate_parametric_constraints, provisional_shared_union_field_capabilities
 from .expressions import (
     BindProcBinding,
     BindProcExpr,
@@ -74,6 +75,7 @@ from .typecheck_context import get_session_state, raise_error as _raise_error
 class ProcedureTypecheckContext:
     """Internal procedure-typing seam for generated helpers and procedure calls."""
 
+    type_env: FrontendTypeEnvironment
     value_env: Mapping[str, TypeRef]
     workflow_catalog: object | None
     procedure_catalog: ProcedureCatalog | None
@@ -95,6 +97,7 @@ class PendingParametricProcedureSpecialization:
     specialized_name: str
     type_bindings: Mapping[str, TypeRef]
     proc_ref_bindings: Mapping[str, ResolvedProcRefValue]
+    shared_union_field_capabilities: tuple[object, ...]
     remaining_params: tuple[tuple[str, TypeRef], ...]
     origin_span: object
     origin_form_path: tuple[str, ...]
@@ -151,9 +154,16 @@ def typecheck_procedure_definitions(
             specialization = None
         value_env = {name: type_ref for name, type_ref in signature.params}
         proc_ref_value_env = {}
+        shared_union_field_capabilities = provisional_shared_union_field_capabilities(
+            where_clauses=signature.where_clauses,
+            type_env=type_env,
+        )
         if specialization is not None:
             value_env.update(dict(getattr(specialization, "bound_param_types", {})))
             proc_ref_value_env.update(dict(getattr(specialization, "proc_ref_bindings", {})))
+            shared_union_field_capabilities = tuple(
+                getattr(specialization, "shared_union_field_capabilities", ())
+            ) or shared_union_field_capabilities
         for extern_name, binding in externs.bindings_by_name.items():
             if isinstance(binding, ProviderExtern):
                 value_env[extern_name] = type_env.resolve_type(
@@ -197,6 +207,7 @@ def typecheck_procedure_definitions(
             workflow_effects_by_name=workflow_effects_by_name,
             proc_ref_resolution_context=proc_ref_resolution_context,
             proc_ref_value_env=proc_ref_value_env,
+            shared_union_field_capabilities=shared_union_field_capabilities,
             review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         if typed_body.type_ref != signature.return_type_ref:
@@ -449,13 +460,19 @@ def _typecheck_parametric_procedure_call(
             effect=merge_effect_summaries(*arg_summaries),
         )
 
-    if signature.where_clauses:
-        raise_error(
-            f"procedure `{expr.callee_name}` uses `:where`, but structural parametric constraints are not implemented yet",
-            code="unsupported_parametric_constraint_surface",
-            span=expr.span,
-            form_path=expr.form_path,
+    constraint_result = (
+        evaluate_parametric_constraints(
+            procedure_name=signature.name,
+            where_clauses=signature.where_clauses,
+            type_bindings=type_bindings,
+            type_env=context.type_env,
+            call_span=expr.span,
+            call_form_path=expr.form_path,
+            call_expansion_stack=expr.expansion_stack,
         )
+        if signature.where_clauses
+        else None
+    )
 
     concrete_return_type = substitute_type_params(signature.return_type_ref, type_bindings)
     ensure_no_type_params(
@@ -480,6 +497,11 @@ def _typecheck_parametric_procedure_call(
         specialized_name=specialized_name,
         type_bindings=dict(type_bindings),
         proc_ref_bindings={},
+        shared_union_field_capabilities=(
+            ()
+            if constraint_result is None
+            else constraint_result.shared_union_field_capabilities
+        ),
         remaining_params=tuple(remaining_params),
         origin_span=expr.span,
         origin_form_path=expr.form_path,

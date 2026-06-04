@@ -89,6 +89,7 @@ from .phase_stdlib_typecheck import (
     typecheck_stdlib_specialization_expr as typecheck_stdlib_specialization_expr_owner,
     validate_review_loop_result_contract as validate_review_loop_result_contract_owner,
 )
+from .parametric_constraints import SharedUnionFieldCapability
 from .resource import (
     ensure_drain_context_type,
     ensure_finalize_selected_item_inputs,
@@ -195,6 +196,7 @@ def typecheck_expression(
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     proc_ref_value_env: Mapping[str, ResolvedProcRefValue] | None = None,
+    shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
     review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
@@ -208,6 +210,7 @@ def typecheck_expression(
     session_state.value_expr_env = {}
     session_state.loop_context = []
     session_state.let_proc_rewrite_results = {}
+    session_state.shared_union_field_capabilities = tuple(shared_union_field_capabilities)
     session_state.review_loop_legacy_bridge_policy = review_loop_legacy_bridge_policy
     try:
         typed = _typecheck(
@@ -270,6 +273,7 @@ def _typecheck(
         procedure_effects_by_name=procedure_effects_by_name,
         workflow_effects_by_name=workflow_effects_by_name,
         proc_ref_resolution_context=proc_ref_resolution_context,
+        shared_union_field_capabilities=session_state.shared_union_field_capabilities,
         session_state=session_state,
     )
 
@@ -948,6 +952,7 @@ def _typecheck(
         return typecheck_procedure_call_expr(
             expr,
             context=ProcedureTypecheckContext(
+                type_env=type_env,
                 value_env=value_env,
                 workflow_catalog=workflow_catalog,
                 procedure_catalog=procedure_catalog,
@@ -2157,6 +2162,7 @@ def _typecheck_generated_procedure(
         signature,
         type_env=type_env,
         context=ProcedureTypecheckContext(
+            type_env=type_env,
             value_env={},
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,

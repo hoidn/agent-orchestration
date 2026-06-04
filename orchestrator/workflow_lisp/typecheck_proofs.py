@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from .expressions import FieldAccessExpr, MatchExpr, NameExpr
 from .loops import LoopControlTypeRef
+from .parametric_constraints import SharedUnionFieldCapability
 from .type_env import (
     FrontendTypeEnvironment,
     RecordTypeRef,
     TypeRef,
+    TypeParamRef,
     UnionTypeRef,
     VariantCaseTypeRef,
 )
@@ -50,9 +52,17 @@ def resolve_field_access(
     form_path: tuple[str, ...],
     type_env: FrontendTypeEnvironment,
     proof_scope: ProofScope,
+    shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
 ) -> TypeRef:
     from . import typecheck as compat
 
+    capability_type = _shared_union_field_type(
+        base_type=base_type,
+        field_name=field_name,
+        shared_union_field_capabilities=shared_union_field_capabilities,
+    )
+    if capability_type is not None:
+        return capability_type
     if isinstance(base_type, RecordTypeRef):
         return type_env.record_field(base_type, field_name, span=span, form_path=form_path)
     if isinstance(base_type, VariantCaseTypeRef):
@@ -134,8 +144,25 @@ def typecheck_field_access_expr(
             form_path=expr.form_path,
             type_env=context.type_env,
             proof_scope=context.proof_scope,
+            shared_union_field_capabilities=context.shared_union_field_capabilities,
         )
     return typed_factory(expr=expr, type_ref=current_type, effect=typed_base.effect_summary)
+
+
+def _shared_union_field_type(
+    *,
+    base_type: TypeRef,
+    field_name: str,
+    shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...],
+) -> TypeRef | None:
+    for capability in shared_union_field_capabilities:
+        if capability.field_name != field_name:
+            continue
+        if isinstance(base_type, UnionTypeRef) and capability.union_type_name == base_type.name:
+            return capability.field_type_ref
+        if isinstance(base_type, TypeParamRef) and capability.type_param_name == base_type.name:
+            return capability.field_type_ref
+    return None
 
 
 def typecheck_match_expr(

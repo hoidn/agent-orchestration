@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectAtom, EffectSummary, parse_effect_clause, render_effect_set
@@ -22,6 +23,9 @@ from .syntax import (
     syntax_resolved_name,
 )
 from .type_env import FrontendTypeEnvironment, TypeRef
+
+if TYPE_CHECKING:
+    from .parametric_constraints import SharedUnionFieldCapability
 
 
 @dataclass(frozen=True)
@@ -46,15 +50,59 @@ class ProcedureTypeParam:
 
 
 @dataclass(frozen=True)
-class ProcedureConstraintSyntax:
-    """One parsed `:where` clause retained as metadata for later slices."""
+class ProcedureConstraintSymbolOperandSyntax:
+    """One symbol operand preserved from an authored `:where` clause."""
 
-    subject_name: str
-    constraint_name: str
-    args: tuple[str, ...]
+    symbol_name: str
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ProcedureConstraintFieldRequirementSyntax:
+    """One `(field Type)` pair preserved from an authored `:where` clause."""
+
+    field_name: str
+    field_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ProcedureConstraintSyntax:
+    """One parsed `:where` clause retained as structured metadata."""
+
+    subject_name: str
+    constraint_name: str
+    symbol_operands: tuple[ProcedureConstraintSymbolOperandSyntax, ...]
+    field_requirements: tuple[ProcedureConstraintFieldRequirementSyntax, ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+    @property
+    def variant_name(self) -> str | None:
+        if self.constraint_name != "has-union-variant" or not self.symbol_operands:
+            return None
+        return self.symbol_operands[0].symbol_name
+
+    @property
+    def field_name(self) -> str | None:
+        if self.constraint_name not in {"has-field", "has-shared-union-field"}:
+            return None
+        if len(self.symbol_operands) != 2:
+            return None
+        return self.symbol_operands[0].symbol_name
+
+    @property
+    def field_type_name(self) -> str | None:
+        if self.constraint_name not in {"has-field", "has-shared-union-field"}:
+            return None
+        if len(self.symbol_operands) != 2:
+            return None
+        return self.symbol_operands[1].symbol_name
 
 
 class ProcedureLoweringMode(StrEnum):
@@ -112,6 +160,7 @@ class ProcedureCallableSpecialization:
     bound_param_types: Mapping[str, TypeRef]
     origin_span: SourceSpan
     origin_form_path: tuple[str, ...]
+    shared_union_field_capabilities: tuple["SharedUnionFieldCapability", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -596,27 +645,115 @@ def _elaborate_where_clauses(
                     ),
                 )
             )
-        args: list[str] = []
+        symbol_operands: list[ProcedureConstraintSymbolOperandSyntax] = []
+        field_requirements: list[ProcedureConstraintFieldRequirementSyntax] = []
         for arg in clause.items[2:]:
             identifier = syntax_identifier(arg)
-            if identifier is None:
-                _raise_invalid_where_clause(
-                    "`defproc` `:where` clause arguments must be symbols",
-                    node=arg,
-                    form=form,
+            if identifier is not None:
+                symbol_operands.append(
+                    ProcedureConstraintSymbolOperandSyntax(
+                        symbol_name=identifier.resolved_name,
+                        span=identifier.span,
+                        form_path=form.form_path,
+                        expansion_stack=identifier.expansion_stack,
+                    )
                 )
-            args.append(identifier.resolved_name)
+                continue
+            if isinstance(arg, SyntaxList):
+                field_requirements.append(_elaborate_where_field_requirement(arg, form=form))
+                continue
+            _raise_invalid_where_clause(
+                "`defproc` `:where` clause arguments must be symbols or `(field Type)` pairs",
+                node=arg,
+                form=form,
+            )
+        _validate_constraint_operand_shapes(
+            constraint_name=constraint_identifier.resolved_name,
+            symbol_operands=tuple(symbol_operands),
+            field_requirements=tuple(field_requirements),
+            node=clause,
+            form=form,
+        )
         clauses.append(
             ProcedureConstraintSyntax(
                 subject_name=subject_identifier.resolved_name,
                 constraint_name=constraint_identifier.resolved_name,
-                args=tuple(args),
+                symbol_operands=tuple(symbol_operands),
+                field_requirements=tuple(field_requirements),
                 span=clause.span,
                 form_path=form.form_path,
                 expansion_stack=clause.expansion_stack,
             )
         )
     return tuple(clauses)
+
+
+def _elaborate_where_field_requirement(
+    raw_node: SyntaxList,
+    *,
+    form: SyntaxNode,
+) -> ProcedureConstraintFieldRequirementSyntax:
+    if len(raw_node.items) != 2:
+        _raise_invalid_where_field_requirement(
+            "`defproc` `:where` variant field requirements must be two-symbol `(field Type)` pairs",
+            node=raw_node,
+            form=form,
+        )
+    field_identifier = syntax_identifier(raw_node.items[0])
+    type_identifier = syntax_identifier(raw_node.items[1])
+    if field_identifier is None or type_identifier is None:
+        _raise_invalid_where_field_requirement(
+            "`defproc` `:where` variant field requirements must be two-symbol `(field Type)` pairs",
+            node=raw_node,
+            form=form,
+        )
+    return ProcedureConstraintFieldRequirementSyntax(
+        field_name=field_identifier.resolved_name,
+        field_type_name=type_identifier.resolved_name,
+        span=raw_node.span,
+        form_path=form.form_path,
+        expansion_stack=raw_node.expansion_stack,
+    )
+
+
+def _validate_constraint_operand_shapes(
+    *,
+    constraint_name: str,
+    symbol_operands: tuple[ProcedureConstraintSymbolOperandSyntax, ...],
+    field_requirements: tuple[ProcedureConstraintFieldRequirementSyntax, ...],
+    node: object,
+    form: SyntaxNode,
+) -> None:
+    if constraint_name in {"is-record", "is-union"}:
+        if symbol_operands or field_requirements:
+            _raise_invalid_where_clause(
+                f"`defproc` `:where` constraint `{constraint_name}` does not accept operands",
+                node=node,
+                form=form,
+            )
+        return
+    if constraint_name in {"has-field", "has-shared-union-field"}:
+        if len(symbol_operands) != 2 or field_requirements:
+            _raise_invalid_where_clause(
+                f"`defproc` `:where` constraint `{constraint_name}` expects exactly two symbol operands",
+                node=node,
+                form=form,
+            )
+        return
+    if constraint_name == "has-union-variant":
+        if len(symbol_operands) != 1:
+            _raise_invalid_where_clause(
+                "`defproc` `:where` constraint `has-union-variant` expects one variant symbol",
+                node=node,
+                form=form,
+            )
+        return
+    if field_requirements:
+        _raise_invalid_where_clause(
+            f"`defproc` `:where` constraint `{constraint_name}` does not accept `(field Type)` requirements",
+            node=node,
+            form=form,
+        )
 
 
 def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> ProcedureParam:
@@ -719,6 +856,22 @@ def _raise_invalid_where_clause(message: str, *, node: object, form: SyntaxNode)
         (
             LispFrontendDiagnostic(
                 code="procedure_where_clause_invalid",
+                message=message,
+                span=span,
+                form_path=form.form_path,
+                expansion_stack=expansion_stack,
+            ),
+        )
+    )
+
+
+def _raise_invalid_where_field_requirement(message: str, *, node: object, form: SyntaxNode) -> None:
+    span = getattr(node, "span", form.span)
+    expansion_stack = getattr(node, "expansion_stack", form.expansion_stack)
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="procedure_where_field_requirement_invalid",
                 message=message,
                 span=span,
                 form_path=form.form_path,

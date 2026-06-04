@@ -690,9 +690,22 @@ implemented for compile-time-only specialization. The compiler infers concrete
 type bindings from call sites, materializes monomorphic specializations before
 lowering, and erases those type parameters before runtime-visible artifacts
 such as lowered workflows, source maps, Semantic IR, and Executable IR are
-emitted. Non-empty `:where` clauses are currently parsed and validated only for
-header shape and declared type-parameter subjects, then rejected during
-semantic use until the structural-constraints slice lands. Generic
+emitted. The current first tranche also implements `:where` for generic
+`defproc` using the fixed clause order `:forall`, params, `:where`, `->`.
+Supported spellings are:
+
+- `(T is-record)`
+- `(T is-union)`
+- `(T has-field field Type)`
+- `(T has-union-variant VARIANT)`
+- `(T has-union-variant VARIANT (field Type) ...)`
+- `(T has-shared-union-field field Type)`
+
+Constraint checks run against resolved concrete call-site types before the
+specialization is accepted. `has-shared-union-field` is intentionally narrow:
+it allows branch-free projection only of the named field after the constraint
+is validated. It does not prove which variant is present, and it does not make
+variant-specific fields available outside a proof-bearing `match`. Generic
 `defworkflow` remains out of scope in the current compiler surface.
 
 ### 6.3 `defun`

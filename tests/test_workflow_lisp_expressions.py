@@ -8,6 +8,7 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.parametric_constraints import SharedUnionFieldCapability
 from orchestrator.workflow_lisp.expressions import (
     ContinueExpr,
     FieldAccessExpr,
@@ -59,6 +60,17 @@ def _expression_syntax(source: str, *, form_path: tuple[str, ...] = FORM_PATH) -
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _write_module(path: Path, lines: list[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _build_type_env_from_lines(tmp_path: Path, lines: list[str]) -> FrontendTypeEnvironment:
+    path = _write_module(tmp_path / "shared_union_fields.orc", lines)
+    return FrontendTypeEnvironment.from_module(compile_stage1_module(path))
 
 
 def _workflow_lisp_package_dir() -> Path:
@@ -528,6 +540,94 @@ def test_typecheck_expression_validates_record_exactness() -> None:
             value_env=value_env,
         )
     _assert_diagnostic_code(unknown_field, "record_field_unknown")
+
+
+def test_shared_union_field_capability_allows_branch_free_projection_only_for_validated_field(
+    tmp_path: Path,
+) -> None:
+    type_env = _build_type_env_from_lines(
+        tmp_path,
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defunion ReviewState",
+            "    (APPROVED",
+            "      (shared_report WorkReport))",
+            "    (BLOCKED",
+            "      (shared_report WorkReport)",
+            "      (blocker_class String))))",
+        ],
+    )
+    review_state = type_env.resolve_type("ReviewState", span=_expression_syntax('"probe"').span, form_path=FORM_PATH)
+    shared_report = type_env.resolve_type("WorkReport", span=_expression_syntax('"probe"').span, form_path=FORM_PATH)
+
+    typed = typecheck_expression(
+        elaborate_expression(
+            _expression_syntax("attempt.shared_report"),
+            bound_names=frozenset({"attempt"}),
+        ),
+        type_env=type_env,
+        value_env={"attempt": review_state},
+        shared_union_field_capabilities=(
+            SharedUnionFieldCapability(
+                union_type_name="ReviewState",
+                field_name="shared_report",
+                field_type_ref=shared_report,
+            ),
+        ),
+    )
+
+    assert isinstance(typed.type_ref, PathTypeRef)
+    assert typed.type_ref.name == "WorkReport"
+
+
+def test_shared_union_field_capability_does_not_allow_variant_specific_field_without_match(
+    tmp_path: Path,
+) -> None:
+    type_env = _build_type_env_from_lines(
+        tmp_path,
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defunion ReviewState",
+            "    (APPROVED",
+            "      (shared_report WorkReport))",
+            "    (BLOCKED",
+            "      (shared_report WorkReport)",
+            "      (blocker_class String))))",
+        ],
+    )
+    review_state = type_env.resolve_type("ReviewState", span=_expression_syntax('"probe"').span, form_path=FORM_PATH)
+    shared_report = type_env.resolve_type("WorkReport", span=_expression_syntax('"probe"').span, form_path=FORM_PATH)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            elaborate_expression(
+                _expression_syntax("attempt.blocker_class"),
+                bound_names=frozenset({"attempt"}),
+            ),
+            type_env=type_env,
+            value_env={"attempt": review_state},
+            shared_union_field_capabilities=(
+                SharedUnionFieldCapability(
+                    union_type_name="ReviewState",
+                    field_name="shared_report",
+                    field_type_ref=shared_report,
+                ),
+            ),
+        )
+
+    _assert_diagnostic_code(excinfo, "variant_ref_unproved")
 
 
 def test_elaborate_expression_prefers_resolved_names_from_macro_expansion() -> None:

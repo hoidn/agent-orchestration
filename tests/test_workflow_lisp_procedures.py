@@ -205,7 +205,7 @@ def test_typecheck_facade_keeps_generated_local_procedure_helpers_after_let_proc
     assert "if isinstance(expr, LetProcExpr):" not in dispatch_source
 
 
-def test_elaborate_defproc_parses_forall_and_where_metadata(tmp_path: Path) -> None:
+def test_elaborate_defproc_parses_structured_where_metadata(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "parametric_proc_metadata.orc",
         [
@@ -236,7 +236,13 @@ def test_elaborate_defproc_parses_forall_and_where_metadata(tmp_path: Path) -> N
     assert [param.name for param in procedures[0].type_params] == ["T", "U"]
     assert [clause.subject_name for clause in procedures[0].where_clauses] == ["T", "U"]
     assert [clause.constraint_name for clause in procedures[0].where_clauses] == ["is-record", "has-field"]
-    assert procedures[0].where_clauses[1].args == ("report", "WorkReport")
+    assert procedures[0].where_clauses[0].variant_name is None
+    assert procedures[0].where_clauses[0].field_name is None
+    assert procedures[0].where_clauses[0].field_requirements == ()
+    assert procedures[0].where_clauses[1].field_name == "report"
+    assert procedures[0].where_clauses[1].field_type_name == "WorkReport"
+    assert procedures[0].where_clauses[1].variant_name is None
+    assert procedures[0].where_clauses[1].field_requirements == ()
 
 
 def test_elaborate_defproc_rejects_duplicate_type_params(tmp_path: Path) -> None:
@@ -287,7 +293,44 @@ def test_elaborate_defproc_rejects_invalid_parametric_clause_order(tmp_path: Pat
     _assert_diagnostic_code(excinfo, "procedure_type_param_clause_invalid")
 
 
-def test_elaborate_defproc_rejects_where_subjects_not_declared_in_forall(tmp_path: Path) -> None:
+def test_elaborate_defproc_parses_has_union_variant_field_requirements(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "parametric_proc_variant_where.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defproc carry",
+            "    :forall (ResultT)",
+            "    ((value ResultT))",
+            "    :where ((ResultT has-union-variant APPROVED (report WorkReport) (status String)))",
+            "    -> ResultT",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value))",
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    procedures = elaborate_procedure_definitions(syntax_module)
+
+    assert len(procedures) == 1
+    assert len(procedures[0].where_clauses) == 1
+    clause = procedures[0].where_clauses[0]
+    assert clause.subject_name == "ResultT"
+    assert clause.constraint_name == "has-union-variant"
+    assert clause.variant_name == "APPROVED"
+    assert clause.field_name is None
+    assert clause.field_type_name is None
+    assert [field.field_name for field in clause.field_requirements] == ["report", "status"]
+    assert [field.field_type_name for field in clause.field_requirements] == ["WorkReport", "String"]
+
+
+def test_elaborate_defproc_rejects_unknown_where_subject_type_param(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "parametric_proc_unknown_where_subject.orc",
         [
@@ -312,17 +355,21 @@ def test_elaborate_defproc_rejects_where_subjects_not_declared_in_forall(tmp_pat
     _assert_diagnostic_code(excinfo, "procedure_type_param_unknown")
 
 
-def test_elaborate_defproc_rejects_malformed_where_clauses(tmp_path: Path) -> None:
+def test_elaborate_defproc_rejects_malformed_where_variant_field_requirements(tmp_path: Path) -> None:
     path = _write_module(
-        tmp_path / "parametric_proc_malformed_where.orc",
+        tmp_path / "parametric_proc_malformed_where_variant_field.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
             "  (defproc carry",
             "    :forall (T)",
             "    ((value T))",
-            "    :where (T is-record)",
+            "    :where ((T has-union-variant APPROVED (report WorkReport extra)))",
             "    -> T",
             "    :effects ()",
             "    :lowering inline",
@@ -334,7 +381,7 @@ def test_elaborate_defproc_rejects_malformed_where_clauses(tmp_path: Path) -> No
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_procedure_definitions(syntax_module)
 
-    _assert_diagnostic_code(excinfo, "procedure_where_clause_invalid")
+    _assert_diagnostic_code(excinfo, "procedure_where_field_requirement_invalid")
 
 
 def test_build_procedure_catalog_resolves_type_params_inside_nested_proc_ref_and_workflow_ref_types(
@@ -497,7 +544,8 @@ def test_nonempty_where_metadata_is_preserved_when_header_validation_succeeds(tm
     assert len(signature.where_clauses) == 1
     assert signature.where_clauses[0].subject_name == "T"
     assert signature.where_clauses[0].constraint_name == "has-field"
-    assert signature.where_clauses[0].args == ("report", "WorkReport")
+    assert signature.where_clauses[0].field_name == "report"
+    assert signature.where_clauses[0].field_type_name == "WorkReport"
 
 
 def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Path) -> None:
@@ -531,7 +579,7 @@ def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Pa
         ],
     )
 
-    result = _compile_validated(path, tmp_path=tmp_path)
+    result = _compile(path, tmp_path=tmp_path)
     specialized = [
         procedure
         for procedure in result.typed_procedures
@@ -577,7 +625,7 @@ def test_compile_stage3_reuses_equivalent_parametric_specializations(tmp_path: P
         ],
     )
 
-    result = _compile_validated(path, tmp_path=tmp_path)
+    result = _compile(path, tmp_path=tmp_path)
     specialized = [
         procedure
         for procedure in result.typed_procedures
@@ -650,9 +698,115 @@ def test_compile_stage3_rejects_unresolved_type_parameters(tmp_path: Path) -> No
     _assert_diagnostic_code(excinfo, "parametric_type_binding_unresolved")
 
 
-def test_compile_stage3_rejects_nonempty_where_before_structural_constraints_land(tmp_path: Path) -> None:
+def test_compile_stage3_accepts_is_record_and_has_field_constraints(tmp_path: Path) -> None:
     path = _write_module(
-        tmp_path / "generic_proc_where_rejected.orc",
+        tmp_path / "generic_proc_where_record_field.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (report String))",
+            "  (defproc apply-runner",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> T])",
+            "     (value T))",
+            "    :where ((T is-record)",
+            "            (T has-field report String))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defproc echo-input",
+            "    ((value WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowInput",
+            "      :report value.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (apply-runner (proc-ref echo-input) input)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "apply-runner"
+    )
+
+    assert specialized.signature.type_params == ()
+    assert specialized.signature.return_type_ref.name == "WorkflowInput"
+
+
+def test_compile_stage3_accepts_has_union_variant_with_field_requirements(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_where_union_variant.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defunion ReviewResult",
+            "    (APPROVED",
+            "      (report String)",
+            "      (status String))",
+            "    (BLOCKED",
+            "      (report String)))",
+            "  (defrecord WorkflowOutput",
+            "    (status String))",
+            "  (defproc check-approved",
+            "    :forall (T)",
+            "    ((runner ProcRef[String -> WorkflowOutput])",
+            "     (value T)",
+            "     (label String))",
+            "    :where ((T has-union-variant APPROVED (report String) (status String)))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner label))",
+            "  (defproc emit-output",
+            "    ((label String))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" label)',
+            "      :returns WorkflowOutput))",
+            "  (defworkflow entry",
+            "    ((input String))",
+            "    -> WorkflowOutput",
+            "    (check-approved",
+            '      (proc-ref emit-output)',
+            "      (variant ReviewResult APPROVED",
+            '        :report input',
+            '        :status "done")',
+            '      "approved")))',
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "check-approved"
+    )
+
+    assert specialized.signature.type_params == ()
+    assert specialized.signature.return_type_ref.name == "WorkflowOutput"
+
+
+def test_compile_stage3_rejects_unknown_structural_constraint(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_where_unknown_constraint.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
@@ -662,7 +816,7 @@ def test_compile_stage3_rejects_nonempty_where_before_structural_constraints_lan
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
-            "    :where ((T is-record))",
+            "    :where ((T unknown-constraint report String))",
             "    -> T",
             "    :effects ()",
             "    :lowering inline",
@@ -677,7 +831,273 @@ def test_compile_stage3_rejects_nonempty_where_before_structural_constraints_lan
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "unsupported_parametric_constraint_surface")
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unknown")
+
+
+def test_compile_stage3_rejects_unsatisfied_has_field_constraint(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_where_missing_field.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord WorkflowInput",
+            "    (status String))",
+            "  (defproc identity",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-field report String))",
+            "    -> T",
+            "    :effects ()",
+            "    :lowering inline",
+            "    value)",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    (identity input)))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "has-field" in excinfo.value.diagnostics[0].message
+
+
+def test_compile_stage3_rejects_unsatisfied_has_union_variant_constraint(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_where_missing_variant.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defunion ReviewResult",
+            "    (BLOCKED",
+            "      (report String)))",
+            "  (defrecord ResultRecord",
+            "    (status String))",
+            "  (defproc check-approved",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-union-variant APPROVED))",
+            "    -> String",
+            "    :effects ()",
+            "    :lowering inline",
+            '    "ok")',
+            "  (defworkflow entry",
+            "    ((input String))",
+            "    -> ResultRecord",
+            "    (record ResultRecord",
+            "      :status (check-approved",
+            "        (variant ReviewResult BLOCKED",
+            "          :report input)))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "has-union-variant" in excinfo.value.diagnostics[0].message
+
+
+def test_compile_stage3_rejects_unsatisfied_shared_union_field_constraint(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_where_missing_shared_union_field.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defunion ReviewResult",
+            "    (APPROVED",
+            "      (report String))",
+            "    (BLOCKED",
+            "      (progress String)))",
+            "  (defrecord ResultRecord",
+            "    (status String))",
+            "  (defproc check-shared-report",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-shared-union-field report String))",
+            "    -> String",
+            "    :effects ()",
+            "    :lowering inline",
+            '    "ok")',
+            "  (defworkflow entry",
+            "    ((input String))",
+            "    -> ResultRecord",
+            "    (record ResultRecord",
+            "      :status (check-shared-report",
+            "        (variant ReviewResult APPROVED",
+            "          :report input)))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "parametric_constraint_unsatisfied")
+    assert "has-shared-union-field" in excinfo.value.diagnostics[0].message
+
+
+def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_shared_union_projection.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defunion ReviewState",
+            "    (APPROVED",
+            "      (shared_report WorkReport))",
+            "    (BLOCKED",
+            "      (shared_report WorkReport)",
+            "      (blocker_class String)))",
+            "  (defproc extract-report",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-shared-union-field shared_report WorkReport))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" value.shared_report)',
+            "      :returns WorkflowOutput))",
+            "  (defworkflow entry",
+            "    ((input WorkReport))",
+            "    -> WorkflowOutput",
+            "    (extract-report",
+            "      (variant ReviewState APPROVED",
+            "        :shared_report input))))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "extract-report"
+    )
+
+    assert specialized.signature.type_params == ()
+    assert specialized.signature.return_type_ref.name == "WorkflowOutput"
+
+
+def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_validated_bundle.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc run-checks",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report)',
+            "      :returns WorkflowOutput))",
+            "  (defproc apply-checker",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> WorkflowOutput])",
+            "     (value T))",
+            "    :where ((T is-record)",
+            "            (T has-field report WorkReport))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (apply-checker (proc-ref run-checks) input)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "type_bindings", {})
+        and procedure.specialization.base_name == "apply-checker"
+    )
+
+    assert "entry" in result.validated_bundles
+    assert specialized.signature.type_params == ()
+    assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
+    assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
+
+
+def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_procref_fixture(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_effect_visibility.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc run-checks",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report)',
+            "      :returns WorkflowOutput))",
+            "  (defproc apply-checker",
+            "    :forall (T)",
+            "    ((runner ProcRef[T -> WorkflowOutput])",
+            "     (value T))",
+            "    :where ((T is-record)",
+            "            (T has-field report WorkReport))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner value))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (apply-checker (proc-ref run-checks) input)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    proc_ref_specialized = next(
+        procedure
+        for procedure in result.typed_procedures
+        if getattr(procedure.specialization, "proc_ref_bindings", {})
+        and getattr(procedure.specialization, "base_name", "").startswith("%parametric-call.apply_checker.")
+    )
+
+    expected_effect = UsesCommandEffect(subject=("run_checks",))
+
+    assert expected_effect in proc_ref_specialized.transitive_effect_summary.transitive_effects
 
 
 def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path) -> None:

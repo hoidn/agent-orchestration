@@ -67,6 +67,7 @@ class ProcedureSpecializationRequest:
     workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef]
     proc_ref_bindings: Mapping[str, ResolvedProcRefValue]
     value_bindings: Mapping[str, Any]
+    shared_union_field_capabilities: tuple[object, ...]
     remaining_params: tuple[tuple[str, TypeRef], ...]
     workflow_path: Path
     typed_procedures_by_name: Mapping[str, TypedProcedureDef]
@@ -94,22 +95,25 @@ def procedure_catalog_with_specializations(
 def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
     """Return whether a procedure signature can become a private workflow."""
 
-    if not isinstance(procedure.signature.return_type_ref, (RecordTypeRef, UnionTypeRef)):
+    try:
+        if not isinstance(procedure.signature.return_type_ref, (RecordTypeRef, UnionTypeRef)):
+            return False
+        if not analyze_workflow_boundary_type(
+            procedure.signature.return_type_ref,
+            source_path=("return",),
+            allow_union=True,
+        ).lowerable:
+            return False
+        return all(
+            analyze_workflow_boundary_type(
+                type_ref,
+                source_path=(param_name,),
+                allow_top_level_workflow_ref=True,
+            ).lowerable
+            for param_name, type_ref in procedure.signature.params
+        )
+    except TypeError:
         return False
-    if not analyze_workflow_boundary_type(
-        procedure.signature.return_type_ref,
-        source_path=("return",),
-        allow_union=True,
-    ).lowerable:
-        return False
-    return all(
-        analyze_workflow_boundary_type(
-            type_ref,
-            source_path=(param_name,),
-            allow_top_level_workflow_ref=True,
-        ).lowerable
-        for param_name, type_ref in procedure.signature.params
-    )
 
 
 def _procedure_private_body_valid(
@@ -697,6 +701,7 @@ def specialize_typed_procedure(
     workflow_ref_bindings: Mapping[str, ResolvedWorkflowRef] | None = None,
     proc_ref_bindings: Mapping[str, ResolvedProcRefValue] | None = None,
     value_bindings: Mapping[str, Any] | None = None,
+    shared_union_field_capabilities: tuple[object, ...] = (),
     remaining_params: tuple[tuple[str, TypeRef], ...],
     workflow_path: Path,
     type_env: FrontendTypeEnvironment,
@@ -712,6 +717,7 @@ def specialize_typed_procedure(
         workflow_ref_bindings=dict(workflow_ref_bindings or {}),
         proc_ref_bindings=dict(proc_ref_bindings or {}),
         value_bindings=dict(value_bindings or {}),
+        shared_union_field_capabilities=shared_union_field_capabilities,
         remaining_params=remaining_params,
         workflow_path=workflow_path,
         typed_procedures_by_name=typed_procedures_by_name,
@@ -760,6 +766,7 @@ def specialize_typed_procedure(
         proc_ref_bindings=request.proc_ref_bindings,
         value_bindings=request.value_bindings,
         bound_param_types=bound_param_types,
+        shared_union_field_capabilities=request.shared_union_field_capabilities,
         specialized_name=specialized_name,
         origin_span=request.origin_span or request.procedure.definition.span,
         origin_form_path=request.origin_form_path or request.procedure.definition.form_path,

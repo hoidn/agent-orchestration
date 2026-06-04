@@ -1082,6 +1082,34 @@ def test_review_loop_legacy_bridge_policy_allow_preserves_compatibility(tmp_path
     )
 
 
+def test_phase_stdlib_review_loop_bridge_still_compiles_after_structural_constraints(
+    tmp_path: Path,
+) -> None:
+    stdlib_phase = (
+        Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+        / "stdlib_modules"
+        / "std"
+        / "phase.orc"
+    )
+    source = stdlib_phase.read_text(encoding="utf-8")
+    result = _compile(
+        VALID_REVIEW_LOOP_FIXTURE,
+        tmp_path=tmp_path,
+        review_loop_legacy_bridge_policy="allow",
+    )
+
+    assert "(__stdlib-specialization__ phase-review-loop" in source
+    assert any(
+        workflow.definition.name.endswith("::review-revise-loop-demo")
+        for workflow in result.typed_workflows
+    )
+    assert not any(
+        getattr(procedure.specialization, "base_name", "").endswith("review-revise-loop")
+        for procedure in result.typed_procedures
+        if procedure.specialization is not None
+    )
+
+
 def test_review_loop_legacy_bridge_policy_deny_rejects_legacy_bridge(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(
