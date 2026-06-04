@@ -41,7 +41,7 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _find_previous_bundle(drain_state_root: Path, design_gap_id: str) -> dict[str, Any]:
+def _find_previous_bundle(drain_state_root: Path, design_gap_id: str) -> dict[str, Any] | None:
     candidates = [
         *sorted(drain_state_root.glob("iterations/*/design-gap-architect/architecture-validation.json")),
         *sorted(drain_state_root.glob("**/architecture-validation.json")),
@@ -50,7 +50,60 @@ def _find_previous_bundle(drain_state_root: Path, design_gap_id: str) -> dict[st
         payload = _load_json(path)
         if payload.get("architecture_validation_status") == "VALID" and payload.get("work_item_id") == design_gap_id:
             return payload
-    raise SystemExit(f"No prior VALID architecture bundle found for recovered design gap: {design_gap_id}")
+    return None
+
+
+def _fallback_retry_bundle(
+    *,
+    design_gap_id: str,
+    recovery: dict[str, Any],
+    architecture_path: Path,
+    plan_path: Path,
+    output_path: Path,
+) -> dict[str, Any]:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path = output_path.with_name("recovered-work-item-context.md")
+    checks_path = output_path.with_name("recovered-check-commands.json")
+    context_path.write_text(
+        "\n".join(
+            [
+                f"# Recovered Design Gap Retry: {design_gap_id}",
+                "",
+                "The prior architecture-validation bundle for this recovered retry was not available.",
+                "This retry bundle was reconstructed from durable blocked recovery state.",
+                "",
+                "## Recovery State",
+                "",
+                f"- recovery_route: `{str(recovery.get('recovery_route') or '').strip()}`",
+                f"- recovery_status: `{str(recovery.get('recovery_status') or '').strip()}`",
+                f"- recovery_reason: `{str(recovery.get('recovery_reason') or '').strip()}`",
+                f"- recovery_event_id: `{str(recovery.get('recovery_event_id') or '').strip()}`",
+                "",
+                "## Durable Inputs",
+                "",
+                f"- architecture_path: `{architecture_path.as_posix()}`",
+                f"- plan_target_path: `{plan_path.as_posix()}`",
+                f"- progress_report_path: `{str(recovery.get('progress_report_path') or '').strip()}`",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    checks = [
+        f"test -f {architecture_path.as_posix()}",
+        "python -m compileall orchestrator/workflow_lisp",
+    ]
+    if (REPO_ROOT / plan_path).exists():
+        checks.insert(1, f"test -f {plan_path.as_posix()}")
+    _write_json(checks_path, checks)
+    return {
+        "work_item_context_path": _repo_relpath(context_path),
+        "check_commands_path": _repo_relpath(checks_path),
+        "summary": (
+            "Recovered design gap retry reconstructed from durable blocked state "
+            "because the prior architecture-validation bundle was unavailable."
+        ),
+    }
 
 
 def main() -> int:
@@ -67,9 +120,17 @@ def main() -> int:
     if not design_gap_id:
         raise SystemExit("Recovery bundle missing design_gap_id")
 
-    previous = _find_previous_bundle(drain_state_root, design_gap_id)
     architecture_path = _safe_relpath(str(recovery.get("architecture_path") or ""), under="docs/plans", must_exist=True)
     plan_path = _safe_relpath(str(recovery.get("plan_path") or ""), under="docs/plans", must_exist=False)
+    previous = _find_previous_bundle(drain_state_root, design_gap_id)
+    if previous is None:
+        previous = _fallback_retry_bundle(
+            design_gap_id=design_gap_id,
+            recovery=recovery,
+            architecture_path=architecture_path,
+            plan_path=plan_path,
+            output_path=REPO_ROOT / output_rel,
+        )
     context_path = _safe_relpath(str(previous.get("work_item_context_path") or ""), under="state", must_exist=True)
     checks_path = _safe_relpath(str(previous.get("check_commands_path") or ""), under="state", must_exist=True)
 
@@ -87,7 +148,7 @@ def main() -> int:
             "work_item_context_path": context_path.as_posix(),
             "check_commands_path": checks_path.as_posix(),
             "plan_target_path": plan_path.as_posix(),
-            "summary": str(recovery.get("recovery_reason") or previous.get("summary") or "Recovered design gap."),
+            "summary": str(previous.get("summary") or recovery.get("recovery_reason") or "Recovered design gap."),
             "draft_bundle_path": _repo_relpath(output_path),
         },
     )

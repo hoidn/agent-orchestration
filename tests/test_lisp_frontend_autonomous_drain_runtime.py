@@ -516,6 +516,58 @@ def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
+def test_recovered_design_gap_materializer_reconstructs_missing_prior_bundle(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    recovery_path = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/3/blocked-recovery.json"
+    output_path = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/3/recovered-gap/draft-architecture.json"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    recovery_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    plan_path.write_text("# Parser Syntax Execution Plan\n", encoding="utf-8")
+    recovery_path.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP",
+                "design_gap_id": "parser-syntax",
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_status": "RETRY_READY",
+                "recovery_event_id": "old-run:parser-syntax:implementation-blocked",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "plan_path": plan_path.relative_to(workspace).as_posix(),
+                "progress_report_path": "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/parser-syntax/progress_report.md",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_recovered_design_gap_draft.py"),
+        "--recovery-bundle-path",
+        recovery_path.relative_to(workspace).as_posix(),
+        "--drain-state-root",
+        "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["draft_status"] == "DRAFTED"
+    assert payload["design_gap_id"] == "parser-syntax"
+    assert payload["architecture_path"] == architecture_path.relative_to(workspace).as_posix()
+    assert payload["plan_target_path"] == plan_path.relative_to(workspace).as_posix()
+    assert payload["work_item_context_path"].endswith("/recovered-gap/recovered-work-item-context.md")
+    assert payload["check_commands_path"].endswith("/recovered-gap/recovered-check-commands.json")
+    assert "reconstructed from durable blocked state" in payload["summary"]
+    checks = json.loads((workspace / payload["check_commands_path"]).read_text(encoding="utf-8"))
+    assert f"test -f {architecture_path.relative_to(workspace).as_posix()}" in checks
+
+
 def test_architecture_validator_rejects_stale_draft_for_current_target(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)
