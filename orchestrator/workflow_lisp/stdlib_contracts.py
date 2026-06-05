@@ -12,11 +12,11 @@ from .expressions import (
     CommandResultExpr,
     FinalizeSelectedItemExpr,
     ProduceOneOfExpr,
+    ProcedureCallExpr,
     ProviderResultExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
-    StdlibSpecializationExpr,
 )
 
 
@@ -138,7 +138,7 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
     ),
     StdlibLoweringContract(
         form_name="review-revise-loop",
-        expr_type=StdlibSpecializationExpr,
+        expr_type=ProcedureCallExpr,
         family="review_reuse_control",
         backend_kinds=("provider", "certified_adapter"),
         required_statement_families=(
@@ -162,7 +162,7 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
             "adapter_command_step_origin",
         ),
         primary_diagnostics=("review_loop_result_contract_invalid", "phase_scope_name_mismatch"),
-        helper_owner_modules=("phase_stdlib", "typecheck", "lowering"),
+        helper_owner_modules=("typecheck", "lowering"),
         adapter_binding_names=("validate_review_findings_v1",),
         test_surfaces=("tests.test_workflow_lisp_phase_stdlib",),
     ),

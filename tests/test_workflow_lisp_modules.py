@@ -20,7 +20,6 @@ INVALID_PROC_REF_FIXTURES = INVALID_FIXTURES / "proc_refs"
 def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
-
 def _compile_stage1_entrypoint(path: Path, *, source_root: Path):
     compile_fn = getattr(_compiler_module(), "compile_stage1_entrypoint", None)
     assert callable(compile_fn), "compile_stage1_entrypoint is missing"
@@ -254,7 +253,6 @@ def test_compile_stage1_entrypoint_resolves_builtin_stdlib_imports_without_manua
 
     assert "std/phase" in result.graph.modules_by_name
     assert result.graph.modules_by_name["std/phase"].source_root != source_root
-
 
 def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib(
     tmp_path: Path,

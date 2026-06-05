@@ -210,24 +210,36 @@ class FrontendTypeEnvironment:
         )
         for definition in module.definitions:
             if isinstance(definition, EnumDef):
-                type_refs[definition.name] = PrimitiveTypeRef(
+                enum_ref = PrimitiveTypeRef(
                     name=definition.name,
                     allowed_values=tuple(value.name for value in definition.values),
                 )
+                type_refs[definition.name] = enum_ref
+                if module.module_name:
+                    type_refs[f"{module.module_name}/{definition.name}"] = enum_ref
             elif isinstance(definition, PathDef):
-                type_refs[definition.name] = PathTypeRef(name=definition.name, definition=definition)
+                path_ref = PathTypeRef(name=definition.name, definition=definition)
+                type_refs[definition.name] = path_ref
+                if module.module_name:
+                    type_refs[f"{module.module_name}/{definition.name}"] = path_ref
             elif isinstance(definition, RecordDef):
-                type_refs[definition.name] = RecordTypeRef(
+                record_ref = RecordTypeRef(
                     name=definition.name,
                     definition=definition,
                     field_types={},
                 )
+                type_refs[definition.name] = record_ref
+                if module.module_name:
+                    type_refs[f"{module.module_name}/{definition.name}"] = record_ref
             elif isinstance(definition, UnionDef):
-                type_refs[definition.name] = UnionTypeRef(
+                union_ref = UnionTypeRef(
                     name=definition.name,
                     definition=definition,
                     variant_field_types={},
                 )
+                type_refs[definition.name] = union_ref
+                if module.module_name:
+                    type_refs[f"{module.module_name}/{definition.name}"] = union_ref
         if imported_type_refs:
             type_refs.update(imported_type_refs)
         schema_names = {schema.name for schema in module.schemas}
@@ -750,6 +762,67 @@ def render_type_ref(type_ref: TypeRef) -> str:
     if isinstance(type_ref, TypeParamRef):
         return type_ref.name
     raise TypeError(f"unsupported type ref: {type(type_ref)!r}")
+
+
+def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+    """Return whether two resolved type refs denote the same semantic type."""
+
+    if expected == actual:
+        return True
+    if type(expected) is not type(actual):
+        return False
+    if isinstance(expected, PrimitiveTypeRef):
+        return expected.name == actual.name and expected.allowed_values == actual.allowed_values
+    if isinstance(expected, PathTypeRef):
+        return expected.definition == actual.definition
+    if isinstance(expected, RecordTypeRef):
+        return expected.definition == actual.definition
+    if isinstance(expected, UnionTypeRef):
+        return expected.definition == actual.definition
+    if isinstance(expected, VariantCaseTypeRef):
+        return (
+            expected.union_name == actual.union_name
+            and expected.variant_name == actual.variant_name
+            and expected.definition == actual.definition
+        )
+    if isinstance(expected, WorkflowRefTypeRef):
+        return (
+            len(expected.param_type_refs) == len(actual.param_type_refs)
+            and all(
+                type_refs_compatible(expected_param, actual_param)
+                for expected_param, actual_param in zip(
+                    expected.param_type_refs,
+                    actual.param_type_refs,
+                    strict=True,
+                )
+            )
+            and type_refs_compatible(expected.return_type_ref, actual.return_type_ref)
+        )
+    if isinstance(expected, ProcRefTypeRef):
+        return (
+            len(expected.param_type_refs) == len(actual.param_type_refs)
+            and all(
+                type_refs_compatible(expected_param, actual_param)
+                for expected_param, actual_param in zip(
+                    expected.param_type_refs,
+                    actual.param_type_refs,
+                    strict=True,
+                )
+            )
+            and type_refs_compatible(expected.return_type_ref, actual.return_type_ref)
+        )
+    if isinstance(expected, TypeParamRef):
+        return expected.name == actual.name
+    if isinstance(expected, OptionalTypeRef):
+        return type_refs_compatible(expected.item_type_ref, actual.item_type_ref)
+    if isinstance(expected, ListTypeRef):
+        return type_refs_compatible(expected.item_type_ref, actual.item_type_ref)
+    if isinstance(expected, MapTypeRef):
+        return type_refs_compatible(expected.key_type_ref, actual.key_type_ref) and type_refs_compatible(
+            expected.value_type_ref,
+            actual.value_type_ref,
+        )
+    raise TypeError(f"unsupported type ref: {type(expected)!r}")
 
 
 def substitute_type_params(type_ref: TypeRef, bindings: dict[str, TypeRef]) -> TypeRef:

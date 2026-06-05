@@ -26,10 +26,6 @@ from .expressions import elaborate_expression
 from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
 from .phase import derive_promoted_entry_hidden_context_metadata, PromotedEntryHiddenContextRequirement
-from .phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-    ReviewLoopLegacyBridgePolicy,
-)
 from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
 from .spans import SourceSpan
@@ -62,6 +58,7 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
     WorkflowRefTypeRef,
+    type_refs_compatible,
 )
 from .typecheck import (
     TypedExpr,
@@ -867,6 +864,8 @@ def _match_boundary_type_from_contracts(
         if not analysis.lowerable:
             continue
         if _flattened_boundary_contracts(candidate, generated_name=generated_name, span=span, form_path=form_path) == normalized_contracts:
+            if any(type_refs_compatible(existing, candidate) for existing in candidates):
+                continue
             candidates.append(candidate)
     if len(candidates) == 1:
         return candidates[0]
@@ -1070,7 +1069,6 @@ def typecheck_workflow_definitions(
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -1103,7 +1101,6 @@ def typecheck_workflow_definitions(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
-                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
         else:
             body_expr = workflow_def.body
@@ -1166,12 +1163,11 @@ def typecheck_workflow_definitions(
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
-                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
         finally:
             clear_active_reusable_state_producer_context()
             clear_active_workflow_signature()
-        if typed_body.type_ref != signature.return_type_ref:
+        if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(

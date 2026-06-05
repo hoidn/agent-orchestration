@@ -37,10 +37,6 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
-from .phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-    ReviewLoopLegacyBridgePolicy,
-)
 from .procedures import (
     GeneratedLocalProcedure,
     ProcedureCatalog,
@@ -67,6 +63,7 @@ from .type_env import (
     WorkflowRefTypeRef,
     ensure_no_type_params,
     substitute_type_params,
+    type_refs_compatible,
 )
 from .typecheck_context import get_session_state, raise_error as _raise_error
 
@@ -135,7 +132,6 @@ def typecheck_procedure_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context=None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[TypedProcedureDef, ...]:
     from .typecheck import typecheck_expression
     from .workflows import ExternEnvironment, ProviderExtern
@@ -197,7 +193,6 @@ def typecheck_procedure_definitions(
                 function_name_resolver=function_name_resolver,
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
-                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
         else:
             body_expr = procedure_def.body
@@ -215,9 +210,8 @@ def typecheck_procedure_definitions(
             proc_ref_resolution_context=proc_ref_resolution_context,
             proc_ref_value_env=proc_ref_value_env,
             shared_union_field_capabilities=shared_union_field_capabilities,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
-        if typed_body.type_ref != signature.return_type_ref:
+        if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(
@@ -271,7 +265,7 @@ def typecheck_procedure_call_expr(
         for arg_expr, (param_name, expected_type) in zip(expr.args, bound_proc_ref.residual_params, strict=True):
             typed_arg = recurse(arg_expr)
             arg_summaries.append(typed_arg.effect_summary)
-            if typed_arg.type_ref != expected_type:
+            if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"procedure argument `{param_name}` expected `{type_label(expected_type)}`"
                     f" but got `{type_label(typed_arg.type_ref)}`",
@@ -309,7 +303,7 @@ def typecheck_procedure_call_expr(
         for arg_expr, expected_type in zip(expr.args, generic_proc_ref_type.param_type_refs, strict=True):
             typed_arg = recurse(arg_expr)
             arg_summaries.append(typed_arg.effect_summary)
-            if typed_arg.type_ref != expected_type:
+            if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"procedure argument expected `{type_label(expected_type)}`"
                     f" but got `{type_label(typed_arg.type_ref)}`",
@@ -343,6 +337,8 @@ def typecheck_procedure_call_expr(
             signature=signature,
             context=context,
             recurse=recurse,
+            typecheck_workflow_ref_argument=typecheck_workflow_ref_argument,
+            typecheck_proc_ref_argument=typecheck_proc_ref_argument,
             typed_factory=typed_factory,
             raise_error=raise_error,
             type_label=type_label,
@@ -360,7 +356,7 @@ def typecheck_procedure_call_expr(
         if isinstance(expected_type, WorkflowRefTypeRef):
             typed_arg = typecheck_workflow_ref_argument(arg_expr, expected_type)
             arg_summaries.append(typed_arg.effect_summary)
-            if typed_arg.type_ref != expected_type:
+            if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"workflow ref argument `{param_name}` does not match `{expected_type.name}`",
                     code="workflow_ref_signature_invalid",
@@ -373,7 +369,7 @@ def typecheck_procedure_call_expr(
             arg_summaries.append(typed_arg.effect_summary)
             if resolved_proc_ref is not None:
                 proc_ref_bindings[param_name] = resolved_proc_ref
-            if typed_arg.type_ref != expected_type:
+            if not type_refs_compatible(expected_type, typed_arg.type_ref):
                 raise_error(
                     f"procedure ref argument `{param_name}` does not match `{expected_type.name}`",
                     code="proc_ref_signature_invalid",
@@ -383,7 +379,7 @@ def typecheck_procedure_call_expr(
             continue
         typed_arg = recurse(arg_expr)
         arg_summaries.append(typed_arg.effect_summary)
-        if typed_arg.type_ref != expected_type:
+        if not type_refs_compatible(expected_type, typed_arg.type_ref):
             raise_error(
                 f"procedure argument `{param_name}` expected `{type_label(expected_type)}`"
                 f" but got `{type_label(typed_arg.type_ref)}`",
@@ -424,10 +420,12 @@ def _typecheck_parametric_procedure_call(
     signature,
     context: ProcedureTypecheckContext,
     recurse: Callable[[object], object],
+    typecheck_workflow_ref_argument: Callable[[object, WorkflowRefTypeRef], object],
+    typecheck_proc_ref_argument: Callable[[object, ProcRefTypeRef], tuple[object, ResolvedProcRefValue | None]],
     typed_factory: Callable[..., object],
     raise_error: Callable[..., None],
     type_label: Callable[[TypeRef], str],
-) -> object:
+    ) -> object:
     if len(expr.args) != len(signature.params):
         raise_error(
             f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
@@ -437,9 +435,11 @@ def _typecheck_parametric_procedure_call(
         )
     type_bindings: dict[str, TypeRef] = {}
     arg_summaries: list[EffectSummary] = []
+    typed_args: list[object] = []
 
     for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
         typed_arg = recurse(arg_expr)
+        typed_args.append(typed_arg)
         arg_summaries.append(typed_arg.effect_summary)
         _infer_parametric_type_bindings(
             expected_type,
@@ -467,6 +467,26 @@ def _typecheck_parametric_procedure_call(
             effect=merge_effect_summaries(*arg_summaries),
         )
 
+    proc_ref_bindings: dict[str, ResolvedProcRefValue] = {}
+    for typed_arg, arg_expr, (param_name, expected_type) in zip(
+        typed_args,
+        expr.args,
+        signature.params,
+        strict=True,
+    ):
+        if isinstance(expected_type, WorkflowRefTypeRef):
+            typecheck_workflow_ref_argument(
+                arg_expr,
+                substitute_type_params(expected_type, type_bindings),
+            )
+        elif isinstance(expected_type, ProcRefTypeRef):
+            _, resolved_proc_ref = typecheck_proc_ref_argument(
+                arg_expr,
+                substitute_type_params(expected_type, type_bindings),
+            )
+            if resolved_proc_ref is not None:
+                proc_ref_bindings[param_name] = resolved_proc_ref
+
     constraint_result = (
         evaluate_parametric_constraints(
             procedure_name=signature.name,
@@ -489,21 +509,27 @@ def _typecheck_parametric_procedure_call(
     )
 
     remaining_params: list[tuple[str, TypeRef]] = []
-    for param_name, param_type in signature.params:
+    remaining_args: list[object] = []
+    for arg_expr, (param_name, param_type) in zip(expr.args, signature.params, strict=True):
         concrete_param_type = substitute_type_params(param_type, type_bindings)
+        if isinstance(param_type, ProcRefTypeRef) and param_name in proc_ref_bindings:
+            continue
         ensure_no_type_params(
             concrete_param_type,
             span=expr.span,
             form_path=expr.form_path,
         )
         remaining_params.append((param_name, concrete_param_type))
+        remaining_args.append(arg_expr)
 
     specialized_name = parametric_specialization_name(signature.name, type_bindings)
+    if proc_ref_bindings:
+        specialized_name = proc_ref_specialization_name(specialized_name, proc_ref_bindings)
     _ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS[specialized_name] = PendingParametricProcedureSpecialization(
         base_name=signature.name,
         specialized_name=specialized_name,
         type_bindings=dict(type_bindings),
-        proc_ref_bindings={},
+        proc_ref_bindings=dict(proc_ref_bindings),
         shared_union_field_capabilities=(
             ()
             if constraint_result is None
@@ -529,7 +555,7 @@ def _typecheck_parametric_procedure_call(
         ),
     )
     return typed_factory(
-        expr=replace(expr, callee_name=specialized_name),
+        expr=replace(expr, callee_name=specialized_name, args=tuple(remaining_args)),
         type_ref=concrete_return_type,
         effect=merge_effect_summaries(*arg_summaries, procedure_summary),
     )
@@ -549,7 +575,7 @@ def _infer_parametric_type_bindings(
         if bound is None:
             bindings[expected_type.name] = actual_type
             return
-        if bound != actual_type:
+        if not type_refs_compatible(bound, actual_type):
             raise_error(
                 f"type parameter `{expected_type.name}` inferred multiple incompatible concrete types",
                 code="parametric_type_binding_ambiguous",
@@ -644,7 +670,7 @@ def _infer_parametric_type_bindings(
             form_path=form_path,
         )
         return
-    if expected_type != actual_type:
+    if not type_refs_compatible(expected_type, actual_type):
         raise_error(
             f"procedure argument expected `{type_label_for_inference(expected_type)}` but got `{type_label_for_inference(actual_type)}`",
             code="type_mismatch",
@@ -998,7 +1024,7 @@ def _typecheck_let_proc_expr_impl(
         )
     finally:
         session_state.proc_ref_value_env = previous_proc_ref_env
-    if typed_local_body.type_ref != return_type_ref:
+    if not type_refs_compatible(return_type_ref, typed_local_body.type_ref):
         _raise_error(
             (
                 f"`let-proc` local procedure `{expr.binding.local_name}` declared "

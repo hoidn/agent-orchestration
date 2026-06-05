@@ -110,10 +110,6 @@ from ..phase import (
     RUN_CONTEXT_NAME,
 )
 from ..macros import collect_macro_catalog, expand_module_forms
-from ..phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-    ReviewLoopLegacyBridgePolicy,
-)
 from ..reader import read_sexpr_file
 from ..spans import SourceSpan
 from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
@@ -261,7 +257,6 @@ from .phase_impl import (
     _workflow_extern_requirements,
 )
 from .phase_stdlib import (
-    assert_review_loop_special_lowerer_allowed,
     _lower_backlog_drain,
     _lower_finalize_selected_item,
     _lower_produce_one_of,
@@ -307,7 +302,6 @@ def lower_workflow_definitions(
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment | None = None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typechecked frontend workflows into shared workflow dictionaries.
 
@@ -317,11 +311,6 @@ def lower_workflow_definitions(
     that can be passed directly into the shared workflow validation pipeline.
     """
 
-    assert_review_loop_special_lowerer_allowed(
-        typed_workflows=typed_workflows,
-        typed_procedures=typed_procedures,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
-    )
     typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
     from .procedures import _private_workflow_from_procedure, _resolve_procedure_lowering
 

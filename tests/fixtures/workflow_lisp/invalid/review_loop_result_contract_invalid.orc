@@ -2,22 +2,8 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule review_loop_result_contract_invalid)
-  (import std/phase :only (review-revise-loop))
-  (defenum BlockerClass
-    missing_resource)
-  (defenum ReviewDecision
-    APPROVE
-    REVISE
-    BLOCKED)
-  (defpath ReviewReport
-    :kind relpath
-    :under "artifacts/work"
-    :must-exist true)
-  (defpath ChecksReport
-    :kind relpath
-    :under "artifacts/work"
-    :must-exist true)
-  (defpath ProgressReport
+  (import std/phase :only (ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
+  (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
     :must-exist true)
@@ -31,41 +17,55 @@
     (state-root Path.state-root)
     (artifact-root Path.artifact-root))
   (defrecord CompletedAttempt
-    (execution_report_path ReviewReport))
+    (execution_report_path WorkReport))
   (defrecord ReviewInputs
-    (design_review_prompt ReviewReport)
-    (fix_plan_prompt ReviewReport))
-  (defunion BrokenReviewLoopResult
-    (APPROVED
-      (checks_report ChecksReport)
-      (review_report ReviewReport)
-      (review_decision ReviewDecision))
+    (design_review_prompt WorkReport)
+    (fix_plan_prompt WorkReport))
+  (defrecord BrokenFindings
+    (schema_version String)
+    (items_path WorkReport))
+  (defenum BlockerClass
+    user_decision_required)
+  (defunion BrokenReviewDecision
+    (APPROVE
+      (review_report ReviewReportPath)
+      (findings BrokenFindings))
+    (REVISE
+      (review_report ReviewReportPath)
+      (findings BrokenFindings))
     (BLOCKED
-      (progress_report ProgressReport)
-      (blocker_class BlockerClass)))
-  (defrecord ReviewLoopSurfaceResult
-    (report_path ReviewReport))
-  (defworkflow invalid-review-loop-contract
+      (review_report ReviewReportPath)
+      (blocker_class BlockerClass)
+      (findings BrokenFindings)))
+  (defproc run-review
+    ((completed CompletedAttempt)
+     (inputs ReviewInputs))
+    -> BrokenReviewDecision
+    :effects ()
+    :lowering inline
+    (variant BrokenReviewDecision APPROVE
+      :review_report "artifacts/review/review-report.md"
+      :findings (record BrokenFindings
+                  :schema_version "ReviewFindings.v1"
+                  :items_path completed.execution_report_path)))
+  (defproc apply-fix
+    ((completed CompletedAttempt)
+     (inputs ReviewInputs)
+     (findings ReviewFindings))
+    -> CompletedAttempt
+    :effects ()
+    :lowering inline
+    completed)
+  (defworkflow invalid-review-loop
     ((phase-ctx PhaseCtx)
      (completed CompletedAttempt)
      (inputs ReviewInputs))
-    -> ReviewLoopSurfaceResult
+    -> ReviewLoopResult
     (with-phase phase-ctx implementation-review
-      (let* ((result
-               (review-revise-loop implementation-review
-                 :ctx phase-ctx
-                 :completed completed
-                 :inputs inputs
-                 :review-provider providers.review
-                 :fix-provider providers.fix
-                 :review-prompt prompts.implementation.review
-                 :fix-prompt prompts.implementation.fix
-                 :max 5
-                 :returns BrokenReviewLoopResult)))
-        (match result
-          ((APPROVED approved)
-           (record ReviewLoopSurfaceResult
-             :report_path approved.review_report))
-          ((BLOCKED blocked)
-           (record ReviewLoopSurfaceResult
-             :report_path blocked.progress_report)))))))
+      (review-revise-loop implementation-review
+        :ctx phase-ctx
+        :completed completed
+        :inputs inputs
+        :review (proc-ref run-review)
+        :fix (proc-ref apply-fix)
+        :max 3))))

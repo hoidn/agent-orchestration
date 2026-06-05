@@ -46,7 +46,6 @@ from ..expressions import (
     WithPhaseExpr,
 )
 from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
-from ..phase_stdlib import is_review_loop_request_kind
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourceSpan
@@ -617,10 +616,14 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
 def _procedure_signature_local_type_bindings(procedure: TypedProcedureDef) -> dict[str, TypeRef]:
     """Seed local type bindings from a private workflow procedure signature."""
 
-    return {
+    local_type_bindings = {
         param_name: param_type
         for param_name, param_type in procedure.signature.params
     }
+    specialization = getattr(procedure, "specialization", None)
+    if specialization is not None:
+        local_type_bindings.update(dict(getattr(specialization, "bound_param_types", {})))
+    return local_type_bindings
 
 
 def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> list[str]:
@@ -1263,6 +1266,7 @@ def _build_phase_stdlib_prompt_input_prelude(
             if not isinstance(input_expr, PhaseTargetExpr):
                 value_contract = _phase_prompt_local_value_contract(
                     artifact_name,
+                    source_expr=input_expr,
                     context=context,
                     span=source_expr.span,
                     form_path=source_expr.form_path,
@@ -1338,13 +1342,19 @@ def _build_phase_stdlib_prompt_input_prelude(
 def _phase_prompt_local_value_contract(
     artifact_name: str,
     *,
+    source_expr: Any,
     context: _LoweringContext,
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, Any] | None:
     """Infer one prompt-input contract from flattened local type bindings."""
 
-    field_path = tuple(segment for segment in artifact_name.split("__") if segment)
+    if isinstance(source_expr, NameExpr):
+        field_path = (source_expr.name,)
+    elif isinstance(source_expr, FieldAccessExpr) and isinstance(source_expr.base, NameExpr):
+        field_path = (source_expr.base.name, *source_expr.fields)
+    else:
+        field_path = tuple(segment for segment in artifact_name.split("__") if segment)
     if not field_path:
         return None
     current_type = context.local_type_bindings.get(field_path[0])
@@ -1424,6 +1434,8 @@ def _flatten_phase_stdlib_prompt_inputs(
                 )
             )
         return flattened
+    if isinstance(expr, (FieldAccessExpr, NameExpr, PhaseTargetExpr)):
+        return [(base_name, expr)]
     return [(base_name, value if value is not None else expr)]
 
 

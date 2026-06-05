@@ -57,7 +57,6 @@ from .expressions import (
     RecordExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
-    StdlibSpecializationExpr,
     UnionVariantExpr,
     WorkflowRefLiteralExpr,
     elaborate_expression,
@@ -83,15 +82,7 @@ from .phase import (
     is_implementation_attempt_result_type,
     resolve_phase_target_type,
 )
-from .phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-    ReusableStateValidationSpec,
-    ReviewLoopLegacyBridgePolicy,
-)
-from .phase_stdlib_typecheck import (
-    typecheck_stdlib_specialization_expr as typecheck_stdlib_specialization_expr_owner,
-    validate_review_loop_result_contract as validate_review_loop_result_contract_owner,
-)
+from .phase_stdlib import ReusableStateValidationSpec
 from .parametric_constraints import SharedUnionFieldCapability
 from .resource import (
     ensure_drain_context_type,
@@ -149,6 +140,7 @@ from .type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
     WorkflowRefTypeRef,
+    type_refs_compatible,
 )
 from .workflow_refs import (
     resolve_workflow_ref_name,
@@ -200,7 +192,6 @@ def typecheck_expression(
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     proc_ref_value_env: Mapping[str, ResolvedProcRefValue] | None = None,
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
@@ -214,7 +205,6 @@ def typecheck_expression(
     session_state.loop_context = []
     session_state.let_proc_rewrite_results = {}
     session_state.shared_union_field_capabilities = tuple(shared_union_field_capabilities)
-    session_state.review_loop_legacy_bridge_policy = review_loop_legacy_bridge_policy
     try:
         typed = _typecheck(
             expr,
@@ -343,6 +333,20 @@ def _typecheck(
         )
     if isinstance(expr, GeneratedRelpathSeedExpr):
         seed_type = expr.target_type_ref
+        if isinstance(seed_type, str):
+            seed_type = type_env.resolve_type(
+                seed_type,
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+            expr = GeneratedRelpathSeedExpr(
+                target_type_ref=seed_type,
+                literal_path=expr.literal_path,
+                seed_role=expr.seed_role,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         if not isinstance(seed_type, PathTypeRef) or seed_type.definition.kind != "relpath":
             _raise_error(
                 f"generated relpath seed `{expr.seed_role}` requires a relpath type, got `{_type_label(seed_type)}`",
@@ -1747,22 +1751,6 @@ def _typecheck(
             type_ref=return_type,
             effect=merge_effect_summaries(*input_summaries),
         )
-    if isinstance(expr, StdlibSpecializationExpr):
-        return _typecheck_stdlib_specialization_expr(
-            expr,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            active_phase_scope=active_phase_scope,
-            procedure_effects_by_name=procedure_effects_by_name,
-            workflow_effects_by_name=workflow_effects_by_name,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-            review_loop_legacy_bridge_policy=session_state.review_loop_legacy_bridge_policy,
-        )
     if isinstance(expr, ResumeOrStartExpr):
         return_type = type_env.resolve_type(
             expr.returns_type_name,
@@ -2018,59 +2006,6 @@ def _require_phase_scope_name_match(
         form_path=form_path,
     )
 
-
-
-
-def _validate_phase_review_loop_result_contract(
-    return_type: UnionTypeRef,
-    *,
-    type_env: FrontendTypeEnvironment,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> None:
-    validate_review_loop_result_contract_owner(
-        return_type,
-        type_env=type_env,
-        span=span,
-        form_path=form_path,
-        legacy_validator=None,
-    )
-
-
-
-
-def _typecheck_stdlib_specialization_expr(
-    expr: StdlibSpecializationExpr,
-    *,
-    type_env: FrontendTypeEnvironment,
-    value_env: dict[str, TypeRef],
-    proof_scope: ProofScope,
-    workflow_catalog: "WorkflowCatalog | None",
-    procedure_catalog: "ProcedureCatalog | None",
-    extern_environment: "ExternEnvironment | None",
-    command_boundary_environment: "CommandBoundaryEnvironment | None",
-    active_phase_scope: PhaseScope | None,
-    procedure_effects_by_name: Mapping[str, EffectSummary],
-    workflow_effects_by_name: Mapping[str, EffectSummary],
-    proc_ref_resolution_context: ProcRefResolutionContext | None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy,
-) -> TypedExpr:
-    return typecheck_stdlib_specialization_expr_owner(
-        expr,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
-        legacy_typechecker=None,
-        type_env=type_env,
-        value_env=value_env,
-        proof_scope=proof_scope,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        active_phase_scope=active_phase_scope,
-        procedure_effects_by_name=procedure_effects_by_name,
-        workflow_effects_by_name=workflow_effects_by_name,
-        proc_ref_resolution_context=proc_ref_resolution_context,
-    )
 
 
 
@@ -2511,11 +2446,7 @@ def _literal_type_name(literal_kind: str) -> str:
 
 
 def _type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
-    from .contracts import review_findings_types_compatible
-
-    if expected == actual:
-        return True
-    return review_findings_types_compatible(expected, actual)
+    return type_refs_compatible(expected, actual)
 
 
 def _unify_loop_control_types(

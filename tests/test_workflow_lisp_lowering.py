@@ -29,7 +29,6 @@ from orchestrator.workflow_lisp.expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
-    StdlibSpecializationExpr,
     WithPhaseExpr,
 )
 from orchestrator.workflow_lisp.lowering import (
@@ -869,7 +868,6 @@ def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
         CommandResultExpr,
         RunProviderPhaseExpr,
         ProduceOneOfExpr,
-        StdlibSpecializationExpr,
         ResumeOrStartExpr,
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,
@@ -879,9 +877,14 @@ def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
     assert len(STDLIB_LOWERING_CONTRACTS) == 9
     assert {contract.form_name for contract in STDLIB_LOWERING_CONTRACTS} == expected_forms
     assert set(STDLIB_LOWERING_CONTRACTS_BY_FORM) == expected_forms
-    assert {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS} == expected_expr_types
+    assert expected_expr_types <= {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS}
+    assert all(contract.expr_type.__name__ != "StdlibSpecializationExpr" for contract in STDLIB_LOWERING_CONTRACTS)
 
-    for expr_type in expected_expr_types:
+    review_loop_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["review-revise-loop"]
+    assert review_loop_contract.expr_type is ProcedureCallExpr
+    assert "phase_stdlib" not in review_loop_contract.helper_owner_modules
+
+    for expr_type in {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS}:
         contract = stdlib_contract_for_expr(expr_type)
         assert contract.expr_type is expr_type
         assert STDLIB_LOWERING_CONTRACTS_BY_FORM[contract.form_name] is contract

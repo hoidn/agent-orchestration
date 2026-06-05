@@ -425,6 +425,17 @@ _FORM_SPECS = (
         rationale="Phase target lookup remains a temporary compiler intrinsic pending broader composition work.",
     ),
     _spec(
+        "__generated-relpath-seed__",
+        kind=FormKind.TEMP_COMPILER_INTRINSIC,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_review_revise_stdlib_parametric_integration",
+        remove_by="ordinary imported stdlib seed ownership",
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="generated_relpath_seed",
+        rationale="Compiler-private relpath seeds remain hidden while ordinary stdlib code still needs typed placeholder paths.",
+    ),
+    _spec(
         "run-provider-phase",
         kind=FormKind.TEMP_COMPILER_INTRINSIC,
         owner_module="expressions",
@@ -457,18 +468,6 @@ _FORM_SPECS = (
         elaboration_route=None,
         feature_tags=("nested_producer_only",),
         rationale="The producer helper stays reserved for nested stdlib producer sections rather than general expression elaboration.",
-    ),
-    _spec(
-        "__stdlib-specialization__",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_review_revise_stdlib_parametric_integration",
-        remove_by="imported .orc expansion or bridge retirement",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="stdlib_specialization",
-        feature_tags=("review_loop_compat_bridge",),
-        rationale="The temporary bridge stays compiler-owned until imported stdlib expansion can replace it.",
     ),
     _spec(
         "resume-or-start",
@@ -515,10 +514,6 @@ _FORM_SPECS = (
         rationale="Backlog drain remains compiler-owned pending ordinary stdlib ownership.",
     ),
 )
-
-_STDLIB_REQUEST_KIND_FEATURES = {
-    "phase-review-loop": frozenset({"review_loop_compat_bridge"}),
-}
 
 
 def _requires_elaboration_route(spec: FormSpec) -> bool:
@@ -583,9 +578,3 @@ def head_has_feature_tag(name: str, tag: str) -> bool:
 
     spec = get_form_spec(name)
     return spec is not None and tag in spec.feature_tags
-
-
-def stdlib_request_kind_has_feature(request_kind: str, tag: str) -> bool:
-    """Return whether one temporary stdlib specialization request carries a tag."""
-
-    return tag in _STDLIB_REQUEST_KIND_FEATURES.get(request_kind, frozenset())

@@ -29,9 +29,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
     GeneratedRelpathSeedExpr,
     LoopRecurExpr,
-    StdlibSpecializationExpr,
 )
-from orchestrator.workflow_lisp.phase_stdlib import ReviewLoopLegacyBridgePolicy
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
@@ -314,7 +312,6 @@ def _compile(
     tmp_path: Path,
     validate_shared: bool = False,
     imported_workflow_bundles=None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = "allow",
 ):
     return compile_stage3_module(
         path,
@@ -349,7 +346,6 @@ def _compile(
         imported_workflow_bundles=imported_workflow_bundles,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
     )
 
 
@@ -358,7 +354,6 @@ def _compile_entrypoint(
     *,
     tmp_path: Path,
     validate_shared: bool = False,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = "allow",
 ):
     return compile_stage3_entrypoint(
         path,
@@ -393,7 +388,6 @@ def _compile_entrypoint(
         },
         validate_shared=validate_shared,
         workspace_root=tmp_path,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
     )
 
 
@@ -499,10 +493,22 @@ def _lowered_workflow_by_name(result, workflow_name: str):
 
 
 def _lowered_workflow_with_provider(result, provider_name: str):
+    def _has_provider(step):
+        if not isinstance(step, dict):
+            return False
+        if step.get("provider") == provider_name:
+            return True
+        if "repeat_until" in step and any(_has_provider(child) for child in step["repeat_until"].get("steps", [])):
+            return True
+        if "then" in step and any(_has_provider(child) for child in step["then"].get("steps", [])):
+            return True
+        match_cases = step.get("match", {}).get("cases", {})
+        return any(_has_provider(child) for case in match_cases.values() for child in case.get("steps", []))
+
     return next(
         workflow
         for workflow in result.lowered_workflows
-        if any(step.get("provider") == provider_name for step in workflow.authored_mapping["steps"])
+        if any(_has_provider(step) for step in workflow.authored_mapping["steps"])
     )
 
 
@@ -782,18 +788,7 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
                     '  (:language "0.1")',
                     '  (:target-dsl "2.14")',
                     "  (defmodule reusable_composed_with_phase_review_loop)",
-                    "  (import std/phase :only (ReviewFindings review-revise-loop))",
-                "  (defenum BlockerClass",
-                "    missing_resource",
-                "    unavailable_hardware",
-                "    roadmap_conflict",
-                "    external_dependency_outside_authority",
-                "    user_decision_required",
-                "    unrecoverable_after_fix_attempt)",
-                "  (defenum ReviewDecision",
-                "    APPROVE",
-                "    REVISE",
-                "    BLOCKED)",
+                    "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))",
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -810,23 +805,31 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
                 "  (defrecord CompletedSurface",
                 "    (plan_path WorkReport))",
                 "  (defrecord ReviewInputs",
-                "    (report_path WorkReport))",
+                "    (report_path WorkReport)",
+                "    (fix_prompt WorkReport))",
                 "  (defrecord ReviewSurfaceResult",
-                "    (report_path WorkReport))",
-                    "  (defunion ReviewLoopResult",
-                    "    (APPROVED",
-                    "      (checks_report WorkReport)",
-                    "      (review_report WorkReport)",
-                    "      (review_decision ReviewDecision)",
-                    "      (findings ReviewFindings))",
-                    "    (BLOCKED",
-                    "      (progress_report WorkReport)",
-                    "      (blocker_class BlockerClass)",
-                    "      (findings ReviewFindings))",
-                    "    (EXHAUSTED",
-                    "      (last_review_report WorkReport)",
-                    "      (reason String)",
-                    "      (findings ReviewFindings)))",
+                "    (report_path ReviewReportPath))",
+                "  (defproc review-once",
+                "    ((completed CompletedSurface)",
+                "     (inputs ReviewInputs))",
+                "    -> ReviewDecision",
+                "    :effects ((uses-provider providers.review))",
+                "    :lowering inline",
+                "    (provider-result providers.review",
+                "      :prompt prompts.implementation.review",
+                "      :inputs (completed.plan_path inputs.report_path)",
+                "      :returns ReviewDecision))",
+                "  (defproc apply-fix",
+                "    ((completed CompletedSurface)",
+                "     (inputs ReviewInputs)",
+                "     (findings ReviewFindings))",
+                "    -> CompletedSurface",
+                "    :effects ((uses-provider providers.fix))",
+                "    :lowering inline",
+                "    (provider-result providers.fix",
+                "      :prompt prompts.implementation.fix",
+                "      :inputs (completed.plan_path inputs.fix_prompt findings.items_path)",
+                "      :returns CompletedSurface))",
                 "  (defproc review-phase-helper",
                 "    ((phase-ctx PhaseCtx)",
                 "     (completed CompletedSurface)",
@@ -839,12 +842,9 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
                 "        :ctx phase-ctx",
                 "        :completed completed",
                 "        :inputs inputs",
-                "        :review-provider providers.review",
-                "        :fix-provider providers.fix",
-                "        :review-prompt prompts.implementation.review",
-                "        :fix-prompt prompts.implementation.fix",
-                "        :max 3",
-                "        :returns ReviewLoopResult)))",
+                "        :review (proc-ref review-once)",
+                "        :fix (proc-ref apply-fix)",
+                "        :max 3)))",
                 "  (defworkflow run-review",
                 "    ((phase-ctx PhaseCtx)",
                 "     (completed CompletedSurface)",
@@ -855,9 +855,9 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
                 "        ((APPROVED approved)",
                 "         (record ReviewSurfaceResult",
                 "           :report_path approved.review_report))",
-                "        ((BLOCKED blocked)",
-                "         (record ReviewSurfaceResult",
-                "           :report_path blocked.progress_report))",
+                    "        ((BLOCKED blocked)",
+                    "         (record ReviewSurfaceResult",
+                    "           :report_path blocked.review_report))",
                 "        ((EXHAUSTED exhausted)",
                 "         (record ReviewSurfaceResult",
                 "           :report_path exhausted.last_review_report))))))",
@@ -887,7 +887,7 @@ def test_typecheck_rejects_invalid_review_loop_findings_contract() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_REVIEW_LOOP_FIXTURE)
 
-    _assert_diagnostic_code(excinfo, "review_loop_result_contract_invalid")
+    _assert_diagnostic_code(excinfo, "type_mismatch")
 
 
 def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_alias(tmp_path: Path) -> None:
@@ -1048,24 +1048,20 @@ def test_review_loop_specializes_to_ordinary_typed_forms(tmp_path: Path) -> None
         node
         for workflow in result.typed_workflows
         for node in _walk_nodes(workflow.typed_body.expr)
-        if isinstance(node, StdlibSpecializationExpr)
+        if type(node).__name__ == "StdlibSpecializationExpr"
     ]
     surviving.extend(
         node
         for procedure in result.typed_procedures
         for node in _walk_nodes(procedure.typed_body.expr)
-        if isinstance(node, StdlibSpecializationExpr)
+        if type(node).__name__ == "StdlibSpecializationExpr"
     )
 
     assert not surviving
 
 
-def test_review_loop_entrypoint_policy_allow_smoke(tmp_path: Path) -> None:
-    result = _compile_entrypoint(
-        VALID_REVIEW_LOOP_FIXTURE,
-        tmp_path=tmp_path,
-        review_loop_legacy_bridge_policy="allow",
-    )
+def test_review_loop_entrypoint_smoke(tmp_path: Path) -> None:
+    result = _compile_entrypoint(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
 
     assert any(
         workflow.definition.name.endswith("::review-revise-loop-demo")
@@ -1073,12 +1069,8 @@ def test_review_loop_entrypoint_policy_allow_smoke(tmp_path: Path) -> None:
     )
 
 
-def test_review_loop_legacy_bridge_policy_allow_preserves_compatibility(tmp_path: Path) -> None:
-    result = _compile(
-        VALID_REVIEW_LOOP_FIXTURE,
-        tmp_path=tmp_path,
-        review_loop_legacy_bridge_policy="allow",
-    )
+def test_review_loop_compiles_without_bridge_controls(tmp_path: Path) -> None:
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
 
     assert any(
         workflow.definition.name.endswith("::review-revise-loop-demo")
@@ -1086,7 +1078,7 @@ def test_review_loop_legacy_bridge_policy_allow_preserves_compatibility(tmp_path
     )
 
 
-def test_phase_stdlib_review_loop_bridge_still_compiles_after_structural_constraints(
+def test_phase_stdlib_review_loop_is_owned_directly_in_std_phase_module(
     tmp_path: Path,
 ) -> None:
     stdlib_phase = (
@@ -1096,13 +1088,12 @@ def test_phase_stdlib_review_loop_bridge_still_compiles_after_structural_constra
         / "phase.orc"
     )
     source = stdlib_phase.read_text(encoding="utf-8")
-    result = _compile(
-        VALID_REVIEW_LOOP_FIXTURE,
-        tmp_path=tmp_path,
-        review_loop_legacy_bridge_policy="allow",
-    )
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
 
-    assert "(__stdlib-specialization__ phase-review-loop" in source
+    assert "(import std/phase_review_loop_support" not in source
+    assert "std/phase_review_loop_support/run-review-revise-loop" not in source
+    assert "(loop/recur" in source
+    assert "validate_review_findings_v1" in source
     assert any(
         workflow.definition.name.endswith("::review-revise-loop-demo")
         for workflow in result.typed_workflows
@@ -1114,26 +1105,31 @@ def test_phase_stdlib_review_loop_bridge_still_compiles_after_structural_constra
     )
 
 
-def test_review_loop_legacy_bridge_policy_deny_rejects_legacy_bridge(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(
-            VALID_REVIEW_LOOP_FIXTURE,
-            tmp_path=tmp_path,
-            review_loop_legacy_bridge_policy="deny",
-        )
+def test_review_loop_bridge_support_module_is_retired() -> None:
+    support_module = (
+        Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+        / "stdlib_modules"
+        / "std"
+        / "phase_review_loop_support.orc"
+    )
 
-    _assert_diagnostic_code(excinfo, "stdlib_special_form_disallowed")
+    assert not support_module.exists()
 
 
-def test_review_loop_entrypoint_policy_deny_rejects_legacy_bridge(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_entrypoint(
-            VALID_REVIEW_LOOP_FIXTURE,
-            tmp_path=tmp_path,
-            review_loop_legacy_bridge_policy="deny",
-        )
+def test_active_review_loop_owner_modules_do_not_reference_bridge_policy() -> None:
+    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
+    owner_modules = (
+        package_dir / "typecheck_dispatch.py",
+        package_dir / "compiler.py",
+        package_dir / "typecheck_context.py",
+        package_dir / "procedure_typecheck.py",
+        package_dir / "workflows.py",
+        package_dir / "lowering" / "core.py",
+        package_dir / "lowering" / "phase_scope.py",
+    )
 
-    _assert_diagnostic_code(excinfo, "stdlib_special_form_disallowed")
+    for module_path in owner_modules:
+        assert "review_loop_legacy_bridge_policy" not in module_path.read_text(encoding="utf-8")
 
 
 def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path: Path) -> None:
@@ -1195,13 +1191,8 @@ def test_lowering_review_loop_carries_last_review_report_through_loop_outputs(tm
     assert repeat_step["repeat_until"]["steps"]
 
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
-    review_workflow = _lowered_workflow_with_provider(result, "fake-review")
-    fix_workflow = _lowered_workflow_with_provider(result, "fake-fix")
-    review_call = next(step for step in body_steps if step.get("call") == review_workflow.typed_workflow.definition.name)
-    fix_call = next(step for step in body_steps if step.get("call") == fix_workflow.typed_workflow.definition.name)
-
-    assert any(step.get("provider") == "fake-review" for step in review_workflow.authored_mapping["steps"])
-    assert any(step.get("provider") == "fake-fix" for step in fix_workflow.authored_mapping["steps"])
+    assert any(step.get("provider") == "fake-review" for step in body_steps)
+    assert any(step.get("provider") == "fake-fix" for step in body_steps)
     assert any("match" in step for step in body_steps)
 
     normalization_step = next(
@@ -1228,54 +1219,45 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
     materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
-    review_workflow = _lowered_workflow_with_provider(result, "fake-review")
-    fix_workflow = _lowered_workflow_with_provider(result, "fake-fix")
-    review_call = next(step for step in body_steps if step.get("call") == review_workflow.typed_workflow.definition.name)
-    fix_call = next(step for step in body_steps if step.get("call") == fix_workflow.typed_workflow.definition.name)
-    review_step = next(step for step in review_workflow.authored_mapping["steps"] if step.get("provider") == "fake-review")
-    fix_step = next(step for step in fix_workflow.authored_mapping["steps"] if step.get("provider") == "fake-fix")
+    review_prompt_step = next(step for step in body_steps if step["name"].endswith("__review_1__prompt_inputs"))
+    review_step = next(step for step in body_steps if step.get("provider") == "fake-review")
+    fix_step = next(step for step in body_steps if step.get("provider") == "fake-fix")
 
     seed_values = {
         value["name"]: value
         for value in materialize_step["materialize_artifacts"]["values"]
     }
-    assert list(seed_values) == [
+    assert {
         "state__completed__execution_report_path",
+        "state__inputs__design_review_prompt",
+        "state__inputs__fix_plan_prompt",
         "state__last_review_report",
         "state__latest_findings__schema_version",
         "state__latest_findings__items_path",
-    ]
+    } <= set(seed_values)
     assert seed_values["state__last_review_report"]["source"] == {
         "literal": "artifacts/review/last-review-report.md"
     }
     assert seed_values["state__latest_findings__items_path"]["source"] == {
         "literal": "artifacts/work/review-findings-seed.json"
     }
-    review_inputs = list(review_workflow.authored_mapping["inputs"])
-    fix_inputs = list(fix_workflow.authored_mapping["inputs"])
-    assert review_inputs[:3] == [
-        "completed__execution_report_path",
-        "inputs__design_review_prompt",
-        "inputs__fix_plan_prompt",
+    prompt_values = {
+        value["name"]: value
+        for value in review_prompt_step["materialize_artifacts"]["values"]
+    }
+    assert list(prompt_values) == [
+        "execution_report_path",
+        "design_review_prompt",
+        "fix_plan_prompt",
     ]
-    assert len(review_inputs) == 7
-    assert all(name.startswith("__write_root__") for name in review_inputs[3:])
-    assert fix_inputs[:4] == [
-        "completed__execution_report_path",
-        "inputs__design_review_prompt",
-        "inputs__fix_plan_prompt",
-        "review_report",
+    assert review_step["prompt_consumes"] == [
+        "execution_report_path",
+        "design_review_prompt",
+        "fix_plan_prompt",
     ]
-    assert fix_inputs[4:6] == [
-        "findings__schema_version",
-        "findings__items_path",
-    ]
-    assert len(fix_inputs) == 7
-    assert fix_inputs[6].startswith("__write_root__")
-    assert "consumes" not in review_step
-    assert "prompt_consumes" not in review_step
-    assert "consumes" not in fix_step
-    assert "prompt_consumes" not in fix_step
+    assert [item["artifact"] for item in review_step["consumes"]] == review_step["prompt_consumes"]
+    assert "prompt_consumes" in fix_step
+    assert "consumes" in fix_step
 
 
 def test_review_loop_seed_state_does_not_reuse_initial_report_as_findings_path(tmp_path: Path) -> None:
@@ -1301,7 +1283,11 @@ def test_review_loop_seed_state_does_not_reuse_initial_report_as_findings_path(t
 def test_review_loop_seed_state_uses_placeholder_for_noncanonical_completed_report_field(tmp_path: Path) -> None:
     path = _rewrite_fixture(
         VALID_REVIEW_LOOP_FIXTURE,
-        replacements=(("(execution_report_path WorkReport)", "(summary_report WorkReport)"),),
+        replacements=(
+            ("(execution_report_path WorkReport)", "(summary_report WorkReport)"),
+            ("completed.execution_report_path", "completed.summary_report"),
+            ("completed.execution_report_path", "completed.summary_report"),
+        ),
         tmp_path=tmp_path,
         filename="phase_stdlib_review_loop.orc",
     )
@@ -1328,7 +1314,11 @@ def test_review_loop_seed_state_uses_review_report_placeholder_for_noncanonical_
 ) -> None:
     path = _rewrite_fixture(
         VALID_REVIEW_LOOP_FIXTURE,
-        replacements=(("(execution_report_path WorkReport)", "(summary_report WorkReport)"),),
+        replacements=(
+            ("(execution_report_path WorkReport)", "(summary_report WorkReport)"),
+            ("completed.execution_report_path", "completed.summary_report"),
+            ("completed.execution_report_path", "completed.summary_report"),
+        ),
         tmp_path=tmp_path,
         filename="phase_stdlib_review_loop.orc",
     )
@@ -1387,11 +1377,11 @@ def test_review_loop_valid_fixture_preserves_review_report_and_findings_roots(tm
 
     assert outputs["return__review_report"]["under"] == "artifacts/review"
     assert outputs["return__last_review_report"]["under"] == "artifacts/review"
-    assert outputs["return__progress_report"]["under"] == "artifacts/work"
+    assert "return__progress_report" not in outputs
     assert outputs["return__findings__items_path"]["under"] == "artifacts/work"
 
 
-def test_review_loop_bridge_still_populates_loop_recur_on_exhausted_result_expr(
+def test_review_loop_direct_route_populates_loop_recur_on_exhausted_result_expr(
     tmp_path: Path,
 ) -> None:
     result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
@@ -1406,7 +1396,7 @@ def test_review_loop_bridge_still_populates_loop_recur_on_exhausted_result_expr(
     assert loop_exprs
     assert loop_exprs[0].on_exhausted_result_expr is not None
     assert loop_exprs[0].on_exhausted_result_expr.span.start.path.endswith(
-        "phase_stdlib_review_loop.orc"
+        "orchestrator/workflow_lisp/stdlib_modules/std/phase.orc"
     )
 
 
@@ -3562,22 +3552,10 @@ def _module_top_level_names(source_path: Path) -> set[str]:
 def test_review_loop_owner_split_moves_stdlib_bridge_typing_out_of_typecheck_facade() -> None:
     package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
     stdlib_owner_path = package_dir / "phase_stdlib_typecheck.py"
-    owner_source = stdlib_owner_path.read_text(encoding="utf-8")
     dispatch_top_level_names = _module_top_level_names(package_dir / "typecheck_dispatch.py")
-    owner_top_level_names = _module_top_level_names(stdlib_owner_path)
     top_level_names = _typecheck_top_level_names()
 
-    assert stdlib_owner_path.is_file()
-    assert "typecheck_stdlib_specialization_expr" in owner_source
-    assert {
-        "_phase_review_loop_result_contract_impl",
-        "_phase_review_loop_typecheck_impl",
-        "_specialize_phase_review_loop_request",
-        "_review_loop_generated_prefix",
-        "_review_loop_generated_procedure_name",
-        "_generated_expr_span",
-        "_initial_review_loop_report_expr",
-    } <= owner_top_level_names
+    assert not stdlib_owner_path.exists()
     assert "_typecheck_stdlib_specialization_expr" not in top_level_names
     assert "_validate_review_loop_result_contract" not in top_level_names
     assert dispatch_top_level_names.isdisjoint(

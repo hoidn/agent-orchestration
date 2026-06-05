@@ -135,9 +135,17 @@ def test_review_revise_loop_not_reserved_core_macro_name() -> None:
     bridge = registry.get_form_spec("__stdlib-specialization__")
 
     assert "review-revise-loop" not in reserved
-    assert "__stdlib-specialization__" in reserved
+    assert "__stdlib-specialization__" not in reserved
     assert review_loop is not None and review_loop.macro_bindable is True
-    assert bridge is not None and bridge.macro_bindable is False
+    assert bridge is None
+
+
+def test_form_registry_does_not_publish_review_loop_bridge_metadata() -> None:
+    registry_path = Path(importlib.import_module("orchestrator.workflow_lisp.form_registry").__file__)
+    source = registry_path.read_text(encoding="utf-8")
+
+    assert "__stdlib-specialization__" not in source
+    assert "phase-review-loop" not in source
 
 
 def test_compile_stage1_reports_macro_expansion_cycles() -> None:

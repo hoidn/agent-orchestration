@@ -36,7 +36,6 @@ from .expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
-    StdlibSpecializationExpr,
     UnionVariantExpr,
     WithPhaseExpr,
     elaborate_expression,
@@ -747,8 +746,6 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "run-provider-phase"
     if isinstance(expr, ProduceOneOfExpr):
         return "produce-one-of"
-    if isinstance(expr, StdlibSpecializationExpr):
-        return "review-revise-loop"
     if isinstance(expr, ResumeOrStartExpr):
         return "resume-or-start"
     if isinstance(expr, ResourceTransitionExpr):

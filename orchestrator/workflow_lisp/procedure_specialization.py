@@ -719,12 +719,29 @@ def specialize_typed_procedure(
     origin_form_path: tuple[str, ...] | None = None,
     defer_lowering_resolution: bool = False,
 ) -> TypedProcedureDef:
+    existing_specialization = getattr(procedure, "specialization", None)
+    merged_type_bindings = {
+        **dict(getattr(existing_specialization, "type_bindings", {})),
+        **dict(type_bindings or {}),
+    }
+    merged_workflow_ref_bindings = {
+        **dict(getattr(existing_specialization, "workflow_ref_bindings", {})),
+        **dict(workflow_ref_bindings or {}),
+    }
+    merged_proc_ref_bindings = {
+        **dict(getattr(existing_specialization, "proc_ref_bindings", {})),
+        **dict(proc_ref_bindings or {}),
+    }
+    merged_value_bindings = {
+        **dict(getattr(existing_specialization, "value_bindings", {})),
+        **dict(value_bindings or {}),
+    }
     request = ProcedureSpecializationRequest(
         procedure=procedure,
-        type_bindings=dict(type_bindings or {}),
-        workflow_ref_bindings=dict(workflow_ref_bindings or {}),
-        proc_ref_bindings=dict(proc_ref_bindings or {}),
-        value_bindings=dict(value_bindings or {}),
+        type_bindings=merged_type_bindings,
+        workflow_ref_bindings=merged_workflow_ref_bindings,
+        proc_ref_bindings=merged_proc_ref_bindings,
+        value_bindings=merged_value_bindings,
         shared_union_field_capabilities=shared_union_field_capabilities,
         remaining_params=remaining_params,
         workflow_path=workflow_path,
@@ -767,7 +784,7 @@ def specialize_typed_procedure(
         dict(request.type_bindings),
     )
     specialization = ProcedureCallableSpecialization(
-        base_name=request.procedure.signature.name,
+        base_name=getattr(existing_specialization, "base_name", request.procedure.signature.name),
         specialization_key=specialized_name,
         type_bindings=request.type_bindings,
         workflow_ref_bindings=request.workflow_ref_bindings,

@@ -210,10 +210,14 @@ def _signature_local_values(typed_workflow: Any) -> dict[str, Any]:
 def _procedure_signature_local_type_bindings(procedure: TypedProcedureDef) -> dict[str, TypeRef]:
     """Seed local type bindings from a private workflow procedure signature."""
 
-    return {
+    local_type_bindings = {
         param_name: param_type
         for param_name, param_type in procedure.signature.params
     }
+    specialization = getattr(procedure, "specialization", None)
+    if specialization is not None:
+        local_type_bindings.update(dict(getattr(specialization, "bound_param_types", {})))
+    return local_type_bindings
 
 
 def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:

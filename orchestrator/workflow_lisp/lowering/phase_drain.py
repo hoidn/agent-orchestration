@@ -45,7 +45,6 @@ from ..expressions import (
     WithPhaseExpr,
 )
 from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
-from ..phase_stdlib import is_review_loop_request_kind
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourceSpan

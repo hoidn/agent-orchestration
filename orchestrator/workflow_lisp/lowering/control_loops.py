@@ -1053,9 +1053,12 @@ def _loop_projection_materialize_values(
 
     values: list[dict[str, Any]] = []
     if active_variant_name is not None and projection.union_projection is not None:
+        projected_variant_name = (
+            expr.variant_name if isinstance(expr, UnionVariantExpr) else active_variant_name
+        )
         active_variant_fields = {
             field.generated_name
-            for field in projection.union_projection.variant_fields.get(active_variant_name, ())
+            for field in projection.union_projection.variant_fields.get(projected_variant_name, ())
         }
         shared_field_names = {
             field.generated_name for field in projection.union_projection.shared_fields
@@ -1072,7 +1075,7 @@ def _loop_projection_materialize_values(
                         _origin_from_context_source(context, field_origin),
                     )
             if field.generated_name == discriminant_name:
-                source: dict[str, Any] = {"literal": active_variant_name}
+                source: dict[str, Any] = {"literal": projected_variant_name}
             elif field.generated_name in shared_field_names or field.generated_name in active_variant_fields:
                 current_value = current_value_for(relative_path)
                 if isinstance(current_value, LiteralExpr):

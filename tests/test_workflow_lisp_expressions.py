@@ -36,7 +36,6 @@ from orchestrator.workflow_lisp.expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
-    StdlibSpecializationExpr,
     UnionVariantExpr,
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
@@ -524,10 +523,12 @@ def test_no_review_loop_expr_in_core_ast_union() -> None:
     assert "ReviewReviseLoopExpr" not in expr_names
     assert not hasattr(expressions, "ReviewReviseLoopExpr")
     assert "class ReviewReviseLoopExpr" not in source
-    assert "StdlibSpecializationExpr" in expr_names
+    assert "StdlibSpecializationExpr" not in expr_names
+    assert not hasattr(expressions, "StdlibSpecializationExpr")
+    assert "class StdlibSpecializationExpr" not in source
 
 
-def test_review_revise_loop_not_elaborated_by_head_name() -> None:
+def test_review_revise_loop_registry_owns_only_public_macro_surface() -> None:
     registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
     expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
 
@@ -536,10 +537,10 @@ def test_review_revise_loop_not_elaborated_by_head_name() -> None:
     handlers = expressions._elaboration_route_handlers()
 
     assert review_loop is not None and review_loop.elaboration_route is None
-    assert bridge is not None and bridge.elaboration_route == "stdlib_specialization"
+    assert bridge is None
     assert "review-revise-loop" not in handlers
     assert "__stdlib-specialization__" not in handlers
-    assert "stdlib_specialization" in handlers
+    assert "stdlib_specialization" not in handlers
 
 
 def test_expression_traversal_module_exports_locked_surface() -> None:
@@ -596,7 +597,6 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         LoopRecurExpr,
         RunProviderPhaseExpr,
         ProduceOneOfExpr,
-        StdlibSpecializationExpr,
         ResumeOrStartExpr,
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,

@@ -46,14 +46,18 @@ from .expression_traversal import walk_expr
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
 from .effects import EffectSummary, ProcedureCallEdge, merge_effect_summaries
 from .expressions import (
+    CommandResultExpr,
+    ContinueExpr,
+    DoneExpr,
     LetStarExpr,
+    LoopRecurExpr,
     MatchExpr,
+    ProcedureCallExpr,
     ResumeOrStartExpr,
-    StdlibSpecializationExpr,
     WithPhaseExpr,
     elaborate_expression,
 )
-from .form_registry import head_has_feature_tag, stdlib_request_kind_has_feature
+from .form_registry import head_has_feature_tag
 from .functions import (
     FunctionCatalog,
     FunctionDef,
@@ -84,10 +88,6 @@ from .modules import (
     derive_export_surface,
     imported_macro_catalog,
     resolve_module_graph,
-)
-from .phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-    ReviewLoopLegacyBridgePolicy,
 )
 from .procedures import (
     ProcedureCatalog,
@@ -321,7 +321,6 @@ def compile_stage3_entrypoint(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -341,7 +340,6 @@ def compile_stage3_entrypoint(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -366,7 +364,6 @@ def compile_stage3_module(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
@@ -380,7 +377,6 @@ def compile_stage3_module(
             validate_shared=validate_shared,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         return linked.entry_result
 
@@ -393,7 +389,6 @@ def compile_stage3_module(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -599,7 +594,6 @@ def _run_stage3_entrypoint_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     graph = resolve_module_graph(path, source_roots=source_roots)
     compile_result: LinkedStage3CompileResult | None = None
@@ -616,7 +610,6 @@ def _run_stage3_entrypoint_validation_pipeline(
             validate_shared=False,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
         return replace(
@@ -747,7 +740,6 @@ def _run_stage3_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
@@ -835,7 +827,6 @@ def _run_stage3_validation_pipeline(
                     local_raw_names=frozenset(procedure.name for procedure in procedure_defs),
                 ),
                 reusable_state_producer_context=reusable_state_producer_context,
-                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
         )
         typed_functions_by_name = {
@@ -887,7 +878,6 @@ def _run_stage3_validation_pipeline(
             extern_environment=state.extern_environment,
             command_boundary_environment=state.command_boundary_environment,
             type_env=state.type_env,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         return replace(state, lowered_workflows=lowered_workflows)
 
@@ -1266,7 +1256,6 @@ def _compile_stage3_graph(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -1512,7 +1501,6 @@ def _compile_stage3_graph(
                 visible_procedure_names_by_module=visible_procedure_names_by_module,
             ),
             reusable_state_producer_context=reusable_state_producer_context,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         typed_procedures = tuple(
             replace(
@@ -1548,7 +1536,6 @@ def _compile_stage3_graph(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         requires_internal_bundle_validation = (
             not validate_shared
@@ -1707,6 +1694,14 @@ def _imported_type_refs(
 ) -> dict[str, TypeRef]:
     """Collect concrete type refs made visible by the import scope."""
 
+    def _canonicalize_type_ref(type_ref: TypeRef, canonical_name: str) -> TypeRef:
+        if getattr(type_ref, "name", None) == canonical_name:
+            return type_ref
+        try:
+            return replace(type_ref, name=canonical_name)
+        except TypeError:
+            return type_ref
+
     imported: dict[str, TypeRef] = {}
     seen_bindings = {
         **dict(import_scope.type_bindings),
@@ -1715,7 +1710,7 @@ def _imported_type_refs(
     for binding in seen_bindings.values():
         type_ref = exported_type_refs_by_module.get(binding.module_name, {}).get(binding.member_name)
         if type_ref is not None:
-            imported[binding.canonical_name] = type_ref
+            imported[binding.canonical_name] = _canonicalize_type_ref(type_ref, binding.canonical_name)
     return imported
 
 
@@ -2112,22 +2107,37 @@ def _workflow_contains_review_revise_loop(expr) -> bool:
         head_name = syntax_head_name(expr)
         if head_name is not None and head_has_feature_tag(head_name, "review_loop_public_surface"):
             return True
-        if head_name is not None and head_has_feature_tag(head_name, "review_loop_compat_bridge"):
-            items = expr.items
-            request_kind = (
-                syntax_identifier(items[1]).resolved_name
-                if len(items) >= 2 and syntax_identifier(items[1]) is not None
+        if head_name is not None and head_name.endswith("/review-revise-loop-proc"):
+            return True
+        if head_name == "command-result":
+            binding_name = (
+                syntax_identifier(expr.items[1]).resolved_name
+                if len(expr.items) >= 2 and syntax_identifier(expr.items[1]) is not None
                 else None
             )
-            if request_kind is not None and stdlib_request_kind_has_feature(
-                request_kind,
-                "review_loop_compat_bridge",
-            ):
+            if binding_name == "validate_review_findings_v1":
                 return True
         return any(_workflow_contains_review_revise_loop(item) for item in expr.items)
-    if isinstance(expr, StdlibSpecializationExpr):
-        if stdlib_request_kind_has_feature(expr.request_kind, "review_loop_compat_bridge"):
-            return True
+    if isinstance(expr, CommandResultExpr):
+        return expr.binding_name == "validate_review_findings_v1"
+    if isinstance(expr, ProcedureCallExpr):
+        return expr.callee_name.endswith("::review-revise-loop-proc") or any(
+            _workflow_contains_review_revise_loop(arg) for arg in expr.args
+        )
+    if isinstance(expr, ContinueExpr):
+        return _workflow_contains_review_revise_loop(expr.state_expr)
+    if isinstance(expr, DoneExpr):
+        return _workflow_contains_review_revise_loop(expr.result_expr)
+    if isinstance(expr, LoopRecurExpr):
+        return (
+            _workflow_contains_review_revise_loop(expr.max_iterations_expr)
+            or _workflow_contains_review_revise_loop(expr.initial_state_expr)
+            or _workflow_contains_review_revise_loop(expr.body_expr)
+            or (
+                expr.on_exhausted_result_expr is not None
+                and _workflow_contains_review_revise_loop(expr.on_exhausted_result_expr)
+            )
+        )
     if isinstance(expr, LetStarExpr):
         return any(_workflow_contains_review_revise_loop(binding_expr) for _, binding_expr in expr.bindings) or _workflow_contains_review_revise_loop(expr.body)
     if isinstance(expr, MatchExpr):
@@ -2650,7 +2660,6 @@ def _typecheck_procedure_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[TypedProcedureDef, ...]:
     from .procedure_typecheck import typecheck_procedure_definitions
 
@@ -2668,7 +2677,6 @@ def _typecheck_procedure_definitions(
         procedure_name_resolver=procedure_name_resolver,
         workflow_name_resolver=workflow_name_resolver,
         proc_ref_resolution_context=proc_ref_resolution_context,
-        review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
     )
 
 
@@ -2736,7 +2744,6 @@ def _infer_stage3_effect_summaries(
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
@@ -2774,7 +2781,6 @@ def _infer_stage3_effect_summaries(
                 procedure_name_resolver=procedure_name_resolver,
                 workflow_name_resolver=workflow_name_resolver,
                 proc_ref_resolution_context=proc_ref_resolution_context,
-                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
             generated_from_procedures = {
                 procedure.definition.name: procedure
@@ -2854,7 +2860,6 @@ def _infer_stage3_effect_summaries(
                 workflow_name_resolver=workflow_name_resolver,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 reusable_state_producer_context=reusable_state_producer_context,
-                review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
             )
             generated_from_workflows = {
                 procedure.definition.name: procedure
@@ -2947,7 +2952,6 @@ def _infer_stage3_effect_summaries(
             workflow_name_resolver=workflow_name_resolver,
             proc_ref_resolution_context=proc_ref_resolution_context,
             reusable_state_producer_context=reusable_state_producer_context,
-            review_loop_legacy_bridge_policy=review_loop_legacy_bridge_policy,
         )
         generated_from_workflows = {
             procedure.definition.name: procedure

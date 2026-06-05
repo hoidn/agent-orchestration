@@ -8,7 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
-from .type_env import PrimitiveTypeRef, ProcRefTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
+from .type_env import (
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PrimitiveTypeRef,
+    ProcRefTypeRef,
+    RecordTypeRef,
+    TypeParamRef,
+    TypeRef,
+    UnionTypeRef,
+    WorkflowRefTypeRef,
+)
 
 if TYPE_CHECKING:
     from .contracts import FlattenedContractField, UnionWorkflowBoundaryProjection
@@ -99,6 +110,11 @@ def ensure_loop_projectable_type(
             span=span,
             form_path=form_path,
         )
+    if _contains_type_param_ref(type_ref):
+        # Generic procedures are typechecked before specialization requests are
+        # materialized. Defer loop-output projection validation until the
+        # monomorphic helper is re-typechecked with concrete bindings.
+        return
     try:
         project_loop_value(
             type_ref,
@@ -123,6 +139,32 @@ def ensure_loop_projectable_type(
             form_path=form_path,
             expansion_stack=diagnostic.expansion_stack,
         )
+
+
+def _contains_type_param_ref(type_ref: TypeRef) -> bool:
+    if isinstance(type_ref, TypeParamRef):
+        return True
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        return _contains_type_param_ref(type_ref.item_type_ref)
+    if isinstance(type_ref, MapTypeRef):
+        return _contains_type_param_ref(type_ref.key_type_ref) or _contains_type_param_ref(type_ref.value_type_ref)
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        return any(_contains_type_param_ref(param_type) for param_type in type_ref.param_type_refs) or _contains_type_param_ref(
+            type_ref.return_type_ref
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        return any(_contains_type_param_ref(param_type) for param_type in type_ref.param_type_refs) or _contains_type_param_ref(
+            type_ref.return_type_ref
+        )
+    if isinstance(type_ref, RecordTypeRef):
+        return any(_contains_type_param_ref(field_type) for field_type in type_ref.field_types.values())
+    if isinstance(type_ref, UnionTypeRef):
+        return any(
+            _contains_type_param_ref(field_type)
+            for field_types in type_ref.variant_field_types.values()
+            for field_type in field_types.values()
+        )
+    return False
 
 
 def project_loop_value(

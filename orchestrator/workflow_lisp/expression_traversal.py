@@ -35,7 +35,6 @@ from .expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
-    StdlibSpecializationExpr,
     UnionVariantExpr,
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
@@ -151,8 +150,6 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return (expr.ctx_expr, expr.inputs_expr, expr.provider, expr.prompt)
     if isinstance(expr, ProduceOneOfExpr):
         return (expr.ctx_expr,) + _produce_one_of_children(expr.producer, expr.candidates)
-    if isinstance(expr, StdlibSpecializationExpr):
-        return tuple(operand_expr for _, operand_expr in expr.expr_operands)
     if isinstance(expr, ResumeOrStartExpr):
         return (expr.ctx_expr, expr.resume_from_expr, expr.start_expr)
     if isinstance(expr, ResourceTransitionExpr):

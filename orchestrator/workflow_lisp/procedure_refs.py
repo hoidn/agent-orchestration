@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expressions import BindProcExpr, NameExpr, ProcRefLiteralExpr
-from .type_env import ProcRefTypeRef, TypeRef
+from .type_env import ProcRefTypeRef, TypeRef, type_refs_compatible
 
 if TYPE_CHECKING:
     from .modules import ModuleImportScope
@@ -155,7 +155,15 @@ def validate_proc_ref_signature(
     expansion_stack=(),
 ) -> None:
     actual_params = tuple(type_ref for _, type_ref in actual_signature.params)
-    if actual_params != expected.param_type_refs or actual_signature.return_type_ref != expected.return_type_ref:
+    params_match = len(actual_params) == len(expected.param_type_refs) and all(
+        type_refs_compatible(expected_param, actual_param)
+        for expected_param, actual_param in zip(
+            expected.param_type_refs,
+            actual_params,
+            strict=True,
+        )
+    )
+    if not params_match or not type_refs_compatible(expected.return_type_ref, actual_signature.return_type_ref):
         raise LispFrontendCompileError(
             (
                 LispFrontendDiagnostic(
@@ -179,7 +187,7 @@ def validate_proc_ref_value(
 ) -> None:
     if expected_type is None:
         return
-    if value.residual_type_ref != expected_type:
+    if not type_refs_compatible(expected_type, value.residual_type_ref):
         raise LispFrontendCompileError(
             (
                 LispFrontendDiagnostic(

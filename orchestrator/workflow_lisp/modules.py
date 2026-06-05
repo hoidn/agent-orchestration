@@ -105,6 +105,9 @@ class ModuleImportScope:
 
         if name in self.unqualified_type_bindings:
             return self.unqualified_type_bindings[name].canonical_name
+        self_prefix = f"{self.module_name}/"
+        if name.startswith(self_prefix):
+            return name[len(self_prefix) :]
         qualified = _resolve_qualified_binding(
             name,
             alias_to_module=self.alias_to_module,

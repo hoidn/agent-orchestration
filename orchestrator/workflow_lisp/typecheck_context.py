@@ -11,10 +11,6 @@ from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import ExprNode
 from .lints import required_lint_diagnostic
 from .loops import LoopControlTypeRef
-from .phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-    ReviewLoopLegacyBridgePolicy,
-)
 from .parametric_constraints import SharedUnionFieldCapability
 from .procedure_refs import ResolvedProcRefValue
 from .procedures import TypedProcedureDef
@@ -60,9 +56,6 @@ class TypecheckSessionState:
     workflow_signature: object | None = None
     reusable_state_producer_context: Mapping[str, object] | None = None
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = ()
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = (
-        DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
-    )
 
 
 @dataclass(frozen=True)
@@ -107,7 +100,6 @@ def snapshot_session_state() -> TypecheckSessionState:
             else dict(state.reusable_state_producer_context)
         ),
         shared_union_field_capabilities=tuple(state.shared_union_field_capabilities),
-        review_loop_legacy_bridge_policy=state.review_loop_legacy_bridge_policy,
     )
 
 
@@ -122,7 +114,6 @@ def restore_session_state(snapshot: TypecheckSessionState) -> None:
     state.workflow_signature = snapshot.workflow_signature
     state.reusable_state_producer_context = snapshot.reusable_state_producer_context
     state.shared_union_field_capabilities = tuple(snapshot.shared_union_field_capabilities)
-    state.review_loop_legacy_bridge_policy = snapshot.review_loop_legacy_bridge_policy
 
 
 def consume_generated_local_procedures() -> tuple[TypedProcedureDef, ...]:

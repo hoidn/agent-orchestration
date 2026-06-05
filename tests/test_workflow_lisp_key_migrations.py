@@ -1182,30 +1182,9 @@ def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imp
                     if isinstance(case, dict):
                         yield from _walk_steps(case.get("steps", []))
 
-    review_workflow = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if any(step.get("provider") == "fake-review" for step in workflow.authored_mapping["steps"])
-    )
-    fix_workflow = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if any(step.get("provider") == "fake-fix" for step in workflow.authored_mapping["steps"])
-    )
-    review_calls = [step for step in _walk_steps(body_steps) if step.get("call") == review_workflow.typed_workflow.definition.name]
-    fix_calls = [step for step in _walk_steps(body_steps) if step.get("call") == fix_workflow.typed_workflow.definition.name]
-    assert len(review_calls) == 1
-    assert len(fix_calls) == 1
-    assert any(
-        step.get("provider") == "fake-review"
-        for workflow in result.lowered_workflows
-        for step in workflow.authored_mapping["steps"]
-    )
-    assert any(
-        step.get("provider") == "fake-fix"
-        for workflow in result.lowered_workflows
-        for step in workflow.authored_mapping["steps"]
-    )
+    nested_steps = list(_walk_steps(body_steps))
+    assert any(step.get("provider") == "fake-review" for step in nested_steps)
+    assert any(step.get("provider") == "fake-fix" for step in nested_steps)
     assert authored["outputs"]["return__review_report"]["under"] == "artifacts/review"
     assert authored["outputs"]["return__last_review_report"]["under"] == "artifacts/review"
     assert authored["outputs"]["return__findings__items_path"]["under"] == "artifacts/work"
@@ -1362,6 +1341,7 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
                 bundle_path,
                 {
                     "variant": "REVISE",
+                    "review_report": "artifacts/review/review_round_1.md",
                     "revise_review_report": "artifacts/review/review_round_1.md",
                     "findings": {
                         "schema_version": "ReviewFindings.v1",
@@ -1377,7 +1357,7 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
         _write_bundle(
             bundle_path,
             {
-                "variant": "APPROVED",
+                "variant": "APPROVE",
                 "checks_report": "artifacts/work/checks_report.md",
                 "review_report": "artifacts/review/review_round_2.md",
                 "review_decision": "APPROVE",

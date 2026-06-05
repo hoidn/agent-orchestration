@@ -1,18 +1,11 @@
-"""Review-loop lowering ownership and promoted-route guards."""
+"""Phase/resource/drain lowering facade plus review-loop output helpers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
 from typing import Any
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from ..expressions import StdlibSpecializationExpr
-from ..phase_stdlib import (
-    ReviewLoopLegacyBridgePolicy,
-    REVIEW_LOOP_LEGACY_BRIDGE_POLICY_DENY,
-    is_review_loop_request_kind,
-)
 from ..type_env import UnionTypeRef
 from .phase_drain import _lower_backlog_drain as _phase_drain_lower
 from .phase_flow import (
@@ -25,45 +18,6 @@ from .phase_resource import (
     _lower_resource_transition as _phase_resource_lower_resource_transition,
 )
 from .phase_scope import _lower_with_phase as _phase_scope_lower_with_phase
-
-
-def _walk_nodes(node: object):
-    if is_dataclass(node):
-        yield node
-        for field in fields(node):
-            yield from _walk_nodes(getattr(node, field.name))
-        return
-    if isinstance(node, tuple | list):
-        for item in node:
-            yield from _walk_nodes(item)
-
-
-def assert_review_loop_special_lowerer_allowed(
-    *,
-    typed_workflows: tuple[object, ...],
-    typed_procedures: tuple[object, ...],
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy,
-) -> None:
-    """Fail closed if deny-mode lowering still sees the legacy review-loop bridge."""
-
-    if review_loop_legacy_bridge_policy != REVIEW_LOOP_LEGACY_BRIDGE_POLICY_DENY:
-        return
-    for owner in (*typed_workflows, *typed_procedures):
-        for node in _walk_nodes(owner):
-            if isinstance(node, StdlibSpecializationExpr) and is_review_loop_request_kind(node.request_kind):
-                raise LispFrontendCompileError(
-                    (
-                        LispFrontendDiagnostic(
-                            code="review_loop_special_lowerer_used",
-                            message=(
-                                "promoted mode cannot lower the legacy `review-revise-loop` compatibility bridge"
-                            ),
-                            span=node.span,
-                            form_path=node.form_path,
-                            expansion_stack=node.expansion_stack,
-                        ),
-                    )
-                )
 
 
 def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[str, Any]:

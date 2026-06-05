@@ -14,13 +14,9 @@ from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .form_registry import FormKind, get_form_spec
 from .phase_stdlib import (
-    DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
     ProduceOneOfCandidateFieldSpec,
     ProduceOneOfCandidateSpec,
     ProduceOneOfProducerSpec,
-    ReviewLoopLegacyBridgePolicy,
-    ensure_review_loop_legacy_bridge_allowed,
-    is_review_loop_request_kind,
 )
 from .procedures import ProcedureParam
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
@@ -412,18 +408,6 @@ class ProduceOneOfExpr:
 
 
 @dataclass(frozen=True)
-class StdlibSpecializationExpr:
-    """One compiler-private stdlib specialization request."""
-
-    request_kind: str
-    symbol_operands: tuple[tuple[str, str], ...]
-    expr_operands: tuple[tuple[str, "ExprNode"], ...]
-    span: SourceSpan
-    form_path: tuple[str, ...]
-    expansion_stack: ExpansionStack = ()
-
-
-@dataclass(frozen=True)
 class ResumeOrStartExpr:
     """One typed reusable-state gate around resume or fresh start."""
 
@@ -497,7 +481,6 @@ ExprNode = (
     | LoopRecurExpr
     | RunProviderPhaseExpr
     | ProduceOneOfExpr
-    | StdlibSpecializationExpr
     | ResumeOrStartExpr
     | ResourceTransitionExpr
     | FinalizeSelectedItemExpr
@@ -512,7 +495,6 @@ _ACTIVE_FUNCTION_NAMES = frozenset()
 _ACTIVE_LOCAL_PROC_NAMES = frozenset()
 _ACTIVE_LOOP_BODY_DEPTH = 0
 _ACTIVE_LET_PROC_DEPTH = 0
-_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
 
 _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str]],
@@ -529,12 +511,11 @@ def elaborate_expression(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
-    review_loop_legacy_bridge_policy: ReviewLoopLegacyBridgePolicy = DEFAULT_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
-    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH, _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH
 
     previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
     previous_function_names = _ACTIVE_FUNCTION_NAMES
@@ -542,14 +523,12 @@ def elaborate_expression(
     previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
     previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
     previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
-    previous_review_loop_policy = _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY
     _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
     _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
     _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
     _ACTIVE_LOCAL_PROC_NAMES = frozenset()
     _ACTIVE_LET_PROC_DEPTH = 0
-    _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = review_loop_legacy_bridge_policy
     try:
         return _elaborate(
             syntax_node_datum(node),
@@ -564,7 +543,6 @@ def elaborate_expression(
         _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
         _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
         _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
-        _ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY = previous_review_loop_policy
 
 
 def _elaborate(
@@ -849,6 +827,17 @@ def _route_phase_target(
     return _elaborate_phase_target(datum, form_path=form_path)
 
 
+def _route_generated_relpath_seed(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ExprNode:
+    del bound_names, procedure_names
+    return _elaborate_generated_relpath_seed(datum, form_path=form_path)
+
+
 def _route_workflow_ref(
     datum: SyntaxList,
     *,
@@ -886,6 +875,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "call": _elaborate_call,
         "with_phase": _elaborate_with_phase,
         "phase_target": _route_phase_target,
+        "generated_relpath_seed": _route_generated_relpath_seed,
         "workflow_ref": _route_workflow_ref,
         "proc_ref": _route_proc_ref,
         "bind_proc": _elaborate_bind_proc,
@@ -894,7 +884,6 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "command_result": _elaborate_command_result,
         "run_provider_phase": _elaborate_run_provider_phase,
         "produce_one_of": _elaborate_produce_one_of,
-        "stdlib_specialization": _elaborate_stdlib_specialization,
         "resume_or_start": _elaborate_resume_or_start,
         "resource_transition": _elaborate_resource_transition,
         "finalize_selected_item": _elaborate_finalize_selected_item,
@@ -2167,6 +2156,52 @@ def _elaborate_phase_target(
     )
 
 
+def _elaborate_generated_relpath_seed(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+) -> GeneratedRelpathSeedExpr:
+    if len(datum.items) != 4:
+        _raise_error(
+            "`__generated-relpath-seed__` requires a type name, literal path, and seed role",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    type_identifier = syntax_identifier(datum.items[1])
+    if type_identifier is None:
+        _raise_error(
+            "`__generated-relpath-seed__` type name must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    path_node = datum.items[2]
+    if not isinstance(path_node, SyntaxString):
+        _raise_error(
+            "`__generated-relpath-seed__` literal path must be a string",
+            span=datum.items[2].span,
+            form_path=form_path,
+            expansion_stack=datum.items[2].expansion_stack,
+        )
+    seed_role_node = datum.items[3]
+    if not isinstance(seed_role_node, SyntaxString):
+        _raise_error(
+            "`__generated-relpath-seed__` seed role must be a string",
+            span=datum.items[3].span,
+            form_path=form_path,
+            expansion_stack=datum.items[3].expansion_stack,
+        )
+    return GeneratedRelpathSeedExpr(
+        target_type_ref=type_identifier.resolved_name,
+        literal_path=path_node.value,
+        seed_role=seed_role_node.value,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
 def _elaborate_provider_result(
     datum: SyntaxList,
     *,
@@ -2431,191 +2466,6 @@ def _elaborate_produce_one_of(
                 procedure_names=procedure_names,
             )
             for candidate_node in candidates_node.items
-        ),
-        span=datum.span,
-        form_path=form_path,
-        expansion_stack=datum.expansion_stack,
-    )
-
-
-def _elaborate_stdlib_specialization(
-    datum: SyntaxList,
-    *,
-    form_path: tuple[str, ...],
-    bound_names: frozenset[str],
-    procedure_names: frozenset[str],
-) -> StdlibSpecializationExpr:
-    if len(datum.items) < 3:
-        _raise_error(
-            "`__stdlib-specialization__` requires a request kind and payload",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    request_kind = syntax_identifier(datum.items[1])
-    if request_kind is None:
-        _raise_error(
-            "`__stdlib-specialization__` request kind must be a symbol",
-            span=datum.items[1].span,
-            form_path=form_path,
-            expansion_stack=datum.items[1].expansion_stack,
-        )
-    if not is_review_loop_request_kind(request_kind.resolved_name):
-        _raise_error(
-            f"unknown stdlib specialization request `{request_kind.display_name}`",
-            span=datum.items[1].span,
-            form_path=form_path,
-            expansion_stack=datum.items[1].expansion_stack,
-        )
-    ensure_review_loop_legacy_bridge_allowed(
-        review_loop_legacy_bridge_policy=_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY,
-        request_kind=request_kind.resolved_name,
-        span=datum.span,
-        form_path=form_path,
-        expansion_stack=datum.expansion_stack,
-    )
-    return _elaborate_phase_review_loop_specialization(
-        datum,
-        request_kind=request_kind.resolved_name,
-        form_path=form_path,
-        bound_names=bound_names,
-        procedure_names=procedure_names,
-    )
-
-
-def _elaborate_phase_review_loop_specialization(
-    datum: SyntaxList,
-    *,
-    request_kind: str,
-    form_path: tuple[str, ...],
-    bound_names: frozenset[str],
-    procedure_names: frozenset[str],
-) -> StdlibSpecializationExpr:
-    if len(datum.items) < 10:
-        _raise_error(
-            "`review-revise-loop` requires a loop name plus :ctx, :completed, :inputs, provider, prompt, :max, and :returns",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    loop_identifier = syntax_identifier(datum.items[2])
-    if loop_identifier is None:
-        _raise_error(
-            "`review-revise-loop` loop name must be a symbol",
-            code="review_loop_result_contract_invalid",
-            span=datum.items[2].span,
-            form_path=form_path,
-            expansion_stack=datum.items[2].expansion_stack,
-        )
-    sections = _keyword_sections(datum.items[3:], form_path=form_path, label="`review-revise-loop`")
-    required = (
-        ":ctx",
-        ":completed",
-        ":inputs",
-        ":review-provider",
-        ":fix-provider",
-        ":review-prompt",
-        ":fix-prompt",
-        ":max",
-        ":returns",
-    )
-    missing = [keyword for keyword in required if sections.get(keyword) is None]
-    if missing:
-        _raise_error(
-            "`review-revise-loop` requires :ctx, :completed, :inputs, :review-provider, :fix-provider, :review-prompt, :fix-prompt, :max, and :returns",
-            code="review_loop_result_contract_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    returns_identifier = syntax_identifier(sections[":returns"])
-    if returns_identifier is None:
-        _raise_error(
-            "`review-revise-loop :returns` must be a symbol",
-            code="review_loop_result_contract_invalid",
-            span=sections[":returns"].span,
-            form_path=form_path,
-            expansion_stack=sections[":returns"].expansion_stack,
-        )
-    return StdlibSpecializationExpr(
-        request_kind=request_kind,
-        symbol_operands=(
-            ("loop-name", loop_identifier.resolved_name),
-            ("returns", returns_identifier.resolved_name),
-        ),
-        expr_operands=(
-            (
-                "ctx",
-                _elaborate(
-                    sections[":ctx"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "completed",
-                _elaborate(
-                    sections[":completed"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "inputs",
-                _elaborate(
-                    sections[":inputs"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "review-provider",
-                _elaborate(
-                    sections[":review-provider"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "fix-provider",
-                _elaborate(
-                    sections[":fix-provider"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "review-prompt",
-                _elaborate(
-                    sections[":review-prompt"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "fix-prompt",
-                _elaborate(
-                    sections[":fix-prompt"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
-            (
-                "max",
-                _elaborate(
-                    sections[":max"],
-                    form_path=form_path,
-                    bound_names=bound_names,
-                    procedure_names=procedure_names,
-                ),
-            ),
         ),
         span=datum.span,
         form_path=form_path,
