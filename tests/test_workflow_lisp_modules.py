@@ -277,6 +277,7 @@ def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib
     result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
 
     assert "review-revise-loop" in result.graph.export_surfaces_by_name["std/phase"].macros_by_name
+    assert "review-revise-loop-proc" in result.graph.export_surfaces_by_name["std/phase"].procedures_by_name
 
 
 def test_compile_stage1_entrypoint_rejects_project_local_stdlib_shadowing(tmp_path: Path) -> None:

@@ -2,6 +2,8 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule std/phase)
+  ; Keep the helper proc exported until imported macro expansion can resolve a
+  ; same-file proc reference without routing through the std/phase public surface.
   (export BlockerClass ReviewReportPath ReviewDecision ReviewFindingsJsonPath ReviewFindings ReviewLoopResult review-revise-loop review-revise-loop-proc)
   (defenum BlockerClass
     missing_resource

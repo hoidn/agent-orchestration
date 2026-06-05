@@ -1,4 +1,10 @@
-"""Phase/resource/drain lowering facade plus review-loop output helpers."""
+"""Phase/resource/drain lowering facade plus the residual review-loop quarantine.
+
+The remaining review-loop-specific ownership here is limited to shaping the
+typed union result contracts for the ordinary stdlib lowering route. Other
+lowering owner modules must not duplicate these helpers or reintroduce a hidden
+review-loop special lowerer.
+"""
 
 from __future__ import annotations
 

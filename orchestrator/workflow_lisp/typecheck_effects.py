@@ -306,23 +306,6 @@ def typecheck_command_result_expr(
     command_binding = None
     if context.command_boundary_environment is not None:
         command_binding = context.command_boundary_environment.bindings_by_name.get(expr.step_name)
-        if command_binding is None and expr.step_name == "validate_review_findings_v1":
-            command_binding = CertifiedAdapterBinding(
-                name="validate_review_findings_v1",
-                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
-                input_contract={"type": "object"},
-                output_type_name="ReviewFindings",
-                effects=("structured_result",),
-                path_safety={"kind": "workspace_relpath"},
-                source_map_behavior="step",
-                fixture_ids=("review_findings_valid",),
-                negative_fixture_ids=(
-                    "review_findings_wrong_schema_version",
-                    "review_findings_path_escape",
-                    "review_findings_pointer_authority_forbidden",
-                    "review_findings_bundle_schema_invalid",
-                ),
-            )
         if command_binding is None:
             compat._raise_error(
                 f"`command-result` `{expr.step_name}` is missing command boundary metadata",

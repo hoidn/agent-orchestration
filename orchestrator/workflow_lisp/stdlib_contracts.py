@@ -18,6 +18,7 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
 )
+from .workflows import CertifiedAdapterBinding
 
 
 @dataclass(frozen=True)
@@ -260,6 +261,41 @@ STDLIB_LOWERING_CONTRACTS: tuple[StdlibLoweringContract, ...] = (
         adapter_binding_names=(),
         test_surfaces=("tests.test_workflow_lisp_drain_stdlib",),
     ),
+)
+
+
+STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME: Mapping[str, CertifiedAdapterBinding] = MappingProxyType(
+    {
+        "validate_review_findings_v1": CertifiedAdapterBinding(
+            name="validate_review_findings_v1",
+            stable_command=(
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ),
+            input_contract={"type": "object"},
+            output_type_name="ReviewFindings",
+            effects=("structured_result",),
+            path_safety={"kind": "workspace_relpath"},
+            source_map_behavior="step",
+            fixture_ids=("review_findings_valid",),
+            negative_fixture_ids=(
+                "review_findings_wrong_schema_version",
+                "review_findings_path_escape",
+                "review_findings_pointer_authority_forbidden",
+                "review_findings_bundle_schema_invalid",
+            ),
+        ),
+    }
+)
+
+
+STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "review-revise-loop": ("validate_review_findings_v1",),
+        "review-revise-loop-proc": ("validate_review_findings_v1",),
+        "std/phase/review-revise-loop-proc": ("validate_review_findings_v1",),
+    }
 )
 
 STDLIB_LOWERING_CONTRACTS_BY_FORM: Mapping[str, StdlibLoweringContract] = MappingProxyType(

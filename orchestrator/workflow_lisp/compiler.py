@@ -57,7 +57,6 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
-from .form_registry import head_has_feature_tag
 from .functions import (
     FunctionCatalog,
     FunctionDef,
@@ -110,6 +109,10 @@ from .procedure_specialization import (
 from .reader import read_sexpr_file
 from .source_map import build_source_map_document
 from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
+from .stdlib_contracts import (
+    STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
+    STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES,
+)
 from .type_env import (
     PRELUDE_TYPE_NAMES,
     FrontendTypeEnvironment,
@@ -782,7 +785,7 @@ def _run_stage3_validation_pipeline(
         command_boundary_environment = _augment_resource_transition_command_boundaries(
             command_boundary_environment,
         )
-        command_boundary_environment = _augment_review_loop_command_boundaries(
+        command_boundary_environment = _augment_builtin_command_boundaries(
             command_boundary_environment,
             expressions=tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs),
@@ -1411,7 +1414,7 @@ def _compile_stage3_graph(
         command_boundary_environment = _augment_resource_transition_command_boundaries(
             command_boundary_environment,
         )
-        command_boundary_environment = _augment_review_loop_command_boundaries(
+        command_boundary_environment = _augment_builtin_command_boundaries(
             command_boundary_environment,
             expressions=tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs),
@@ -2047,35 +2050,69 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
     return build_command_boundary_environment(bindings)
 
 
-def _augment_review_loop_command_boundaries(
+def _augment_builtin_command_boundaries(
     command_boundary_environment,
     *,
     expressions,
 ):
-    """Register the built-in findings validator used by review-loop lowering."""
+    """Register built-in certified adapters required by elaborated command usage."""
 
     bindings = dict(command_boundary_environment.bindings_by_name)
-    if "validate_review_findings_v1" in bindings:
+    required_binding_names = {
+        binding_name
+        for root_expr in expressions
+        for binding_name in _builtin_command_binding_names_in_expr(root_expr)
+    }
+    if not required_binding_names:
         return command_boundary_environment
-    if not any(_workflow_contains_review_revise_loop(expr) for expr in expressions):
-        return command_boundary_environment
-    bindings["validate_review_findings_v1"] = CertifiedAdapterBinding(
-        name="validate_review_findings_v1",
-        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
-        input_contract={"type": "object"},
-        output_type_name="ReviewFindings",
-        effects=("structured_result",),
-        path_safety={"kind": "workspace_relpath"},
-        source_map_behavior="step",
-        fixture_ids=("review_findings_valid",),
-        negative_fixture_ids=(
-            "review_findings_wrong_schema_version",
-            "review_findings_path_escape",
-            "review_findings_pointer_authority_forbidden",
-            "review_findings_bundle_schema_invalid",
-        ),
+    missing_binding_names = tuple(
+        name for name in sorted(required_binding_names) if name not in bindings
     )
+    if not missing_binding_names:
+        return command_boundary_environment
+    for binding_name in missing_binding_names:
+        bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
     return build_command_boundary_environment(bindings)
+
+
+def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:
+    """Collect built-in certified adapter names referenced by command-result usage."""
+
+    if isinstance(expr, SyntaxNode):
+        return _builtin_command_binding_names_in_expr(syntax_node_datum(expr))
+    if isinstance(expr, SyntaxList):
+        binding_names = set()
+        head_name = syntax_head_name(expr)
+        if head_name in STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES:
+            binding_names.update(STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES[head_name])
+        if head_name == "command-result":
+            binding_identifier = (
+                syntax_identifier(expr.items[1])
+                if len(expr.items) >= 2
+                else None
+            )
+            if (
+                binding_identifier is not None
+                and binding_identifier.resolved_name in STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
+            ):
+                binding_names.add(binding_identifier.resolved_name)
+        for item in expr.items:
+            binding_names.update(_builtin_command_binding_names_in_expr(item))
+        return frozenset(binding_names)
+    if isinstance(expr, ProcedureCallExpr):
+        binding_names = set(
+            STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES.get(expr.callee_name, ())
+        )
+        return frozenset(binding_names)
+    try:
+        return frozenset(
+            node.step_name
+            for node in walk_expr(expr)
+            if isinstance(node, CommandResultExpr)
+            and node.step_name in STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
+        )
+    except TypeError:
+        return frozenset()
 
 
 def _workflow_contains_resume_or_start(expr) -> bool:
@@ -2095,57 +2132,6 @@ def _workflow_contains_resume_or_start(expr) -> bool:
         return _workflow_contains_resume_or_start(expr.subject) or any(_workflow_contains_resume_or_start(arm.body) for arm in expr.arms)
     if isinstance(expr, WithPhaseExpr):
         return _workflow_contains_resume_or_start(expr.body)
-    return False
-
-
-def _workflow_contains_review_revise_loop(expr) -> bool:
-    """Return whether an expression tree contains a `review-revise-loop` form."""
-
-    if isinstance(expr, SyntaxNode):
-        return _workflow_contains_review_revise_loop(syntax_node_datum(expr))
-    if isinstance(expr, SyntaxList):
-        head_name = syntax_head_name(expr)
-        if head_name is not None and head_has_feature_tag(head_name, "review_loop_public_surface"):
-            return True
-        if head_name is not None and head_name.endswith("/review-revise-loop-proc"):
-            return True
-        if head_name == "command-result":
-            binding_name = (
-                syntax_identifier(expr.items[1]).resolved_name
-                if len(expr.items) >= 2 and syntax_identifier(expr.items[1]) is not None
-                else None
-            )
-            if binding_name == "validate_review_findings_v1":
-                return True
-        return any(_workflow_contains_review_revise_loop(item) for item in expr.items)
-    if isinstance(expr, CommandResultExpr):
-        return expr.binding_name == "validate_review_findings_v1"
-    if isinstance(expr, ProcedureCallExpr):
-        return expr.callee_name.endswith("::review-revise-loop-proc") or any(
-            _workflow_contains_review_revise_loop(arg) for arg in expr.args
-        )
-    if isinstance(expr, ContinueExpr):
-        return _workflow_contains_review_revise_loop(expr.state_expr)
-    if isinstance(expr, DoneExpr):
-        return _workflow_contains_review_revise_loop(expr.result_expr)
-    if isinstance(expr, LoopRecurExpr):
-        return (
-            _workflow_contains_review_revise_loop(expr.max_iterations_expr)
-            or _workflow_contains_review_revise_loop(expr.initial_state_expr)
-            or _workflow_contains_review_revise_loop(expr.body_expr)
-            or (
-                expr.on_exhausted_result_expr is not None
-                and _workflow_contains_review_revise_loop(expr.on_exhausted_result_expr)
-            )
-        )
-    if isinstance(expr, LetStarExpr):
-        return any(_workflow_contains_review_revise_loop(binding_expr) for _, binding_expr in expr.bindings) or _workflow_contains_review_revise_loop(expr.body)
-    if isinstance(expr, MatchExpr):
-        return _workflow_contains_review_revise_loop(expr.subject) or any(
-            _workflow_contains_review_revise_loop(arm.body) for arm in expr.arms
-        )
-    if isinstance(expr, WithPhaseExpr):
-        return _workflow_contains_review_revise_loop(expr.body)
     return False
 
 

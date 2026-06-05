@@ -565,6 +565,25 @@ def test_lowering_split_owner_modules_receive_real_control_and_phase_implementat
     }
 
 
+def test_review_loop_lowering_quarantine_stays_in_phase_stdlib_owner_only() -> None:
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_stdlib"),
+        "review_loop_result_case_outputs",
+        "review_loop_result_output_contracts",
+    ) == {
+        "review_loop_result_case_outputs": 1,
+        "review_loop_result_output_contracts": 1,
+    }
+    assert _top_level_definition_counts(
+        _lowering_owner_source_path("phase_scope"),
+        "_review_loop_result_case_outputs",
+        "_review_loop_result_output_contracts",
+    ) == {
+        "_review_loop_result_case_outputs": 0,
+        "_review_loop_result_output_contracts": 0,
+    }
+
+
 def test_phase_scope_extern_owner_uses_shared_iter_child_exprs() -> None:
     source_path = _lowering_owner_source_path("phase_scope")
 

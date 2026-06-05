@@ -1700,44 +1700,6 @@ def _union_case_contract_definitions(
     return outputs
 
 
-def _review_loop_result_case_outputs(
-    type_ref: Any,
-    *,
-    variant_name: str,
-    source_step_name: str,
-    context: _LoweringContext,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> dict[str, Any]:
-    """Build branch outputs for one review-loop terminal variant."""
-
-    return review_loop_result_case_outputs_owner(
-        type_ref,
-        variant_name=variant_name,
-        source_step_name=source_step_name,
-        context=context,
-        span=span,
-        form_path=form_path,
-    )
-
-
-def _review_loop_result_output_contracts(
-    type_ref: Any,
-    *,
-    context: _LoweringContext,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-) -> dict[str, dict[str, Any]]:
-    """Build all flattened output contracts for a review-loop result union."""
-
-    return review_loop_result_output_contracts_owner(
-        type_ref,
-        context=context,
-        span=span,
-        form_path=form_path,
-    )
-
-
 def _union_output_contracts(
     type_ref: Any,
     *,
