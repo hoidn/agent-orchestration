@@ -221,9 +221,10 @@ The currently implemented authoring surface includes:
 - `phase-target`
 - `run-provider-phase`
 - `resume-or-start`
-- `review-revise-loop` as an implemented authoring surface; primary-migration
-  parity for this form is pending the ordinary stdlib/generic composition
-  lowering described in
+- `review-revise-loop` as an implemented authoring surface; the ordinary
+  imported stdlib lowering route exists in the current checkout, while
+  primary-migration parity evidence for each workflow family remains governed
+  by
   `docs/design/workflow_lisp_key_migration_parity_architecture.md`
 - `resource-transition` through the current library/certified-adapter path
 - `finalize-selected-item`
@@ -1108,11 +1109,11 @@ provide manual state paths.
 Use for bounded review/fix loops where the form's lowering contract is
 supported for the workflow's target.
 
-The current authoring surface supports review/fix loop examples and fixtures.
-Primary YAML-to-`.orc` migration is stricter: `review-revise-loop` is not
-promotion-ready until it lowers as ordinary stdlib/generic composition over
-compile-time review/fix `ProcRef` hooks, with the parity evidence required by
-`docs/design/workflow_lisp_key_migration_parity_architecture.md`.
+The current authoring surface supports review/fix loop examples and fixtures,
+and the current checkout lowers the form through the ordinary imported stdlib
+route over compile-time review/fix `ProcRef` hooks. Primary YAML-to-`.orc`
+migration is stricter: promotion still requires the parity evidence described
+by `docs/design/workflow_lisp_key_migration_parity_architecture.md`.
 
 The exact first-tranche `ReviewFindings`, `ReviewDecision`, and
 `ReviewLoopResult` schemas are owned by
@@ -1336,7 +1337,7 @@ Use high-level loop forms when the pattern is known.
 Prefer `review-revise-loop` for review/fix loops only when its current lowering
 contract is supported for the workflow's promotion target. For primary
 migrations, keep the characterized YAML primary or use an explicitly marked
-compatibility surface until the ordinary stdlib/generic composition route is
+compatibility surface until the required workflow-family parity evidence is
 proven. Prefer `backlog-drain` for select/run/gap/repeat. Use direct
 `loop/recur` only when the loop shape is genuinely novel.
 

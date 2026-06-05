@@ -42,7 +42,6 @@ reader.py
   -> typecheck_context.py / typecheck_dispatch.py
   -> typecheck_proofs.py / typecheck_effects.py / typecheck_calls.py
   -> procedure_typecheck.py
-  -> phase_stdlib_typecheck.py
   -> workflows.py / procedures.py
   -> procedure_specialization.py
   -> compiler.py
@@ -69,11 +68,13 @@ split generic lowering coordination from procedure-lowering ownership.
 - `workflows.py`: `defworkflow` definitions, call signatures, extern bindings,
   and command-boundary bindings.
 - `procedures.py`: `defproc` definitions and lowering policy.
+- `stdlib_modules/std/phase.orc`: imported phase stdlib module that owns the
+  public `review-revise-loop` protocol and body, including typed review
+  decisions, typed loop results, and the explicit
+  `validate_review_findings_v1` command boundary.
 - `procedure_typecheck.py`: procedure-call typing, generated helper procedure
   typing, and procedure-definition typing ownership behind the `typecheck.py`
   and `compiler.py` compatibility facades.
-- `phase_stdlib_typecheck.py`: owner seam for review-loop stdlib-bridge
-  typing and contract validation while that temporary bridge still exists.
 - `procedure_specialization.py`: compile-time ProcRef / WorkflowRef
   specialization discovery, request materialization, deterministic naming,
   private-workflow eligibility for specialized procedures, and
@@ -84,6 +85,9 @@ split generic lowering coordination from procedure-lowering ownership.
   dynamic dispatch are still unsupported.
 - `contracts.py`: conversion from frontend record/union types to runtime
   `output_bundle`, `variant_output`, input, and output contracts.
+- `stdlib_contracts.py`: compile-time lowering-contract inventory for supported
+  stdlib forms, including helper ownership and certified adapter bindings such
+  as `validate_review_findings_v1` for `review-revise-loop`.
 - `compiler.py`: compile-stage coordinator facade and compatibility surface for
   procedure typing/specialization entrypoints.
 - `typecheck.py`: stable compatibility facade for callers and tests. Keep
@@ -118,8 +122,9 @@ split generic lowering coordination from procedure-lowering ownership.
   and managed write-root helper ownership.
 - `lowering/effects.py`: primitive `provider-result` / `command-result`
   lowering ownership.
-- `lowering/phase_stdlib.py`: stable phase/resource/drain facade plus
-  review-loop bridge quarantine.
+- `lowering/phase_stdlib.py`: stable phase/resource/drain facade plus the
+  residual review-loop result-contract shaping helpers used by the ordinary
+  stdlib route.
 - `lowering/phase_scope.py`: `with-phase` scope and prompt-input prelude
   ownership.
 - `lowering/phase_flow.py`: `run-provider-phase`, `produce-one-of`, and

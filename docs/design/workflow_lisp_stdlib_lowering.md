@@ -19,12 +19,12 @@ Each standard-library form needs an exact generated-shape contract before it can
 be implemented or promoted.
 
 For the key-workflow migration tranche, `review-revise-loop` is not accepted as
-a compiler-special primitive. Its parity path is ordinary stdlib/generic
+a compiler-special primitive. Its implemented route is ordinary imported stdlib
 composition that emits the existing executable surfaces (`repeat_until`,
 structured provider results, `match`, projection/materialization, source maps,
-and resume-safe loop state). If implementation later proves that a
-review-loop-specific compiler branch is necessary, the migration architecture
-must be revised before primary promotion.
+and resume-safe loop state). If later work proves that a review-loop-specific
+compiler branch is necessary for another workflow family, the migration
+architecture must be revised before primary promotion.
 
 For review/fix loops, consumed evidence artifacts such as `checks_report` are
 loop inputs/consumes, not review-provider output fields. Generated review
@@ -33,13 +33,18 @@ actually produces that artifact. Route and final projection steps carry evidence
 refs from loop inputs/state, and negative validation should catch a lowering
 where provider output can replace consumed evidence identity.
 
-Current feasibility status: `review-revise-loop` is conditionally feasible as
-ordinary stdlib code, but not with the current checkout alone. See
-`docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`. The
-proof route is a stdlib `defproc` over compile-time `ProcRef` review/fix hooks,
-plus generic `loop/recur` exhaustion projection. The existing
-`ReviewReviseLoopExpr` lowerer remains a shape reference, not acceptance
-evidence for ordinary stdlib composition.
+Current checkout status: `review-revise-loop` already compiles through the
+ordinary imported stdlib route in `orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`.
+That route uses compile-time `ProcRef` review/fix hooks, generic
+`loop/recur` exhaustion projection, and explicit `command-result`
+validation through the certified `validate_review_findings_v1` adapter
+boundary. Promotion is still gated by workflow-family parity evidence rather
+than by a separate review-loop-specific compiler branch.
+
+Historical note: earlier bridge-era feasibility work used
+`ReviewReviseLoopExpr` as a shape reference while proving the route. That
+historical expression is not current-checkout acceptance evidence or a live
+owner seam for ordinary stdlib composition.
 
 ## Form Status
 
@@ -47,7 +52,7 @@ evidence for ordinary stdlib composition.
 | --- | --- | --- | --- |
 | `provider-result` | implemented authoring surface | pending parity evidence per workflow family | structured provider bundle contract |
 | `command-result` | implemented authoring surface | pending union/proof and bundle-path parity | `output_bundle` for fixed records; union results require a variant-proof surface or validator/projection |
-| `review-revise-loop` | implemented authoring surface for current fixtures/examples | pending | ordinary stdlib/generic composition over compile-time `ProcRef` review/fix hooks; no review-loop-specific compiler branch |
+| `review-revise-loop` | implemented authoring surface for current fixtures/examples | pending parity evidence per workflow family | ordinary imported stdlib composition over compile-time `ProcRef` review/fix hooks, generic `loop/recur`, and the explicit `validate_review_findings_v1` command boundary; no review-loop-specific compiler branch |
 | `resume-or-start` | library/adapter-backed or pending by usage | pending | requires canonical reusable-state validation |
 | `resource-transition` | library/adapter-backed by usage | pending promotion evidence where used | certified adapter or runtime-native effect |
 
