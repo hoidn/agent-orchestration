@@ -1421,19 +1421,23 @@ def test_authored_loop_state_review_findings_keeps_strict_relpath_contracts(
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule authored_loop_state_review_findings)",
-                "  (import std/phase :only (ReviewFindings))",
+                "  (import std/phase :only (ReviewFindings ReviewFindingsJsonPath))",
                 "  (defworkflow authored-loop-state-review-findings",
-                "    ((findings ReviewFindings))",
+                "    ((items_path ReviewFindingsJsonPath))",
                 "    -> ReviewFindings",
-                "    (loop/recur",
-                "      :max 2",
-                "      :state (loop-state",
-                "               (latest_findings ReviewFindings findings)",
-                "               (done Bool false))",
-                "      (fn (current)",
-                "        (if current.done",
-                "          (done current.latest_findings)",
-                "          (continue (loop-state :like current :done true)))))))",
+                "    (let* ((findings",
+                "             (record ReviewFindings",
+                '               :schema_version "ReviewFindings.v1"',
+                "               :items_path items_path)))",
+                "      (loop/recur",
+                "        :max 2",
+                "        :state (loop-state",
+                "                 (latest_findings ReviewFindings findings)",
+                "                 (done Bool false))",
+                "        (fn (current)",
+                "          (if current.done",
+                "            (done current.latest_findings)",
+                "            (continue (loop-state :like current :done true))))))))",
             ]
         )
         + "\n",
@@ -1446,10 +1450,19 @@ def test_authored_loop_state_review_findings_keeps_strict_relpath_contracts(
         if workflow.typed_workflow.definition.name.endswith("::authored-loop-state-review-findings")
     )
     authored = lowered.authored_mapping
+    seed_step = next(step for step in authored["steps"] if step["name"].endswith("__seed"))
     repeat_step = next(step for step in authored["steps"] if step["name"].endswith("__loop"))
+    seed_values = {
+        value["name"]: value
+        for value in seed_step["materialize_artifacts"]["values"]
+    }
     outputs = repeat_step["repeat_until"]["outputs"]
 
+    assert seed_values["state__latest_findings__schema_version"]["source"] == {"literal": "ReviewFindings.v1"}
+    assert seed_values["state__latest_findings__items_path"]["source"] == {"ref": "inputs.items_path"}
+    assert "state__latest_findings__schema_version" in outputs
     assert outputs["state__latest_findings__items_path"]["must_exist_target"] is True
+    assert outputs["state__latest_findings__items_path"]["under"] == "artifacts/work"
 
     current_state_step = next(
         step
@@ -1466,8 +1479,16 @@ def test_authored_loop_state_review_findings_keeps_strict_relpath_contracts(
         for value in carried_copy["materialize_artifacts"]["values"]
         if value["name"] == "state__latest_findings__items_path"
     )
+    carried_names = {
+        value["name"]
+        for value in carried_copy["materialize_artifacts"]["values"]
+    }
 
     assert carried_contract["must_exist_target"] is True
+    assert {
+        "state__latest_findings__schema_version",
+        "state__latest_findings__items_path",
+    } <= carried_names
     assert any(
         name.endswith("state__latest_findings__items_path")
         for name in lowered.origin_map.generated_path_spans

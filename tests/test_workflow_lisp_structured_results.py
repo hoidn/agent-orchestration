@@ -764,6 +764,29 @@ def test_review_findings_certified_adapter_rejects_pointer_authority_payload(
     assert '"review_findings_pointer_authority_forbidden"' in capsys.readouterr().out
 
 
+def test_review_findings_certified_adapter_rejects_missing_top_level_items(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.workflow_lisp.adapters import validate_review_findings_v1
+
+    findings_path = tmp_path / "artifacts" / "work" / "review_findings.json"
+    findings_path.parent.mkdir(parents=True, exist_ok=True)
+    findings_path.write_text('{"summary":"missing items"}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = validate_review_findings_v1.main(
+        [
+            "validate_review_findings_v1",
+            '{"schema_version":"ReviewFindings.v1","items_path":"artifacts/work/review_findings.json"}',
+        ]
+    )
+
+    assert exit_code == 1
+    assert '"review_findings_bundle_schema_invalid"' in capsys.readouterr().out
+
+
 def test_review_findings_certified_adapter_rejects_path_outside_artifacts_work(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

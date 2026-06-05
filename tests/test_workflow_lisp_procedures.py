@@ -3057,6 +3057,534 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         assert "%loop-state." not in payload
 
 
+def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without_runtime_leaks(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "imported_consumer"
+    _write_module(
+        source_root / "stdlib" / "types.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/types)",
+            "  (export WorkReport ReviewReportPath ReviewFindingsJsonPath ReviewFindings BlockerClass ReviewDecision ReviewReportResult ReviewLoopResult)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defpath ReviewReportPath",
+            "    :kind relpath",
+            '    :under "artifacts/review"',
+            "    :must-exist true)",
+            "  (defpath ReviewFindingsJsonPath",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ReviewFindings",
+            "    (schema_version String)",
+            "    (items_path ReviewFindingsJsonPath))",
+            "  (defenum BlockerClass",
+            "    missing_resource",
+            "    user_decision_required)",
+            "  (defrecord ReviewReportResult",
+            "    (report_path ReviewReportPath))",
+            "  (defunion ReviewDecision",
+            "    (APPROVE",
+                "      (review_report ReviewReportPath)",
+                "      (findings ReviewFindings))",
+            "    (REVISE",
+            "      (review_report ReviewReportPath)",
+            "      (findings ReviewFindings))",
+            "    (BLOCKED",
+            "      (review_report ReviewReportPath)",
+            "      (blocker_class BlockerClass)",
+            "      (findings ReviewFindings)))",
+            "  (defunion ReviewLoopResult",
+            "    (APPROVED",
+                "      (review_report ReviewReportPath)",
+                "      (findings ReviewFindings))",
+            "    (BLOCKED",
+            "      (review_report ReviewReportPath)",
+            "      (blocker_class BlockerClass)",
+            "      (findings ReviewFindings))",
+            "    (EXHAUSTED",
+            "      (last_review_report ReviewReportPath)",
+            "      (findings ReviewFindings)",
+            "      (reason String))))",
+        ],
+    )
+    _write_module(
+        source_root / "stdlib" / "review_loop_consumer.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/review_loop_consumer)",
+            "  (import stdlib/types :only (BlockerClass ReviewDecision ReviewReportPath ReviewFindings ReviewLoopResult))",
+            "  (export consume-review-loop)",
+            "  (defproc consume-review-loop",
+            "    :forall (CompletedT InputsT)",
+            "    ((completed CompletedT)",
+            "     (inputs InputsT)",
+            "     (initial_review_report ReviewReportPath)",
+            "     (initial_findings ReviewFindings)",
+            "     (review ProcRef[(CompletedT InputsT) -> ReviewDecision])",
+            "     (fix ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT])",
+            "     (max_iterations Int))",
+                "    :where ((CompletedT is-record)",
+                "            (InputsT is-record))",
+                "    -> ReviewLoopResult",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (loop/recur",
+                "      :max max_iterations",
+            "      :state (loop-state",
+            "               (completed CompletedT completed)",
+            "               (inputs InputsT inputs)",
+            "               (last_review_report ReviewReportPath initial_review_report)",
+            "               (latest_findings ReviewFindings initial_findings))",
+            "      :on-exhausted (variant ReviewLoopResult EXHAUSTED",
+            '                      :reason "max_iterations_reached"',
+            "                      :last_review_report state.last_review_report",
+            "                      :findings (record ReviewFindings",
+            "                                  :schema_version state.latest_findings.schema_version",
+            "                                  :items_path state.latest_findings.items_path))",
+            "      (fn (state)",
+                "        (let* ((review-decision",
+                "                 (review state.completed state.inputs)))",
+                "          (match review-decision",
+                "            ((APPROVE approved)",
+                "             (done",
+                "               (variant ReviewLoopResult APPROVED",
+                "                 :review_report approved.review_report",
+                    "                 :findings (record ReviewFindings",
+                    "                             :schema_version approved.findings.schema_version",
+                    "                             :items_path approved.findings.items_path))))",
+                    "            ((REVISE revised)",
+                    "             (let* ((fixed-completed",
+                    "                      (fix state.completed state.inputs revised.findings)))",
+                    "               (continue",
+                    "                 (loop-state :like state",
+                    "                   :completed fixed-completed",
+                    "                   :last_review_report revised.review_report",
+                    "                   :latest_findings revised.findings))))",
+                    "            ((BLOCKED blocked)",
+                "             (done",
+                "               (variant ReviewLoopResult BLOCKED",
+                "                 :review_report blocked.review_report",
+                "                 :blocker_class blocked.blocker_class",
+                "                 :findings (record ReviewFindings",
+                "                             :schema_version blocked.findings.schema_version",
+                "                             :items_path blocked.findings.items_path))))",
+                    "            ))))))",
+            ],
+        )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+                "  (import stdlib/types :only (BlockerClass WorkReport ReviewReportPath ReviewFindingsJsonPath ReviewFindings ReviewDecision ReviewReportResult ReviewLoopResult))",
+            "  (import stdlib/review_loop_consumer :as review-loop :only (consume-review-loop))",
+            "  (export orchestrate)",
+            "  (defrecord CompletedSurface",
+            "    (execution_report_path WorkReport))",
+            "  (defrecord InputsSurface",
+            "    (findings_path ReviewFindingsJsonPath))",
+                "  (defproc review-once",
+                "    ((completed CompletedSurface)",
+                "     (inputs InputsSurface))",
+                "    -> ReviewDecision",
+                "    :effects ((uses-provider providers.execute))",
+                "    :lowering inline",
+                "    (let* ((review-report",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (completed.execution_report_path inputs.findings_path)",
+                "               :returns ReviewReportResult)))",
+                "      (variant ReviewDecision REVISE",
+                "        :review_report review-report.report_path",
+                "        :findings (record ReviewFindings",
+                '                    :schema_version "ReviewFindings.v1"',
+                "                    :items_path inputs.findings_path))))",
+                "  (defproc fix-completed",
+                    "    ((completed CompletedSurface)",
+                    "     (inputs InputsSurface)",
+                    "     (findings ReviewFindings))",
+                    "    -> CompletedSurface",
+                    "    :effects ()",
+                    "    :lowering inline",
+                    "    (let* ((state",
+                    "             (loop-state",
+                    "               (completed CompletedSurface completed)",
+                    "               (inputs InputsSurface inputs)",
+                    "               (findings ReviewFindings findings)))",
+                    "           (updated",
+                    "             (loop-state :like state :completed completed)))",
+                    "      updated.completed))",
+            "  (defworkflow orchestrate",
+            "    ((completed CompletedSurface)",
+                "     (inputs InputsSurface)",
+                "     (initial_review_report ReviewReportPath))",
+                "    -> ReviewLoopResult",
+                "    (let* ((max_iterations 4)",
+                "           (initial_findings",
+                "             (record ReviewFindings",
+                '               :schema_version "ReviewFindings.v1"',
+                "               :items_path inputs.findings_path)))",
+            "      (review-loop.consume-review-loop",
+            "        completed",
+            "        inputs",
+            "        initial_review_report",
+            "        initial_findings",
+            "        (proc-ref review-once)",
+            "        (proc-ref fix-completed)",
+            "        max_iterations))))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    specialized = next(
+        procedure
+        for procedure in result.entry_result.typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "stdlib/review_loop_consumer::consume-review-loop"
+    )
+
+    assert all(type(param_type).__name__ != "TypeParamRef" for _, param_type in specialized.signature.params)
+    assert type(specialized.signature.return_type_ref).__name__ != "TypeParamRef"
+    assert UsesProviderEffect(subject=("providers", "execute")) in specialized.transitive_effect_summary.transitive_effects
+    assert (
+        [variant.name for variant in specialized.signature.return_type_ref.definition.variants]
+        == ["APPROVED", "BLOCKED", "EXHAUSTED"]
+    )
+
+    bundle = next(iter(result.validated_bundles_by_name.values()))
+    serialized_payloads = (
+        json.dumps(workflow_executable_ir_to_json(bundle.ir), sort_keys=True),
+        json.dumps(workflow_semantic_ir_to_json(bundle.semantic_ir), sort_keys=True),
+    )
+    for payload in serialized_payloads:
+        assert "TypeParamRef" not in payload
+        assert "ProcRef[" not in payload
+        assert "providers.execute" not in payload
+        assert "prompts.implementation.execute" not in payload
+        assert "%loop-state." not in payload
+        assert "procedure_call_unknown" not in payload
+        assert "type_unknown" not in payload
+        assert "loop_recur_state_type_invalid" not in payload
+
+    lowered = next(
+        workflow
+        for workflow in result.compiled_results_by_name["entry"].lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry::orchestrate"
+    )
+    authored_payload = json.dumps(lowered.authored_mapping, sort_keys=True)
+    assert "providers.execute" not in authored_payload
+    assert "prompts.implementation.execute" not in authored_payload
+    assert "`review`" not in authored_payload
+    assert "`fix`" not in authored_payload
+
+    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
+    outputs = repeat_step["repeat_until"]["outputs"]
+    on_exhausted = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+    assert repeat_step["repeat_until"]["max_iterations"] == 4
+    assert "state__latest_findings__schema_version" in outputs
+    assert "state__latest_findings__items_path" in outputs
+    assert outputs["state__latest_findings__items_path"]["under"] == "artifacts/work"
+    assert outputs["state__latest_findings__items_path"]["must_exist_target"] is True
+    assert on_exhausted["result__variant"] == "EXHAUSTED"
+    assert on_exhausted["result__reason"] == "max_iterations_reached"
+    assert "result__findings__schema_version" not in on_exhausted
+    assert "result__findings__items_path" not in on_exhausted
+    assert "result__review_report" not in on_exhausted
+    assert "result__last_review_report" not in on_exhausted
+
+    seed_step = next(step for step in lowered.authored_mapping["steps"] if step["name"].endswith("__seed"))
+    seed_values = {value["name"]: value for value in seed_step["materialize_artifacts"]["values"]}
+    assert seed_values["state__latest_findings__schema_version"]["source"] == {"literal": "ReviewFindings.v1"}
+    assert seed_values["state__latest_findings__items_path"]["source"] == {"ref": "inputs.inputs__findings_path"}
+
+    current_state_step = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step["name"].endswith("__body__state")
+    )
+    carried_copy = next(
+        nested_step
+        for nested_step in current_state_step["then"]["steps"]
+        if nested_step["name"].endswith("__use_carried_state")
+    )
+    carried_contracts = {
+        value["name"]: value["contract"]
+        for value in carried_copy["materialize_artifacts"]["values"]
+        if value["name"] in {"state__latest_findings__schema_version", "state__latest_findings__items_path"}
+    }
+    assert set(carried_contracts) == {
+        "state__latest_findings__schema_version",
+        "state__latest_findings__items_path",
+    }
+    assert carried_contracts["state__latest_findings__items_path"]["under"] == "artifacts/work"
+    assert carried_contracts["state__latest_findings__items_path"]["must_exist_target"] is True
+    review_decision_step = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step["name"].endswith("__body__review-decision__review_1")
+    )
+    review_decision_values = {
+        value["name"]: value["source"]
+        for value in review_decision_step["materialize_artifacts"]["values"]
+    }
+    assert review_decision_values["return__review_report"] == {
+        "ref": (
+            "self.steps."
+            f"{review_decision_step['name']}__review-report.artifacts.report_path"
+        )
+    }
+    assert '"APPROVED"' in authored_payload
+    assert '"BLOCKED"' in authored_payload
+    assert '"EXHAUSTED"' in authored_payload
+
+    origin_paths = {
+        origin.span.start.path
+        for mapping in (
+            lowered.origin_map.step_spans,
+            lowered.origin_map.generated_output_spans,
+            lowered.origin_map.generated_path_spans,
+        )
+        for origin in mapping.values()
+        if getattr(origin, "span", None) is not None
+    }
+    assert any(path.endswith("entry.orc") for path in origin_paths)
+    assert any(path.endswith("stdlib/review_loop_consumer.orc") for path in origin_paths)
+
+
+def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_schema_version_on_exhausted_state_projection(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = tmp_path / "imported_consumer_custom"
+    _write_module(
+        source_root / "stdlib" / "types.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/types)",
+            "  (export WorkReport ReviewReportPath ReviewFindingsJsonPath CustomFindings ReviewDecision ReviewReportResult ReviewLoopResult)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defpath ReviewReportPath",
+            "    :kind relpath",
+            '    :under "artifacts/review"',
+            "    :must-exist true)",
+            "  (defpath ReviewFindingsJsonPath",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord CustomFindings",
+            "    (schema_version String)",
+            "    (items_path ReviewFindingsJsonPath))",
+            "  (defrecord ReviewReportResult",
+            "    (report_path ReviewReportPath))",
+            "  (defunion ReviewDecision",
+            "    (APPROVE",
+            "      (review_report ReviewReportPath)",
+            "      (findings CustomFindings))",
+            "    (REVISE",
+            "      (review_report ReviewReportPath)",
+            "      (findings CustomFindings)))",
+            "  (defunion ReviewLoopResult",
+            "    (APPROVED",
+            "      (review_report ReviewReportPath)",
+            "      (findings CustomFindings))",
+            "    (EXHAUSTED",
+            "      (last_review_report ReviewReportPath)",
+            "      (findings CustomFindings)",
+            "      (reason String))))",
+        ],
+    )
+    _write_module(
+        source_root / "stdlib" / "review_loop_consumer.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule stdlib/review_loop_consumer)",
+            "  (import stdlib/types :only (ReviewDecision ReviewReportPath CustomFindings ReviewLoopResult))",
+            "  (export consume-review-loop)",
+            "  (defproc consume-review-loop",
+            "    :forall (CompletedT InputsT)",
+            "    ((completed CompletedT)",
+            "     (inputs InputsT)",
+            "     (initial_review_report ReviewReportPath)",
+            "     (initial_findings CustomFindings)",
+            "     (review ProcRef[(CompletedT InputsT) -> ReviewDecision])",
+            "     (fix ProcRef[(CompletedT InputsT CustomFindings) -> CompletedT])",
+            "     (max_iterations Int))",
+            "    :where ((CompletedT is-record)",
+            "            (InputsT is-record))",
+            "    -> ReviewLoopResult",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (loop/recur",
+            "      :max max_iterations",
+            "      :state (loop-state",
+            "               (completed CompletedT completed)",
+            "               (inputs InputsT inputs)",
+            "               (last_review_report ReviewReportPath initial_review_report)",
+            "               (latest_findings CustomFindings initial_findings))",
+            "      :on-exhausted (variant ReviewLoopResult EXHAUSTED",
+            '                      :reason "max_iterations_reached"',
+            "                      :last_review_report state.last_review_report",
+            "                      :findings (record CustomFindings",
+            "                                  :schema_version state.latest_findings.schema_version",
+            "                                  :items_path state.latest_findings.items_path))",
+            "      (fn (state)",
+            "        (let* ((review-decision",
+            "                 (review state.completed state.inputs)))",
+            "          (match review-decision",
+            "            ((APPROVE approved)",
+            "             (done",
+            "               (variant ReviewLoopResult APPROVED",
+            "                 :review_report approved.review_report",
+            "                 :findings (record CustomFindings",
+            "                             :schema_version approved.findings.schema_version",
+            "                             :items_path approved.findings.items_path))))",
+            "            ((REVISE revised)",
+            "             (let* ((fixed-completed",
+            "                      (fix state.completed state.inputs revised.findings)))",
+            "               (continue",
+            "                 (loop-state :like state",
+            "                   :completed fixed-completed",
+            "                   :last_review_report revised.review_report",
+            "                   :latest_findings revised.findings))))",
+            "            ))))))",
+        ],
+    )
+    entry_path = _write_module(
+        source_root / "entry.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule entry)",
+            "  (import stdlib/types :only (WorkReport ReviewReportPath ReviewFindingsJsonPath CustomFindings ReviewDecision ReviewReportResult ReviewLoopResult))",
+            "  (import stdlib/review_loop_consumer :as review-loop :only (consume-review-loop))",
+            "  (export orchestrate)",
+            "  (defrecord CompletedSurface",
+            "    (execution_report_path WorkReport))",
+            "  (defrecord InputsSurface",
+            "    (findings_path ReviewFindingsJsonPath))",
+            "  (defproc review-once",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface))",
+            "    -> ReviewDecision",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering inline",
+            "    (let* ((review-report",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.implementation.execute",
+            "               :inputs (completed.execution_report_path inputs.findings_path)",
+            "               :returns ReviewReportResult)))",
+            "      (variant ReviewDecision REVISE",
+            "        :review_report review-report.report_path",
+            "        :findings (record CustomFindings",
+            '                    :schema_version "Custom.v2"',
+            "                    :items_path inputs.findings_path))))",
+            "  (defproc fix-completed",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface)",
+            "     (findings CustomFindings))",
+            "    -> CompletedSurface",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let* ((state",
+            "             (loop-state",
+            "               (completed CompletedSurface completed)",
+            "               (inputs InputsSurface inputs)",
+            "               (findings CustomFindings findings)))",
+            "           (updated",
+            "             (loop-state :like state :completed completed)))",
+            "      updated.completed))",
+            "  (defworkflow orchestrate",
+            "    ((completed CompletedSurface)",
+            "     (inputs InputsSurface)",
+            "     (initial_review_report ReviewReportPath))",
+            "    -> ReviewLoopResult",
+            "    (let* ((max_iterations 4)",
+            "           (initial_findings",
+            "             (record CustomFindings",
+            '               :schema_version "Custom.v2"',
+            "               :items_path inputs.findings_path)))",
+            "      (review-loop.consume-review-loop",
+            "        completed",
+            "        inputs",
+            "        initial_review_report",
+            "        initial_findings",
+            "        (proc-ref review-once)",
+            "        (proc-ref fix-completed)",
+            "        max_iterations))))",
+        ],
+    )
+
+    result = compile_fn(
+        entry_path,
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.compiled_results_by_name["entry"].lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry::orchestrate"
+    )
+    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
+    on_exhausted = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+    result_step = next(
+        step for step in lowered.authored_mapping["steps"] if step["name"].endswith("__result")
+    )
+    exhausted_case = result_step["match"]["cases"]["EXHAUSTED"]
+
+    assert repeat_step["repeat_until"]["max_iterations"] == 4
+    assert on_exhausted["result__variant"] == "EXHAUSTED"
+    assert on_exhausted["result__reason"] == "max_iterations_reached"
+    assert "result__findings__schema_version" not in on_exhausted
+    assert "result__findings__items_path" not in on_exhausted
+    assert exhausted_case["outputs"]["return__findings__schema_version"]["from"] == {
+        "ref": f"root.steps.{repeat_step['name']}.artifacts.state__latest_findings__schema_version"
+    }
+    assert exhausted_case["outputs"]["return__findings__items_path"]["from"] == {
+        "ref": f"root.steps.{repeat_step['name']}.artifacts.state__latest_findings__items_path"
+    }
+
+
 def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_helper_call.orc",

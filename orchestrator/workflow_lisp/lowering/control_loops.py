@@ -1212,12 +1212,18 @@ def _loop_on_exhausted_outputs(
                     ),
                     span=field_expr.span,
                     form_path=field_expr.form_path,
-                )
+            )
             continue
         source = value["source"]
         if "literal" in source:
             outputs[value["name"]] = source["literal"]
         elif "ref" in source:
+            field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:])
+            if isinstance(result_type, UnionTypeRef) and _loop_on_exhausted_scalar_uses_loop_state(
+                field_expr,
+                loop_binding_name=loop_binding_name,
+            ):
+                continue
             outputs[value["name"]] = {"ref": source["ref"]}
         else:
             raise _compile_error(
@@ -1239,6 +1245,19 @@ def _loop_on_exhausted_expr_at_path(expr: Any, field_path: tuple[str, ...]) -> A
     if not field_path:
         return expr
     return None
+
+
+def _loop_on_exhausted_scalar_uses_loop_state(
+    field_expr: Any | None,
+    *,
+    loop_binding_name: str,
+) -> bool:
+    if not isinstance(field_expr, FieldAccessExpr):
+        return False
+    base = field_expr.base
+    while isinstance(base, FieldAccessExpr):
+        base = base.base
+    return isinstance(base, NameExpr) and base.name == loop_binding_name
 
 
 def _loop_on_exhausted_non_scalar_uses_loop_state(

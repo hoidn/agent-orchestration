@@ -564,6 +564,7 @@ def _lower_procedure_call_expr(
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
     )
     steps, terminal = _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)
+    _rewrite_nested_sibling_step_refs(steps)
     return _runtime_erasure_checked(steps, terminal, plan=plan)
 
 
@@ -605,6 +606,66 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
         effect_summary=procedure.transitive_effect_summary,
         specialization=procedure.specialization,
     )
+
+
+def _rewrite_nested_sibling_step_refs(steps: list[dict[str, Any]]) -> None:
+    """Rewrite nested sibling refs to `self.steps.*` inside inline procedure fragments."""
+
+    for step in steps:
+        for nested_steps in _iter_nested_step_lists(step):
+            _rewrite_step_list_refs_in_scope(nested_steps)
+
+
+def _rewrite_step_list_refs_in_scope(steps: list[dict[str, Any]]) -> None:
+    sibling_names = tuple(
+        step_name
+        for step in steps
+        for step_name in (step.get("name"),)
+        if isinstance(step_name, str)
+    )
+    for step in steps:
+        rewritten_step = _rewrite_refs_in_sibling_scope(step, sibling_names)
+        step.clear()
+        step.update(rewritten_step)
+        for nested_steps in _iter_nested_step_lists(step):
+            _rewrite_step_list_refs_in_scope(nested_steps)
+
+
+def _iter_nested_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str, Any]], ...]:
+    nested: list[list[dict[str, Any]]] = []
+    repeat_until = step.get("repeat_until")
+    if isinstance(repeat_until, Mapping) and isinstance(repeat_until.get("steps"), list):
+        nested.append(repeat_until["steps"])
+    for branch_name in ("then", "else"):
+        branch = step.get(branch_name)
+        if isinstance(branch, Mapping) and isinstance(branch.get("steps"), list):
+            nested.append(branch["steps"])
+    match = step.get("match")
+    if isinstance(match, Mapping):
+        for case in (match.get("cases") or {}).values():
+            if isinstance(case, Mapping) and isinstance(case.get("steps"), list):
+                nested.append(case["steps"])
+    return tuple(nested)
+
+
+def _rewrite_refs_in_sibling_scope(value: Any, sibling_names: tuple[str, ...]) -> Any:
+    if isinstance(value, str):
+        for step_name in sibling_names:
+            prefix = f"root.steps.{step_name}."
+            if value.startswith(prefix):
+                return "self.steps." + value.removeprefix("root.steps.")
+        return value
+    if isinstance(value, list):
+        return [_rewrite_refs_in_sibling_scope(item, sibling_names) for item in value]
+    if isinstance(value, Mapping):
+        rewritten: dict[Any, Any] = {}
+        for key, item in value.items():
+            if key == "steps" and isinstance(item, list):
+                rewritten[key] = item
+                continue
+            rewritten[key] = _rewrite_refs_in_sibling_scope(item, sibling_names)
+        return rewritten
+    return value
 
 
 def _procedure_provenance_notes(
