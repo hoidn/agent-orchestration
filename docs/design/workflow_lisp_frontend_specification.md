@@ -316,6 +316,21 @@ If a high-level frontend form cannot lower into these contracts, it is not
 implementation-ready. It should remain a design sketch or be backed by a
 clearly marked legacy adapter.
 
+Current review/revise stdlib status:
+
+- the promoted `review-revise-loop` route is stdlib-owned, not a
+  compiler-owned primitive;
+- generic `.orc` expansion, compile-time specialization, structural constraints,
+  authored loop exhaustion, parametric loop-state carriers, imported generic
+  loop-state consumers, and bridge-retirement checks are implemented for the
+  first review/revise tranche;
+- the old review-loop bridge path is retained only as compatibility or
+  historical migration context where explicitly marked;
+- first-tranche schema and lowering requirements are normative in this
+  specification; the companion review/revise integration design records the
+  migration rationale, prerequisite sequencing, optional extensions, and
+  historical design-gap trail.
+
 ```mermaid
 flowchart TD
     Start["Frontend form proposed"] --> Contracted{"Referenced component contracts specified?"}
@@ -649,6 +664,14 @@ path.execution-report
 
 The compiler must reject ambiguous unqualified names.
 
+Compiler-known list heads are classified through the form registry before
+elaboration. The registry distinguishes core special forms, core effect bridges,
+stdlib extensions, and temporary compiler intrinsics. A stdlib extension such as
+`review-revise-loop` must resolve through an imported stdlib binding or an
+allowed stdlib macro expansion before ordinary typechecking/lowering; promoted
+compilation must not silently elaborate it through a literal-name compiler
+branch.
+
 ## 7. Types
 
 The frontend has a static type system that maps to workflow contracts and
@@ -839,6 +862,53 @@ The accepted model is:
 Detailed contract:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
+### 7.9 Type Parameters And Structural Constraints
+
+Generic `.orc` procedures may declare compile-time type parameters. The
+first-tranche surface is intentionally monomorphized before Core AST lowering:
+each call site resolves every type parameter to one concrete type, checks any
+declared constraints, emits or reuses a deterministic specialization, and then
+typechecks/lowers the concrete helper through the ordinary path.
+
+Type parameters and compile-time references must not appear in:
+
+- Core Workflow AST;
+- Semantic IR;
+- Executable IR;
+- runtime state;
+- artifact contracts;
+- output bundles;
+- provider or command payloads.
+
+The implemented structural constraint family is the review/revise first
+tranche:
+
+```text
+T is-record
+T is-union
+T has-field name Type
+T has-union-variant VARIANT
+T has-union-variant VARIANT (field Type ...)
+T has-shared-union-field name Type
+P ProcRef[(A B ...) -> R]
+```
+
+Constraint checking is compile-time. Unsatisfied constraints fail before
+lowering. Variant-specific fields remain proof-gated after specialization:
+generic code still needs a proof-bearing `match` before accessing
+variant-specific fields.
+
+Specialization identity includes at least:
+
+- source module and definition name;
+- source definition digest;
+- concrete type argument identities;
+- compile-time ProcRef identities;
+- target DSL version;
+- language/compiler version;
+- generated-name schema version;
+- call-site identity when needed for source maps or generated path identity.
+
 ## 8. Definition Forms
 
 ### 8.1 `defschema`
@@ -1015,6 +1085,28 @@ It may lower by:
 - lowering to certified runtime effect
 
 The lowering choice must preserve source maps and effect transparency.
+
+Generic procedures may add a compile-time parameter header and structural
+constraint header before their ordinary argument list. Illustrative shape:
+
+```lisp
+(defproc helper
+  :forall (CompletedT InputsT ResultT)
+  :where
+    ((CompletedT is-record)
+     (InputsT is-record)
+     (ResultT has-union-variant APPROVED))
+  ((completed CompletedT)
+   (inputs InputsT))
+  -> ResultT
+  ...)
+```
+
+Generic `defproc` bodies are not runtime-generic. The compiler specializes them
+to concrete monomorphic helpers before ordinary typechecking, Core AST lowering,
+Semantic IR, Executable IR, and runtime execution. Runtime state must not carry
+type parameters, procedure values, provider refs, prompt refs, or closure
+environments.
 
 #### 8.8.1 Why `defproc` Exists
 
@@ -1245,6 +1337,22 @@ The compiler must preserve:
 
 General cross-iteration proof is not assumed.
 
+`loop/recur` may declare authored loop state and an explicit exhaustion
+projection. The first-tranche exhaustion surface lowers scalar loop-frame
+markers to `repeat_until.on_exhausted.outputs` and then constructs the final
+typed result from the last materialized loop-frame outputs.
+
+Required behavior:
+
+- exhausting `:max` after a completed iteration may produce a typed
+  non-completion result when an explicit `:on-exhausted` projection is present;
+- body failures, loop-output resolution failures, and predicate failures remain
+  ordinary failures, not exhaustion results;
+- direct non-scalar `on_exhausted` overrides are rejected;
+- imported generic `.orc` bodies may carry specialized loop-frame fields through
+  ordinary `loop/recur :state` only after specialization has erased type
+  parameters from the runtime-visible state contract.
+
 ## 14. Workflow Calls
 
 ```lisp
@@ -1337,6 +1445,13 @@ Expansion must make all effects visible in the semantic IR.
 No macro may emit hidden command/provider/state mutations without attaching them
 to the source form and effect graph.
 
+Imported `.orc` expansion follows the same rule. Effects introduced by imported
+stdlib definitions and by selected compile-time ProcRef bodies are part of the
+caller-visible effect summary. A stdlib helper that calls provider-result,
+command-result, or a ProcRef whose body uses provider/command effects must
+expose those effects to typechecking, Semantic IR, shared validation, runtime
+planning, and explain/debug output.
+
 ## 17. Artifact Authority
 
 An artifact value is authoritative.
@@ -1363,6 +1478,12 @@ But pointer files are never semantic authority.
 This follows the v2.14 pointer-authority model: artifact values are
 authoritative, pointer files are optional materialized representations, and
 published artifacts store values rather than pointer-file paths.
+
+For review/revise loops, review-provider output is decision evidence, not
+carried-artifact identity authority. Consumed evidence such as checks reports,
+progress reports, or prior execution reports must be carried by inputs or loop
+state. A review decision may judge that evidence, but it must not replace the
+authoritative path carried into the loop.
 
 ## 18. Reports Are Views, Not State
 
@@ -1747,17 +1868,8 @@ exhaustion schemas are owned by the stdlib definition; the language/compiler
 must provide the generic structured dataflow, effect visibility, source maps,
 and generated path handling needed to compile it like other `.orc` library code.
 
-Contract alignment note: the follow-on parametric route described in
-`workflow_lisp_review_revise_stdlib_parametric_integration.md`,
-`workflow_lisp_compile_time_parametric_specialization.md`, and
-`workflow_lisp_structural_parametric_constraints.md` supersedes the older
-provider/prompt-oriented placeholder surface for this section. Review/fix
-provider and prompt selection belong inside the caller-supplied procedures, not
-on the public `review-revise-loop` signature.
-
-This section is an umbrella summary only. The exact first-tranche
-`ReviewFinding`, `ReviewFindings`, `ReviewDecision`, and `ReviewLoopResult`
-schema is owned by `workflow_lisp_review_revise_stdlib_parametric_integration.md`.
+Review/fix provider and prompt selection belong inside the caller-supplied
+procedures, not on the public `review-revise-loop` signature.
 
 ```lisp
 (review-revise-loop implementation-review
@@ -1769,9 +1881,32 @@ schema is owned by `workflow_lisp_review_revise_stdlib_parametric_integration.md
   :max 40)
 ```
 
-Return type:
+First-tranche stdlib schema:
 
 ```lisp
+(defpath ReviewFindingsJsonPath
+  :kind relpath
+  :under "artifacts/work"
+  :must-exist true)
+
+(defrecord ReviewFindings
+  (schema_version String)
+  (items_path ReviewFindingsJsonPath))
+
+(defunion ReviewDecision
+  (APPROVE
+    (review_report ReviewReportPath)
+    (findings ReviewFindings))
+
+  (REVISE
+    (review_report ReviewReportPath)
+    (findings ReviewFindings))
+
+  (BLOCKED
+    (review_report ReviewReportPath)
+    (blocker_class BlockerClass)
+    (findings ReviewFindings)))
+
 (defunion ReviewLoopResult
   (APPROVED
     (review_report ReviewReportPath)
@@ -1779,8 +1914,8 @@ Return type:
 
   (BLOCKED
     (review_report ReviewReportPath)
-    (findings ReviewFindings)
-    (blocker_class BlockerClass))
+    (blocker_class BlockerClass)
+    (findings ReviewFindings))
 
   (EXHAUSTED
     (last_review_report ReviewReportPath)
@@ -1788,9 +1923,34 @@ Return type:
     (reason String)))
 ```
 
-The exact first-tranche contract is stdlib-owned. Caller-specific terminal
-unions are projected outside the loop by ordinary proof-gated `match`; typed
-state and validated artifacts remain the semantic authority.
+`ReviewDecision` is the per-iteration review result. `ReviewLoopResult` is the
+terminal loop result. `BLOCKED` is part of `ReviewDecision`, not a side channel
+outside it, and blocked terminal state carries `blocker_class BlockerClass`.
+
+There is no first-tranche generic `ReviewFinding` item record. The stdlib loop
+standardizes the typed `ReviewFindings` carrier plus the minimum validated
+artifact envelope at `items_path`: `schema_version` must equal
+`"ReviewFindings.v1"`; `items_path` must point to JSON under `artifacts/work`;
+that JSON must be a non-pointer object with a top-level `items` member.
+Malformed findings fail as output-contract errors.
+
+Semantic contract:
+
+- `CompletedT` and `InputsT` are caller-owned records.
+- `review` and `fix` are compile-time ProcRefs.
+- `review` returns typed `ReviewDecision`.
+- `fix` consumes findings from the immediately preceding `REVISE` decision:
+  `ProcRef[(CompletedT InputsT ReviewFindings) -> CompletedT]`.
+- the stdlib loop returns exact `ReviewLoopResult` variants.
+- workflow-specific terminal unions are projected outside the loop by ordinary
+  proof-gated `match`.
+- `APPROVE` and `BLOCKED` are terminal.
+- `REVISE` invokes fix and continues; it is not completion.
+- `EXHAUSTED` is typed terminal non-completion.
+- findings validation runs before `ReviewFindings` is published to loop state
+  and again before `fix` consumes findings after resume.
+- carried evidence identity comes from inputs or loop state, not from
+  `ReviewDecision` output.
 
 Required generated shape:
 
@@ -1801,7 +1961,9 @@ Required generated shape:
 - structured stdlib-owned `ReviewDecision`
 - typed stdlib-owned `ReviewLoopResult`
 
-No markdown parsing of review decision.
+No markdown parsing of review decision. No runtime `ProcRef`, provider ref,
+prompt ref, type parameter, closure, or type object is carried in executable
+state.
 
 ## 28. `resume-or-start`
 
@@ -2562,6 +2724,33 @@ Semantic IR must expose:
 - effects of the selected review/fix procedures
 - artifact refs by branch
 
+The generated monomorphic helper uses ordinary loop state. A conceptual
+loop-frame contains the current completed value, latest review report, latest
+findings, optional blocker class, optional reason, iteration count, and a scalar
+decision marker. After specialization all fields are concrete; no type
+parameter or ProcRef may remain in lowered state.
+
+Review decisions lower through ordinary proof-gated `match`:
+
+- `APPROVE` materializes the current completed value, review report, findings,
+  and terminal decision marker.
+- `REVISE` calls the specialized fix ProcRef, materializes its returned
+  completed value plus the review report/findings, and continues.
+- `BLOCKED` materializes the current completed value, review report, findings,
+  blocker class, and terminal decision marker.
+- max-iteration exhaustion uses the authored loop exhaustion projection to set
+  an `EXHAUSTED` marker and then constructs `ReviewLoopResult.EXHAUSTED` from
+  the final loop-frame outputs.
+
+The final projection must read loop-frame outputs. It must not read only the
+first review step or a body-local step that was not materialized onto the loop
+frame.
+
+Promoted lowering must not depend on `ReviewReviseLoopExpr`, a lowerer branch
+keyed to literal `review-revise-loop`, or review-loop-specific Python
+construction of terminal variants. Legacy bridge fixtures, if any remain, must
+be explicitly marked legacy.
+
 ## 58. `backlog-drain` Lowering
 
 Source:
@@ -2642,7 +2831,12 @@ Checks:
 - all names resolve
 - record fields exist
 - union variants exist
+- structural generic constraints are satisfied before lowering
+- every type parameter specializes to one concrete type at each call site
+- no type parameter escapes into runtime-visible contracts
 - function arguments match signatures
+- ProcRef arguments resolve to compile-time named procedures with matching
+  signatures
 - workflow call arguments match signatures
 - pattern matches are exhaustive or explicitly partial
 - return expressions match declared return type
@@ -2658,6 +2852,10 @@ Checks:
 - resource transitions have capabilities
 - providers are declared provider values
 - commands are explicit command effects
+- imported stdlib definitions expose provider/command effects introduced by
+  their bodies
+- selected compile-time ProcRef bodies contribute their provider/command effects
+  to the caller-visible effect summary
 
 ## 62. Contract Validation
 
@@ -2668,6 +2866,9 @@ Checks:
 - input/ref materialization inherits contracts
 - record fields map to valid contracts
 - union fields map to valid contracts
+- stdlib review findings validate the `ReviewFindings.v1` carrier contract
+- review-loop terminal projection cannot replace carried evidence identity with
+  a review-provider-produced field
 
 The handoff explicitly requires inherited contracts to be narrowed, not
 weakened.
@@ -2714,6 +2915,8 @@ Checks:
 - review decisions come from structured state
 - blocker classes come from structured state
 - drain status comes from structured state
+- review findings paths and review reports are views over validated artifacts,
+  not authority for carried evidence identity
 
 ## Part XI. Error Taxonomy
 
@@ -2752,6 +2955,17 @@ Checks:
 - `proc_signature_mismatch`
 - `higher_order_workflow_signature_mismatch`
 - `return_type_mismatch`
+- `stdlib_special_form_disallowed`
+- `parametric_constraint_malformed`
+- `parametric_constraint_unknown`
+- `parametric_constraint_unsatisfied`
+- `loop_state_requires_typed_fields`
+- `loop_state_duplicate_field`
+- `loop_state_unknown_field`
+- `loop_state_field_type_mismatch`
+- `loop_state_runtime_transport_forbidden`
+- `loop_state_unresolved_type_parameter`
+- `loop_state_not_projectable`
 
 ## 70. Effect Errors
 
@@ -2779,8 +2993,10 @@ Checks:
 - `lowering_no_backend_for_form`
 - `resource_transition_requires_runtime_backend`
 - `proc_lowering_cycle`
+- `specialization_cycle`
 - `workflow_call_version_mismatch`
 - `source_map_missing`
+- `review_loop_special_lowerer_used`
 - `core_ast_invalid`
 - `semantic_ir_invalid`
 - `executable_ir_invalid`
@@ -2819,6 +3035,21 @@ Every generated core AST node must map to:
 - macro expansion stack
 - procedure/workflow origin
 - generated name origin
+
+Imported stdlib and generic-specialization routes must also map:
+
+- caller call site;
+- imported stdlib definition;
+- specialization arguments;
+- generated monomorphic helper or private workflow;
+- generated loop frame;
+- generated match arms;
+- generated materialization/projection steps;
+- generated paths and bundle roots;
+- selected ProcRef definitions.
+
+Missing source-map origin for any generated helper, step, boundary field, path,
+or projection is a compile-time failure in promoted routes.
 
 Example diagnostic:
 
@@ -3016,6 +3247,10 @@ DrainCtx
 
 - `run-provider-phase`
 - `review-revise-loop`
+- `ReviewFindingsJsonPath`
+- `ReviewFindings`
+- `ReviewDecision`
+- `ReviewLoopResult`
 - `resume-or-start`
 - `with-phase`
 - `phase-target`
@@ -3368,6 +3603,13 @@ Required negative fixtures:
 - pointer path published as artifact value
 - resource transition without capability
 - macro emits hidden provider call
+- imported stdlib expansion hides provider or command effects
+- type parameter leaks into runtime-visible loop state or contracts
+- loop-state carrier includes runtime-forbidden values such as ProcRefs,
+  provider refs, prompt refs, or workflow refs
+- review output attempts to replace carried evidence identity
+- promoted `review-revise-loop` attempts to use legacy provider/prompt operands
+  or compiler-special review-loop lowering
 - `defun` performs effect
 - workflow ref signature mismatch
 - line-prefix legacy adapter without fixture
@@ -3459,6 +3701,18 @@ Implement:
 - `review-revise-loop`
 - `resume-or-start`
 
+Current review/revise implementation note:
+
+- promoted `review-revise-loop` is implemented as a stdlib-owned macro/generic
+  procedure route that lowers through ordinary typed forms;
+- the promoted route uses exact stdlib-owned `ReviewDecision`,
+  `ReviewFindings`, and `ReviewLoopResult`;
+- review/fix hooks are compile-time ProcRefs;
+- old compiler-special review-loop expression and stdlib-specialization bridge
+  types are not part of the promoted expression table;
+- any residual review-loop-specific helpers are compatibility/quarantine
+  surfaces, not the semantic route.
+
 ## 104. Stage 6: Resource And Drain Library
 
 Implement:
@@ -3490,6 +3744,11 @@ Measure:
 - semantic equivalence
 
 Reject the frontend design if translations remain YAML-shaped.
+
+Promotion of YAML primaries remains separate from implementation of frontend
+capability. A `.orc` candidate must have machine-computed non-regressive parity
+evidence before replacing a YAML primary, even if the candidate compiles,
+validates, and dry-runs.
 
 ## Part XIX. Open Design Decisions
 

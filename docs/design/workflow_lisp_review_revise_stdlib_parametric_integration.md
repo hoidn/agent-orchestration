@@ -1,6 +1,6 @@
 # Workflow Lisp Review/Revise Stdlib Integration With Refactor Preconditions and Parametric Constraints
 
-Status: draft design
+Status: implemented companion design / target-delta history
 Kind: incremental architecture / stdlib migration spec / consuming design for parametric Workflow Lisp
 Created: 2026-06-03
 Scope: `review-revise-loop` first; later reusable review/revise/fix orchestration forms with the same shape.
@@ -24,9 +24,16 @@ Related docs:
 
 ## 1. Purpose
 
-This document specifies the follow-on architecture for moving
-`review-revise-loop` from a compiler-special Workflow Lisp form into an
-ordinary imported `.orc` standard-library component.
+This document records the target-delta architecture and implementation history
+for moving `review-revise-loop` from a compiler-special Workflow Lisp form into
+an ordinary imported `.orc` standard-library component.
+
+The implemented first-tranche contract has been promoted into
+`docs/design/workflow_lisp_frontend_specification.md`. That frontend
+specification is now the baseline authority for current behavior. This document
+remains useful for migration rationale, prerequisite ordering, optional
+extensions, open questions, and the design-gap trail that produced the current
+route.
 
 This document is self-contained with respect to the prerequisite refactoring. It
 incorporates the recommended behavior-preserving refactor preflight, the generic
@@ -34,13 +41,11 @@ incorporates the recommended behavior-preserving refactor preflight, the generic
 before the thin-macro parity bridge can be retired in favor of ordinary generic
 stdlib code.
 
-This document does not revise the currently accepted key-migration rescue
-tranche. Until
-`docs/design/workflow_lisp_key_migration_parity_architecture.md` is explicitly
-updated, that document remains the authority for the active parity route:
-generic `.orc` expansion plus a thin macro or equivalent monomorphic-helper
-specialization layer. This document defines the replacement architecture for the
-follow-on tranche that removes that bridge.
+This document does not by itself promote any YAML primary to `.orc`. The
+key-migration parity architecture remains the authority for promotion evidence
+and non-regressive parity. The review/revise compiler bridge has been retired
+for the promoted frontend route, but YAML-primary replacement still requires
+machine-computed parity evidence.
 
 This document does not replace the refactor architecture. The refactor
 architecture remains the primary source for behavior-preserving frontend
@@ -67,8 +72,9 @@ Class B: generic `.orc` expansion substrate
   maps, specialize compile-time refs, and lower through the ordinary path.
 
 Class C: missing language/type-system features
-: Add only the minimal generic loop, ProcRef, and structural-parametric support
-  required to express `review-revise-loop` as stdlib code.
+: Add only the minimal generic loop exhaustion-authoring surface, authored
+  loop-state, ProcRef, and structural-parametric support required to express
+  `review-revise-loop` as stdlib code.
 
 `review-revise-loop` itself should not be implemented as stdlib until Class A
 and the relevant Class B substrate have landed.
@@ -103,7 +109,9 @@ revised to adopt the parametric route:
    - imported effect visibility;
    - generic compile-time ProcRef specialization.
 4. Minimal parametric feature substrate:
-   - `loop/recur` typed exhaustion projection;
+   - authored/imported `loop/recur :on-exhausted` plus typed exhaustion
+     projection;
+   - authorable parametric loop-frame state for imported generic `.orc`;
    - `:forall` and monomorphic helper specialization;
    - structural record/union constraints;
    - ordinary `ProcRef` parameter typing over signatures that mention
@@ -441,6 +449,16 @@ parametric, or stdlib-review-loop work would otherwise add behavior to
 stable `orchestrator.workflow_lisp.lowering` facade, not by arbitrary line
 ranges.
 
+If a Track A, structural-constraints, loop-state, or other parametric
+follow-on slice reaches a blocked run and fresh checkout evidence still shows
+that these non-procedure lowering families have not been decomposed, the
+blocked slice is not the surface to widen or repair. The next required
+artifact is a standalone prerequisite architecture at
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-lowering-core-family-decomposition/implementation_architecture.md`,
+and the blocked follow-on slice should stop after routing that prerequisite
+rather than editing its own feature architecture or implementation plan as if
+the owner split had already landed.
+
 `typecheck.py` has the same status for structural constraints and parametric
 specialization. If it remains the mixed owner for expression dispatch,
 review-loop bridge validation, stdlib specialization typing, proof/field
@@ -455,6 +473,40 @@ boundary, then split semantic typechecking families behind the stable
 target-delta obligation whenever structural constraints, parametric
 specialization, imported `.orc` expansion, or stdlib-review-loop work would
 otherwise add behavior directly to `typecheck.py`.
+
+If a structural-constraints or other parametric follow-on slice reaches a
+blocked run and fresh checkout evidence still shows that this mixed-owner state
+has not been decomposed, the blocked slice is not the surface to widen or
+repair. The next required artifact is a standalone prerequisite architecture at
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-typecheck-family-decomposition/implementation_architecture.md`,
+and the blocked follow-on slice should stop after routing that prerequisite
+rather than editing its own feature architecture or implementation plan as if
+the owner split had already landed.
+
+Shared expression traversal has the same status for duplicated pass-local
+walkers. If `orchestrator/workflow_lisp/expression_traversal.py` or an
+equivalent shared update point is still missing, the next refactor target
+before Track A, loop-state, or other parametric follow-on work is a separate
+traversal prerequisite gap. The intended gap id is
+`workflow-lisp-expression-traversal-prerequisite`.
+
+That gap should establish one small shared owner for `iter_child_exprs` /
+`walk_expr`, migrate the low-risk walkers named in Section 9.7, and add the
+coverage-style assertion that every current `ExprNode` union member is either
+traversed by the shared helper or explicitly classified as leaf/specialized. It
+is a target-delta obligation whenever Track A, parametric, or stdlib
+review-loop work would otherwise add or update duplicated expression walking in
+`functions.py`, `compiler.py`, ProcRef specialization discovery, or lowering
+adjacent helpers.
+
+If a Track A, loop-state, or other parametric follow-on slice reaches a blocked
+run and fresh checkout evidence still shows that this shared traversal update
+point has not landed, the blocked slice is not the surface to widen or repair.
+The next required artifact is a standalone prerequisite architecture at
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-expression-traversal-prerequisite/implementation_architecture.md`,
+and the blocked follow-on slice should stop after routing that prerequisite
+rather than editing its own feature architecture or implementation plan as if
+shared traversal had already landed.
 
 Rationale: these items reduce the chance that a new generic expansion path is
 parsed, elaborated, or typechecked correctly while being missed by purity checks,
@@ -655,6 +707,47 @@ Acceptance:
   provider/command, match/loop, and structured-result tests pass or any
   pre-existing unrelated failures are recorded with exact evidence.
 
+#### 9.5.1 Prerequisite Handoff Contract
+
+Treat `workflow-lisp-lowering-core-family-decomposition` as a first-class
+design gap that can be selected and drafted independently of the blocked
+feature slice it unblocks.
+
+Selection trigger:
+
+- fresh checkout evidence still shows `lowering/core.py` as the mixed owner
+  for the lowering families named above;
+- the expected post-split owner modules do not yet exist with recorded paths;
+- a follow-on slice would otherwise add new lowering behavior, especially
+  Track A imported `.orc` expansion, loop-state carrier lowering, parametric
+  projection/materialization work, or stdlib review-loop lowering, to the
+  mixed `lowering/core.py` surface.
+
+Required drafting output:
+
+- one bounded implementation architecture at
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-lowering-core-family-decomposition/implementation_architecture.md`;
+- explicit owner-file paths for lowering context/result structs, lowering
+  origins and validation-subject provenance, provider/command effect lowering,
+  control-flow lowering, record/union/projection lowering, workflow-call
+  lowering, and the residual coordinator responsibilities left in
+  `lowering/core.py`;
+- acceptance that preserves current lowering behavior, diagnostics remapping,
+  source-map provenance, effect visibility, shared-validation handoff, and the
+  public `orchestrator.workflow_lisp.lowering` import surface;
+- focused verification proving the split is behavior-preserving before any
+  Track A, loop-state, structural-constraints, or other parametric follow-on
+  work resumes.
+
+Unblock rule:
+
+- Track A follow-ons, loop-state authoring, structural constraints, and stdlib
+  review-loop follow-ons that need new lowering behavior stay blocked until
+  this prerequisite lands;
+- after it lands, any previously blocked lowering-dependent bundle must be
+  refreshed against the actual post-decomposition owner map before a new
+  executable implementation plan is approved.
+
 ### 9.6 Decompose `typecheck.py` By Typechecking Family
 
 Before structural constraints or parametric specialization add more behavior to
@@ -705,6 +798,43 @@ Acceptance:
   and structural-result tests pass or any pre-existing unrelated failures are
   recorded with exact evidence.
 
+#### 9.6.1 Prerequisite Handoff Contract
+
+Treat `workflow-lisp-typecheck-family-decomposition` as a first-class design
+gap that can be selected and drafted independently of the blocked structural
+feature slice it unblocks.
+
+Selection trigger:
+
+- fresh checkout evidence still shows `typecheck.py` as the mixed owner for the
+  families named above;
+- the expected post-split owner modules do not yet exist with recorded paths;
+- a follow-on slice would otherwise add new typing behavior, especially the
+  structural-constraints shared-field hook, to the mixed `typecheck.py`
+  surface.
+
+Required drafting output:
+
+- one bounded implementation architecture at
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-typecheck-family-decomposition/implementation_architecture.md`;
+- explicit owner-file paths for shared typecheck context/diagnostic helpers,
+  dispatcher routing, proof/field validation, provider/command validation,
+  callable checks, and any remaining legacy/std-bridge typing;
+- acceptance that preserves current diagnostics, source spans, expansion
+  stacks, proof behavior, effect visibility, and the public
+  `orchestrator.workflow_lisp.typecheck` import surface;
+- focused verification proving the split is behavior-preserving before any
+  structural-constraints or other parametric follow-on work resumes.
+
+Unblock rule:
+
+- structural constraints, imported `.orc` expansion follow-ons, and stdlib
+  review-loop follow-ons that need new typechecking behavior stay blocked until
+  this prerequisite lands;
+- after it lands, any previously blocked structural-constraints bundle must be
+  refreshed against the actual post-decomposition owner map before a new
+  executable implementation plan is approved.
+
 ### 9.7 Introduce Shared Expression Traversal
 
 Introduce a small shared traversal utility before adding more expression forms or
@@ -752,6 +882,46 @@ Use traversal first in low-risk locations:
 
 Do not force scoped walkers into the helper if doing so hides important scope
 changes.
+
+#### 9.7.1 Prerequisite Handoff Contract
+
+Treat `workflow-lisp-expression-traversal-prerequisite` as a first-class design
+gap that can be selected and drafted independently of the blocked follow-on
+slice it unblocks.
+
+Selection trigger:
+
+- fresh checkout evidence still shows
+  `orchestrator/workflow_lisp/expression_traversal.py` missing, or shows no
+  narrower equivalent shared update point with recorded owner path;
+- duplicated expression walking is still required across `functions.py`,
+  `compiler.py`, ProcRef specialization discovery, or lowering-adjacent helper
+  paths;
+- a follow-on slice would otherwise add a new expression form or update an
+  existing walker, especially for Track A imported `.orc` expansion,
+  loop-state authoring, parametric specialization discovery, or stdlib
+  review-loop follow-ons.
+
+Required drafting output:
+
+- one bounded implementation architecture at
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-expression-traversal-prerequisite/implementation_architecture.md`;
+- explicit owner-file path for the shared traversal helper surface and the
+  first low-risk adopter sites migrated to it;
+- acceptance that preserves current `.orc` semantics, diagnostics, source-map
+  provenance, ProcRef discovery behavior, and public frontend import surfaces;
+- focused verification proving the shared helper covers the intended `ExprNode`
+  variants and that unknown containers fail closed before any Track A,
+  loop-state, or other parametric follow-on work resumes.
+
+Unblock rule:
+
+- Track A follow-ons, loop-state authoring, and stdlib review-loop follow-ons
+  that need shared expression walking stay blocked until this prerequisite
+  lands;
+- after it lands, any previously blocked bundle that depends on shared
+  traversal must be refreshed against the landed owner path and migrated
+  adopter set before a new executable implementation plan is approved.
 
 ## 10. Track A: Generic `.orc` Expansion Substrate
 
@@ -1133,6 +1303,234 @@ resolve; they are not part of the first-tranche structural-constraint surface.
 Constraint checking must happen before the specialized helper is accepted.
 Lowering receives only concrete monomorphic definitions.
 
+### 12.1 Authorable `loop/recur :on-exhausted` Dependency
+
+The blocked Stage 10 implementation showed that ordinary imported `.orc` code
+still cannot author the exhaustion route that the target review-loop lowering
+assumes. The earlier `loop-recur-bounded-loops` gap intentionally preserved the
+shared runtime's existing failure-on-exhaustion semantics and explicitly did
+not add a public exhaustion-authoring surface, so that landed slice is not by
+itself sufficient for Stage 10.
+
+This dependency is about the public/frontend authoring route for exhaustion
+projection, not about runtime `repeat_until` semantics. The runtime already has
+`repeat_until.on_exhausted.outputs` for scalar overrides. The missing
+prerequisite is the generic `.orc` surface that lets ordinary authored and
+imported code request that lowering path without relying on the legacy
+Python-owned review-loop bridge to inject `on_exhausted_result_expr` or an
+equivalent hidden projection.
+
+Required first-stable contract:
+
+- generic `.orc` code can author `loop/recur :on-exhausted` in both local and
+  imported definitions;
+- elaboration and typechecking accept the authored exhaustion surface without
+  routing through review-loop-specific bridge nodes or request kinds;
+- lowering maps scalar exhaustion markers to
+  `repeat_until.on_exhausted.outputs` and preserves the shared runtime's
+  ordinary failure behavior for body, output-resolution, or predicate failures;
+- imported or generated review-loop helpers no longer depend on Python-owned
+  injection of `on_exhausted_result_expr` or a review-loop-only fallback path;
+- source maps and effect visibility cover the authored exhaustion projection
+  route the same way they cover other generic control-flow surfaces.
+
+Selection trigger:
+
+- if a blocked run shows ordinary `loop/recur` still accepts only `:max`,
+  `:state`, and one loop-body `fn`, or fresh checkout evidence shows that typed
+  exhaustion projection still exists only through the legacy review-loop
+  bridge, stop the review-loop slice and select or draft prerequisite gap
+  `workflow-lisp-loop-recur-on-exhausted-projection`.
+
+Required drafting output:
+
+- one bounded implementation architecture at
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-loop-recur-on-exhausted-projection/implementation_architecture.md`;
+- one chosen authored exhaustion surface for `loop/recur`, rather than a
+  review-loop-specific compatibility hook;
+- fixture coverage proving ordinary local and imported `.orc` code can author
+  `:on-exhausted`, preserve failure-vs-exhaustion semantics, and lower through
+  shared `repeat_until` without review-loop-only injection.
+
+Unblock rule:
+
+- Stage 10 and any follow-on stdlib review-loop slice that depends on typed
+  exhaustion projection stay blocked until this prerequisite lands whenever
+  fresh checkout evidence still shows no ordinary authored/imported
+  `:on-exhausted` surface.
+
+### 12.2 Authorable Parametric Loop-State Dependency
+
+Once the authored `loop/recur :on-exhausted` prerequisite in Section 12.1
+lands, compile-time specialization, structural constraints, and that
+exhaustion surface are still not enough by themselves. Ordinary imported `.orc`
+code also needs one generic authoring route for the loop-frame state that
+carries specialized `CompletedT`, `ReviewReportPath`, `ReviewFindings`,
+blocker state, and exhaustion markers across iterations.
+
+This dependency is about authored/frontend surface, not runtime loop semantics.
+The runtime already has `repeat_until` state and scalar exhaustion overrides.
+The missing prerequisite is the generic `.orc` authoring route that lets an
+imported stdlib definition name and type the loop-frame outputs that the final
+typed exhaustion projection reads from.
+
+Required first-stable contract:
+
+- generic `.orc` code can author or request a typed loop-frame carrier whose
+  concrete fields become monomorphic before ordinary lowering;
+- that carrier is available to arbitrary imported `.orc` definitions, not only
+  `review-revise-loop`;
+- imported generic procedure bodies can pass that carrier through ordinary
+  `loop/recur :state`, `continue`, and final typed projection after
+  specialization without leaving `TypeParamRef` or other unresolved type
+  metadata in loop-state field contracts, loop outputs, or carried state;
+- the carrier can hold caller-specialized fields such as
+  `completed CompletedT` together with fixed stdlib-owned fields such as
+  `latest_review_report ReviewReportPath`, `latest_findings ReviewFindings`,
+  `latest_blocker_class BlockerClass`, and `exhaustion_reason String`;
+- final typed exhaustion projection reads authored loop-frame outputs rather
+  than Python-authored hidden helper state;
+- source maps, effect visibility, shared validation, and runtime erasure of
+  type parameters, ProcRefs, provider refs, and prompt refs are preserved.
+
+Acceptable first-tranche implementation directions:
+
+- parametric record authoring that specializes before lowering; or
+- an equivalent generic loop-owned state-schema surface that ordinary imported
+  `.orc` authors can use and that specializes before lowering.
+
+Unacceptable direction:
+
+- review-loop-specific Python synthesis of hidden loop-frame record/state as
+  the only promoted route.
+
+This prerequisite owns the authored carrier surface itself. It does not by
+itself prove the later imported future-consumer composition used by Stage 10.
+Section 12.3 owns that narrower proof once the carrier surface and its
+standalone imported generic fixtures exist.
+
+Selection trigger:
+
+- if a blocked run shows Stage 10 still cannot be expressed in ordinary
+  imported `.orc` because authored code still cannot declare the generic
+  loop-frame carrier after the Section 12.1 exhaustion surface has landed,
+  stop the review-loop slice and select or draft prerequisite gap
+  `workflow-lisp-parametric-loop-state-authoring`.
+- if a blocked run shows the authored carrier surface still cannot pass its own
+  standalone imported-generic carrier fixtures, especially with
+  `loop_recur_state_type_invalid` or unresolved `TypeParamRef` evidence at the
+  loop-state field-contract boundary, treat that failure as the same
+  prerequisite still being open rather than as Stage 10 implementation scope.
+
+Required drafting output:
+
+- one bounded implementation architecture at
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-parametric-loop-state-authoring/implementation_architecture.md`;
+- one chosen authored loop-state surface with rationale, rather than parallel
+  competing mechanisms;
+- fixture coverage proving an imported generic `.orc` procedure can carry a
+  caller-specialized field plus fixed stdlib-owned fields through
+  `loop/recur`, then project a typed exhausted result from the last
+  materialized loop frame;
+- explicit acceptance that the same imported generic fixture lowers without
+  unresolved `TypeParamRef` or equivalent unspecialized loop-state field
+  contracts reaching ordinary `loop/recur` typing or lowering;
+- acceptance that keeps the promoted route free of review-loop-specific hidden
+  state synthesis, runtime type/procedure/provider/prompt leakage, and
+  source-map gaps.
+
+Unblock rule:
+
+- Stage 10 remains blocked until this prerequisite lands whenever fresh
+  checkout evidence still shows that ordinary imported `.orc` cannot author the
+  loop-frame state required by the typed exhaustion route.
+- This prerequisite is not considered landed if only concrete-record loop-state
+  cases pass while the standalone imported-generic carrier fixtures still fail
+  to transport specialized loop state through `loop/recur`.
+
+### 12.3 Imported Generic Loop-State Consumer Proof Dependency
+
+Even after the authored carrier surface in Section 12.2 lands, Stage 10 still
+needs one narrower future-consumer proof for the review-loop-shaped imported
+generic route. The remaining risk is not loop-state authoring in isolation. The
+remaining risk is the composed authoring-time route where imported generic
+definitions, compile-time `ProcRef` hooks, structural constraints, loop-state
+carriers, and ordinary procedure composition meet inside one imported stdlib
+consumer.
+
+This dependency is about composed frontend behavior, not runtime loop
+semantics. The runtime already has `repeat_until`, scalar exhaustion overrides,
+and persisted loop state. The missing prerequisite is the future-consumer proof
+that an imported generic `.orc` definition can use the Section 12.2 carrier in
+the same shape Stage 10 needs without falling back to bridge-era Python-owned
+state or compiler-special routing.
+
+Required first-stable contract:
+
+- one imported generic `.orc` future-consumer fixture can model the Stage 10
+  control shape: caller-owned `CompletedT` / `InputsT`, fixed stdlib-owned
+  loop-state fields, ordinary `loop/recur :state`, `continue`, final typed
+  exhaustion projection, and compile-time `ProcRef` review/fix-like hooks or
+  the equivalent compile-time call surfaces needed by the consumer;
+- the first-stable proof route uses one explicit supported composition pattern
+  for the imported consumer body:
+  one generic consumer `defproc` body;
+- same-module helper `defproc` decomposition inside that imported generic
+  consumer is not part of the first-stable Section 12.3 contract and remains a
+  separate follow-on only if a later bounded prerequisite proves it;
+- if the consumer pattern introduces local type names or specialized carrier
+  aliases, those names resolve after specialization/typechecking without
+  `type_unknown` for the specialized loop-state fields;
+- the combined route carries specialized fields such as `CompletedT` through
+  ordinary `loop/recur` state without `loop_recur_state_type_invalid`,
+  unresolved `TypeParamRef`, or equivalent unspecialized loop-state field
+  contracts;
+- compile-time `ProcRef` review/fix bindings survive the specialization-to-
+  lowering handoff far enough that lowering does not encounter symbolic
+  `review` / `fix` callee names or other equivalent `procedure_call_unknown`
+  failures for the chosen single-body pattern;
+- source maps, effect visibility, shared validation, and runtime erasure of
+  type parameters, ProcRefs, provider refs, and prompt refs are preserved
+  across the full imported consumer shape.
+
+Selection trigger:
+
+- if a blocked Stage 10 or similar follow-on run shows the Section 12.2
+  carrier surface appears present and its standalone imported-generic carrier
+  fixtures pass, but an imported generic future-consumer definition still fails
+  when composing that surface with ordinary procedure composition, especially
+  with `procedure_call_unknown`, including symbolic `review` / `fix` callee
+  names surviving into lowering, `type_unknown`,
+  `loop_recur_state_type_invalid`, or unresolved `TypeParamRef` evidence, stop
+  the review-loop slice and select or draft prerequisite gap
+  `workflow-lisp-imported-generic-loop-state-consumer-proof`.
+
+Required drafting output:
+
+- one bounded implementation architecture at
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-imported-generic-loop-state-consumer-proof/implementation_architecture.md`;
+- one chosen single-body imported-consumer composition pattern with rationale,
+  and explicit deferral of same-module helper decomposition rather than leaving
+  helper-vs-single-body expectations ambiguous;
+- fixture coverage proving an imported generic future-consumer definition
+  composes the Section 12.2 carrier surface, structural constraints, and
+  compile-time `ProcRef` selection through ordinary `loop/recur`;
+- explicit acceptance that the chosen single-body pattern carries compile-time
+  `ProcRef` bindings through specialization and lowering without symbolic
+  callee leakage, with Stage 10 written to that same supported pattern;
+- acceptance that runtime-visible artifacts contain no leaked `TypeParamRef`,
+  `ProcRef`, provider ref, prompt ref, or review-loop-specific hidden state
+  synthesis.
+
+Unblock rule:
+
+- Stage 10 remains blocked until this prerequisite lands whenever the
+  standalone Section 12.2 loop-state fixtures pass but the imported generic
+  future-consumer composition still fails.
+- This prerequisite is not considered landed if only the carrier-surface
+  fixtures pass while the chosen imported-consumer composition pattern remains
+  unproven.
+
 ## 13. Target Compilation Architecture
 
 The target architecture is:
@@ -1209,11 +1607,11 @@ The first stable implementation should avoid over-generalizing every part of the
 loop. It keeps review decision, findings, and terminal outcome protocol as
 stdlib-owned concrete types while allowing caller-owned completed/input records.
 
-### 14.1.1 Authoritative First-Tranche Schema
+### 14.1.1 First-Tranche Schema Promoted To Base Spec
 
-This document is the owner for the exact first-tranche review/revise stdlib
-schema. Other docs may summarize it, but they should not publish conflicting
-examples.
+The exact first-tranche review/revise stdlib schema is now part of
+`docs/design/workflow_lisp_frontend_specification.md`. The copy below is kept as
+the migration-source shape and must not diverge from the base specification.
 
 ```lisp
 (defpath ReviewFindingsJsonPath
@@ -1278,10 +1676,10 @@ schema or validator layered behind the same `ReviewFindings` carrier.
 `workflow_lisp_structural_parametric_constraints.md` owns the structural
 constraint vocabulary used around these types.
 `workflow_lisp_compile_time_parametric_specialization.md` owns the compile-time
-generic instantiation machinery. Frontend-spec and drafting-guide examples may
-summarize this contract, but any duplicate example must match these names,
-carrier fields, terminal fields, and the first-tranche generic clause ordering
-exactly.
+generic instantiation machinery. The frontend specification owns the current
+first-tranche schema. Drafting-guide and companion-design examples may summarize
+the contract, but any duplicate example must match the base-spec names, carrier
+fields, terminal fields, and first-tranche generic clause ordering exactly.
 
 The semantic contract is:
 
@@ -1399,6 +1797,11 @@ The optional placeholder names in this conceptual frame are explanatory, not a
 competing public schema surface. When present, `latest_blocker_class` carries a
 `BlockerClass` value.
 
+This conceptual frame is not by itself the missing authored surface. The
+authorable route for expressing such loop-frame state in ordinary imported
+`.orc` is the prerequisite owned by Section 12.2 and must land before Stage 10
+promotion.
+
 The frame is semantic state. It must not carry ProcRef values, provider refs,
 prompt refs, type parameters, runtime closure environments, unvalidated report
 text as structured findings, or evidence identities invented by review output.
@@ -1506,7 +1909,11 @@ Required behavior:
 - if no explicit exhaustion projection exists, preserve DSL behavior:
   `repeat_until_iterations_exhausted`.
 
-This is a generic loop feature, not a review-loop compiler branch.
+This is a generic loop feature, not a review-loop compiler branch. It depends
+on both prerequisites in Sections 12.1 and 12.2: ordinary imported `.orc`
+must be able to author `:on-exhausted`, and that authored exhaustion route is
+still insufficient if code cannot also name and type the loop-frame outputs
+that final projection reads from.
 
 ## 19. Evidence Authority
 
@@ -1536,7 +1943,10 @@ Required negative case:
 ```text
 A review ProcRef returns a decision bundle containing a checks_report field.
 The generic loop attempts to use that returned field as terminal evidence.
-Compilation or shared validation fails with evidence_authority_violation.
+Compilation or shared validation fails with the current contract/authority
+diagnostic for replacing carried evidence identity. A dedicated
+evidence-authority diagnostic may be added later if the existing diagnostic is
+too generic.
 ```
 
 ## 20. Effects Contract
@@ -1703,11 +2113,28 @@ Tasks:
   `lowering/core.py` remains the mixed owner for non-procedure lowering
   families that future Track A, parametric, or stdlib-review-loop work would
   need to extend;
+- if a blocked follow-on run confirms that this slice is still missing, stop
+  and route/draft
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-lowering-core-family-decomposition/implementation_architecture.md`
+  before reopening the blocked feature bundle;
 - land the standalone `workflow-lisp-typecheck-family-decomposition` slice when
   `typecheck.py` remains the mixed owner for typechecking families that
   structural constraints, parametric specialization, imported `.orc` expansion,
   or stdlib-review-loop work would need to extend;
-- introduce shared expression traversal utility;
+- if a blocked follow-on run confirms that this slice is still missing, stop
+  and route/draft
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-typecheck-family-decomposition/implementation_architecture.md`
+  before reopening the blocked feature bundle;
+- land the standalone
+  `workflow-lisp-expression-traversal-prerequisite` slice when
+  `orchestrator/workflow_lisp/expression_traversal.py` or a recorded narrower
+  equivalent shared update point is still missing;
+- if a blocked follow-on run confirms that this slice is still missing, stop
+  and route/draft
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-expression-traversal-prerequisite/implementation_architecture.md`
+  before reopening the blocked feature bundle;
+- introduce shared expression traversal utility through that prerequisite
+  slice;
 - add traversal coverage over all `ExprNode` variants or explicit
   leaf/specialized classification.
 
@@ -1728,6 +2155,9 @@ Acceptance:
   dispatcher routing, proof/field validation, effect/command validation,
   callable checks, and any remaining stdlib bridge typing before new behavior
   lands in those typechecking families;
+- exact owner path and first adopter set are recorded for the shared
+  expression-traversal update point before new expression-form behavior lands
+  in duplicated walkers;
 - new expression forms have one obvious traversal update point;
 - purity/extern/ProcRef discovery cannot silently miss unknown `ExprNode`
   containers.
@@ -1830,11 +2260,45 @@ Tasks:
 
 Acceptance:
 
+- imported or local `.orc` loop fixtures can author `:on-exhausted` without
+  review-loop-specific bridge injection;
 - generic loop fixture returns typed `EXHAUSTED` result;
 - exhaustion without explicit projection still fails as
   `repeat_until_iterations_exhausted`;
 - body failure during final iteration remains ordinary failure;
 - non-scalar `on_exhausted` override is rejected.
+
+### Stage 7A - Authorable Parametric Loop-State Surface
+
+Tasks:
+
+- select one generic authored surface for loop-frame carriers used by typed
+  `loop/recur` exhaustion;
+- ensure that surface can carry caller-specialized fields such as `CompletedT`
+  together with fixed stdlib-owned fields such as `ReviewReportPath` and
+  `ReviewFindings`;
+- ensure imported generic proc bodies can feed that surface directly into
+  `loop/recur :state`, reuse it across `continue`, and project the final typed
+  exhausted result without `TypeParamRef` leaking into loop-state field
+  contracts;
+- specialize the carrier to monomorphic state before ordinary lowering;
+- preserve source maps and runtime erasure across the carrier and its final
+  projection path;
+- reject review-loop-specific hidden Python state synthesis on the promoted
+  route.
+
+Acceptance:
+
+- an imported generic `.orc` loop fixture can author state that includes a
+  caller-specialized field plus fixed stdlib-owned fields;
+- that imported generic fixture can carry the authored state through ordinary
+  `loop/recur` typing and lowering without `loop_recur_state_type_invalid`
+  failures caused by unresolved `TypeParamRef` at the state-contract boundary;
+- final typed exhaustion projection reads those authored loop-frame outputs;
+- runtime state contains no type parameters, ProcRefs, provider refs, or prompt
+  refs originating from the carrier surface;
+- source maps identify the authored carrier origin and the generated
+  monomorphic helper/projection surfaces.
 
 ### Stage 8 - Track A Generic ProcRef Specialization Through Imported `.orc`
 
@@ -1882,7 +2346,43 @@ Acceptance:
 - unsatisfied constraint fails before lowering;
 - variant field access without proof fails before lowering.
 
+### Stage 9A - Imported Generic Loop-State Consumer Proof
+
+Tasks:
+
+- choose the first-stable imported-consumer composition pattern for the future
+  Stage 10 route:
+  one generic consumer `defproc` body;
+- add one imported generic future-consumer fixture that combines
+  caller-specialized loop-state fields, fixed stdlib-owned fields,
+  compile-time `ProcRef` hooks, ordinary `loop/recur`, and final typed
+  projection;
+- keep same-module helper decomposition out of the first-stable route unless a
+  later bounded prerequisite explicitly proves it;
+- preserve source maps, effect visibility, and runtime erasure across that
+  full imported consumer shape;
+- reject bridge-era hidden state synthesis or carrier-local type/procedure/ref
+  leakage on the promoted route.
+
+Acceptance:
+
+- the imported generic future-consumer fixture compiles and lowers without
+  `procedure_call_unknown`, including symbolic `review` / `fix` callee names
+  surviving into lowering, `type_unknown` for specialized loop-state fields,
+  `loop_recur_state_type_invalid`, or unresolved `TypeParamRef`;
+- the chosen imported-consumer composition pattern is explicit and covered by
+  the future-consumer proof rather than left implicit, and that first-stable
+  pattern is the single-body imported consumer shape;
+- final typed projection reads authored loop-frame outputs through the same
+  imported generic consumer shape Stage 10 will rely on;
+- runtime-visible artifacts remain free of type parameters, ProcRefs, provider
+  refs, prompt refs, and review-loop-specific hidden state from the consumer
+  route.
+
 ### Stage 10 - Implement `std/phase.orc` `review-revise-loop`
+
+This stage begins only after the prerequisites in Sections 12.1, 12.2, and
+12.3 are landed and proven on ordinary authored/imported `.orc` code.
 
 Tasks:
 
@@ -1996,6 +2496,14 @@ audit after shared Core AST and Semantic IR contracts are resolved.
 Add precise diagnostics. Avoid generic "type error" where the failure is
 architectural.
 
+Implementation-state note: the base frontend specification now lists the
+current implemented diagnostic codes. The list below preserves the target
+diagnostic intent from this migration design; some names have landed under
+current implementation names such as `parametric_constraint_unsatisfied`,
+`loop_state_unresolved_type_parameter`, or
+`loop_state_runtime_transport_forbidden`, and some remain future diagnostic
+names rather than current code strings.
+
 `stdlib_special_form_disallowed`
 : Compiler recognized `review-revise-loop` by name in promoted mode.
 
@@ -2015,7 +2523,8 @@ architectural.
 `imported_expansion_source_missing`
 : Imported `.orc` expansion lacks imported-definition source provenance.
 
-`hidden_imported_effect`
+Dedicated imported-effect-hidden diagnostic, if current effect diagnostics are
+too generic
 : Imported `.orc` definition introduced provider/command effect not visible to
   validation.
 
@@ -2067,20 +2576,25 @@ architectural.
 `non_exhaustive_review_match`
 : Review decision match does not cover `APPROVE`, `REVISE`, and `BLOCKED`.
 
-`exhaustion_projection_missing`
+Dedicated exhaustion-projection-missing diagnostic, if current loop diagnostics
+are too generic
 : `loop/recur` needs typed `EXHAUSTED` result but no on-exhausted projection
   exists.
 
-`invalid_exhaustion_projection`
+Dedicated invalid-exhaustion-projection diagnostic, if current loop diagnostics
+are too generic
 : On-exhausted attempted to override non-scalar loop output directly.
 
-`loop_frame_projection_missing`
+Dedicated loop-frame-projection-missing diagnostic, if current projection
+diagnostics are too generic
 : Final result projection reads a value not materialized onto the loop frame.
 
-`evidence_authority_violation`
+Dedicated evidence-authority diagnostic, if current contract/authority
+diagnostics are too generic
 : Reviewer-produced field attempts to replace carried evidence identity.
 
-`source_map_origin_missing`
+Dedicated source-map-origin-missing diagnostic, if current source-map
+diagnostics are too generic
 : Generated helper, step, field, path, or projection lacks source-map
   provenance.
 
@@ -2229,6 +2743,8 @@ the following must pass:
 - Generic `.orc` definitions can declare structural record and union constraints.
 - Unsatisfied constraints fail before lowering.
 - Specialization emits monomorphic helpers with no runtime type values.
+- The chosen imported generic loop-state future-consumer proof passes before
+  Stage 10 depends on that route.
 - Variant-specific fields remain proof-gated after specialization.
 - ProcRef hooks are compile-time only.
 - Provider/command effects from ProcRef hooks are visible.
@@ -2287,6 +2803,22 @@ The first implementation rule is fixed:
   typecheck/lowering context needed for safe structural-generic work.
 - Stage 9 must check structural constraints, instantiate a monomorphic helper,
   and typecheck the instantiated helper before lowering.
+- Stage 10 also depends on the Section 12.1, 12.2, and 12.3 prerequisites:
+  if ordinary imported `.orc` still cannot author `loop/recur :on-exhausted`,
+  select `workflow-lisp-loop-recur-on-exhausted-projection` before reopening
+  the stdlib review-loop slice; if `:on-exhausted` exists but ordinary
+  imported `.orc` still cannot author the loop-frame state consumed by typed
+  exhaustion projection, select
+  `workflow-lisp-parametric-loop-state-authoring` before reopening the same
+  slice; if the standalone carrier surface passes but the imported future-
+  consumer composition still fails with `procedure_call_unknown`, including
+  symbolic `review` / `fix` callee names surviving into lowering,
+  `type_unknown`, `loop_recur_state_type_invalid`, or unresolved
+  `TypeParamRef` evidence, select
+  `workflow-lisp-imported-generic-loop-state-consumer-proof` before reopening
+  the same slice, and keep Stage 10 authored to the first-stable single-body
+  imported-consumer pattern unless a later bounded prerequisite proves the
+  helper-decomposition route.
 - Pre-instantiation generic-body checking is deferred follow-on diagnostic work,
   not a first-tranche acceptance gate.
 
@@ -2322,12 +2854,28 @@ Proceed in this order:
    `workflow-lisp-lowering-core-family-decomposition` whenever
    `lowering/core.py` remains the mixed owner for non-procedure lowering
    families that Track A, parametric, or stdlib-review-loop work would extend.
+   If a blocked lowering-dependent run proves this gap is still missing, the
+   next artifact is
+   `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-lowering-core-family-decomposition/implementation_architecture.md`,
+   and the blocked bundle is refreshed only after that prerequisite lands.
 5. Land the standalone typecheck-family decomposition gap
    `workflow-lisp-typecheck-family-decomposition` whenever `typecheck.py`
    remains the mixed owner for typechecking families that structural
    constraints, parametric specialization, imported `.orc` expansion, or
    stdlib-review-loop work would extend.
-6. Implement Track A:
+   If a blocked structural-constraints run proves this gap is still missing,
+   the next artifact is
+   `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-typecheck-family-decomposition/implementation_architecture.md`,
+   and the blocked structural bundle is refreshed only after that prerequisite
+   lands.
+6. Land the standalone shared-traversal prerequisite gap
+   `workflow-lisp-expression-traversal-prerequisite` whenever no shared
+   expression-traversal update point exists yet for duplicated walkers. If a
+   blocked Track A or loop-state run proves this gap is still missing, the next
+   artifact is
+   `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-expression-traversal-prerequisite/implementation_architecture.md`,
+   and the blocked bundle is refreshed only after that prerequisite lands.
+7. Implement Track A:
    - `FormKind` / `FormSpec` registry;
    - registry-routed elaboration;
    - reserved-name derivation/checking;
@@ -2336,8 +2884,16 @@ Proceed in this order:
    - imported source maps;
    - imported effect visibility;
    - generic ProcRef specialization.
-7. Add generic `loop/recur` exhaustion projection.
-8. Add minimal structural generics:
+8. Land prerequisite gap `workflow-lisp-loop-recur-on-exhausted-projection`
+   whenever ordinary imported `.orc` still cannot author `loop/recur
+   :on-exhausted` and the checkout still relies on bridge-owned exhaustion
+   injection.
+9. Land prerequisite gap `workflow-lisp-parametric-loop-state-authoring`
+   whenever ordinary imported `.orc` still cannot author the specialized
+   loop-frame state that typed exhaustion projection reads from, or when the
+   standalone carrier fixtures still fail to transport specialized loop state
+   through `loop/recur` without unresolved `TypeParamRef` evidence.
+10. Add minimal structural generics:
    - `:forall`;
    - `is-record`;
    - `has-field`;
@@ -2345,18 +2901,25 @@ Proceed in this order:
    - ordinary `ProcRef` parameter typing over signatures that mention resolved
      type parameters;
    - variant-proof preservation.
-9. Implement `std/phase.orc` `review-revise-loop` returning exact
+11. Land prerequisite gap
+    `workflow-lisp-imported-generic-loop-state-consumer-proof` whenever the
+    standalone loop-state surface passes but the first-stable single-body
+    imported generic future-consumer composition still fails with
+    `procedure_call_unknown`, including symbolic `review` / `fix` callee names
+    surviving into lowering, `type_unknown`,
+    `loop_recur_state_type_invalid`, or unresolved `TypeParamRef` evidence.
+12. Implement `std/phase.orc` `review-revise-loop` returning exact
    `ReviewLoopResult`.
-10. Project workflow-specific terminal unions outside the stdlib loop where
+13. Project workflow-specific terminal unions outside the stdlib loop where
    needed, using ordinary proof-gated matches.
-11. Use terminal-constructor ProcRefs or field-mapping extensions only if a
+14. Use terminal-constructor ProcRefs or field-mapping extensions only if a
    later design explicitly reopens stdlib-internal caller-owned terminal
    construction.
-12. Prove `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, `EXHAUSTED`, source-map,
+15. Prove `APPROVE`, `REVISE->APPROVE`, `BLOCKED`, `EXHAUSTED`, source-map,
    resume, caller-projection, and evidence-authority fixtures.
-13. Remove `ReviewReviseLoopExpr` from the promoted path.
-14. Gate migration through machine-computed parity evidence.
-15. Continue broader backlog cleanup after the semantic route is stable.
+16. Remove `ReviewReviseLoopExpr` from the promoted path.
+17. Gate migration through machine-computed parity evidence.
+18. Continue broader backlog cleanup after the semantic route is stable.
 
 The key architectural move is not to move the existing Python branch into a
 macro. The key move is to make the frontend refactor-safe first, then make
@@ -2364,8 +2927,9 @@ generic `.orc` expansion and the type system expressive enough that
 `review-revise-loop` is just one ordinary effectful stdlib definition over
 caller-owned typed state, exact stdlib-owned terminal protocol, compile-time
 procedure hooks, proof-preserving match, and generic loop exhaustion
-projection, with any richer workflow-specific terminal unions authored outside
-the loop.
+projection, with an explicit generic route for authoring the projected
+loop-frame state, and with any richer workflow-specific terminal unions
+authored outside the loop.
 
 ## Major Changes
 

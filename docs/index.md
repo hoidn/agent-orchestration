@@ -217,6 +217,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, structural-constraints, parametric, unions, records, specialization, review-loop
 **Use this when:** Designing or reviewing generic `.orc` library definitions that need caller-specific records or unions with required fields, variants, or proof behavior.
 
+### [Workflow Lisp Review/Revise Stdlib Parametric Integration](design/workflow_lisp_review_revise_stdlib_parametric_integration.md)
+**Description:** Companion target-delta history for the implemented stdlib-owned `review-revise-loop` route, including refactor prerequisites, generic `.orc` expansion, parametric constraints, loop-state prerequisites, bridge retirement rationale, and future extension questions. Current first-tranche behavior lives in the parent frontend specification.
+**Keywords:** lisp-frontend, review-revise-loop, stdlib, parametric, bridge-retirement, loop-state
+**Use this when:** Auditing why the review/revise loop moved out of compiler-special Python, reviewing remaining optional extensions, or tracing the design-gap sequence behind the current base-spec contract.
+
 ### [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 **Description:** Deferred runtime-semantics boundary for principled closures, including sealed closure families, checked dynamic invocation, typed captures, capabilities, source maps, and replay/resume constraints.
 **Keywords:** lisp-frontend, closures, runtime-callable, executable-ir, replay, resume
