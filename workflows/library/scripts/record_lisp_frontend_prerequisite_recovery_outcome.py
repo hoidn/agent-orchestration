@@ -142,6 +142,28 @@ def _record_original(
     )
 
 
+def _record_recovery_continues(
+    state: dict[str, Any],
+    *,
+    original_gap_id: str,
+    selection_path: Path,
+    selected_source: str,
+    selected_id: str,
+    reason: str,
+) -> None:
+    _record_original(
+        state,
+        original_gap_id=original_gap_id,
+        selection_path=selection_path,
+        selected_source=selected_source,
+        selected_id=selected_id,
+        status="PREREQUISITE_WORK_PENDING",
+        prerequisite_status="RECOVERY_CONTINUES",
+        reason=reason,
+        event="prerequisite_recovery_continues",
+    )
+
+
 def _finish(
     *,
     state_path: Path,
@@ -190,10 +212,8 @@ def main() -> int:
     reason = ""
     if not selected_source or not selected_id:
         reason = "prerequisite_selector_declined"
-        prerequisite_status = "DECLINED"
     elif not relation:
         reason = "missing_prerequisite_relation"
-        prerequisite_status = "BLOCKED_UNRECOVERABLE"
     elif selected_source == "DESIGN_GAP" and selected_id == original_gap_id:
         completed_source, completed_id = _completed_waiting_prerequisite(state, original_gap_id=original_gap_id)
         if completed_id:
@@ -222,7 +242,6 @@ def main() -> int:
                 drain_status="CONTINUE",
             )
         reason = "self_prerequisite_selection"
-        prerequisite_status = "BLOCKED_UNRECOVERABLE"
     elif _is_completed(state, source=selected_source, item_id=selected_id):
         _record_original(
             state,
@@ -280,26 +299,23 @@ def main() -> int:
                 drain_status="CONTINUE",
             )
         if str(entry.get("recovery_route") or "").strip() == "TERMINAL_BLOCKED":
-            reason = "selected_prerequisite_terminal_blocked"
-            prerequisite_status = "BLOCKED_TERMINAL"
+            if str(entry.get("recovery_reason") or "").strip() == "user_decision_required":
+                reason = "selected_prerequisite_user_input_required"
+            else:
+                reason = "selected_prerequisite_needs_recovery"
         else:
             reason = "selected_prerequisite_blocked_without_recoverable_metadata"
-            prerequisite_status = "BLOCKED_UNRECOVERABLE"
     elif selected_status != "CONTINUE":
         reason = f"selected_prerequisite_status_{selected_status.lower() or 'missing'}"
-        prerequisite_status = "BLOCKED_UNRECOVERABLE"
     else:
         reason = "selected_prerequisite_completion_evidence_missing"
-        prerequisite_status = "BLOCKED_UNRECOVERABLE"
 
-    _record_original(
+    _record_recovery_continues(
         state,
         original_gap_id=original_gap_id,
         selection_path=selection_path,
         selected_source=selected_source,
         selected_id=selected_id,
-        status="PREREQUISITE_BLOCKED",
-        prerequisite_status="DECLINED" if not selected_id else prerequisite_status,
         reason=reason,
     )
     return _finish(
@@ -308,13 +324,13 @@ def main() -> int:
         summary_path=Path(args.summary_path),
         drain_status_path=Path(args.drain_status_path),
         summary={
-            "record_status": "BLOCKED",
+            "record_status": "RECOVERY_CONTINUES",
             "original_blocked_gap_id": original_gap_id,
             "selected_prerequisite_id": selected_id,
             "selected_prerequisite_source": selected_source,
             "reason": reason,
         },
-        drain_status="BLOCKED",
+        drain_status="CONTINUE",
     )
 
 

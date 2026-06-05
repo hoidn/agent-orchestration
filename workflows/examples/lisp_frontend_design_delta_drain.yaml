@@ -595,11 +595,11 @@ steps:
               - name: prerequisite_recovery_record_status
                 json_pointer: /record_status
                 type: enum
-                allowed: ["RETRY_READY", "BLOCKED"]
+                allowed: ["RETRY_READY", "WAITING_ON_RECOVERABLE_PREREQUISITE", "RECOVERY_CONTINUES"]
               - name: prerequisite_recovery_drain_status
                 json_pointer: /drain_status
                 type: enum
-                allowed: ["CONTINUE", "BLOCKED"]
+                allowed: ["CONTINUE"]
               - name: prerequisite_recovery_reason
                 json_pointer: /reason
                 type: string

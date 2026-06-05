@@ -76,6 +76,19 @@ def _block_payload(reason: str) -> dict[str, str]:
     }
 
 
+def _requires_user_input(entry: dict[str, Any]) -> bool:
+    recovery_reason = str(entry.get("recovery_reason") or "").strip()
+    recovery_status = str(entry.get("recovery_status") or "").strip()
+    user_input_reason = str(entry.get("user_input_reason") or "").strip()
+    prerequisite_reason = str(entry.get("prerequisite_recovery_reason") or "").strip()
+    return (
+        recovery_status == "USER_INPUT_REQUIRED"
+        or recovery_reason == "user_decision_required"
+        or bool(user_input_reason)
+        or prerequisite_reason == "selected_prerequisite_user_input_required"
+    )
+
+
 def _none_payload(
     recovery_route: str = "NOT_APPLICABLE",
     recovery_reason: str = "not_blocked",
@@ -127,6 +140,10 @@ def _recovery_payload(
         if not recovery_event_id:
             return _block_payload("missing_blocked_recovery_event_id")
         recovery_status = str(entry.get("recovery_status") or "").strip()
+        if _requires_user_input(entry):
+            return _block_payload("user_decision_required")
+        if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_BLOCKED":
+            recovery_status = "PREREQUISITE_WORK_PENDING"
         if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_WORK_PENDING":
             if _is_completed_prerequisite(state, entry):
                 recovery_status = "RETRY_READY"

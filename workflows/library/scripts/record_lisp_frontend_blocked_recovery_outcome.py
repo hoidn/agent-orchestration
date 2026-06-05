@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -27,6 +28,42 @@ def _read_value_or_path(value: str) -> str:
 def _write_summary(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _append_recovery_review_revise_event(
+    *,
+    state_path: str,
+    item_id: str,
+    source: str,
+    route: str,
+    reason: str,
+    revision_report_path: Path | None,
+    review_decision: str,
+) -> None:
+    path = Path(state_path)
+    if not path.exists():
+        return
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state.setdefault("history", []).append(
+        {
+            "event": "blocked_recovery_review_revise",
+            "item_id": item_id,
+            "source": source,
+            "recovery_route": route,
+            "reason": reason,
+            "recovery_status": "TARGET_DESIGN_REVISION_REQUIRED",
+            "revision_report_path": revision_report_path.as_posix() if revision_report_path else "",
+            "review_decision": review_decision,
+            "timestamp_utc": _timestamp(),
+        }
+    )
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def _write_outputs(
@@ -183,8 +220,28 @@ def main() -> int:
             if result == 0 and args.terminal_action == "continue":
                 Path(args.drain_status_path).write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
             return result
-        if decision in {"REVISE", "BLOCKED"}:
-            return _run_update(args, "blocked", "design_revision_exhausted")
+        if decision == "REVISE":
+            result = _run_update(
+                args,
+                "blocked",
+                "target_design_revision_revise",
+                recovery_status="TARGET_DESIGN_REVISION_REQUIRED",
+            )
+            if result == 0:
+                _append_recovery_review_revise_event(
+                    state_path=args.state_path,
+                    item_id=args.item_id,
+                    source=args.source,
+                    route=route,
+                    reason="target_design_revision_revise",
+                    revision_report_path=revision_report_path,
+                    review_decision=decision,
+                )
+                if args.terminal_action == "continue":
+                    Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+            return result
+        if decision == "BLOCKED":
+            return _run_update(args, "blocked", "design_revision_blocked")
         raise SystemExit(f"Unexpected target design review decision: {decision}")
     if route == "PREREQUISITE_GAP_REQUIRED":
         if args.terminal_action == "block":
@@ -208,11 +265,30 @@ def main() -> int:
                 if result == 0:
                     Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
                 return result
-            if decision in {"REVISE", "BLOCKED"}:
+            if decision == "REVISE":
+                result = _run_update(
+                    args,
+                    "blocked",
+                    "prerequisite_target_design_revision_revise",
+                    recovery_status="TARGET_DESIGN_REVISION_REQUIRED",
+                )
+                if result == 0:
+                    _append_recovery_review_revise_event(
+                        state_path=args.state_path,
+                        item_id=args.item_id,
+                        source=args.source,
+                        route=route,
+                        reason="prerequisite_target_design_revision_revise",
+                        revision_report_path=revision_report_path,
+                        review_decision=decision,
+                    )
+                    Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+                return result
+            if decision == "BLOCKED":
                 return _run_update(
                     args,
                     "blocked",
-                    "prerequisite_target_design_revision_exhausted",
+                    "prerequisite_target_design_revision_blocked",
                     recovery_status="TARGET_DESIGN_REVISION_REQUIRED",
                 )
             raise SystemExit(f"Unexpected prerequisite target design review decision: {decision}")

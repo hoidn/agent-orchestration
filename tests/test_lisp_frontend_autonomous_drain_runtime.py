@@ -845,6 +845,86 @@ def test_blocked_recovery_explicit_external_user_decision_stays_terminal(tmp_pat
     }
 
 
+def test_blocked_recovery_environment_user_intervention_stays_terminal(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_path = workspace / "state/blocked-implementation-recovery.json"
+    output_path = workspace / "state/blocked-recovery-route.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "TERMINAL_BLOCKED",
+                "reason": "user_decision_required",
+                "summary": (
+                    "User input required: the workflow cannot continue because a "
+                    "credential and local setup environment issue requires user intervention."
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py"),
+        "--terminal-route",
+        "IMPLEMENTATION_BLOCKED",
+        "--work-item-source",
+        "DESIGN_GAP",
+        "--classifier-bundle-path",
+        bundle_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "blocked_recovery_route": "TERMINAL_BLOCKED",
+        "reason": "user_decision_required",
+    }
+
+
+def test_blocked_recovery_target_design_ambiguity_stays_terminal(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bundle_path = workspace / "state/blocked-implementation-recovery.json"
+    output_path = workspace / "state/blocked-recovery-route.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "TERMINAL_BLOCKED",
+                "reason": "user_decision_required",
+                "summary": (
+                    "Human decision required: there is a major unresolvable ambiguity "
+                    "in intention that cannot be resolved by target design revision."
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py"),
+        "--terminal-route",
+        "IMPLEMENTATION_BLOCKED",
+        "--work-item-source",
+        "DESIGN_GAP",
+        "--classifier-bundle-path",
+        bundle_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    assert json.loads(output_path.read_text(encoding="utf-8")) == {
+        "blocked_recovery_route": "TERMINAL_BLOCKED",
+        "reason": "user_decision_required",
+    }
+
+
 def test_update_run_state_records_design_revision_without_terminal_item_state(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -1387,6 +1467,183 @@ def test_prerequisite_block_after_approved_target_revision_allows_prerequisite_s
     assert payload["recovery_event_id"] == "parser-syntax-implementation-blocked"
 
 
+def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    recovery_bundle = workspace / "state/drain/recovery-decision.json"
+    revision_report = workspace / "state/drain/blocked-design-revision-report.json"
+    review_decision = workspace / "state/drain/blocked-design-revision-loop-decision.txt"
+    summary_path = workspace / "artifacts/work/blocked-summary.json"
+    pointer_path = workspace / "state/drain/blocked-summary-path.txt"
+    drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
+    progress_path = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/progress_report.md"
+    implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+
+    for path, text in [
+        (state_path, json.dumps({
+            "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+            "completed_items": [],
+            "completed_design_gaps": [],
+            "blocked_items": {},
+            "blocked_design_gaps": {
+                "parser-syntax": {
+                    "reason": "implementation_blocked",
+                    "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                    "recovery_reason": "prerequisite_gap_required",
+                    "recovery_status": "TARGET_DESIGN_REVISION_REQUIRED",
+                    "progress_report_path": progress_path.relative_to(workspace).as_posix(),
+                    "implementation_state_path": implementation_state_path.relative_to(workspace).as_posix(),
+                    "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                    "plan_path": plan_path.relative_to(workspace).as_posix(),
+                    "recovery_event_id": "parser-syntax-implementation-blocked",
+                }
+            },
+            "history": [],
+        }) + "\n"),
+        (recovery_bundle, json.dumps({
+            "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+            "reason": "prerequisite_gap_required",
+            "summary": "Target design needs clearer prerequisite sequencing.",
+        }) + "\n"),
+        (revision_report, json.dumps({
+            "design_revision_decision": "REVISED",
+            "summary": "Updated target design, but review requested another recovery pass.",
+        }) + "\n"),
+        (review_decision, "REVISE\n"),
+        (progress_path, "# Progress Report\n\nA prerequisite gap is missing from target design scope.\n"),
+        (implementation_state_path, "{}\n"),
+        (architecture_path, "# Parser Syntax Architecture\n"),
+        (plan_path, "# Parser Syntax Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+        "--recovery-bundle-path",
+        recovery_bundle.relative_to(workspace).as_posix(),
+        "--revision-report",
+        revision_report.relative_to(workspace).as_posix(),
+        "--target-design-review-decision",
+        review_decision.relative_to(workspace).as_posix(),
+        "--terminal-action",
+        "continue",
+        "--state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--item-id",
+        "parser-syntax",
+        "--source",
+        "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--implementation-state-path",
+        implementation_state_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "parser-syntax-implementation-blocked",
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--summary-pointer-path",
+        pointer_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"]["parser-syntax"]
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+    assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert blocked["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    assert blocked["recovery_reason"] == "prerequisite_target_design_revision_revise"
+    assert state["history"][-1]["event"] == "blocked_recovery_review_revise"
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["design_gap_id"] == "parser-syntax"
+    assert payload["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+
+
+def test_detector_treats_legacy_prerequisite_blocked_as_recoverable(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
+    progress_path = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/progress_report.md"
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+
+    for path, text in [
+        (progress_path, "# Progress Report\n\nLegacy prerequisite state needs recovery.\n"),
+        (architecture_path, "# Parser Syntax Architecture\n"),
+        (plan_path, "# Parser Syntax Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_BLOCKED",
+                        "prerequisite_recovery_status": "BLOCKED_UNRECOVERABLE",
+                        "prerequisite_recovery_reason": "missing_prerequisite_relation",
+                        "progress_report_path": progress_path.relative_to(workspace).as_posix(),
+                        "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                        "plan_path": plan_path.relative_to(workspace).as_posix(),
+                        "recovery_event_id": "parser-syntax-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
+    assert payload["design_gap_id"] == "parser-syntax"
+    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+
+
 def test_prerequisite_pending_with_completed_waiting_gap_retries_original_without_selection(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
@@ -1754,7 +2011,7 @@ def test_prerequisite_recovery_recoverable_prerequisite_block_continues(tmp_path
     assert summary["record_status"] == "WAITING_ON_RECOVERABLE_PREREQUISITE"
 
 
-def test_prerequisite_recovery_terminal_prerequisite_block_blocks_original(tmp_path):
+def test_prerequisite_recovery_terminal_prerequisite_block_keeps_original_recoverable(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
     state_path = workspace / "state/drain/run_state.json"
@@ -1783,7 +2040,7 @@ def test_prerequisite_recovery_terminal_prerequisite_block_blocks_original(tmp_p
                     "owner-seam-prerequisite": {
                         "reason": "implementation_blocked",
                         "recovery_route": "TERMINAL_BLOCKED",
-                        "recovery_reason": "unrecoverable_after_fix_attempt",
+                        "recovery_reason": "user_decision_required",
                         "recovery_event_id": "owner-seam-prerequisite-implementation-blocked",
                     },
                 },
@@ -1841,13 +2098,14 @@ def test_prerequisite_recovery_terminal_prerequisite_block_blocks_original(tmp_p
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
     original = state["blocked_design_gaps"]["parser-syntax"]
-    assert original["recovery_status"] == "PREREQUISITE_BLOCKED"
-    assert original["prerequisite_recovery_status"] == "BLOCKED_TERMINAL"
-    assert original["prerequisite_recovery_reason"] == "selected_prerequisite_terminal_blocked"
-    assert drain_status_path.read_text(encoding="utf-8").strip() == "BLOCKED"
+    assert original["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert original["prerequisite_recovery_status"] == "RECOVERY_CONTINUES"
+    assert original["waiting_on_prerequisite_gap_id"] == "owner-seam-prerequisite"
+    assert original["prerequisite_recovery_reason"] == "selected_prerequisite_user_input_required"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["record_status"] == "BLOCKED"
-    assert summary["reason"] == "selected_prerequisite_terminal_blocked"
+    assert summary["record_status"] == "RECOVERY_CONTINUES"
+    assert summary["reason"] == "selected_prerequisite_user_input_required"
 
 
 def test_prerequisite_retry_ready_is_overridden_when_retry_blocks_again(tmp_path):
@@ -2048,13 +2306,100 @@ def test_prerequisite_recovery_decline_keeps_original_gap_blocked(tmp_path):
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
     blocked = state["blocked_design_gaps"]["parser-syntax"]
-    assert blocked["recovery_status"] == "PREREQUISITE_BLOCKED"
-    assert blocked["prerequisite_recovery_status"] == "DECLINED"
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["prerequisite_recovery_status"] == "RECOVERY_CONTINUES"
+    assert blocked["prerequisite_recovery_reason"] == "prerequisite_selector_declined"
     assert "parser-syntax" in state["blocked_design_gaps"]
-    assert state["history"][-1]["event"] == "prerequisite_recovery_blocked"
-    assert drain_status_path.read_text(encoding="utf-8").strip() == "BLOCKED"
+    assert state["history"][-1]["event"] == "prerequisite_recovery_continues"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["record_status"] == "BLOCKED"
+    assert summary["record_status"] == "RECOVERY_CONTINUES"
+
+
+def test_prerequisite_recovery_missing_relation_remains_recoverable(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    pre_selection_bundle = workspace / "state/drain/blocked-recovery.json"
+    selection_bundle = workspace / "state/drain/prerequisite-selector/selection.json"
+    selected_status = workspace / "state/drain/selected-prerequisite-status.txt"
+    summary_path = workspace / "artifacts/work/prerequisite-recovery-summary.json"
+    drain_status_path = workspace / "state/drain/prerequisite-recovery-status.txt"
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "progress_report_path": "artifacts/work/design-gaps/parser-syntax/progress_report.md",
+                        "implementation_state_path": "state/drain/iterations/0/work-item/implementation_state.json",
+                        "architecture_path": "docs/plans/design-gaps/parser-syntax/implementation_architecture.md",
+                        "plan_path": "docs/plans/design-gaps/parser-syntax/execution_plan.md",
+                        "recovery_event_id": "parser-syntax-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pre_selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    pre_selection_bundle.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "design_gap_id": "parser-syntax",
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_event_id": "parser-syntax-implementation-blocked",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps({"selection_status": "DRAFT_DESIGN_GAP", "design_gap_id": "generic-context-capability"}) + "\n",
+        encoding="utf-8",
+    )
+    selected_status.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "--pre-selection-bundle-path",
+        pre_selection_bundle.relative_to(workspace).as_posix(),
+        "--selection-bundle-path",
+        selection_bundle.relative_to(workspace).as_posix(),
+        "--selected-work-status-path",
+        selected_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"]["parser-syntax"]
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["prerequisite_recovery_status"] == "RECOVERY_CONTINUES"
+    assert blocked["waiting_on_prerequisite_gap_id"] == "generic-context-capability"
+    assert blocked["prerequisite_recovery_reason"] == "missing_prerequisite_relation"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["record_status"] == "RECOVERY_CONTINUES"
 
 
 def test_resolve_drain_iteration_status_maps_recovery_routes(tmp_path):
@@ -2111,6 +2456,22 @@ def test_resolve_drain_iteration_status_maps_recovery_routes(tmp_path):
         )
 
         assert output.read_text(encoding="utf-8").strip() == expected
+
+
+def test_blocked_implementation_prompts_reserve_user_decision_for_terminal_categories():
+    prompt_paths = [
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase/implement_plan.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
+    ]
+
+    for path in prompt_paths:
+        prompt = path.read_text(encoding="utf-8").lower()
+        assert "user_decision_required" in prompt
+        assert "repo-local" in prompt
+        assert "prerequisite" in prompt
+        assert "target-design" in prompt or "target design" in prompt
+        assert "environment" in prompt or "access" in prompt or "credential" in prompt
 
 
 def test_record_recovered_retry_unavailable_keeps_blocked_reason_visible(tmp_path):
@@ -2650,6 +3011,19 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
         for part in prerequisite_recorder["command"]
     )
     assert prerequisite_recorder["when"]["compare"]["right"] == "SELECT_PREREQUISITE_WORK"
+    prerequisite_output = prerequisite_recorder["output_bundle"]
+    record_status_field = next(
+        field for field in prerequisite_output["fields"] if field["name"] == "prerequisite_recovery_record_status"
+    )
+    assert record_status_field["allowed"] == [
+        "RETRY_READY",
+        "WAITING_ON_RECOVERABLE_PREREQUISITE",
+        "RECOVERY_CONTINUES",
+    ]
+    drain_status_field = next(
+        field for field in prerequisite_output["fields"] if field["name"] == "prerequisite_recovery_drain_status"
+    )
+    assert drain_status_field["allowed"] == ["CONTINUE"]
     assert repeat_names.index("WriteNormalIterationStatus") < repeat_names.index("RecordPrerequisiteRecoveryOutcome")
     assert repeat_names.index("RecordPrerequisiteRecoveryOutcome") < repeat_names.index("ResolveIterationDrainStatus")
     resolver = recover["ResolveIterationDrainStatus"]

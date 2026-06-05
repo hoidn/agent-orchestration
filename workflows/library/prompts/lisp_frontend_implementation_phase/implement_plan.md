@@ -11,7 +11,9 @@ bundle.
 
 Do not use `user_decision_required` for repo-local scope, contract,
 verification, target-design, gap-design, or prerequisite-design issues. Those
-are recoverable design problems. Reserve `user_decision_required` for a concrete
-external human authority decision that cannot be represented by revising the
-target design, revising the gap architecture/plan, or selecting/drafting a
-prerequisite gap.
+are recoverable design problems. Reserve `user_decision_required` only for a
+major unresolvable ambiguity in intention that cannot be resolved by target-design
+or gap-design revision, an environment/access/credential/resource/local setup
+issue requiring user intervention, or a concrete external human authority
+decision that cannot be represented by revising the target design, revising the
+gap architecture/plan, or selecting/drafting a prerequisite gap.
