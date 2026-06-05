@@ -26,7 +26,11 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.contracts import is_review_findings_type
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import GeneratedRelpathSeedExpr, StdlibSpecializationExpr
+from orchestrator.workflow_lisp.expressions import (
+    GeneratedRelpathSeedExpr,
+    LoopRecurExpr,
+    StdlibSpecializationExpr,
+)
 from orchestrator.workflow_lisp.phase_stdlib import ReviewLoopLegacyBridgePolicy
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
@@ -1385,6 +1389,25 @@ def test_review_loop_valid_fixture_preserves_review_report_and_findings_roots(tm
     assert outputs["return__last_review_report"]["under"] == "artifacts/review"
     assert outputs["return__progress_report"]["under"] == "artifacts/work"
     assert outputs["return__findings__items_path"]["under"] == "artifacts/work"
+
+
+def test_review_loop_bridge_still_populates_loop_recur_on_exhausted_result_expr(
+    tmp_path: Path,
+) -> None:
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+
+    loop_exprs = [
+        node
+        for owner in (*result.typed_workflows, *result.typed_procedures)
+        for node in _walk_nodes(owner.typed_body.expr)
+        if isinstance(node, LoopRecurExpr)
+    ]
+
+    assert loop_exprs
+    assert loop_exprs[0].on_exhausted_result_expr is not None
+    assert loop_exprs[0].on_exhausted_result_expr.span.start.path.endswith(
+        "phase_stdlib_review_loop.orc"
+    )
 
 
 def test_authored_loop_state_review_findings_keeps_strict_relpath_contracts(

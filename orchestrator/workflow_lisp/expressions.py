@@ -1387,7 +1387,7 @@ def _elaborate_loop_recur(
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
 ) -> LoopRecurExpr:
-    if len(datum.items) != 6:
+    if len(datum.items) < 6:
         _raise_error(
             "`loop/recur` requires :max, :state, and one loop-body `fn`",
             code="loop_recur_contract_invalid",
@@ -1395,7 +1395,53 @@ def _elaborate_loop_recur(
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    sections = _keyword_sections(datum.items[1:5], form_path=form_path, label="`loop/recur`")
+    keyword_items = datum.items[1:-1]
+    if len(keyword_items) < 4 or len(keyword_items) % 2 != 0:
+        _raise_error(
+            "`loop/recur` requires :max, :state, and one loop-body `fn`",
+            code="loop_recur_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    sections: dict[str, object] = {}
+    for index in range(0, len(keyword_items), 2):
+        keyword_node = keyword_items[index]
+        value_node = keyword_items[index + 1]
+        if not isinstance(keyword_node, SyntaxKeyword):
+            _raise_error(
+                "`loop/recur` entries before the body must be keyword/value pairs",
+                code="loop_recur_contract_invalid",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        if keyword_node.value in sections:
+            _raise_error(
+                f"`loop/recur` duplicated keyword `{keyword_node.value}`",
+                code="loop_recur_contract_invalid",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        sections[keyword_node.value] = value_node
+    unexpected_keywords = set(sections) - {":max", ":state", ":on-exhausted"}
+    if unexpected_keywords:
+        first_unexpected = min(unexpected_keywords)
+        keyword_index = next(
+            index
+            for index in range(0, len(keyword_items), 2)
+            if isinstance(keyword_items[index], SyntaxKeyword)
+            and keyword_items[index].value == first_unexpected
+        )
+        keyword_node = keyword_items[keyword_index]
+        _raise_error(
+            f"`loop/recur` does not support keyword `{first_unexpected}`",
+            code="loop_recur_contract_invalid",
+            span=keyword_node.span,
+            form_path=form_path,
+            expansion_stack=keyword_node.expansion_stack,
+        )
     max_node = sections.get(":max")
     state_node = sections.get(":state")
     if max_node is None or state_node is None:
@@ -1407,11 +1453,13 @@ def _elaborate_loop_recur(
             expansion_stack=datum.expansion_stack,
         )
     body_fn = _elaborate_loop_body_fn(
-        datum.items[5],
+        datum.items[-1],
         form_path=form_path,
         bound_names=bound_names,
         procedure_names=procedure_names,
     )
+    loop_bound_names = frozenset(set(bound_names) | {body_fn.binding_name})
+    on_exhausted_node = sections.get(":on-exhausted")
     return LoopRecurExpr(
         max_iterations_expr=_elaborate(
             max_node,
@@ -1427,6 +1475,16 @@ def _elaborate_loop_recur(
         ),
         binding_name=body_fn.binding_name,
         body_expr=body_fn.body_expr,
+        on_exhausted_result_expr=(
+            _elaborate(
+                on_exhausted_node,
+                form_path=form_path,
+                bound_names=loop_bound_names,
+                procedure_names=procedure_names,
+            )
+            if on_exhausted_node is not None
+            else None
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -320,6 +320,25 @@ def test_elaborate_expression_supports_loop_recur() -> None:
     assert isinstance(expr.body_expr.arms[1].body, ContinueExpr)
 
 
+def test_elaborate_expression_supports_loop_recur_on_exhausted() -> None:
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(loop/recur :max 3 :state attempt "
+            ":on-exhausted (record ChecksResult :status \"exhausted\" :report state.report) "
+            "(fn (state) (match state "
+            "((COMPLETED completed) (done (record ChecksResult :status \"ok\" :report completed.execution_report))) "
+            "((BLOCKED blocked) (continue state)))))"
+        ),
+        bound_names=frozenset({"attempt"}),
+    )
+
+    assert isinstance(expr, LoopRecurExpr)
+    assert isinstance(expr.on_exhausted_result_expr, RecordExpr)
+    field_map = dict(expr.on_exhausted_result_expr.fields)
+    assert isinstance(field_map["report"], FieldAccessExpr)
+    assert field_map["report"].base.name == "state"
+
+
 def test_elaborate_expression_supports_if_conditional() -> None:
     expr = elaborate_expression(
         _expression_syntax(
@@ -458,6 +477,25 @@ def test_elaborate_expression_rejects_malformed_loop_recur_fn() -> None:
         )
 
     _assert_diagnostic_code(excinfo, "loop_recur_fn_invalid")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "(loop/recur :max 3 :state attempt :on-exhausted (fn (state) (continue state)))",
+        "(loop/recur :max 3 :state attempt (fn (state) (continue state)) :on-exhausted attempt)",
+    ],
+)
+def test_elaborate_expression_rejects_malformed_loop_recur_on_exhausted(
+    source: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax(source),
+            bound_names=frozenset({"attempt"}),
+        )
+
+    _assert_diagnostic_code(excinfo, "loop_recur_contract_invalid")
 
 
 def test_elaborate_expression_rejects_unknown_expression_forms() -> None:

@@ -18,6 +18,7 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    RecordExpr,
     UnionVariantExpr,
 )
 from ..loops import (
@@ -46,6 +47,7 @@ from .values import (
     _inline_expr_field_value,
     _normalize_union_field_path,
     _phase_target_inline_ref,
+    _record_expr_value_at_path,
     _resolve_inline_expr_value,
     _resolve_inline_field_value,
     _union_variant_expr_value_at_path,
@@ -270,6 +272,7 @@ def _control_lower_loop_recur_impl(
                 result_type=result_type,
                 context=context,
                 local_values=exhaustion_local_values,
+                loop_binding_name=expr.binding_name,
             )
         }
     _record_step_origin(context, step_name=plan.repeat_step_name, step_id=repeat_step_id, source=expr)
@@ -380,6 +383,15 @@ def _control_lower_loop_recur_impl(
         step_name=plan.result_normalization_step_name,
         step_id=result_step_id,
         source=expr,
+    )
+    _record_loop_on_exhausted_origins(
+        context=context,
+        loop_expr=expr,
+        repeat_step_name=plan.repeat_step_name,
+        repeat_step_id=repeat_step_id,
+        result_step_name=plan.result_normalization_step_name,
+        result_step_id=result_step_id,
+        normalized_result_fields=normalized_result_fields,
     )
     return [seed_step, repeat_step, result_step], result_terminal
 
@@ -1167,9 +1179,11 @@ def _loop_on_exhausted_outputs(
     result_type: TypeRef,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
+    loop_binding_name: str,
 ) -> dict[str, Any]:
     active_variant_name = expr.variant_name if isinstance(expr, UnionVariantExpr) else None
     outputs: dict[str, Any] = {}
+    result_fields_by_name = {field.generated_name: field for field in plan.result_projection.flattened_fields}
     for value in _loop_projection_materialize_values(
         expr,
         projection=plan.result_projection,
@@ -1178,7 +1192,27 @@ def _loop_on_exhausted_outputs(
         active_variant_name=active_variant_name,
         allow_missing_target_fields=_loop_result_optional_relpath_fields(plan.result_projection),
     ):
+        result_field = result_fields_by_name[value["name"]]
         if value.get("contract", {}).get("kind") != "scalar":
+            field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:])
+            if field_expr is None:
+                continue
+            if not _loop_on_exhausted_non_scalar_uses_loop_state(
+                expr,
+                loop_binding_name=loop_binding_name,
+                field_path=result_field.source_path[1:],
+                require_exact_state_field_path=not isinstance(result_type, UnionTypeRef),
+            ):
+                field_name = "__".join(result_field.source_path[1:]) or result_field.generated_name
+                raise _compile_error(
+                    code="workflow_return_not_exportable",
+                    message=(
+                        f"`loop/recur :on-exhausted` non-scalar field `{field_name}` must "
+                        "project from loop state so final normalization can reuse loop-frame outputs"
+                    ),
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
             continue
         source = value["source"]
         if "literal" in source:
@@ -1193,6 +1227,61 @@ def _loop_on_exhausted_outputs(
                 form_path=expr.form_path,
             )
     return outputs
+
+
+def _loop_on_exhausted_expr_at_path(expr: Any, field_path: tuple[str, ...]) -> Any | None:
+    if isinstance(expr, RecordExpr):
+        if not field_path:
+            return expr
+        return _record_expr_value_at_path(expr, field_path)
+    if isinstance(expr, UnionVariantExpr):
+        return _union_variant_expr_value_at_path(expr, field_path)
+    if not field_path:
+        return expr
+    return None
+
+
+def _loop_on_exhausted_non_scalar_uses_loop_state(
+    expr: Any,
+    *,
+    loop_binding_name: str,
+    field_path: tuple[str, ...],
+    require_exact_state_field_path: bool,
+) -> bool:
+    field_expr = _loop_on_exhausted_expr_at_path(expr, field_path)
+    if isinstance(field_expr, NameExpr):
+        return not field_path and field_expr.name == loop_binding_name
+    if not isinstance(field_expr, FieldAccessExpr):
+        return False
+    if require_exact_state_field_path and tuple(field_expr.fields) != field_path:
+        return False
+    base = field_expr.base
+    while isinstance(base, FieldAccessExpr):
+        base = base.base
+    return isinstance(base, NameExpr) and base.name == loop_binding_name
+
+
+def _record_loop_on_exhausted_origins(
+    *,
+    context: _LoweringContext,
+    loop_expr: LoopRecurExpr,
+    repeat_step_name: str,
+    repeat_step_id: str,
+    result_step_name: str,
+    result_step_id: str,
+    normalized_result_fields: list[Any],
+) -> None:
+    on_exhausted = loop_expr.on_exhausted_result_expr
+    if on_exhausted is None:
+        return
+
+    _record_step_origin(context, step_name=repeat_step_name, step_id=repeat_step_id, source=on_exhausted)
+    _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=on_exhausted)
+    output_origin = _origin_from_context_source(context, on_exhausted)
+    for field in normalized_result_fields:
+        if _loop_on_exhausted_expr_at_path(on_exhausted, field.source_path[1:]) is None:
+            continue
+        context.generated_output_spans[field.generated_name] = output_origin
 
 
 def _loop_result_optional_relpath_fields(projection: LoopValueProjection) -> frozenset[str]:

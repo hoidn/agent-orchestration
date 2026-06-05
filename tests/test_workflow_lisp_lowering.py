@@ -72,6 +72,12 @@ WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
+LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
+LOOP_RECUR_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
+LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE = (
+    FIXTURES / "invalid" / "loop_recur_on_exhausted_non_scalar_override.orc"
+)
+MODULE_FIXTURES = FIXTURES / "modules"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 PROMOTED_ENTRY_BOOTSTRAP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
 
@@ -109,6 +115,23 @@ def _compiler_module():
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def _compile_imported_entrypoint(
+    path: Path,
+    *,
+    source_root: Path,
+    tmp_path: Path,
+    validate_shared: bool = False,
+):
+    return compile_stage3_entrypoint(
+        path,
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=validate_shared,
+        workspace_root=tmp_path,
+    )
 
 
 def _lowering_source_path() -> Path:
@@ -1313,6 +1336,174 @@ def test_lowering_loop_recur_preserves_origin_map_for_generated_steps(tmp_path: 
         "__write_root__loop_recur_minimal__attempt__result_bundle" in path
         for path in lowered.origin_map.generated_path_spans
     )
+
+
+def test_lowering_loop_recur_emits_repeat_until_on_exhausted_outputs(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-record"
+    )
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+
+    assert repeat_step["repeat_until"]["on_exhausted"]["outputs"] == {
+        "result__status": "exhausted"
+    }
+    assert "result__report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+
+
+def test_lowering_loop_recur_rejects_non_scalar_on_exhausted_override(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert diagnostic.span.start.path.endswith("loop_recur_on_exhausted_non_scalar_override.orc")
+    assert diagnostic.span.start.line == 31
+    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "loop-recur-on-exhausted-non-scalar-override")
+
+
+def test_lowering_loop_recur_rejects_mismatched_state_field_on_exhausted_override(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_on_exhausted_mismatched_state_field.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord LoopState",
+                "    (report WorkReport)",
+                "    (other_report WorkReport)",
+                "    (done Bool))",
+                "  (defrecord ImplementationSummary",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defworkflow loop-recur-on-exhausted-mismatched-state-field",
+                "    ((report_path WorkReport)",
+                "     (other_report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (loop/recur",
+                "      :max 1",
+                "      :state (record LoopState",
+                "               :report report_path",
+                "               :other_report other_report_path",
+                "               :done false)",
+                "      :on-exhausted (record ImplementationSummary",
+                '                      :status "exhausted"',
+                "                      :report state.other_report)",
+                "      (fn (state)",
+                "        (if state.done",
+                "          (done",
+                "            (record ImplementationSummary",
+                '              :status "done"',
+                "              :report state.report))",
+                "          (continue state))))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert diagnostic.span.start.path.endswith("loop_recur_on_exhausted_mismatched_state_field.orc")
+    assert diagnostic.span.start.line == 27
+    assert diagnostic.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "loop-recur-on-exhausted-mismatched-state-field",
+    )
+
+
+def test_lowering_loop_recur_on_exhausted_preserves_origin_map_for_generated_steps(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_ON_EXHAUSTED_UNION_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-union"
+    )
+    loop_expr = lowered.typed_workflow.typed_body.expr
+    on_exhausted = loop_expr.on_exhausted_result_expr
+    assert on_exhausted is not None
+
+    assert set(lowered.origin_map.step_spans) >= {
+        "loop-recur-on-exhausted-union__seed",
+        "loop-recur-on-exhausted-union__loop",
+        "loop-recur-on-exhausted-union__result",
+    }
+    loop_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-union__loop"]
+    result_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-union__result"]
+    reason_origin = lowered.origin_map.generated_output_spans["return__reason"]
+
+    assert loop_origin.span == on_exhausted.span
+    assert loop_origin.form_path == on_exhausted.form_path
+    assert result_origin.span == on_exhausted.span
+    assert result_origin.form_path == on_exhausted.form_path
+    assert reason_origin.span == on_exhausted.span
+    assert reason_origin.form_path == on_exhausted.form_path
+
+
+def test_lowering_imported_loop_recur_on_exhausted_helper_preserves_origin_map(
+    tmp_path: Path,
+) -> None:
+    source_root = MODULE_FIXTURES / "valid" / "imported_loop_recur_on_exhausted"
+    result = _compile_imported_entrypoint(source_root / "entry.orc", source_root=source_root, tmp_path=tmp_path)
+
+    helper = next(
+        workflow
+        for workflow in result.compiled_results_by_name["helper"].lowered_workflows
+        if workflow.typed_workflow.definition.name == "helper::project-exhausted"
+    )
+    loop_expr = helper.typed_workflow.typed_body.expr
+    on_exhausted = loop_expr.on_exhausted_result_expr
+    assert on_exhausted is not None
+
+    loop_origin = helper.origin_map.step_spans["helper::project-exhausted__loop"]
+    result_origin = helper.origin_map.step_spans["helper::project-exhausted__result"]
+    reason_origin = helper.origin_map.generated_output_spans["return__reason"]
+
+    assert loop_origin.span == on_exhausted.span
+    assert loop_origin.form_path == on_exhausted.form_path
+    assert result_origin.span == on_exhausted.span
+    assert result_origin.form_path == on_exhausted.form_path
+    assert reason_origin.span == on_exhausted.span
+    assert reason_origin.form_path == on_exhausted.form_path
 
 
 def test_lowering_if_bool_literal_emits_shared_if_step(tmp_path: Path) -> None:

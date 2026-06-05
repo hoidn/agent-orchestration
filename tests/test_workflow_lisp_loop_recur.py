@@ -4,17 +4,24 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 VALID_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_union_result.orc"
+VALID_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
+VALID_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
 INVALID_MISSING_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_missing_done.orc"
 INVALID_CONTINUE_FIXTURE = FIXTURES / "invalid" / "loop_recur_continue_type_mismatch.orc"
 INVALID_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_done_type_mismatch.orc"
 INVALID_FN_OUTSIDE_FIXTURE = FIXTURES / "invalid" / "loop_recur_fn_outside_loop.orc"
+INVALID_ON_EXHAUSTED_IMPURE_FIXTURE = FIXTURES / "invalid" / "loop_recur_on_exhausted_impure.orc"
+INVALID_ON_EXHAUSTED_TYPE_MISMATCH_FIXTURE = (
+    FIXTURES / "invalid" / "loop_recur_on_exhausted_type_mismatch.orc"
+)
+MODULE_FIXTURES = FIXTURES / "modules"
 VALID_IF_LOOP_FIXTURE = FIXTURES / "valid" / "if_conditionals_loop_body.orc"
 
 
@@ -26,6 +33,17 @@ def _write_module(path: Path, body: str) -> Path:
 def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
     return compile_stage3_module(
         path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=validate_shared,
+        workspace_root=tmp_path,
+    )
+
+
+def _compile_entrypoint(path: Path, *, source_root: Path, tmp_path: Path, validate_shared: bool = False):
+    return compile_stage3_entrypoint(
+        path,
+        source_roots=(source_root,),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
         validate_shared=validate_shared,
@@ -54,6 +72,20 @@ def test_typecheck_loop_recur_rejects_continue_type_mismatch(tmp_path: Path) -> 
 def test_typecheck_loop_recur_rejects_done_type_mismatch(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(INVALID_DONE_FIXTURE, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "loop_recur_done_type_mismatch")
+
+
+def test_typecheck_loop_recur_rejects_impure_on_exhausted(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(INVALID_ON_EXHAUSTED_IMPURE_FIXTURE, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "loop_recur_contract_invalid")
+
+
+def test_typecheck_loop_recur_rejects_on_exhausted_type_mismatch(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(INVALID_ON_EXHAUSTED_TYPE_MISMATCH_FIXTURE, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "loop_recur_done_type_mismatch")
 
@@ -248,6 +280,27 @@ def test_lowering_loop_recur_supports_union_result_fixture(tmp_path: Path) -> No
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
 
     assert repeat_step["repeat_until"]["condition"]["compare"]["right"] == "DONE"
+
+
+def test_compile_stage3_imported_loop_recur_on_exhausted_helper_validates(tmp_path: Path) -> None:
+    source_root = MODULE_FIXTURES / "valid" / "imported_loop_recur_on_exhausted"
+    result = _compile_entrypoint(source_root / "entry.orc", source_root=source_root, tmp_path=tmp_path)
+
+    assert result.entry_result.typed_workflows[0].definition.name == "entry::orchestrate"
+    assert any(
+        workflow.typed_workflow.definition.name == "helper::project-exhausted"
+        for workflow in result.compiled_results_by_name["helper"].lowered_workflows
+    )
+
+
+def test_loop_recur_on_exhausted_fixture_validates_through_shared_repeat_until(
+    tmp_path: Path,
+) -> None:
+    result = _compile(VALID_ON_EXHAUSTED_RECORD_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+
+    assert [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows] == [
+        "loop-recur-on-exhausted-record"
+    ]
 
 
 def test_lowering_loop_recur_supports_literal_initial_state(tmp_path: Path) -> None:
