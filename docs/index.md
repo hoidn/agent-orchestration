@@ -242,6 +242,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, migration, parity, command-result, review-revise-loop, resume-or-start
 **Use this when:** Planning or reviewing the system changes required before key YAML workflows can be replaced by `.orc` equivalents.
 
+### [Workflow Lisp Runtime Migration Foundation](design/workflow_lisp_runtime_migration_foundation.md)
+**Description:** Target design for the runtime and migration foundation beneath Workflow Lisp promotion, covering command structured-output authority, machine-readable migration promotion gates, and centralized generated state/path allocation.
+**Keywords:** lisp-frontend, migration, parity, command-output, statelayout, pathallocator, promotion-gate
+**Use this when:** Planning the next promotion-foundation tranche after `.orc` compilation works but command bundle authority, computed promotion gating, or generated path ownership still need hardening.
+
 ### [Lisp Migrate Key Workflows Execution Plan](plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md)
 **Description:** Approved execution-ready plan for the first migration tranche converting `cycle_guard_demo` and the `design_plan_impl_review_stack_v2_call` family to additive Workflow Lisp `.orc` surfaces with compile/dry-run/parity evidence.
 **Keywords:** lisp-frontend, migration, workflow-lisp, parity, execution-plan
