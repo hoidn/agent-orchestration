@@ -2,6 +2,11 @@
 
 Read `docs/index.md` before making changes.
 
+Documentation routing:
+- Start at `docs/index.md` for current docs/spec routing.
+- Use `docs/capability_status_matrix.md` to check whether a surface is implemented, partial, library-provided, designed, future, or legacy before copying it.
+- Use `docs/design/README.md` to choose the relevant design doc; `MIND_MAP.md` is a secondary orientation map, not the agent entry point.
+
 Repo expectations:
 - Read `docs/index.md` before deciding what docs or specs govern the task.
 - Use the `tmux` skill when launching long-running commands.

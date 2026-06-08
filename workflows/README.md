@@ -8,21 +8,32 @@ and runtime parity evidence.
 Run workflows from the repo root:
 
 ```bash
-PYTHONPATH=/home/ollie/Documents/agent-orchestration \
 python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 ```
 
 Some workflows declare required typed inputs. For those, pass fixture inputs explicitly:
 
 ```bash
-PYTHONPATH=/home/ollie/Documents/agent-orchestration \
 python -m orchestrator run workflows/examples/workflow_signature_demo.yaml \
   --dry-run --input task_path=workflows/examples/inputs/demo-task.md
 
-PYTHONPATH=/home/ollie/Documents/agent-orchestration \
 python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml \
   --dry-run --input upstream_state_path=workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json
 ```
+
+## Which Example Should I Copy?
+
+- For a current YAML stack with reusable library calls, start with
+  `workflows/examples/design_plan_impl_review_stack_v2_call.yaml`.
+- For the smallest Workflow Lisp `.orc` authoring example, start with
+  `workflows/examples/kiss_backlog_item.orc`.
+- For structured variant/materialization behavior, inspect the v2.14 drain
+  examples before copying patterns.
+- For migration work, keep the YAML primary authoritative until the `.orc`
+  candidate has compile, shared-validation, dry-run or smoke, and parity
+  evidence.
+- Avoid copying examples marked legacy, negative fixture, prompt asset issue, or
+  needs schema cleanup unless that status matches your purpose.
 
 ## Directory Map
 

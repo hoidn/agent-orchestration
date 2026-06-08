@@ -1,0 +1,48 @@
+# Capability Status Matrix
+
+Status: informative routing/status index
+Normative authority: `specs/` for runtime/DSL behavior; linked design docs for Workflow Lisp/frontend contracts
+Scope: public authoring/runtime surfaces that maintainers may copy, invoke, or depend on
+
+This matrix is a discoverability layer. If it conflicts with a normative spec,
+the spec wins and this matrix should be fixed.
+
+Status labels:
+
+- `Implemented`: available in current checkout with runtime/test/spec evidence.
+- `Partial`: available for some routes, but incomplete or bounded.
+- `Library`: available as a library/frontend abstraction rather than a raw DSL primitive.
+- `Designed`: design exists, implementation is not complete enough for normal use.
+- `Future`: intentionally deferred.
+- `Legacy`: retained for compatibility or historical examples, not preferred for new authoring.
+
+| Surface / feature | Status | Normal for new authoring? | Authority lane | Evidence | Copyable example | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| YAML DSL v2.x | Implemented | Yes, when exact runtime behavior or unsupported `.orc` forms are needed | `specs/dsl.md` | `workflows/README.md`; `tests/test_workflow_examples_v0.py` | `workflows/examples/design_plan_impl_review_stack_v2_call.yaml` | YAML remains the exact runtime source where no promoted `.orc` parity exists. |
+| Workflow Lisp `.orc` | Partial | Yes, when the needed frontend forms are supported and parity evidence is not being claimed prematurely | `docs/lisp_workflow_drafting_guide.md`; `docs/design/workflow_lisp_frontend_specification.md` | `tests/test_workflow_lisp_*.py`; `workflows/examples/kiss_backlog_item.orc` | `workflows/examples/kiss_backlog_item.orc` | Use YAML for unsupported runtime behavior or migration primaries without computed parity. |
+| `provider-result` | Implemented | Yes in Workflow Lisp for structured provider outcomes | `docs/lisp_workflow_drafting_guide.md`; `docs/design/workflow_lisp_frontend_mvp_specification.md` | `tests/test_workflow_lisp_structured_results.py` | `workflows/examples/kiss_backlog_item.orc` | Provider prose is a view; structured result bundles carry workflow meaning. |
+| `command-result` | Partial | Yes for supported structured command routes; prefer certified adapters for hidden semantics | `docs/design/workflow_command_adapter_contract.md`; `docs/design/workflow_lisp_runtime_migration_foundation.md` | `tests/test_workflow_lisp_structured_results.py`; `tests/test_output_contract.py` | `workflows/examples/cycle_guard_demo.orc` | Runtime bundle behavior is being hardened; do not use stdout scraping as semantic state. |
+| `match` | Implemented | Yes | `specs/dsl.md`; `docs/design/workflow_lisp_frontend_mvp_specification.md` | `workflows/examples/match_demo.yaml`; `tests/test_workflow_lisp_match.py` | `workflows/examples/match_demo.yaml` | Match establishes variant proof for branch-local values. |
+| `loop/recur` | Implemented | Yes for bounded supported loops | `docs/lisp_workflow_drafting_guide.md`; `specs/dsl.md` | `workflows/examples/repeat_until_demo.yaml`; `tests/test_workflow_lisp_loops.py` | `workflows/examples/repeat_until_demo.yaml` | Typed exhaustion projection remains a design concern for richer stdlib loops. |
+| `review-revise-loop` | Library | Yes when using the current stdlib/frontend route; migration promotion still needs parity evidence | `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`; `docs/design/lisp_frontend_review_fix_loops.md` | `std/phase.orc`; `tests/test_workflow_lisp_review_revise_loop.py` | `workflows/examples/kiss_backlog_item.orc` | `REVISE` is not completion; terminal loop results are structured state. |
+| `resource-transition` | Library | Yes for supported queue/resource state transitions | `docs/lisp_workflow_drafting_guide.md`; `docs/design/workflow_lisp_stdlib_lowering.md` | `tests/test_workflow_lisp_resource_transition.py` | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | Prefer typed transition forms over hand-written queue movement. |
+| `ProcRef` | Implemented | Yes as compile-time procedure references | `docs/design/workflow_lisp_proc_refs_partial_application.md`; `docs/design/workflow_lisp_compile_time_parametric_specialization.md` | `tests/test_workflow_lisp_proc_refs.py` | `workflows/examples/kiss_backlog_item.orc` | ProcRefs must not become runtime procedure values. |
+| `bind-proc` | Implemented | Yes for supported partial application | `docs/design/workflow_lisp_proc_refs_partial_application.md` | `tests/test_workflow_lisp_proc_refs_partial_application.py` | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | Bound ProcRefs remain compile-time-only. |
+| `let-proc` | Designed | No, unless a branch explicitly implements the design | `docs/design/workflow_lisp_let_proc_local_proc_refs.md` | design doc only | None | Intended as a follow-on ergonomic surface, not current normal authoring. |
+| runtime closures | Future | No | `docs/design/workflow_lisp_runtime_closures_boundary.md` | design boundary doc | None | Runtime closures are intentionally deferred; use compile-time ProcRefs instead. |
+| Semantic IR | Implemented | Not directly authored | `docs/design/workflow_lisp_semantic_workflow_ir.md` | `LoadedWorkflowBundle.semantic_ir`; `tests/test_workflow_lisp_semantic_ir.py` | None | Semantic IR is an authority surface for compiled workflow meaning. |
+| Executable IR | Implemented | Not directly authored | `docs/design/workflow_lisp_executable_ir.md` | `LoadedWorkflowBundle.ir`; `tests/test_workflow_lisp_executable_ir.py` | None | Executable IR is the validated execution authority below the frontend. |
+| debug YAML renderer | Implemented | No; use for inspection, not authority | `docs/design/workflow_lisp_debug_yaml_renderer.md` | debug-render tests; generated projections | None | Debug YAML is a view of generated semantics. |
+| source maps | Implemented | Not directly authored; required for generated surfaces | `docs/design/workflow_lisp_source_map.md` | source-map fixtures and build artifacts | None | Generated steps, fields, and paths should retain source provenance. |
+| command adapters | Partial | Yes when certified or explicitly legacy | `docs/design/workflow_command_adapter_contract.md` | adapter policy docs; command contract tests | `workflows/examples/cycle_guard_demo.orc` | Inline Python/shell that owns hidden workflow semantics is migration debt. |
+| managed provider jobs | Implemented | Yes for provider steps needing runtime-owned job monitoring | `specs/providers.md`; `specs/dsl.md` | `workflows/examples/managed_provider_jobs_demo.yaml`; provider-job tests | `workflows/examples/managed_provider_jobs_demo.yaml` | Runtime owns guard, shim, audit, recovery, and resumable state. |
+| provider sessions | Implemented | Yes for supported provider-session workflows | `specs/providers.md`; `specs/dsl.md` | `workflows/examples/dsl_review_first_fix_loop_provider_session.yaml`; provider-session tests | `workflows/examples/dsl_review_first_fix_loop_provider_session.yaml` | Use session handles instead of shell-resume glue when supported. |
+| `output_bundle` | Implemented | Yes for fixed structured outputs | `specs/dsl.md`; `specs/io.md` | `tests/test_output_contract.py`; `tests/test_workflow_output_contract_integration.py` | `workflows/examples/backlog_plan_execute_v1_3_json_bundles.yaml` | Use for fixed-shape state, not tagged outcomes. |
+| `variant_output` | Implemented | Yes for provider/command tagged outcomes | `specs/dsl.md`; `specs/io.md` | v2.14 variant-output tests | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Establishes output variants that can drive structured routing. |
+| `select_variant_output` | Implemented | Yes when one candidate variant must be committed atomically | `specs/dsl.md`; `specs/io.md` | v2.14 materialization/variant tests | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Validates selected variant before canonical state is exposed. |
+| `publishes` | Implemented | Yes for artifact lineage | `specs/dsl.md`; `specs/io.md` | artifact lineage tests; v1.2 examples | `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml` | Publishes artifact values rather than informal pointer text. |
+| `consumes` | Implemented | Yes for typed preflight/freshness lineage | `specs/dependencies.md`; `specs/dsl.md` | consume/preflight tests; v1.2 examples | `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml` | Distinct from prompt injection and workflow inputs. |
+| `depends_on` | Implemented | Yes for runtime dependencies and optional prompt injection | `specs/dependencies.md`; `specs/dsl.md` | dependency resolver/injection tests | `workflows/examples/depends_on_inject_imported_v2_call.yaml` | Dependency injection changes composed prompt text, not source files. |
+| `materialize_artifacts` | Implemented | Yes for runtime-owned materialization | `specs/dsl.md`; `docs/design/dsl_v214_materialization_variants_draft.md` | v2.14 materialization tests | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Prefer runtime-owned materialization over ad hoc pointer writes. |
+| `pre_snapshot` | Implemented | Yes when freshness evidence matters | `specs/dsl.md`; `docs/design/dsl_v214_materialization_variants_draft.md` | v2.14 snapshot tests | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Snapshot evidence is stronger than mtime-only checks. |
+| `requires_variant` | Implemented | Yes when consuming variant-specific artifacts | `specs/dsl.md`; `specs/io.md` | v2.14 variant proof tests | `workflows/examples/lisp_frontend_design_delta_drain.yaml` | Requires variant proof before a variant-specific value is consumed. |

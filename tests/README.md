@@ -79,7 +79,6 @@ ORCHESTRATE_E2E=1 pytest -v -m e2e tests/e2e/test_e2e_multistep_prompted_loop.py
 Use these when the change touches workflow semantics, prompts, demo provisioning, or trial execution:
 
 ```bash
-PYTHONPATH=/home/ollie/Documents/agent-orchestration \
 python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
 
 pytest tests/test_demo_provisioning.py -q
