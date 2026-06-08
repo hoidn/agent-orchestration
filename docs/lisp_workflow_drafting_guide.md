@@ -90,11 +90,12 @@ set and is not the preferred copy target.
 For the smallest concrete Workflow Lisp teaching example, read
 `workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
 flowing through typed plan and implementation provider results plus bounded
-review/fix loops. Treat it as a compact shared-validation example, not as the
-main `.orc` model and not as a production queue drain: it can compile and
-dry-run through the `.orc` runtime bridge, but it does not include the selector,
-queue movement, recovery, and parity evidence required to replace the mature
-YAML backlog drains.
+review/fix loops. Treat it as a compact shared-validation reference and
+inspiration corpus, not as a direct template for new workflows, not as the main
+`.orc` model, and not as a production queue drain: it can compile and dry-run
+through the `.orc` runtime bridge, but it does not include the selector, queue
+movement, recovery, and parity evidence required to replace the mature YAML
+backlog drains.
 
 ## Core Rule
 

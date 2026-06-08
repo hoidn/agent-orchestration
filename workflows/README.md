@@ -25,19 +25,24 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 
 - For current target-design / design-gap drain work, start with
   `workflows/examples/lisp_frontend_design_delta_drain.yaml`.
-- For the reusable YAML design -> plan -> implementation stack, use
-  `workflows/examples/design_plan_impl_review_stack_v2_call.yaml`.
 - For a generic `.orc` review/fix loop over a target design doc plus optional
   context docs, start with `workflows/examples/review_revise_design_docs.orc`.
-- For the smallest Workflow Lisp `.orc` teaching example, start with
-  `workflows/examples/kiss_backlog_item.orc`.
+- For the reusable design -> plan -> implementation family, inspect
+  `workflows/examples/design_plan_impl_review_stack_v2_call.yaml` as historical
+  YAML architecture reference only; do not copy it as a direct template without
+  revalidating it against current workflow guidance.
+- For the smallest Workflow Lisp `.orc` teaching example, read
+  `workflows/examples/kiss_backlog_item.orc` as a compact reference, not as a
+  direct template for new workflows.
 - For structured variant/materialization behavior, inspect the v2.14 drain
-  examples before copying patterns.
+  examples as reference corpus before copying patterns.
 - For migration work, keep the YAML primary authoritative until the `.orc`
   candidate has compile, shared-validation, dry-run or smoke, and parity
   evidence.
 - Avoid copying examples marked legacy, negative fixture, prompt asset issue, or
   needs schema cleanup unless that status matches your purpose.
+- Treat workflows last modified more than one week ago as reference corpus:
+  useful to read and adapt for concepts, but not direct copy templates.
 
 ## Directory Map
 
@@ -51,10 +56,13 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
 - `prompts/workflows/`: shared prompt trees used by standalone or monolithic workflows
 
-When invoking a workflow from another repository checkout, prefer copying the relevant call-based stack
-with its imported library workflows and bundled prompt directory. Use a no-import monolith such as
-`workflows/library/revision_study_design_plan_impl_monolith.yaml` only as a portability or debugging
-fallback when copying the import tree is not practical.
+When adapting a workflow from another repository checkout, inspect the relevant
+call-based stack together with its imported library workflows and bundled
+prompt directory. Revalidate the adapted workflow against current specs and
+guides before using it. Use a no-import monolith such as
+`workflows/library/revision_study_design_plan_impl_monolith.yaml` only as a
+portability or debugging fallback when adapting the import tree is not
+practical.
 
 ## Prompt Resolution
 
@@ -69,7 +77,9 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 
 ## Catalog Status
 
-- **Current canonical**: preferred examples for new workflow authoring.
+- **Current canonical**: current feature demos. If an entry is old, read it as a
+  stable reference and revalidate before adapting; do not copy it directly as a
+  new workflow template.
 - **Reusable call-based**: examples that exercise imported library workflows and bundled prompt assets.
 - **Legacy or migration**: still useful as historical or migration references, but not the first place to copy patterns.
 - **Negative fixture**: expected to fail validation or runtime checks for a specific test purpose.
@@ -221,8 +231,8 @@ Compact v2.14 authoring pattern:
 The original `2.7` workflows remain in place as the migration baseline and as the legacy comparison surface for behavioral-equivalence oracles. They are not deprecated by this tranche; a later removal decision is out of scope.
 | `workflows/library/depends_on_inject_imported_review.yaml` | `2.7` | `depends-on-inject-imported-review` | Library workflow for the imported-injection example: prepends workflow-source rubric assets, then injects a caller-produced runtime manifest into the provider prompt before exporting an enum review decision. |
 | `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library used by `call_subworkflow_demo.yaml`. |
-| `workflows/library/revision_study_design_plan_impl_stack.yaml` | `2.7` | `revision-study-design-plan-impl-stack` | Specialized call-based revision-study workflow: treats a human revision design seed as read-only, produces an approved derived design, drafts/reviews a plan, then executes/reviews implementation using bundled prompts under `workflows/library/prompts/revision_study_stack/`. Copy this file with its imported phase workflows and prompt directory when the generic adapter is not enough. |
-| `workflows/library/revision_study_design_plan_impl_monolith.yaml` | `2.7` | `revision-study-design-plan-impl-monolith` | No-import revision-study fallback for portability or debugging when copying the call-based import tree is not practical. Keep behavior aligned with the call-based stack; do not use it as the normal authoring target. |
+| `workflows/library/revision_study_design_plan_impl_stack.yaml` | `2.7` | `revision-study-design-plan-impl-stack` | Specialized call-based revision-study workflow: treats a human revision design seed as read-only, produces an approved derived design, drafts/reviews a plan, then executes/reviews implementation using bundled prompts under `workflows/library/prompts/revision_study_stack/`. Read it with its imported phase workflows and prompt directory when the generic adapter is not enough, then adapt and revalidate rather than copying it directly. |
+| `workflows/library/revision_study_design_plan_impl_monolith.yaml` | `2.7` | `revision-study-design-plan-impl-monolith` | No-import revision-study fallback for portability or debugging when adapting the call-based import tree is not practical. Keep behavior aligned with the call-based stack; do not use it as the normal authoring target. |
 | `workflows/library/revision_study_design_phase.yaml` | `2.7` | `revision-study-design-phase` | Reusable design-review phase for revision studies; derives an approved design artifact from a read-only revision design seed and tracks open design findings. |
 | `workflows/library/revision_study_plan_phase.yaml` | `2.7` | `revision-study-plan-phase` | Reusable plan-review phase for revision studies; drafts and reviews an implementation plan from the approved revision design. |
 | `workflows/library/revision_study_implementation_phase.yaml` | `2.7` | `revision-study-implementation-phase` | Reusable implementation review/fix phase for revision studies; executes the approved plan and reviews remaining required study/manuscript work. |
