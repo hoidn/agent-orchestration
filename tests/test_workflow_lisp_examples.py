@@ -31,6 +31,14 @@ def _write_module(path: Path, body: str) -> Path:
 
 
 def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
+    workflow_source = (WORKFLOWS / "kiss_backlog_item.orc").read_text(encoding="utf-8")
+    assert "(import std/phase :only" in workflow_source
+    assert ":review-provider" not in workflow_source
+    assert ":fix-provider" not in workflow_source
+    assert ":review-prompt" not in workflow_source
+    assert ":fix-prompt" not in workflow_source
+    assert ":returns ReviewLoopResult" not in workflow_source
+
     result = compile_stage3_module(
         WORKFLOWS / "kiss_backlog_item.orc",
         provider_externs={
@@ -64,56 +72,30 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
         for workflow in result.lowered_workflows
     }
 
-    assert set(lowered_by_name) == {
-        "draft-plan-phase",
-        "review-plan-phase",
-        "review-implementation-phase",
-        "run-approved-plan",
-        "run-backlog-item",
+    assert set(lowered_by_name) == {"kiss_backlog_item::run-backlog-item"}
+    lowered = lowered_by_name["kiss_backlog_item::run-backlog-item"]
+    assert lowered["version"] == "2.14"
+    assert "return__summary_path" in lowered["outputs"]
+
+    def walk_steps(steps):
+        for step in steps:
+            yield step
+            if "repeat_until" in step:
+                yield from walk_steps(step["repeat_until"].get("steps", []))
+            if "match" in step:
+                for case in step["match"].get("cases", {}).values():
+                    yield from walk_steps(case.get("steps", []))
+
+    all_steps = list(walk_steps(lowered["steps"]))
+    assert sum(1 for step in all_steps if "repeat_until" in step) == 2
+    assert {step.get("provider") for step in all_steps if step.get("provider")} == {
+        "fake-plan",
+        "fake-plan-review",
+        "fake-plan-fix",
+        "fake-implementation",
+        "fake-implementation-review",
+        "fake-implementation-fix",
     }
-    assert lowered_by_name["run-backlog-item"]["version"] == "2.14"
-
-    plan_review_steps = [
-        step
-        for step in lowered_by_name["review-plan-phase"]["steps"]
-        if "repeat_until" in step
-    ]
-    implementation_review_steps = [
-        step
-        for step in lowered_by_name["review-implementation-phase"]["steps"]
-        if "repeat_until" in step
-    ]
-
-    assert lowered_by_name["draft-plan-phase"]["steps"][0]["provider"] == "fake-plan"
-    implementation_steps = [
-        step
-        for step in lowered_by_name["run-approved-plan"]["steps"]
-        if step.get("provider") == "fake-implementation"
-    ]
-    assert len(implementation_steps) == 1
-    assert "execute-implementation-phase" in implementation_steps[0]["name"]
-    assert len(plan_review_steps) == 1
-    assert len(implementation_review_steps) == 1
-    assert "return__summary_path" in lowered_by_name["run-backlog-item"]["outputs"]
-
-    review_plan_call = next(
-        step
-        for step in lowered_by_name["run-backlog-item"]["steps"]
-        if step.get("call") == "review-plan-phase"
-    )
-    review_impl_call = next(
-        step
-        for step in lowered_by_name["run-approved-plan"]["steps"]
-        if step.get("call") == "review-implementation-phase"
-    )
-
-    assert any(name.startswith("__write_root__") for name in review_plan_call["with"])
-    assert any(name.startswith("__write_root__") for name in review_impl_call["with"])
-    assert all(
-        str(value).startswith(".orchestrate/workflow_lisp/calls/")
-        for name, value in review_plan_call["with"].items()
-        if name.startswith("__write_root__")
-    )
 
 
 def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
