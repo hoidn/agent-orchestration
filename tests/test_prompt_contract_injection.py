@@ -211,11 +211,153 @@ def test_provider_variant_output_appends_variant_contract_block_to_prompt(tmp_pa
     state = executor.execute()
     assert state["steps"]["Implement"]["exit_code"] == 0
     assert "Variant Output Contract" in captured["prompt"]
+    assert "ORCHESTRATOR_OUTPUT_BUNDLE_PATH" in captured["prompt"]
     assert "implementation_state" in captured["prompt"]
     assert "execution_report_path" in captured["prompt"]
     assert "Relpath values are workspace-relative" in captured["prompt"]
     assert "for `under: artifacts/work`, write `artifacts/work/...`" in captured["prompt"]
     assert "for `under: artifacts/review`, write `artifacts/review/...`" in captured["prompt"]
+
+
+def test_provider_variant_output_receives_runtime_bundle_env(tmp_path: Path, monkeypatch) -> None:
+    """Provider variant outputs receive the runtime-owned bundle path out of band."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "review.md").write_text("Review this.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "provider-variant-output-env",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "input_file": "prompts/review.md",
+            "env": {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "state/wrong.json"},
+            "variant_output": {
+                "path": "state/review.json",
+                "discriminant": {
+                    "name": "variant",
+                    "json_pointer": "/variant",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+                "variants": {
+                    "APPROVE": {"fields": []},
+                    "REVISE": {"fields": []},
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"env": {}}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["env"] = kwargs.get("env") or {}
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        bundle_path = tmp_path / "state" / "review.json"
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps({"variant": "REVISE"}) + "\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == "state/review.json"
+
+
+def test_provider_variant_output_wrong_bundle_path_fails_contract(tmp_path: Path, monkeypatch) -> None:
+    """Provider wrong-path bundles are not normalized into the declared target."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "review.md").write_text("Review this.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "provider-variant-output-wrong-path",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "input_file": "prompts/review.md",
+            "variant_output": {
+                "path": "state/review_result_bundle.json",
+                "discriminant": {
+                    "name": "variant",
+                    "json_pointer": "/variant",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+                "variants": {
+                    "APPROVE": {"fields": []},
+                    "REVISE": {"fields": []},
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    def _prepare_invocation(*args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        wrong_path = tmp_path / "state" / "review_result_bundle" / "result_bundle.json"
+        wrong_path.parent.mkdir(parents=True, exist_ok=True)
+        wrong_path.write_text(json.dumps({"variant": "REVISE"}) + "\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    step_state = state["steps"]["Review"]
+    assert step_state["exit_code"] == 2
+    assert step_state["error"]["type"] == "contract_violation"
+    violations = step_state["error"]["context"]["violations"]
+    assert violations[0]["type"] == "missing_bundle_file"
+    assert violations[0]["context"]["path"] == "state/review_result_bundle.json"
+    assert not (tmp_path / "state" / "review_result_bundle.json").exists()
 
 
 def test_variant_output_prompt_contract_renders_structured_nested_constraints() -> None:
@@ -428,6 +570,7 @@ def test_provider_output_bundle_appends_contract_block_with_resolved_path(tmp_pa
         "selected_item_path": "docs/backlog/item.md",
     }
     assert "Write the following JSON bundle exactly as specified." in captured["prompt"]
+    assert "ORCHESTRATOR_OUTPUT_BUNDLE_PATH" in captured["prompt"]
     assert "path: state/run-root/test-run/selection.json" in captured["prompt"]
     assert "path: ${inputs.state_root}/${run.id}/selection.json" not in captured["prompt"]
     assert "name: selection_decision" in captured["prompt"]
@@ -435,6 +578,99 @@ def test_provider_output_bundle_appends_contract_block_with_resolved_path(tmp_pa
     assert "allowed: READY, NONE_READY" in captured["prompt"]
     assert "name: selected_item_path" in captured["prompt"]
     assert "must_exist_target: true" in captured["prompt"]
+
+
+def test_provider_output_bundle_receives_runtime_bundle_env(tmp_path: Path):
+    """Provider output bundles receive the runtime-owned bundle path out of band."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "docs" / "backlog").mkdir(parents=True)
+    (tmp_path / "docs" / "backlog" / "item.md").write_text("# Item\n", encoding="utf-8")
+    (tmp_path / "prompts" / "select.md").write_text("Select a backlog item.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.7",
+        "name": "provider-output-bundle-env",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Select",
+            "provider": "mock_provider",
+            "input_file": "prompts/select.md",
+            "env": {"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "state/wrong.json"},
+            "output_bundle": {
+                "path": "${inputs.state_root}/${run.id}/selection.json",
+                "fields": [
+                    {
+                        "name": "selection_decision",
+                        "json_pointer": "/selection_decision",
+                        "type": "enum",
+                        "allowed": ["READY", "NONE_READY"],
+                    },
+                    {
+                        "name": "selected_item_path",
+                        "json_pointer": "/selected_item_path",
+                        "type": "relpath",
+                        "under": "docs/backlog",
+                        "must_exist_target": True,
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={"state_root": "state/run-root"},
+    )
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"env": {}}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["env"] = kwargs.get("env") or {}
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        bundle_path = tmp_path / "state" / "run-root" / "test-run" / "selection.json"
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(
+            json.dumps({
+                "selection_decision": "READY",
+                "selected_item_path": "docs/backlog/item.md",
+            })
+            + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Select"]["exit_code"] == 0
+    assert captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == "state/run-root/test-run/selection.json"
 
 
 def test_provider_variant_output_shared_fields_render_once(tmp_path: Path) -> None:

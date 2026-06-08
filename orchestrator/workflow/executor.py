@@ -4478,7 +4478,7 @@ class WorkflowExecutor:
                 context=provider_context,
                 prompt_content=prompt,
                 session_request=session_request,
-                env=step.get('env'),
+                env=self._provider_env_with_runtime_output_bundle_path(step, resolved_output_bundle),
                 secrets=step.get('secrets'),
                 timeout_sec=step.get('timeout_sec')
             )
@@ -5072,7 +5072,7 @@ class WorkflowExecutor:
                         ),
                         context=self._create_provider_context(context, state),
                         prompt_content=prompt,
-                        env=candidate_step.get("env"),
+                        env=self._provider_env_with_runtime_output_bundle_path(candidate_step, resolved_output_bundle),
                         secrets=candidate_step.get("secrets"),
                         timeout_sec=deadline.remaining_timeout_sec(),
                     )
@@ -6834,6 +6834,27 @@ class WorkflowExecutor:
                 resolved_output_bundle['path'] = resolved_path
 
         return resolved_expected_outputs, resolved_output_bundle, None
+
+    def _provider_env_with_runtime_output_bundle_path(
+        self,
+        step: Dict[str, Any],
+        resolved_output_bundle: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, str]]:
+        """Return provider env with runtime-owned structured bundle path binding."""
+        authored_env = step.get('env')
+        bundle_path = (
+            resolved_output_bundle.get('path')
+            if isinstance(resolved_output_bundle, dict)
+            else None
+        )
+        if not isinstance(bundle_path, str):
+            return authored_env if isinstance(authored_env, dict) else None
+
+        env_map: Dict[str, str] = {}
+        if isinstance(authored_env, dict):
+            env_map.update(authored_env)
+        env_map['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'] = bundle_path
+        return env_map
 
     def _apply_expected_outputs_contract(
         self,

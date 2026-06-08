@@ -271,6 +271,9 @@ The current behavior is valid but under-documented and easy to mislaunch.
 
 ## Gap 5: Provider Structured-Output Bundle Path Is Prompt-Owned
 
+Status: fixed in the provider invocation boundary; pending fresh end-to-end
+workflow evidence.
+
 ### Failure
 
 The review provider returned a valid-looking `REVISE` result and wrote:
@@ -318,8 +321,8 @@ should have the same path-authority property.
 
 ### Required Design Clarification
 
-Provider steps with `output_bundle.path` or `variant_output.path` should receive
-the resolved bundle target out of band:
+Provider steps with `output_bundle.path` or `variant_output.path` now need to
+receive the resolved bundle target out of band:
 
 - runtime resolves the declared path before provider invocation;
 - runtime exposes it as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, or an accepted
@@ -332,6 +335,17 @@ the resolved bundle target out of band:
 Do not fix this by copying
 `.../__result_bundle/result_bundle.json` to `.../__result_bundle.json`. That
 would recover one run but preserve the weak provider-output authority boundary.
+
+### Implemented Boundary
+
+The provider executor call site now passes a runtime-owned
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` value for provider `output_bundle` and
+`variant_output` steps. Authored provider env values with the same name are
+overridden by the resolved contract path before invocation preparation.
+
+Prompt contract text also names `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` as the
+runtime-owned authoritative write target, while post-execution bundle
+validation remains the semantic gate.
 
 ## Design-Level Answer
 

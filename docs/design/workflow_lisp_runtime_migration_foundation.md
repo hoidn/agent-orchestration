@@ -3,7 +3,7 @@
 Status: draft design
 Kind: architecture decision / migration foundation
 Created: 2026-06-08
-Scope: command structured-output conformance, migration promotion gate
+Scope: command/provider structured-output conformance, migration promotion gate
 hardening, and generated state/path allocation ownership.
 
 Authority:
@@ -48,16 +48,16 @@ computes non-regressive parity for that family.
 
 Implement one migration foundation in three ordered tranches:
 
-1. command structured-output conformance;
+1. command/provider structured-output conformance;
 2. machine-readable migration promotion gates; and
 3. centralized generated state/path allocation.
 
-The common theme is authority. Declared command bundle files must be the
-semantic authority for structured command results rather than stdout or
-caller-selected environment values. Migration promotion must be computed from
-validated evidence rather than asserted in manifests or hand-authored reports.
-Compiler-generated paths must be allocated through one layout/provenance
-contract rather than scattered lowering-helper conventions.
+The common theme is authority. Declared bundle files must be the semantic
+authority for structured command and provider results rather than stdout,
+prompt-obedience, or caller-selected environment values. Migration promotion
+must be computed from validated evidence rather than asserted in manifests or
+hand-authored reports. Compiler-generated paths must be allocated through one
+layout/provenance contract rather than scattered lowering-helper conventions.
 
 This document is not a runtime spec. Normative command IO behavior remains in
 `specs/io.md`; normative run-state behavior remains in `specs/state.md`; and
@@ -74,7 +74,8 @@ before further `.orc` promotion work should proceed.
   `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, that the runtime-owned value wins over any
   caller-provided value, that the runtime creates or validates the parent
   directory before command launch, and that the bundle file is semantic
-  authority.
+  authority. It also owns provider structured-bundle path binding for provider
+  steps with `output_bundle.path` or `variant_output.path`.
 - `specs/dsl.md` owns `output_bundle`, `variant_output`, `publishes`,
   `consumes`, and version gating.
 - `specs/state.md` owns runtime state authority and resume identity.
@@ -107,12 +108,12 @@ before further `.orc` promotion work should proceed.
 Command structured-output authority:
 
 ```text
-command-result / command step
+command-result / command/provider step
   -> declared output_bundle contract
   -> runtime path-safety resolution
   -> runtime-owned ORCHESTRATOR_OUTPUT_BUNDLE_PATH
-  -> parent directory readiness
-  -> command execution
+  -> parent directory readiness, for command steps
+  -> command/provider execution
   -> declared bundle validation
   -> typed artifacts / state
 ```
@@ -124,8 +125,8 @@ target manifest
   -> evidence commands / accepted waivers
   -> schema-validated generated report
   -> computed non_regressive
-  -> promotion eligibility
-  -> derived primary_surface decision
+  -> gate evaluation / derived views
+  -> promotion eligibility decision
 ```
 
 Generated path allocation:
@@ -134,7 +135,8 @@ Generated path allocation:
 semantic allocation request
   -> StateLayout
   -> PathAllocator
-  -> runtime binding + source_map entry + Semantic IR layout entry
+  -> neutral allocation metadata
+  -> runtime binding + workflow_boundary_projection + source_map projection + Semantic IR projection
 ```
 
 ### 3.5 Prohibited Dependency Directions
@@ -143,7 +145,7 @@ Command structured-output anti-pattern:
 
 ```text
 authored env var
-  -> command-chosen bundle path
+  -> command/provider-chosen bundle path
   -> stdout JSON or arbitrary file
   -> semantic state
 ```
@@ -174,6 +176,7 @@ verification criteria below pass.
 | Surface | Current normative status | Current implementation status | Evidence required before foundation-ready |
 | --- | --- | --- | --- |
 | command `output_bundle.path` env injection | Normative in `specs/io.md` | Must be verified in runtime executor | env override, parent creation/validation, missing-bundle failure tests |
+| provider `output_bundle.path` / `variant_output.path` env injection | Normative in `specs/io.md` | Implemented for provider invocation env binding | env override tests, wrong-path validation failure tests |
 | command `variant_output.path` | Conditional unless accepted in normative specs | Do not assume as foundation behavior | normative spec update, or `output_bundle.path` plus compiler-owned validator/projection |
 | `migration-parity` report generation | Tool/evidence surface; promotion policy in migration docs | Existing tool computes `non_regressive` | schema validation, strict gate mode, stable nonzero exit tests |
 | `non_regressive` | Must be tooling-computed | Existing reports compute it from evidence | target-manifest and hand-authored-report negative tests |
@@ -187,11 +190,13 @@ places, but not yet hardened as one promotion-grade foundation.
 
 Workflow Lisp migration confidence is limited by three related failure modes.
 
-First, command structured-output authority can drift. If authored environment
-variables can override the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, a
-command can write semantic state somewhere other than the contract path. If the
-runtime does not create or validate the bundle parent before launch, adapters
-must carry path setup logic that should belong to the runtime contract.
+First, structured-output authority can drift. If authored environment variables
+can override the runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, a command or
+provider can write semantic state somewhere other than the contract path. If a
+provider sees the right path only in prompt text, useful provider output can
+still land at a plausible wrong path and fail validation. If the command runtime
+does not create or validate the bundle parent before launch, adapters must carry
+path setup logic that should belong to the runtime contract.
 
 Second, the migration promotion gate is currently stronger than a report but
 not yet always a hard release valve. It computes `non_regressive`, but a caller
@@ -209,6 +214,8 @@ parallel-run collisions.
 
 - Make declared command `output_bundle.path` files the semantic authority for
   command structured outputs.
+- Make declared provider `output_bundle.path` and `variant_output.path` files
+  runtime-owned structured-output targets, exposed out of band to the provider.
 - Treat command `variant_output.path` as conditional until accepted by
   normative DSL/IO specs, or lower command-produced unions through
   `output_bundle.path` plus compiler-owned validator/projection.
@@ -217,8 +224,9 @@ parallel-run collisions.
 - Make migration promotion fail closed when required evidence is missing,
   stale, malformed, regressive, or ineligible.
 - Keep `non_regressive` computed only by tooling.
-- Make `primary_surface` derivation depend on computed non-regression and
-  promotion eligibility.
+- Keep parity reports as evidence objects; derive `primary_surface` only in the
+  gate layer or derived views from computed non-regression and promotion
+  eligibility.
 - Introduce a single path/layout allocation boundary for compiler-generated
   write roots, bundle paths, state paths, and generated path provenance.
 - Preserve existing public API behavior while hiding compiler-owned
@@ -251,13 +259,13 @@ parallel-run collisions.
 - Existing resume identity is preserved unless an explicit compatibility
   boundary says otherwise.
 
-## 9. Tranche 1: Command Structured-Output Spec Conformance
+## 9. Tranche 1: Structured-Output Path Authority
 
 ### 9.1 Contract
 
 This tranche does not introduce a new semantic rule for `output_bundle.path`.
 It makes the runtime, tests, and migration evidence conform to the
-already-normative `specs/io.md` command structured-bundle contract.
+already-normative `specs/io.md` structured-bundle contract.
 
 For command steps with `output_bundle.path`, implementation evidence must prove
 that the runtime:
@@ -274,6 +282,18 @@ that the runtime:
 Stdout JSON remains debug/captured output unless the step explicitly uses
 `output_capture: json`. It must not become structured command state when an
 `output_bundle` contract is present.
+
+For provider steps with `output_bundle.path` or `variant_output.path`,
+implementation evidence must prove that the runtime:
+
+1. resolves the path before provider invocation;
+2. exposes the resolved workspace-relative target as
+   `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`;
+3. overrides any authored or provider-template value for that environment name;
+4. renders prompt contract text that treats the runtime-owned binding as the
+   authoritative write target; and
+5. fails the step as an output-contract failure if the provider writes the
+   bundle anywhere else.
 
 For command-produced union results, this tranche is conditional:
 
@@ -296,21 +316,28 @@ For command-produced union results, this tranche is conditional:
   `output_capture: json`.
 - Add or update normative spec text for every structured command-bundle surface
   covered by this rule.
+- Pass runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` to provider steps with
+  `output_bundle.path` or `variant_output.path`.
+- Keep prompt text as schema/path guidance, not the only path authority.
 
 ### 9.3 Acceptance
 
 - Authored env override cannot redirect structured output.
-- Runtime creates the bundle parent before launch.
+- Provider authored env override cannot redirect structured output.
+- Runtime creates the command bundle parent before launch.
 - Exit `0` plus missing bundle fails as output-contract failure.
 - Exit `0` plus invalid bundle fails as output-contract failure.
 - Nonzero command exit remains primary.
 - Stdout JSON does not satisfy a missing bundle.
-- Covered `variant_output` behavior is either normatively specified or
+- Provider wrong-path writes fail as missing bundle output-contract failures.
+- Covered command `variant_output` behavior is either normatively specified or
   explicitly deferred.
 
 ### 9.4 Normative Spec Deltas
 
 `output_bundle.path` behavior is already normative in `specs/io.md`.
+Provider `output_bundle.path` and `variant_output.path` runtime-owned path
+binding is also normative in `specs/io.md`.
 
 `variant_output.path` remains conditional in this document. If command-produced
 `variant_output` with an explicit bundle path is intended to be a promotion
@@ -342,17 +369,18 @@ Gate modes:
 
 - selected targets must satisfy all `--require-non-regressive` requirements;
 - selected targets must also have `eligible_for_primary_surface=true`;
-- aggregate `primary_surface` may be derived only under this mode.
+- aggregate promotion decisions may derive `primary_surface` only under this
+  mode.
 
 Decision table:
 
-| `report_valid` | `evidence_complete` | `non_regressive` | `eligible_for_primary_surface` | `--require-non-regressive` | `--require-promotable` | `primary_surface` |
+| `report_valid` | `evidence_complete` | `non_regressive` | `eligible_for_primary_surface` | `--require-non-regressive` | `--require-promotable` | gate-layer `primary_surface` |
 | --- | --- | --- | --- | --- | --- | --- |
-| false | any | any | any | fail | fail | no |
-| true | false | any | any | fail | fail | no |
-| true | true | false | any | fail | fail | no |
-| true | true | true | false | pass | fail | no |
-| true | true | true | true | pass | pass | yes |
+| false | any | any | any | fail | fail | not derived |
+| true | false | any | any | fail | fail | not derived |
+| true | true | false | any | fail | fail | not derived |
+| true | true | true | false | pass | fail | `yaml` |
+| true | true | true | true | pass | pass | `orc` |
 
 The command must validate both freshly generated reports and reused existing
 reports against the same schema/version contract before including them in an
@@ -360,7 +388,11 @@ aggregate index. Existing reports are not authority merely because they are
 JSON objects.
 
 `non_regressive` remains computed from evidence. Target manifests and hand
-authored reports must not provide it. `primary_surface` is derived from:
+authored reports must not provide it. Per-target parity reports stay
+evidence-only artifacts. If the CLI needs a machine-readable strict-gate
+result beyond markdown/index rendering, it should emit a separate versioned
+gate-evaluation object rather than turning the report itself into promotion
+policy authority. Gate-layer or derived-view `primary_surface` is derived from:
 
 ```text
 computed non_regressive
@@ -368,8 +400,8 @@ AND promotion_eligibility.eligible_for_primary_surface
 ```
 
 When `non_regressive=true` but `eligible_for_primary_surface=false`, reports
-must make the distinction explicit: the candidate may be non-regressive against
-recorded evidence but still not promotable.
+and derived gate views must make the distinction explicit: the candidate may be
+non-regressive against recorded evidence but still not promotable.
 
 ### 10.2 Required Report Fields
 
@@ -379,29 +411,69 @@ The strict gate report schema must include at least:
 - `workflow_family`;
 - `candidate`;
 - `yaml_primary`;
+- `target_identity`;
 - `evidence`;
+- `evidence_freshness`;
 - `promotion_eligibility`;
 - tooling-computed `non_regressive`;
-- gate-derived `primary_surface`;
 - `generated_at`;
+- `generated_by`;
 - `tool_version`; and
 - optional accepted waivers with owner and expiry.
 
-`primary_surface` is a gate-layer delta in this document. It must be derived by
-tooling from computed non-regression and eligibility; it is not authored in the
-target manifest.
+`target_identity` must contain the exact identity material strict reuse checks
+will validate:
+
+- `targets_schema_version`;
+- `target_manifest_path`;
+- `target_manifest_sha256`;
+- `target_index` or another stable selected-target key within that manifest;
+- `workflow_family`;
+- `candidate_path`;
+- `candidate_sha256`;
+- `yaml_primary_path`; and
+- `entry_workflow`.
+
+`evidence_freshness` must carry the freshness inputs strict gating uses:
+
+- `generated_at`;
+- `compile_manifest_path`, when compile evidence produced one;
+- `compile_manifest_sha256`, when compile evidence produced one;
+- `compiled_workflow_checksum`, when compile/run evidence exposes it;
+- `required_artifact_paths` for emitted required compile artifacts; and
+- per-role evidence references needed to prove the report still corresponds to
+  the selected target and current evidence set.
+
+`report_valid` and `evidence_complete` are gate-derived checks, not authored
+fields:
+
+- `report_valid=true` only when the report schema version matches, all required
+  fields above are present, authored computed fields are absent, and
+  `target_identity` matches the selected manifest row exactly.
+- `evidence_complete=true` only when required evidence roles are present,
+  required compile artifacts are present, waivers are still valid, and
+  `evidence_freshness` proves the report still matches the selected manifest,
+  compile manifest, and candidate workflow checksum.
+
+`primary_surface` is a gate-layer or derived-view delta in this document. It
+must be derived by tooling from computed non-regression and eligibility; it is
+not authored in the target manifest and it is not a required parity-report
+field.
 
 ### 10.3 Acceptance
 
 - Target manifests cannot provide `non_regressive`.
 - Hand-authored reports cannot provide authoritative `non_regressive`.
-- Reused reports validate schema/version and selected target identity before
+- Reused reports validate schema/version, selected target identity,
+  manifest/checksum freshness, and required evidence references before
   contributing to an aggregate gate.
 - `--require-non-regressive` exits nonzero when any selected target lacks
   valid, complete, current, computed non-regression evidence.
 - `--require-promotable` exits nonzero unless selected targets are both
   non-regressive and eligible for primary surface.
-- Non-regressive but ineligible candidates do not become primary.
+- Non-regressive but ineligible candidates do not become primary, and
+  `primary_surface` remains a gate/view derivation rather than a report-owned
+  authority field.
 
 ## 11. Tranche 3: StateLayout / PathAllocator Foundation
 
@@ -416,8 +488,8 @@ The first implementation should centralize allocation and provenance for:
 - generated internal inputs such as `__write_root__...`;
 - reusable call write-root bindings;
 - entrypoint runtime-owned managed write roots;
-- generated source-map path entries; and
-- Semantic IR state-layout entries.
+- the allocation metadata consumed by source-map projection; and
+- the allocation metadata consumed by Semantic IR state-layout projection.
 
 The initial allocator should preserve current concrete path shapes where
 practical; the first migration is ownership/provenance centralization, not a
@@ -436,7 +508,10 @@ remain explicit.
   provenance, privacy, resume scope, and path-safety policy.
 - Route command-result bundle allocation through the new boundary.
 - Route reusable-call write-root allocation through the new boundary.
-- Emit matching source-map and Semantic IR layout entries for generated paths.
+- Keep downstream projection owners explicit: runtime/executable binding owns
+  generated hidden-input projection, `workflow_boundary_projection` owns public
+  boundary explanation, SourceMap owns traceability entries, and Semantic IR
+  owns typed state-layout entries derived from allocation metadata.
 - Keep compiler-owned generated write roots hidden from public workflow
   signatures.
 - Preserve current concrete path shapes where practical.
@@ -507,8 +582,8 @@ target manifest
   -> evidence commands and accepted waivers
   -> generated report
   -> computed non_regressive
-  -> derived aggregate index
-  -> optional primary-surface decision
+  -> derived aggregate index / gate evaluation
+  -> optional primary-surface view or decision
 ```
 
 Required evidence roles remain those already represented by the migration
@@ -527,16 +602,20 @@ parity implementation and architecture:
 
 The gate must distinguish:
 
-- `report_valid`: the report shape is valid;
-- `evidence_complete`: required evidence exists and is current enough;
+- `report_valid`: the report schema and identity contract are valid for the
+  selected target;
+- `evidence_complete`: required evidence exists and is current enough for that
+  selected target and candidate checksum;
 - `non_regressive`: evidence proves no required parity regression;
 - `eligible_for_primary_surface`: policy allows promotion; and
-- `primary_surface`: generated surface selected by the gate.
+- `primary_surface`: a gate/view projection selected from those computed
+  inputs, not a report-owned semantic field.
 
 ### StateLayout / PathAllocator Contract
 
 `StateLayout` owns semantic allocation requests. `PathAllocator` owns concrete
-path names for those requests.
+path names for those requests. Together they return neutral allocation
+metadata. Adjacent layers own their own projections over that metadata.
 
 `source_span` is provenance, not identity. Stable allocation identity must be
 derived from semantic ownership:
@@ -573,8 +652,7 @@ free-form strings:
 - `variant_projection_bundle`;
 - `reusable_call_write_root`;
 - `entrypoint_managed_write_root`;
-- `source_map_path_entry`;
-- `semantic_ir_layout_entry`; and
+- `generated_internal_input_binding`; and
 - `compatibility_pointer_view`.
 
 Initial privacy classes:
@@ -600,15 +678,26 @@ The returned allocation contains:
 generated_input_name, when needed
 concrete_path_template
 semantic_identity
-source_map_entry
-semantic_ir_layout_entry
+privacy
 path_safety_policy
 resume_identity
+projection_hints
 ```
 
 `StateLayout` does not decide semantic workflow outcomes. It decides where
 compiler/runtime-owned state and generated bundle files live, how they are
 hidden from public inputs, and how they are explained.
+
+Projection ownership stays separate:
+
+- runtime/executable lowering consumes allocation metadata to bind hidden
+  runtime inputs and concrete bundle/write-root paths;
+- `workflow_boundary_projection` consumes allocation metadata to explain hidden
+  generated inputs without turning them into public authored inputs;
+- `source_map.json` consumes allocation metadata plus source provenance to
+  emit traceability entries; and
+- Semantic IR consumes allocation metadata to emit `SemanticStateLayoutEntry`
+  records and related bridges.
 
 ## 13. Contracts And Interfaces
 
@@ -631,12 +720,15 @@ hidden from public inputs, and how they are explained.
 
 ### Generated Artifacts
 
-- `source_map.json` records generated paths and generated internal inputs.
-- Semantic IR records corresponding state-layout entries.
+- `source_map.json` records generated paths and generated internal inputs from
+  allocation metadata plus source provenance.
+- Semantic IR records corresponding state-layout entries derived from the same
+  allocation metadata.
 - Validated parity JSON reports are machine-readable gate evidence.
 - Parity JSON reports are not workflow semantic authority and do not redefine
   runtime behavior.
-- Markdown parity reports and indexes are views.
+- Markdown parity reports, indexes, and any gate-evaluation summaries are
+  views unless a separate explicit contract promotes one of them.
 
 ## 14. Dependencies And Sequencing
 
@@ -703,6 +795,8 @@ The following do not prove this foundation:
   path;
 - a parity JSON file with hand-authored `non_regressive`;
 - a report accepted without schema/version validation;
+- a reused report accepted without matching manifest hash or candidate/workflow
+  checksum evidence;
 - a generated path visible only in debug YAML but absent from source maps or
   Semantic IR; or
 - an implementation that preserves `__write_root__...` public inputs and calls
@@ -723,9 +817,9 @@ or ad hoc JSON rewrites remains migration debt under
 `docs/design/workflow_command_adapter_contract.md`.
 
 Existing parity reports remain readable, but strict gate mode may reject old
-reports that lack schema/version fields or required evidence. That is expected:
-old evidence can remain historical, but it should not be promotion gate
-evidence.
+reports that lack schema/version fields, target-identity fingerprints, or
+required freshness evidence. That is expected: old evidence can remain
+historical, but it should not be promotion gate evidence.
 
 StateLayout migration is incremental. The first implementation should preserve
 current concrete paths where practical and move ownership behind an allocator
@@ -759,6 +853,8 @@ Migration gate tests:
 - target manifest rejects authored `non_regressive`;
 - hand-authored parity report `non_regressive` is rejected or ignored in favor
   of a computed value;
+- strict reuse checks require target manifest hash and candidate/workflow
+  checksum identity material in the report;
 - reused report generated from a different target manifest hash is rejected;
 - reused report generated from a different workflow checksum is rejected;
 - strict gate exits nonzero for regressive eligible targets;
@@ -767,10 +863,12 @@ Migration gate tests:
 - strict promotable mode exits nonzero for an ineligible target;
 - markdown-only report never contributes to promotion;
 - reused existing reports are schema/version validated;
+- report validity and evidence completeness are derived from the report's
+  identity/freshness fields rather than authored booleans;
 - expired waivers, missing required evidence, missing required artifacts, and
   hidden managed write-root inputs force non-regression false;
-- aggregate index derives `primary_surface` from computed non-regression and
-  promotion eligibility.
+- aggregate index or gate-evaluation view derives `primary_surface` from
+  computed non-regression and promotion eligibility.
 
 StateLayout tests:
 
@@ -842,7 +940,8 @@ lowering helpers with no common provenance.
   missing-bundle fail-closed behavior.
 - `migration-parity` has a strict gate mode with focused CLI tests.
 - Existing parity reports and indexes are still generated, but reused reports
-  are schema/version checked.
+  are schema/version checked and strict reuse validates manifest/checksum
+  identity material.
 - A `StateLayout` / `PathAllocator` implementation boundary exists and at
   least command-result and reusable-call write-root allocation route through it.
 - Source-map and Semantic IR tests prove generated path provenance survives.

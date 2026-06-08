@@ -214,16 +214,16 @@
         - `must_exist_target: boolean` (optional, `relpath` only)
         - `required: boolean` (optional, default true; when false, missing pointer is allowed)
       - Runtime enforcement runs only when the step process exits with code `0`.
-      - For command steps, runtime must expose the resolved `path` as
-        `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` before command launch. See
-        `specs/io.md`.
+      - For command and provider steps, runtime must expose the resolved `path`
+        as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` before process/provider launch.
+        See `specs/io.md`.
       - Parsed values are exposed as `steps.<Step>.artifacts` (unless `persist_artifacts_in_state:false`).
     - `variant_output` (optional; v2.14+): deterministic artifacts extracted from one JSON bundle with a tagged-union shape.
       - Mutually exclusive with `expected_outputs`, `output_bundle`, and `select_variant_output`.
       - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
       - `shared_fields` is optional and defaults to `[]`. Shared fields are always present after bundle validation, are exposed without variant proof, and must not duplicate artifact names or JSON pointers already used by the discriminant or any variant field.
       - Each variant declares required `fields` and optional `forbidden` JSON pointers. Runtime validation selects exactly one variant, enforces that variant's fields, rejects forbidden fields, and exposes the discriminant, any shared fields, and the selected-variant fields as `steps.<Step>.artifacts`.
-      - Provider and adjudicated-provider steps inject the variant contract into the prompt unless `inject_output_contract: false`; command steps validate the bundle after success without prompt injection.
+      - Provider and adjudicated-provider steps inject the variant contract into the prompt unless `inject_output_contract: false`, and receive the resolved `path` as runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`; command steps validate the bundle after success without prompt injection.
       - Variant-only fields require proof before downstream use. v2.14 supports proof through a `match` over the same discriminant artifact or through step-level `requires_variant`.
     - `consume_bundle` (optional; v1.3+): materialize resolved consumes into one JSON file.
       - `path: string` (required output JSON path under WORKSPACE)

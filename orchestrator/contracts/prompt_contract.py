@@ -74,7 +74,11 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
     """Render a stable prompt suffix describing a required JSON output bundle."""
     lines: List[str] = [
         "## Output Contract",
-        "Write the following JSON bundle exactly as specified.",
+        (
+            "Write the following JSON bundle exactly as specified. If "
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, it is the "
+            "runtime-owned authoritative write target."
+        ),
         _RELPATH_GUIDANCE,
         f"- path: {output_bundle['path']}",
         "  format: JSON object",
@@ -94,7 +98,11 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
     discriminant = variant_output["discriminant"]
     lines: List[str] = [
         "## Variant Output Contract",
-        "Write the following JSON bundle exactly as specified.",
+        (
+            "Write the following JSON bundle exactly as specified. If "
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH is present, it is the "
+            "runtime-owned authoritative write target."
+        ),
         _RELPATH_GUIDANCE,
         f"- path: {variant_output['path']}",
         "  format: JSON object",

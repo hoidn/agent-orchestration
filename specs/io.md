@@ -31,6 +31,16 @@
     - Future command-produced structured bundle surfaces with explicit paths
       must use the same environment and validation contract unless their
       normative spec says otherwise.
+  - Provider structured-bundle environment:
+    - For provider steps with `output_bundle.path` or `variant_output.path`, the
+      runtime resolves the workspace-relative bundle path before invocation and
+      exposes the resolved target as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+    - The runtime-owned value wins over authored step environment values or
+      provider-template environment values for the same name.
+    - Prompt contract text may repeat the same path and schema, but prompt text
+      is guidance. The declared bundle file remains the semantic authority.
+    - If the provider exits `0` but writes the bundle to any other path, the
+      step fails as an output-contract failure.
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.
