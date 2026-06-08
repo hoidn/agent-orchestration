@@ -447,6 +447,9 @@ class StateManager:
                     self._write_state()
                     return
                 self.state.current_step = None
+            elif isinstance(self.state.current_step, dict):
+                self.state.current_step["status"] = "failed"
+                self.state.current_step["failed_at"] = datetime.now(timezone.utc).isoformat()
 
             self._write_state()
 

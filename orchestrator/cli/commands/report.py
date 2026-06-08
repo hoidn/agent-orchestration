@@ -6,7 +6,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
@@ -29,6 +29,60 @@ def _resolve_run_dir(run_id: Optional[str], runs_root: Path) -> Optional[Path]:
             return run_dir
         return None
     return _latest_run_dir(runs_root)
+
+
+def _state_only_snapshot(
+    state: dict[str, Any],
+    run_dir: Path,
+    *,
+    load_error: str,
+) -> dict[str, Any]:
+    """Build a minimal report snapshot when the workflow definition is unavailable."""
+    current_step = (
+        state.get("current_step")
+        if isinstance(state.get("current_step"), dict)
+        else None
+    )
+    steps = []
+    if isinstance(current_step, dict):
+        steps.append(
+            {
+                "name": current_step.get("name") or current_step.get("step_id") or "current_step",
+                "step_id": current_step.get("step_id"),
+                "kind": current_step.get("type") or "unknown",
+                "status": current_step.get("status") or "unknown",
+                "input": {},
+                "output": {},
+            }
+        )
+    status = str(state.get("status") or "unknown")
+    return {
+        "run": {
+            "run_id": state.get("run_id"),
+            "status": status,
+            "workflow_file": state.get("workflow_file"),
+            "started_at": state.get("started_at"),
+            "updated_at": state.get("updated_at"),
+            "run_root": str(run_dir),
+            "persisted_status": status,
+            "display_status": status,
+            "display_status_reason": "state_only_report",
+            "error": state.get("error") if isinstance(state.get("error"), dict) else None,
+            "report_warning": (
+                "Workflow definition could not be loaded for report projection; "
+                f"showing state-only report: {load_error}"
+            ),
+        },
+        "progress": {
+            "total": len(steps),
+            "completed": 0,
+            "running": 0,
+            "failed": sum(1 for step in steps if step.get("status") == "failed"),
+            "pending": 0,
+            "skipped": 0,
+        },
+        "steps": steps,
+    }
 
 
 def report_workflow(
@@ -64,14 +118,18 @@ def report_workflow(
         print(f"Error: workflow file not found: {workflow_path}", file=sys.stderr)
         return 1
 
+    load_error: Optional[str] = None
     try:
         workflow = WorkflowLoader(Path.cwd()).load_bundle(workflow_path)
     except Exception as exc:
-        print(f"Error: failed to load workflow: {exc}", file=sys.stderr)
-        return 1
+        workflow = None
+        load_error = str(exc)
 
-    lint_warnings = lint_workflow(workflow)
-    snapshot = build_status_snapshot(workflow, state, run_dir)
+    lint_warnings = lint_workflow(workflow) if workflow is not None else []
+    if workflow is None:
+        snapshot = _state_only_snapshot(state, run_dir, load_error=load_error or "unknown")
+    else:
+        snapshot = build_status_snapshot(workflow, state, run_dir)
     if lint_warnings:
         snapshot["lint"] = {"warnings": lint_warnings}
     run_snapshot = snapshot.get("run", {})
@@ -99,6 +157,9 @@ def report_workflow(
         rendered = json.dumps(snapshot, indent=2) + "\n"
     else:
         rendered = render_status_markdown(snapshot)
+        report_warning = snapshot.get("run", {}).get("report_warning")
+        if isinstance(report_warning, str) and report_warning:
+            rendered = f"{rendered.rstrip()}\n\n> {report_warning}\n"
         if lint_warnings:
             rendered = f"{rendered.rstrip()}\n\n{render_lint_markdown(lint_warnings)}\n"
 

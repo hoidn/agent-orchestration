@@ -8,6 +8,7 @@ import logging
 import os
 import threading
 import time
+import traceback
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import is_dataclass
@@ -1585,6 +1586,35 @@ class WorkflowExecutor:
         persisted["status"] = "failed"
         return persisted
 
+    def _executor_exception_error(
+        self,
+        exc: BaseException,
+        *,
+        step_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+        step_index: Optional[int] = None,
+        node_id: Optional[str] = None,
+        visit_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        context = {
+            "step_name": step_name,
+            "step_id": step_id,
+            "step_index": step_index,
+            "node_id": node_id,
+            "visit_count": visit_count,
+        }
+        return {
+            "type": "executor_unhandled_exception",
+            "message": str(exc),
+            "exception_type": type(exc).__name__,
+            "traceback": "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            ),
+            "context": {
+                key: value for key, value in context.items() if value is not None
+            },
+        }
+
     def _resume_for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted loop bookkeeping shows unfinished iterations."""
         return self.resume_planner.for_each_has_pending_work(state, step_name)
@@ -2173,6 +2203,7 @@ class WorkflowExecutor:
                 )
             step_index = 0
             current_node_id = resume_restart_node_id
+            active_step_context: Dict[str, Any] = {}
             if current_node_id is None:
                 current_node_id = self._first_execution_node_id()
             while True:
@@ -2186,6 +2217,12 @@ class WorkflowExecutor:
                 identity = self._step_identity(step, step_index=step_index)
                 step_name = identity.name
                 step_id = identity.step_id
+                active_step_context = {
+                    "step_name": step_name,
+                    "step_id": step_id,
+                    "step_index": step_index,
+                    "node_id": current_node_id,
+                }
                 step = self._typed_execution_step(step)
                 self._emit_compiled_frontend_step_display(step_name, step_id, node_id=current_node_id)
                 resume_current_step = resume_restart_node_id is not None and current_node_id == resume_restart_node_id
@@ -2455,6 +2492,8 @@ class WorkflowExecutor:
 
                 consume_error = self._enforce_consumes_contract(step, step_name, state)
                 visit_count = self._increment_step_visit(state, step_name)
+                if isinstance(visit_count, int):
+                    active_step_context["visit_count"] = visit_count
                 max_visits = step.get('max_visits')
                 if isinstance(max_visits, int) and visit_count > max_visits:
                     self._persist_step_result(
@@ -2611,9 +2650,11 @@ class WorkflowExecutor:
                 if should_break:
                     break
                 current_node_id = next_node_id
-        except Exception:
+        except Exception as exc:
             terminal_status = 'failed'
-            self.state_manager.update_status(terminal_status)
+            self.state_manager.fail_run(
+                self._executor_exception_error(exc, **active_step_context)
+            )
             raise
 
         finalization = self._ensure_finalization_state(state)
@@ -2698,7 +2739,9 @@ class WorkflowExecutor:
         if interval_sec <= 0:
             try:
                 yield
-            finally:
+            except Exception:
+                raise
+            else:
                 self.state_manager.clear_current_step(
                     step_name,
                     preserve_managed_recovery=True,
@@ -2723,13 +2766,17 @@ class WorkflowExecutor:
 
         try:
             yield
-        finally:
-            stop_event.set()
-            heartbeat_thread.join(timeout=1.0)
+        except Exception:
+            raise
+        else:
             self.state_manager.clear_current_step(
                 step_name,
                 preserve_managed_recovery=True,
             )
+        finally:
+            if interval_sec > 0:
+                stop_event.set()
+                heartbeat_thread.join(timeout=1.0)
 
     def _create_summary_observer(self) -> Optional[SummaryObserver]:
         """Create summary observer from runtime observability config."""

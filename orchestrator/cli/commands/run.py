@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import traceback
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,17 @@ def _workflow_path_for_state(workspace: Path, workflow_path: Path) -> str:
         return str(workflow_path.relative_to(workspace))
     except ValueError:
         return str(workflow_path)
+
+
+def _cli_exception_error(exc: BaseException) -> dict[str, object]:
+    return {
+        "type": "cli_unhandled_exception",
+        "message": str(exc),
+        "exception_type": type(exc).__name__,
+        "traceback": "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        ),
+    }
 
 
 def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
@@ -300,6 +312,8 @@ def run_workflow(args: Namespace) -> int:
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
+    state_manager: StateManager | None = None
+
     try:
         # Determine workspace
         workspace = Path.cwd()
@@ -495,4 +509,6 @@ def run_workflow(args: Namespace) -> int:
         return 2
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
+        if state_manager is not None and state_manager.state is not None:
+            state_manager.fail_run(_cli_exception_error(e))
         return 1
