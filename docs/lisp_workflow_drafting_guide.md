@@ -76,14 +76,19 @@ Migration promotion checklist:
   in provider output contracts unless the provider actually produces that
   artifact; carry them from state or inputs when terminal results need them.
 
-If you want the smallest concrete Workflow Lisp starting point, read
-`workflows/examples/kiss_backlog_item.orc` before studying the autonomous drain
-examples. It shows a single backlog item flowing through typed plan and
-implementation provider results plus bounded review/fix loops. Treat it as a
-single-item shared-validation example, not as a production queue drain: it can
-compile and dry-run through the `.orc` runtime bridge, but it does not include
-the selector, queue movement, recovery, and parity evidence required to replace
-the mature YAML backlog drains.
+For the most useful real-life-tested Workflow Lisp review/fix model, read
+`workflows/examples/review_revise_parametric_design_docs.orc`. It runs a
+bounded `.orc` review/fix loop over concrete design docs and is the better model
+for targeted design-doc review workflows.
+
+For the smallest concrete Workflow Lisp teaching example, read
+`workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
+flowing through typed plan and implementation provider results plus bounded
+review/fix loops. Treat it as a compact shared-validation example, not as the
+main `.orc` model and not as a production queue drain: it can compile and
+dry-run through the `.orc` runtime bridge, but it does not include the selector,
+queue movement, recovery, and parity evidence required to replace the mature
+YAML backlog drains.
 
 ## Core Rule
 
