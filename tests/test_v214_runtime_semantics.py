@@ -113,6 +113,54 @@ def test_materialize_artifacts_writes_pointer_and_publishes_relpath_input(
     assert state["artifact_versions"]["design"][0]["value"] == "docs/plans/approved-plan.md"
 
 
+def test_materialize_artifacts_writes_pointer_for_string_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Prompt-input materialization can expose non-relpath values through pointer files."""
+    _enable_v214_loader(monkeypatch)
+
+    workflow = {
+        "version": "2.14",
+        "name": "materialize-string-input",
+        "inputs": {
+            "review_focus": {
+                "kind": "scalar",
+                "type": "string",
+            },
+        },
+        "steps": [
+            {
+                "name": "MaterializeReviewFocus",
+                "id": "materialize_review_focus",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "review_focus",
+                            "source": {"input": "review_focus"},
+                            "contract": {"inherit": "source"},
+                            "pointer": {"path": "state/review_focus.txt"},
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+
+    executor = _load_executor(
+        tmp_path,
+        workflow,
+        bound_inputs={"review_focus": "implementation readiness"},
+    )
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["MaterializeReviewFocus"]["artifacts"] == {"review_focus": "implementation readiness"}
+    assert (tmp_path / "state" / "review_focus.txt").read_text(encoding="utf-8") == (
+        "implementation readiness\n"
+    )
+
+
 def test_materialize_artifacts_publish_writes_canonical_top_level_pointer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

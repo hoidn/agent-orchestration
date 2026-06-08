@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 import orchestrator.contracts.output_contract as output_contract_module
@@ -74,6 +75,26 @@ def test_validate_contract_value_accepts_native_json_scalars_and_relpaths(tmp_pa
         },
         workspace=tmp_path,
     ) == "docs/tasks/task-a.md"
+
+
+def test_validate_contract_value_accepts_json_string_list_contracts(tmp_path: Path):
+    """Structured joins may carry collection values through JSON string payloads."""
+    (tmp_path / "docs" / "design").mkdir(parents=True)
+    (tmp_path / "docs" / "design" / "state-layout.md").write_text("# state layout\n")
+
+    assert output_contract_module.validate_contract_value(
+        '["state-layout.md"]',
+        {
+            "kind": "collection",
+            "type": "list",
+            "items": MappingProxyType({
+                "type": "relpath",
+                "under": "docs/design",
+                "must_exist_target": True,
+            }),
+        },
+        workspace=tmp_path,
+    ) == ["docs/design/state-layout.md"]
 
 
 def test_validate_contract_value_accepts_exact_and_empty_strings(tmp_path: Path):

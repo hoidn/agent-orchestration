@@ -7659,12 +7659,6 @@ class WorkflowExecutor:
 
             pointer = entry.get("pointer")
             if pointer:
-                if contract.get("type") != "relpath":
-                    return self._v214_failure_result(
-                        "pointer_not_allowed_for_scalar",
-                        "Pointers are only allowed for relpath materialization",
-                        context={"name": name},
-                    )
                 pointer_path = pointer.get("path") if isinstance(pointer, dict) else None
                 if not isinstance(pointer_path, str):
                     return self._v214_failure_result(
@@ -7692,7 +7686,8 @@ class WorkflowExecutor:
                         context={"name": name, "path": substituted_pointer_path},
                     )
                 try:
-                    self._atomic_write_text(resolved_pointer, f"{value}\n")
+                    pointer_value = value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+                    self._atomic_write_text(resolved_pointer, f"{pointer_value}\n")
                 except OSError as exc:
                     return self._v214_failure_result(
                         "atomic_commit_failed",

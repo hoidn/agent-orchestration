@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +39,19 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
     resolved_workspace = workspace.resolve()
     value_type = spec.get("type")
 
-    if isinstance(raw_value, str):
+    if isinstance(raw_value, str) and value_type in {"list", "map"}:
+        normalized_value = raw_value.strip()
+        try:
+            decoded_value = json.loads(normalized_value)
+        except json.JSONDecodeError:
+            decoded_value = normalized_value
+        parsed_value, violation = _parse_output_bundle_value(
+            raw_value=decoded_value,
+            value_type=value_type,
+            spec=spec,
+            workspace=resolved_workspace,
+        )
+    elif isinstance(raw_value, str):
         normalized_value = raw_value if value_type == "string" else raw_value.strip()
         parsed_value, violation = _parse_output_value(
             raw_value=normalized_value,
@@ -619,7 +632,7 @@ def _parse_output_bundle_value(
         if raw_value is None:
             return None, None
         item_spec = spec.get("item")
-        if not isinstance(item_spec, dict):
+        if not isinstance(item_spec, Mapping):
             return None, ContractViolation(
                 type="unsupported_type",
                 message="Output contract type is not supported",
@@ -640,7 +653,7 @@ def _parse_output_bundle_value(
                 context={"value": raw_value},
             )
         item_spec = spec.get("items")
-        if not isinstance(item_spec, dict):
+        if not isinstance(item_spec, Mapping):
             return None, ContractViolation(
                 type="unsupported_type",
                 message="Output contract type is not supported",
@@ -668,7 +681,7 @@ def _parse_output_bundle_value(
                 context={"value": raw_value},
             )
         value_spec = spec.get("values")
-        if not isinstance(value_spec, dict):
+        if not isinstance(value_spec, Mapping):
             return None, ContractViolation(
                 type="unsupported_type",
                 message="Output contract type is not supported",

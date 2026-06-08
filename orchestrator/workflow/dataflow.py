@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
+from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
+
 
 class DataflowManager:
     """Maintain publish/consume lineage without owning executor control flow."""
@@ -445,6 +447,22 @@ class DataflowManager:
                             "artifact_type": artifact_type,
                         },
                     )
+            elif artifact_kind == "collection":
+                if isinstance(artifact_spec, dict):
+                    try:
+                        selected_value = validate_contract_value(selected_value, artifact_spec, self.workspace)
+                    except OutputContractError as exc:
+                        return self.contract_violation_result(
+                            "Consume contract failed",
+                            {
+                                "step": step_name,
+                                "artifact": artifact_name,
+                                "reason": "invalid_selected_value",
+                                "artifact_kind": artifact_kind,
+                                "artifact_type": artifact_type,
+                                "violations": exc.violations,
+                            },
+                        )
             else:
                 return self.contract_violation_result(
                     "Consume contract failed",
