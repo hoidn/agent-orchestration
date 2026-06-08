@@ -7,6 +7,10 @@ design may be considered implementation-ready only if it improves ergonomics
 and the long-term maintainability, extensibility, and internal architecture of
 the implementation.
 
+Regardless of review focus, always check consistency/correctness,
+architectural soundness, implementation readiness, and preservation of the repo
+authority model.
+
 Read the target doc from the provided target_doc input path. Read every path in
 context_docs when context docs are provided. Also read the provided checks
 report if present. Treat structured inputs and artifact paths as authority; do

@@ -18,5 +18,8 @@ concrete technical flaw. Preserve the repo's authority model:
 - Workflow Lisp should improve ergonomics and internal maintainability rather
   than hiding workflow-specific compiler or runtime plumbing.
 
+Preserve the target doc's status, authority, dependency, and evidence
+boundaries unless a finding identifies a concrete flaw.
+
 Write concise revisions in place and produce the requested progress/revision
 report through the output contract.
