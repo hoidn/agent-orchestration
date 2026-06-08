@@ -375,7 +375,25 @@ def analyze_workflow_boundary_type(
             offending_path=source_path,
             offending_type_name=type_ref.name,
         )
-    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+    if isinstance(type_ref, ListTypeRef):
+        analysis = analyze_workflow_boundary_type(
+            type_ref.item_type_ref,
+            source_path=source_path + ("item",),
+            allow_union=False,
+            allow_top_level_workflow_ref=False,
+        )
+        if not analysis.lowerable:
+            return analysis
+        return WorkflowBoundaryAnalysis(
+            lowerable=True,
+            contains_json=False,
+            contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
+            contains_proc_ref=False,
+            contains_union=False,
+            contains_collection=True,
+        )
+    if isinstance(type_ref, OptionalTypeRef):
         analysis = analyze_workflow_boundary_type(
             type_ref.item_type_ref,
             source_path=source_path + ("item",),

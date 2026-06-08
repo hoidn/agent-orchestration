@@ -15,6 +15,13 @@ PARAMETRIC_REVIEW_PROMPT = (
 PARAMETRIC_FIX_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_parametric_design_docs" / "fix.md"
 )
+DESIGN_DOCS_REVIEW_EXAMPLE = WORKFLOWS / "review_revise_design_docs.orc"
+DESIGN_DOCS_REVIEW_PROMPT = (
+    REPO_ROOT / "prompts" / "workflows" / "review_revise_design_docs" / "review.md"
+)
+DESIGN_DOCS_FIX_PROMPT = (
+    REPO_ROOT / "prompts" / "workflows" / "review_revise_design_docs" / "fix.md"
+)
 
 
 def _write_module(path: Path, body: str) -> Path:
@@ -213,42 +220,53 @@ def test_same_file_record_call_binding_orc_compiles_with_shared_validation(tmp_p
     }
 
 
-def test_review_revise_parametric_design_docs_example_validates_with_prompt_bindings(tmp_path: Path) -> None:
+def test_review_revise_parametric_design_docs_example_remains_one_off_source_shape() -> None:
     assert PARAMETRIC_REVIEW_PROMPT.is_file()
     assert PARAMETRIC_FIX_PROMPT.is_file()
 
-    design_root = tmp_path / "docs" / "design"
-    design_root.mkdir(parents=True)
-    for name in (
-        "workflow_lisp_review_revise_stdlib_parametric_integration.md",
-        "workflow_lisp_structural_parametric_constraints.md",
-        "workflow_lisp_compile_time_parametric_specialization.md",
-    ):
-        (design_root / name).write_text(f"# {name}\n", encoding="utf-8")
+    workflow_source = PARAMETRIC_REVIEW_EXAMPLE.read_text(encoding="utf-8")
+    assert "workflow_lisp_review_revise_stdlib_parametric_integration.md" in workflow_source
+    assert "workflow_lisp_structural_parametric_constraints.md" in workflow_source
+    assert "workflow_lisp_compile_time_parametric_specialization.md" in workflow_source
 
-    checks_report = (
-        tmp_path
-        / "artifacts"
-        / "work"
-        / "LISP-MIGRATION-PARITY-DRAIN"
-        / "review-revise-parametric-design-docs-checks.md"
-    )
-    checks_report.parent.mkdir(parents=True)
-    checks_report.write_text("# Review checks\n", encoding="utf-8")
 
-    compile_stage3_module(
-        PARAMETRIC_REVIEW_EXAMPLE,
+def test_review_revise_design_docs_example_validates_with_parameterized_context_docs(tmp_path: Path) -> None:
+    assert DESIGN_DOCS_REVIEW_PROMPT.is_file()
+    assert DESIGN_DOCS_FIX_PROMPT.is_file()
+
+    workflow_source = DESIGN_DOCS_REVIEW_EXAMPLE.read_text(encoding="utf-8")
+    assert "workflow_lisp_structural_parametric_constraints.md" not in workflow_source
+    assert "workflow_lisp_compile_time_parametric_specialization.md" not in workflow_source
+    assert "workflow_lisp_review_revise_stdlib_parametric_integration.md" not in workflow_source
+
+    result = compile_stage3_module(
+        DESIGN_DOCS_REVIEW_EXAMPLE,
         provider_externs={
             "providers.design-docs.review": "codex",
             "providers.design-docs.fix": "codex",
         },
         prompt_externs={
-            "prompts.design-docs.review": PARAMETRIC_REVIEW_PROMPT.relative_to(REPO_ROOT).as_posix(),
-            "prompts.design-docs.fix": PARAMETRIC_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
+            "prompts.design-docs.review": DESIGN_DOCS_REVIEW_PROMPT.relative_to(REPO_ROOT).as_posix(),
+            "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
         },
         validate_shared=True,
         workspace_root=tmp_path,
     )
+
+    [lowered] = result.lowered_workflows
+    assert lowered.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
+    context_docs_contract = lowered.authored_mapping["inputs"]["context_docs"]
+    assert context_docs_contract == {
+        "kind": "collection",
+        "type": "list",
+        "items": {
+            "type": "relpath",
+            "under": "docs/design",
+            "must_exist_target": True,
+        },
+    }
+    assert "pointer" not in lowered.authored_mapping["artifacts"]["context_docs"]
+    assert "pointer" not in lowered.authored_mapping["artifacts"]["review_focus"]
 
 
 def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Path) -> None:

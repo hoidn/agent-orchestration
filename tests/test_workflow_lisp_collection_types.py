@@ -182,6 +182,63 @@ def test_frontend_type_environment_rejects_optional_workflow_refs_nested_inside_
     _assert_diagnostic_code(excinfo, "workflow_ref_runtime_transport_forbidden")
 
 
+def test_compile_stage3_allows_list_relpath_workflow_boundary(tmp_path: Path) -> None:
+    module_path = tmp_path / "list_boundary.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule list_boundary)",
+                "  (export echo-docs)",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defrecord DocsResult",
+                "    (docs List[DesignDocPath]))",
+                "  (defworkflow echo-docs",
+                "    ((docs List[DesignDocPath]))",
+                "    -> DocsResult",
+                "    (record DocsResult",
+                "      :docs docs)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    [lowered] = result.lowered_workflows
+    assert lowered.authored_mapping["inputs"]["docs"] == {
+        "kind": "collection",
+        "type": "list",
+        "items": {
+            "type": "relpath",
+            "under": "docs/design",
+            "must_exist_target": True,
+        },
+    }
+    output_docs = lowered.authored_mapping["outputs"]["return__docs"]
+    assert output_docs == {
+        "kind": "collection",
+        "type": "list",
+        "items": {
+            "type": "relpath",
+            "under": "docs/design",
+            "must_exist_target": True,
+        },
+        "from": output_docs["from"],
+    }
+    assert output_docs["from"]["ref"].endswith(".artifacts.docs")
+
+
 def test_parse_type_expression_supports_proc_ref_signatures() -> None:
     from orchestrator.workflow_lisp.type_expressions import (
         NamedTypeExpr,

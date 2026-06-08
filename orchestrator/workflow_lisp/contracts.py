@@ -583,9 +583,10 @@ def derive_workflow_boundary_fields(
 ) -> tuple[FlattenedContractField, ...]:
     """Flatten one frontend boundary type into concrete shared contract fields.
 
-    Current workflow signatures expose only scalar/path leaves to the shared
-    runtime. Nested frontend records are recursively flattened while preserving
-    their original source path for source-map diagnostics.
+    Current workflow signatures expose scalar/path leaves and bounded collection
+    leaves to the shared runtime. Nested frontend records are recursively
+    flattened while preserving their original source path for source-map
+    diagnostics.
     """
 
     if isinstance(type_ref, UnionTypeRef):
@@ -759,6 +760,11 @@ def _workflow_boundary_contract_definition(
             "kind": "relpath",
             **definition,
         }
+    if definition["type"] in {"optional", "list", "map"}:
+        return {
+            "kind": "collection",
+            **definition,
+        }
     return {
         "kind": "scalar",
         **definition,
@@ -770,6 +776,8 @@ def _workflow_boundary_type_kind(type_ref: TypeRef) -> str:
         return "record"
     if isinstance(type_ref, UnionTypeRef):
         return "union"
+    if isinstance(type_ref, ListTypeRef):
+        return "list"
     if isinstance(type_ref, PathTypeRef):
         return "relpath"
     if isinstance(type_ref, PrimitiveTypeRef):
@@ -791,9 +799,14 @@ def _workflow_boundary_contract_from_structured_field(field_definition: Mapping[
     definition = {
         key: value
         for key, value in field_definition.items()
-        if key in {"type", "allowed", "under", "must_exist_target"}
+        if key in {"type", "allowed", "under", "must_exist_target", "item", "items", "keys", "values"}
     }
-    definition["kind"] = "relpath" if definition.get("type") == "relpath" else "scalar"
+    if definition.get("type") == "relpath":
+        definition["kind"] = "relpath"
+    elif definition.get("type") in {"optional", "list", "map"}:
+        definition["kind"] = "collection"
+    else:
+        definition["kind"] = "scalar"
     return definition
 
 
@@ -803,7 +816,16 @@ def _field_contract_definition(
     span: SourceSpan | None,
     form_path: tuple[str, ...],
 ) -> dict[str, Any]:
-    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef, MapTypeRef)):
+    if isinstance(type_ref, ListTypeRef):
+        return {
+            "type": "list",
+            "items": _structured_result_field_definition(
+                type_ref.item_type_ref,
+                span=span,
+                form_path=form_path,
+            ),
+        }
+    if isinstance(type_ref, (OptionalTypeRef, MapTypeRef)):
         _raise_contract_error(
             code="workflow_boundary_collection_unsupported",
             message=f"`{type_ref.name}` cannot lower across a workflow boundary in Stage 3",

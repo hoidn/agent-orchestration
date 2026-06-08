@@ -186,7 +186,8 @@ def _phase_prompt_artifact_definition(
                 form_path=form_path,
             )
         artifact_contract = dict(input_contract)
-    artifact_contract["pointer"] = pointer_path
+    if artifact_contract.get("kind") == "relpath" or artifact_contract.get("type") == "relpath":
+        artifact_contract["pointer"] = pointer_path
     return artifact_contract
 
 
@@ -1664,9 +1665,14 @@ def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[st
     definition = {
         key: value
         for key, value in field.items()
-        if key in {"type", "allowed", "under", "must_exist_target"}
+        if key in {"type", "allowed", "under", "must_exist_target", "item", "items", "keys", "values"}
     }
-    definition["kind"] = "relpath" if definition.get("type") == "relpath" else "scalar"
+    if definition.get("type") == "relpath":
+        definition["kind"] = "relpath"
+    elif definition.get("type") in {"optional", "list", "map"}:
+        definition["kind"] = "collection"
+    else:
+        definition["kind"] = "scalar"
     return definition
 
 

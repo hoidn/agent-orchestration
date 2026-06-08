@@ -15,6 +15,7 @@ Normative DSL and runtime contracts live under `specs/`.
 
 Design references:
 
+- [Capability Status Matrix](capability_status_matrix.md)
 - [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
 - [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
 - [Workflow Lisp Core Statement Taxonomy](design/workflow_lisp_core_stmt_taxonomy.md)
@@ -26,7 +27,9 @@ Design references:
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
 
-Use this guide for authoring judgment. Use the component-contract docs for
+Use this guide for authoring judgment. Use
+[Capability Status Matrix](capability_status_matrix.md) for current
+availability and copy-safety status. Use the component-contract docs for
 current-checkout behavior. Use the unified design for future or deferred
 surfaces. Use `specs/` for normative runtime and DSL behavior.
 
@@ -76,10 +79,13 @@ Migration promotion checklist:
   in provider output contracts unless the provider actually produces that
   artifact; carry them from state or inputs when terminal results need them.
 
-For the most useful real-life-tested Workflow Lisp review/fix model, read
-`workflows/examples/review_revise_parametric_design_docs.orc`. It runs a
-bounded `.orc` review/fix loop over concrete design docs and is the better model
-for targeted design-doc review workflows.
+For the most useful Workflow Lisp review/fix model for targeted design-doc
+reviews, read `workflows/examples/review_revise_design_docs.orc`. It runs a
+bounded stdlib `.orc` review/fix loop over a parameterized target design doc,
+optional context docs, and review focus. The earlier
+`workflows/examples/review_revise_parametric_design_docs.orc` remains useful
+provenance for the real-life-tested review path, but it hardcodes one design
+set and is not the preferred copy target.
 
 For the smallest concrete Workflow Lisp teaching example, read
 `workflows/examples/kiss_backlog_item.orc`. It shows a single backlog item
@@ -191,6 +197,11 @@ adapter.
 The Lisp frontend now supports substantially more than the original MVP, but
 current compiler behavior, current component contracts, future design targets,
 and production workflow migration are separate questions.
+
+For current availability and copy-safety status, start with
+[Capability Status Matrix](capability_status_matrix.md). This section explains
+the status labels used in authoring guidance; the matrix is the routing table
+for individual surfaces.
 
 Use these labels in docs and examples when needed:
 

@@ -643,7 +643,18 @@ class WorkflowLoader:
             self._add_error(f"{context} must be a dictionary", subject_refs=subject_refs)
             return
 
-        allowed_fields = {'kind', 'type', 'allowed', 'under', 'must_exist_target', 'description'}
+        allowed_fields = {
+            'kind',
+            'type',
+            'allowed',
+            'under',
+            'must_exist_target',
+            'description',
+            'item',
+            'items',
+            'keys',
+            'values',
+        }
         if allow_from:
             allowed_fields.add('from')
         else:
@@ -657,7 +668,7 @@ class WorkflowLoader:
         if not isinstance(kind, str):
             self._add_error(f"{context}.kind must be a string", subject_refs=subject_refs)
             kind = 'relpath'
-        elif kind not in {'relpath', 'scalar'}:
+        elif kind not in {'relpath', 'scalar', 'collection'}:
             self._add_error(f"{context}.kind invalid kind '{kind}'", subject_refs=subject_refs)
 
         output_type = spec.get('type')
@@ -703,6 +714,40 @@ class WorkflowLoader:
                     f"{context}: kind 'scalar' forbids 'must_exist_target'",
                     subject_refs=subject_refs,
                 )
+            for field_name in ('item', 'items', 'keys', 'values'):
+                if field_name in spec:
+                    self._add_error(
+                        f"{context}: kind 'scalar' forbids '{field_name}'",
+                        subject_refs=subject_refs,
+                    )
+        elif kind == 'collection':
+            if output_type not in self.PRIVATE_COLLECTION_OUTPUT_TYPES:
+                self._add_error(
+                    f"{context}: kind 'collection' requires type one of optional|list|map",
+                    subject_refs=subject_refs,
+                )
+            elif not (
+                self._allow_private_collection_output_schemas
+                and self._version_at_least(version, "2.14")
+            ):
+                self._add_error(
+                    f"{context}: kind 'collection' is only available for frontend-lowered workflows",
+                    subject_refs=subject_refs,
+                )
+            if 'under' in spec:
+                self._add_error(f"{context}: kind 'collection' forbids 'under'", subject_refs=subject_refs)
+            if 'must_exist_target' in spec:
+                self._add_error(
+                    f"{context}: kind 'collection' forbids 'must_exist_target'",
+                    subject_refs=subject_refs,
+                )
+            self._validate_output_schema_spec(
+                spec,
+                field_context=context,
+                version=version,
+                subject_refs=subject_refs,
+                kind_label="workflow boundary",
+            )
 
         if output_type == 'enum' and 'allowed' not in spec:
             self._add_error(f"{context} enum type requires 'allowed'", subject_refs=subject_refs)
@@ -5059,7 +5104,7 @@ class WorkflowLoader:
             if not isinstance(kind, str):
                 self._add_error(f"{context} 'kind' must be a string")
                 kind = 'relpath'
-            elif kind not in {'relpath', 'scalar'}:
+            elif kind not in {'relpath', 'scalar', 'collection'}:
                 self._add_error(f"{context} invalid kind '{kind}'")
 
             output_type = spec.get('type')
@@ -5102,6 +5147,32 @@ class WorkflowLoader:
                     self._add_error(f"{context}: kind 'scalar' forbids 'under'")
                 if 'must_exist_target' in spec:
                     self._add_error(f"{context}: kind 'scalar' forbids 'must_exist_target'")
+                for field_name in ('item', 'items', 'keys', 'values'):
+                    if field_name in spec:
+                        self._add_error(f"{context}: kind 'scalar' forbids '{field_name}'")
+
+            elif kind == 'collection':
+                if output_type not in self.PRIVATE_COLLECTION_OUTPUT_TYPES:
+                    self._add_error(f"{context}: kind 'collection' requires type one of optional|list|map")
+                elif not (
+                    self._allow_private_collection_output_schemas
+                    and self._version_at_least(version, "2.14")
+                ):
+                    self._add_error(
+                        f"{context}: kind 'collection' is only available for frontend-lowered workflows"
+                    )
+                if 'pointer' in spec:
+                    self._add_error(f"{context}: kind 'collection' forbids 'pointer'")
+                if 'under' in spec:
+                    self._add_error(f"{context}: kind 'collection' forbids 'under'")
+                if 'must_exist_target' in spec:
+                    self._add_error(f"{context}: kind 'collection' forbids 'must_exist_target'")
+                self._validate_output_schema_spec(
+                    spec,
+                    field_context=context,
+                    version=version,
+                    kind_label="artifact",
+                )
 
             if output_type == 'enum' and 'allowed' not in spec:
                 self._add_error(f"{context} enum type requires 'allowed'")
