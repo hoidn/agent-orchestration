@@ -23,10 +23,20 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 
 ## Which Example Should I Copy?
 
+Fresh preferred starting points:
+
 - For current target-design / design-gap drain work, start with
   `workflows/examples/lisp_frontend_design_delta_drain.yaml`.
 - For a generic `.orc` review/fix loop over a target design doc plus optional
   context docs, start with `workflows/examples/review_revise_design_docs.orc`.
+- For the real-life-tested `.orc` review/fix path that revised the parametric
+  design docs, inspect
+  `workflows/examples/review_revise_parametric_design_docs.orc` as provenance;
+  prefer `review_revise_design_docs.orc` when you need the generalized target
+  design-doc shape.
+
+Reference corpus:
+
 - For the reusable design -> plan -> implementation family, inspect
   `workflows/examples/design_plan_impl_review_stack_v2_call.yaml` as historical
   YAML architecture reference only; do not copy it as a direct template without
@@ -107,7 +117,7 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-proc-refs-partial-application-drain-v214` | Focused successor drain for the ProcRef / `bind-proc` design delta: calls the design-delta target/baseline stack with the ProcRef delta as the active target, the full frontend spec as baseline context, and separate ProcRef state, artifact, and plan namespaces. |
 | `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the mature YAML stacks. |
 | `workflows/examples/cycle_guard_demo.orc` | Workflow Lisp migration tranche; input-required | `2.14` | `cycle-guard-demo` | Migration-tranche `.orc` surface for the cycle-guard YAML example. Uses a certified command boundary to emit structured guard status for compile/dry-run/runtime bridge checks and parity reporting. |
-| `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Workflow Lisp migration tranche; input-required | `2.14` | `design-plan-impl-review-stack` | Migration-tranche `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and structured output parity checks against the YAML stack contract. |
+| `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Workflow Lisp migration tranche; input-required | `2.14` | `design-plan-impl-review-stack` | Migration-tranche `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and structured output parity checks against the YAML stack contract. Inspect it for stack migration context; it is not the real-life-tested design-doc review/fix workflow. |
 | `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.14` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Use it as the current model for targeted design-doc review/fix loops; it is not a production drain or YAML parity replacement. |
 | `workflows/examples/review_revise_parametric_design_docs.orc` | Workflow Lisp historical one-off review/fix workflow; input-required | `2.14` | `review-revise-parametric-design-docs` | Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path, but prefer `review_revise_design_docs.orc` for new targeted design-doc review/fix authoring. |
 | `workflows/examples/ralph_lisp_forever.yaml` | Experimental; intentionally unbounded | `2.14` | `ralph-lisp-forever` | Minimal one-step Codex workflow that repeatedly asks a combined selection/planning/implementation agent to inspect Lisp frontend implementation progress, choose a suitable unimplemented section, plan it, and execute it. Declares the full and MVP Lisp frontend design docs as required dependencies and injects only their paths, not their contents. |

@@ -82,7 +82,8 @@ Migration promotion checklist:
 For the most useful Workflow Lisp review/fix model for targeted design-doc
 reviews, read `workflows/examples/review_revise_design_docs.orc`. It runs a
 bounded stdlib `.orc` review/fix loop over a parameterized target design doc,
-optional context docs, and review focus. The earlier
+optional context docs, and review focus. Treat it as the preferred fresh
+starting point for targeted design-doc review/fix authoring. The earlier
 `workflows/examples/review_revise_parametric_design_docs.orc` remains useful
 provenance for the real-life-tested review path, but it hardcodes one design
 set and is not the preferred copy target.
