@@ -28,13 +28,20 @@ limitations. The principled fix is to make the runtime and specs explicitly
 support the internal lowered value shapes that Workflow Lisp is allowed to
 produce, while keeping authored YAML compatibility restrictions where intended.
 
-There is also one frontend/authoring-model gap: prompt externs used by `.orc`
-provider forms currently lower to `asset_file`, so extern values must be
+There are also two provider/authoring gaps. First, prompt externs used by
+`.orc` provider forms currently lower to `asset_file`, so extern values must be
 workflow-source-relative bundled assets. That is valid under the current
 `asset_file` contract, but it is surprising for generic workflows whose prompt
 extern manifest names workspace-root prompt files. The frontend should either
 document and enforce bundled prompt externs or expose a way to choose
 workspace-relative `input_file` prompt externs.
+
+Second, provider structured-output bundle paths are still prompt-owned in
+practice. The review provider was shown the correct `variant_output.path`, but
+it wrote a valid bundle to a directory-style sibling path. Runtime validation
+correctly rejected the run, but the failure shows that provider structured
+output lacks the out-of-band path authority that command structured output
+already has through `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
 
 ## Evidence
 
@@ -63,7 +70,9 @@ pytest tests/test_dataflow.py::test_enforce_consumes_contract_accepts_collection
 
 The live run eventually reached provider execution after the runtime gaps were
 patched locally and prompt assets were moved onto the valid workflow-source
-asset surface.
+asset surface. The provider then returned `REVISE` and wrote the review report
+and findings, but the run failed post-execution because the structured result
+bundle was written to the wrong file path.
 
 ## Gap 1: Collection Contract Values Cross Runtime Boundaries
 
@@ -260,6 +269,70 @@ The frontend should choose and document one of these models:
 
 The current behavior is valid but under-documented and easy to mislaunch.
 
+## Gap 5: Provider Structured-Output Bundle Path Is Prompt-Owned
+
+### Failure
+
+The review provider returned a valid-looking `REVISE` result and wrote:
+
+```text
+artifacts/review/LISP-MIGRATION-PARITY-DRAIN/review-revise-design-docs-runtime-foundation-review.md
+artifacts/work/LISP-MIGRATION-PARITY-DRAIN/review-revise-design-docs-runtime-foundation-findings.json
+```
+
+It also wrote a JSON result bundle, but not to the declared
+`variant_output.path`.
+
+Runtime expected:
+
+```text
+.orchestrate/workflow_lisp/entry/20260608T225644Z-pcxb4n/review_revise_design_docs::review-revise-design-docs/__write_root__review_revise_design_docs_review_revise_design_docs__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d15c114978f5_d5df4f219296_1__body__review_decision__review_1__result__result_bundle.json
+```
+
+The provider wrote:
+
+```text
+.orchestrate/workflow_lisp/entry/20260608T225644Z-pcxb4n/review_revise_design_docs::review-revise-design-docs/__write_root__review_revise_design_docs_review_revise_design_docs__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_d15c114978f5_d5df4f219296_1__body__review_decision__review_1__result__result_bundle/result_bundle.json
+```
+
+Runtime then failed the step with:
+
+```text
+missing_bundle_file
+Variant output bundle file was not created
+```
+
+This happened after the provider made a useful review decision, so the loop did
+not route `REVISE` to the fix ProcRef.
+
+### Layer Ownership
+
+This is primarily a runtime/spec design gap, with Workflow Lisp lowering as a
+secondary consumer.
+
+The prompt contract included the correct path, but prompt text is not a strong
+authority boundary. For command steps, `specs/io.md` already says the runtime
+resolves `output_bundle.path` and sets `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`; the
+runtime-owned value wins over caller-provided values. Provider structured output
+should have the same path-authority property.
+
+### Required Design Clarification
+
+Provider steps with `output_bundle.path` or `variant_output.path` should receive
+the resolved bundle target out of band:
+
+- runtime resolves the declared path before provider invocation;
+- runtime exposes it as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, or an accepted
+  provider-equivalent reserved binding;
+- runtime-owned binding wins over authored/provider-template env values;
+- prompt text still describes the schema and may repeat the path, but it is not
+  the only authority for the write location;
+- post-execution validation remains authoritative and rejects wrong-path files.
+
+Do not fix this by copying
+`.../__result_bundle/result_bundle.json` to `.../__result_bundle.json`. That
+would recover one run but preserve the weak provider-output authority boundary.
+
 ## Design-Level Answer
 
 The runtime gap should be fixed at the runtime design/spec level, with a
@@ -273,6 +346,7 @@ The split should be:
 | non-relpath materialization pointer views | runtime/spec + StateLayout | Workflow Lisp lowering fixtures |
 | collection artifacts in publish/consume dataflow | runtime/spec | Workflow Lisp lowering fixtures |
 | prompt extern path/source semantics | Workflow Lisp frontend authoring contract | workflow examples / prompt catalog |
+| provider structured-output bundle path authority | runtime/spec | provider prompt contract and Workflow Lisp lowering fixtures |
 
 The anti-pattern to avoid is making the Lisp frontend generate increasingly
 strange YAML to fit an older runtime subset. That would defeat the point of the
@@ -295,7 +369,10 @@ allowed to express.
    - collection artifacts in publish/consume dataflow;
    - string/list/map pointer-view materialization;
    - prompt extern values as bundled `asset_file` paths;
-   - negative prompt extern traversal outside workflow source tree.
+   - negative prompt extern traversal outside workflow source tree;
+   - provider `output_bundle` and `variant_output` steps receiving runtime-owned
+     structured bundle paths;
+   - provider wrong-path bundle writes failing with a clear diagnostic.
 5. Clarify the `.orc` prompt extern model in
    `docs/lisp_workflow_drafting_guide.md` and `workflows/README.md`.
 
@@ -312,7 +389,9 @@ python -m orchestrator run workflows/examples/review_revise_design_docs.orc \
   --stream-output
 ```
 
-without frontend-specific runtime crashes, hidden prompt-path assumptions, or
-collection-artifact contract failures. Provider output may still request
-ordinary design revisions, but the runtime should no longer fail before the
-review provider is able to make a typed review decision.
+without frontend-specific runtime crashes, hidden prompt-path assumptions,
+collection-artifact contract failures, or provider structured-output bundle
+placement failures. Provider output may still request ordinary design
+revisions, but the runtime should no longer fail before the review provider is
+able to make a typed review decision or before the stdlib loop can route that
+decision into `APPROVE`, `REVISE -> fix`, or `BLOCKED`.
