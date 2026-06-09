@@ -476,3 +476,27 @@ def test_design_delta_implementation_phase_candidate_compiles_with_variant_and_r
     assert any("repeat_until" in step for step in all_steps)
     assert any("command" in step for step in all_steps)
     assert any("return__variant" in lowered["outputs"] for lowered in lowered_workflows)
+
+
+def test_design_delta_selector_candidate_compiles_as_provider_decision(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.selector": "codex"},
+        prompt_externs={
+            "prompts.selector.select-next-work": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "lisp_frontend_design_delta/types" in result.compiled_results_by_name
+    assert result.entry_result.validated_bundles
+    lowered = result.entry_result.lowered_workflows[0].authored_mapping
+    assert lowered["version"] == "2.14"
+    assert any(step.get("provider") == "codex" for step in lowered["steps"])
+    assert "return__selection_status" in lowered["outputs"]

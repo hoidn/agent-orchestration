@@ -51,7 +51,7 @@ Baseline evidence checked during inventory:
 | `.orc` import/layout feasibility | complete for first pass | `feasibility_probe.md`; `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` |
 | Plan phase `.orc` candidate | compile candidate complete for first pass; runtime/parity paths open | `workflows/library/lisp_frontend_design_delta/plan_phase.orc`; `test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop` |
 | Implementation phase `.orc` candidate | leaf execute-attempt and completed-review candidate complete for first pass; full phase composition/output parity open | `workflows/library/lisp_frontend_design_delta/implementation_phase.orc`; `test_design_delta_implementation_phase_candidate_compiles_with_variant_and_review_loop` |
-| Selector `.orc` candidate | not started | none |
+| Selector `.orc` candidate | provider-decision candidate complete for first pass; bundle publication/output parity open | `workflows/library/lisp_frontend_design_delta/selector.orc`; `test_design_delta_selector_candidate_compiles_as_provider_decision` |
 | Design-gap architect `.orc` candidate | not started | none |
 | Work-item `.orc` candidate | not started | none |
 | Parent drain `.orc` candidate | not started | none |
@@ -96,6 +96,12 @@ None yet.
   shared validation when generated below that branch. Full phase composition
   and exact YAML output parity remain open until that composition gap is fixed
   or a certified adapter boundary is accepted.
+- The first selector `.orc` candidate models the provider selection decision
+  with typed artifact inputs. It does not yet expose the YAML selector's raw
+  `state/` manifest, ledger, run-state, or `selection_bundle_path` public
+  boundary. Selection-bundle publication still needs a typed projection,
+  certified adapter, or private context bridge before parity can claim
+  equivalence.
 - Provider `variant_output.path` target binding must be reliable before
   provider-heavy implementation attempts are promotion evidence.
 - Several scripts mutate run state and cannot be converted to pure helpers

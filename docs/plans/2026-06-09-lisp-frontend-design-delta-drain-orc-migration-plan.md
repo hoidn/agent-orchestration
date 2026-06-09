@@ -305,23 +305,24 @@ Commit checkpoint:
 
 ### 6. Selector Candidate
 
-- [ ] Translate `lisp_frontend_design_delta_selector.v214.yaml` into `selector.orc`.
-- [ ] Replace materialized pointer inputs with typed artifacts or private value views.
-- [ ] Convert `SelectNextWork` to `provider-result` returning `SelectionResult`.
+- [x] Translate the provider-decision portion of `lisp_frontend_design_delta_selector.v214.yaml` into `selector.orc`.
+- [x] Replace materialized pointer inputs with typed artifact inputs for the first candidate.
+- [x] Convert `SelectNextWork` to `provider-result` returning a typed selection decision.
 - [ ] Replace `PublishSelectionBundle` with either a typed projection or a certified adapter.
 - [ ] Preserve selection status and selection bundle path output contracts.
 - [ ] Keep selection bundle as structured state, not as report prose.
+- [x] Record the current public-boundary delta: YAML selector state-root inputs and selection-bundle state paths require a private context/adapter bridge before parity can claim equivalence.
 
 Verification:
 
-- [ ] Compile/typecheck `selector.orc`.
+- [x] Compile/typecheck `selector.orc`.
 - [ ] Fake-provider tests for backlog item, draft design gap, done, and blocked variants.
 - [ ] Selection bundle path validation test.
-- [ ] `git diff --check`
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit selector candidate and focused tests.
+- [x] Commit selector candidate and focused tests.
 
 ### 7. Design Gap Architect Candidate
 
