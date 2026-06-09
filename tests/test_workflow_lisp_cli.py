@@ -851,6 +851,101 @@ def test_compile_workflow_exports_requested_artifacts_and_reports_them(
     assert payload["artifact_paths"]["core_workflow_ast"] != payload["exported_artifacts"]["core_workflow_ast"]
 
 
+@pytest.mark.parametrize("command_name", ["compile", "explain", "run"])
+@pytest.mark.parametrize(
+    "prompt_manifest",
+    [
+        CLI_FIXTURES / "prompts.asset-file-object.json",
+        CLI_FIXTURES / "prompts.input-file.json",
+    ],
+)
+def test_prompt_extern_object_manifest_cli_commands_accept_explicit_source_fixtures(
+    tmp_path: Path,
+    command_name: str,
+    prompt_manifest: Path,
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    workspace_prompt = tmp_path / "prompts" / "workspace" / "implementation" / "execute.md"
+    workspace_prompt.parent.mkdir(parents=True, exist_ok=True)
+    workspace_prompt.write_text("workspace prompt\n", encoding="utf-8")
+
+    if command_name == "compile":
+        args = _orc_compile_args(prompt_externs_file=prompt_manifest)
+        command = compile_workflow
+    elif command_name == "explain":
+        args = _orc_explain_args()
+        command = explain_workflow
+    else:
+        report_path = tmp_path / "artifacts" / "work" / "existing-report.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("ok\n", encoding="utf-8")
+        args = _orc_run_args(
+            input_values=[
+                "input__status=ready",
+                "input__report=artifacts/work/existing-report.md",
+                "report_path=artifacts/work/existing-report.md",
+            ]
+        )
+        command = run_workflow
+
+    args.prompt_externs_file = str(prompt_manifest)
+    result = command(args)
+    capsys.readouterr()
+    assert result == 0
+
+
+@pytest.mark.parametrize("command_name", ["compile", "explain", "run"])
+def test_prompt_extern_object_entry_invalid_cli_commands_report_frontend_diagnostics(
+    tmp_path: Path,
+    command_name: str,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    manifest_path = tmp_path / "prompts.invalid-object.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "prompts.implementation.execute": {
+                    "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+                    "input_file": "prompts/workspace/implementation/execute.md",
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    if command_name == "compile":
+        args = _orc_compile_args()
+    elif command_name == "explain":
+        args = _orc_explain_args()
+    else:
+        report_path = tmp_path / "artifacts" / "work" / "existing-report.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("ok\n", encoding="utf-8")
+        args = _orc_run_args(
+            input_values=[
+                "input__status=ready",
+                "input__report=artifacts/work/existing-report.md",
+                "report_path=artifacts/work/existing-report.md",
+            ]
+        )
+    args.prompt_externs_file = str(manifest_path)
+
+    command = compile_workflow if command_name == "compile" else explain_workflow if command_name == "explain" else run_workflow
+    with caplog.at_level("ERROR"):
+        result = command(args)
+
+    assert result == 2
+    assert "[workflow_lisp_manifest_invalid]" in caplog.text
+    assert "prompt externs manifest entries" in caplog.text
+    assert "Traceback" not in caplog.text
+
+
 def test_explain_workflow_exports_compilation_scoped_artifacts_for_selected_imported_target(
     tmp_path: Path,
     monkeypatch,
@@ -1318,7 +1413,10 @@ def test_orc_commands_report_malformed_manifest_files_as_frontend_diagnostics(
             "prompts.invalid-entry.json",
             {"prompts.implementation.execute": {"bad": True}},
             "workflow_lisp_manifest_invalid",
-            "prompt externs manifest entries must map non-empty string names to string values",
+            (
+                "prompt externs manifest entries must map non-empty string names to string values "
+                "or objects with exactly one of `asset_file` or `input_file`"
+            ),
         ),
         (
             "command_boundaries_file",

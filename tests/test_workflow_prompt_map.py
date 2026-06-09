@@ -136,6 +136,40 @@ steps:
     assert "| no |" in markdown
 
 
+def test_missing_prompt_source_surface_is_explicit_in_prompt_map(tmp_path: Path):
+    repo = tmp_path
+    workflow_dir = repo / "workflows" / "examples"
+    workflow_dir.mkdir(parents=True)
+    workflow = workflow_dir / "missing-surfaces.yaml"
+    workflow.write_text(
+        """
+version: "2.7"
+steps:
+  - name: MissingAsset
+    provider: codex
+    asset_file: prompts/asset-missing.md
+  - name: MissingInput
+    provider: codex
+    input_file: prompts/input-missing.md
+""",
+        encoding="utf-8",
+    )
+
+    refs = collect_prompt_refs(repo, [workflow])
+    markdown = render_markdown(repo, refs)
+
+    assert ("MissingAsset", "asset_file", "prompts/asset-missing.md", False) in [
+        (ref.step_path, ref.field, ref.authored_path, ref.exists) for ref in refs
+    ]
+    assert ("MissingInput", "input_file", "prompts/input-missing.md", False) in [
+        (ref.step_path, ref.field, ref.authored_path, ref.exists) for ref in refs
+    ]
+    assert "`asset_file`" in markdown
+    assert "`input_file`" in markdown
+    assert "`prompts/asset-missing.md`" in markdown
+    assert "`prompts/input-missing.md`" in markdown
+
+
 def test_workflow_files_prefers_git_tracked_files(tmp_path: Path):
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     workflow_dir = tmp_path / "workflows" / "examples"

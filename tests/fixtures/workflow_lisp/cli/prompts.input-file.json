@@ -1,0 +1,5 @@
+{
+  "prompts.implementation.execute": {
+    "input_file": "prompts/workspace/implementation/execute.md"
+  }
+}

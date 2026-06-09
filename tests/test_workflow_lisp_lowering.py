@@ -81,14 +81,15 @@ IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 PROMOTED_ENTRY_BOOTSTRAP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
 
 
-def _extern_environment() -> ExternEnvironment:
+def _extern_environment(prompt_binding: PromptExtern | None = None) -> ExternEnvironment:
     return ExternEnvironment(
         bindings_by_name={
             "providers.execute": ProviderExtern(
                 name="providers.execute",
                 provider_id="test-provider",
             ),
-            "prompts.implementation.execute": PromptExtern(
+            "prompts.implementation.execute": prompt_binding
+            or PromptExtern(
                 name="prompts.implementation.execute",
                 asset_file="prompts/implementation/execute.md",
             ),
@@ -1056,6 +1057,40 @@ def test_lowering_same_file_workflow_call_uses_managed_write_root_boundary_proje
     assert call_step["with"]["__write_root__provider_attempt__attempt__result_bundle"] == expected_bindings[
         "__write_root__provider_attempt__attempt__result_bundle"
     ]
+
+
+def test_prompt_extern_lowers_asset_file() -> None:
+    typed_workflows, workflow_catalog = _typed_fixture_workflows()
+
+    lowered = lower_workflow_definitions(
+        typed_workflows,
+        workflow_path=STRUCTURED_RESULTS_FIXTURE,
+        workflow_catalog=workflow_catalog,
+        extern_environment=_extern_environment(),
+        command_boundary_environment=_command_boundary_environment(),
+    )
+
+    provider_attempt = next(workflow for workflow in lowered if workflow.typed_workflow.definition.name == "provider_attempt")
+    provider_step = provider_attempt.authored_mapping["steps"][0]
+
+    assert provider_step["asset_file"] == "prompts/implementation/execute.md"
+    assert "input_file" not in provider_step
+
+
+def test_prompt_extern_lowers_input_file(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        PHASE_FIXTURE,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": {"input_file": "prompts/workspace/implementation/execute.md"}},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    provider_step = lowered["steps"][1]
+
+    assert provider_step["input_file"] == "prompts/workspace/implementation/execute.md"
+    assert "asset_file" not in provider_step
 
 
 def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: Path) -> None:

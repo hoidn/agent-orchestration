@@ -1,0 +1,5 @@
+{
+  "prompts.implementation.execute": {
+    "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+  }
+}

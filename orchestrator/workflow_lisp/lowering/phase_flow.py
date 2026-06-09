@@ -333,12 +333,12 @@ def _phase_stdlib_lower_run_provider_phase_impl(
         "name": step_name,
         "id": step_id,
         "provider": provider_binding.provider_id,
-        "asset_file": prompt_binding.asset_file,
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
         "consumes": consumes,
         "prompt_consumes": prompt_consumes,
     }
+    step.update(lowering_core._prompt_source_step_fields(prompt_binding))
     generated_steps.append(step)
     _record_missing_step_origins(context, generated_steps, source=expr)
     return generated_steps, _TerminalResult(
@@ -582,9 +582,9 @@ def _phase_stdlib_lower_produce_one_of_impl(
                     "candidates": snapshot_candidates,
                 },
                 "provider": provider_binding.provider_id,
-                "asset_file": prompt_binding.asset_file,
                 "consumes": consumes,
                 "prompt_consumes": prompt_consumes,
+                **lowering_core._prompt_source_step_fields(prompt_binding),
             },
             {
                 "name": select_step_name,

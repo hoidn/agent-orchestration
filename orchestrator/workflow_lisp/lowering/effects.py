@@ -112,10 +112,10 @@ def _lower_provider_result(
         "name": provider_step_name,
         "id": provider_step_id,
         "provider": provider_binding.provider_id,
-        "asset_file": prompt_binding.asset_file,
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
     }
+    provider_step.update(lowering_core._prompt_source_step_fields(prompt_binding))
     if context.phase_scope is not None:
         use_active_phase_bundle = False
         if not context.is_generated_private_workflow:

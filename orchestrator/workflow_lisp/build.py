@@ -26,7 +26,13 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, seria
 from .lints import LINT_PROFILE_DEFAULT
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
-from .workflows import CertifiedAdapterBinding, ExternalToolBinding
+from .workflows import (
+    CertifiedAdapterBinding,
+    ExternalToolBinding,
+    normalize_public_prompt_extern_binding,
+    prompt_extern_source_bindings_payload,
+    prompt_extern_source_payload,
+)
 
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
@@ -178,10 +184,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         resolved_request.provider_externs_path,
         label="provider externs manifest",
     )
-    prompt_externs = _load_string_mapping(
-        resolved_request.prompt_externs_path,
-        label="prompt externs manifest",
-    )
+    prompt_externs = _load_prompt_extern_mapping(resolved_request.prompt_externs_path)
     command_boundary_manifest = _load_command_boundaries_manifest_payload(
         resolved_request.command_boundaries_path,
     )
@@ -596,6 +599,53 @@ def _load_string_mapping(
     return entries
 
 
+def _load_prompt_extern_mapping(
+    manifest_path: Path | None,
+) -> Mapping[str, str | dict[str, str]]:
+    if manifest_path is None:
+        return {}
+    payload = _load_json_file(manifest_path, label="prompt externs manifest")
+    if not isinstance(payload, Mapping):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="workflow_lisp_manifest_invalid",
+                    message="prompt externs manifest must be a JSON object",
+                    path=manifest_path,
+                ),
+            )
+        )
+    entries: dict[str, str | dict[str, str]] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="workflow_lisp_manifest_invalid",
+                        message="prompt externs manifest entries must use non-empty string names",
+                        path=manifest_path,
+                    ),
+                )
+            )
+        try:
+            binding = normalize_public_prompt_extern_binding(key, value)
+        except (TypeError, ValueError):
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="workflow_lisp_manifest_invalid",
+                        message=(
+                            "prompt externs manifest entries must map non-empty string names to string values "
+                            "or objects with exactly one of `asset_file` or `input_file`"
+                        ),
+                        path=manifest_path,
+                    ),
+                )
+            ) from None
+        entries[key] = binding.path if binding.source_kind == "asset_file" and isinstance(value, str) else prompt_extern_source_payload(binding)
+    return entries
+
+
 def _load_command_boundaries_manifest_payload(
     manifest_path: Path | None,
 ) -> Mapping[str, object]:
@@ -841,7 +891,7 @@ def _fingerprint_build(
     imported_bindings: tuple[ImportedWorkflowBundleBinding, ...],
     entry_selection: FrontendEntrySelection,
     provider_externs: Mapping[str, str],
-    prompt_externs: Mapping[str, str],
+    prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
 ) -> str:
     source_payload = {
@@ -853,7 +903,7 @@ def _fingerprint_build(
         "source_roots": [str(path) for path in request.source_roots],
         "entry_workflow": entry_selection.canonical_name,
         "provider_externs": dict(sorted(provider_externs.items())),
-        "prompt_externs": dict(sorted(prompt_externs.items())),
+        "prompt_externs": prompt_extern_source_bindings_payload(prompt_externs),
         "command_boundaries": _json_data(dict(sorted(command_boundary_manifest.items()))),
         "imported_workflow_bundles": [
             {

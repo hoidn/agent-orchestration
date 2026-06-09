@@ -155,6 +155,8 @@ from .workflows import (
     build_extern_environment,
     build_workflow_catalog,
     elaborate_workflow_definitions,
+    prompt_extern_legacy_bindings,
+    prompt_extern_source_bindings_payload,
     typecheck_workflow_definitions,
 )
 
@@ -1210,12 +1212,13 @@ def _derive_reusable_state_producer_context(
     definition_module: WorkflowLispModule,
     source_file_digests: Mapping[str, str],
     provider_externs: Mapping[str, str] | None,
-    prompt_externs: Mapping[str, str] | None,
+    prompt_externs: Mapping[str, object] | None,
     command_boundary_environment: CommandBoundaryEnvironment,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
 ) -> Mapping[str, object]:
     provider_extern_bindings = dict(sorted((provider_externs or {}).items()))
-    prompt_extern_bindings = dict(sorted((prompt_externs or {}).items()))
+    prompt_extern_bindings = prompt_extern_legacy_bindings(prompt_externs)
+    prompt_extern_source_bindings = prompt_extern_source_bindings_payload(prompt_externs)
     command_boundary_bindings = {
         name: _command_boundary_fingerprint_payload(binding)
         for name, binding in sorted(command_boundary_environment.bindings_by_name.items())
@@ -1232,7 +1235,7 @@ def _derive_reusable_state_producer_context(
         {
             "source_file_digests": source_file_digests,
             "provider_extern_bindings": provider_extern_bindings,
-            "prompt_extern_bindings": prompt_extern_bindings,
+            "prompt_extern_source_bindings": prompt_extern_source_bindings,
             "command_boundary_bindings": command_boundary_bindings,
             "imported_workflow_fingerprints": imported_workflow_fingerprints,
             "lowering_options": lowering_options,
@@ -1242,6 +1245,7 @@ def _derive_reusable_state_producer_context(
         "source_file_digests": source_file_digests,
         "provider_extern_bindings": provider_extern_bindings,
         "prompt_extern_bindings": prompt_extern_bindings,
+        "prompt_extern_source_bindings": prompt_extern_source_bindings,
         "command_boundary_bindings": command_boundary_bindings,
         "imported_workflow_fingerprints": imported_workflow_fingerprints,
         "lowering_options": lowering_options,

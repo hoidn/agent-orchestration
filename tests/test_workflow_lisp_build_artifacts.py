@@ -9,10 +9,10 @@ import pytest
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_command_boundary_environment
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -502,7 +502,10 @@ def test_build_accepts_compiled_imported_workflow_bundles_manifest_and_public_ru
             "prompt_externs_path",
             "prompts.invalid-entry.json",
             {"prompts.implementation.execute": {"bad": True}},
-            "prompt externs manifest entries must map non-empty string names to string values",
+            (
+                "prompt externs manifest entries must map non-empty string names to string values "
+                "or objects with exactly one of `asset_file` or `input_file`"
+            ),
         ),
     ],
 )
@@ -717,6 +720,251 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
     assert result.manifest.artifact_status["runtime_plan"] == "emitted"
     assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
+
+
+def test_prompt_extern_object_entries_are_accepted_by_build_service(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    asset_result = build_frontend_bundle(
+        request_cls(
+            source_path=ENTRYPOINT,
+            source_roots=(SOURCE_ROOT,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.asset-file-object.json",
+            imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path / "asset",
+        )
+    )
+    input_result = build_frontend_bundle(
+        request_cls(
+            source_path=ENTRYPOINT,
+            source_roots=(SOURCE_ROOT,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.input-file.json",
+            imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path / "input",
+        )
+    )
+
+    asset_binding = asset_result.compile_result.entry_result.extern_environment.bindings_by_name[
+        "prompts.implementation.execute"
+    ]
+    input_binding = input_result.compile_result.entry_result.extern_environment.bindings_by_name[
+        "prompts.implementation.execute"
+    ]
+
+    assert asset_binding.source_kind == "asset_file"
+    assert asset_binding.path == "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+    assert asset_binding.asset_file == "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+    assert input_binding.source_kind == "input_file"
+    assert input_binding.path == "prompts/workspace/implementation/execute.md"
+    assert input_binding.asset_file is None
+
+
+def test_prompt_extern_asset_file_shorthand_normalization_in_build_service(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    shorthand = build_frontend_bundle(
+        request_cls(
+            source_path=ENTRYPOINT,
+            source_roots=(SOURCE_ROOT,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.json",
+            imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path / "shorthand",
+        )
+    )
+    explicit = build_frontend_bundle(
+        request_cls(
+            source_path=ENTRYPOINT,
+            source_roots=(SOURCE_ROOT,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.asset-file-object.json",
+            imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path / "explicit",
+        )
+    )
+
+    shorthand_binding = shorthand.compile_result.entry_result.extern_environment.bindings_by_name[
+        "prompts.implementation.execute"
+    ]
+    explicit_binding = explicit.compile_result.entry_result.extern_environment.bindings_by_name[
+        "prompts.implementation.execute"
+    ]
+
+    assert shorthand_binding.source_kind == explicit_binding.source_kind == "asset_file"
+    assert shorthand_binding.path == explicit_binding.path
+    assert shorthand_binding.asset_file == explicit_binding.asset_file
+
+
+def test_prompt_extern_asset_file_shorthand_normalization_stabilizes_fingerprint_and_producer_context(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    derive_context = getattr(compiler, "_derive_reusable_state_producer_context")
+
+    shorthand = build_frontend_bundle(
+        request_cls(
+            source_path=ENTRYPOINT,
+            source_roots=(SOURCE_ROOT,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.json",
+            imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path / "shorthand-fingerprint",
+        )
+    )
+    explicit = build_frontend_bundle(
+        request_cls(
+            source_path=ENTRYPOINT,
+            source_roots=(SOURCE_ROOT,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.asset-file-object.json",
+            imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path / "explicit-fingerprint",
+        )
+    )
+
+    stage1 = compile_stage1_entrypoint(ENTRYPOINT, source_roots=(SOURCE_ROOT,))
+    command_env = build_command_boundary_environment(
+        {
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        }
+    )
+    shorthand_context = derive_context(
+        definition_module=stage1.entry_module,
+        source_file_digests={"entry.orc": "abc123"},
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundary_environment=command_env,
+        imported_workflow_bundles={},
+    )
+    explicit_context = derive_context(
+        definition_module=stage1.entry_module,
+        source_file_digests={"entry.orc": "abc123"},
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": {"asset_file": "prompts/implementation/execute.md"}},
+        command_boundary_environment=command_env,
+        imported_workflow_bundles={},
+    )
+
+    assert shorthand.manifest.fingerprint == explicit.manifest.fingerprint
+    assert shorthand_context["compile_inputs_fingerprint"] == explicit_context["compile_inputs_fingerprint"]
+
+
+def test_prompt_extern_object_entries_emit_source_kind_aware_reusable_state_metadata() -> None:
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    derive_context = getattr(compiler, "_derive_reusable_state_producer_context")
+    stage1 = compile_stage1_entrypoint(ENTRYPOINT, source_roots=(SOURCE_ROOT,))
+    command_env = build_command_boundary_environment(
+        {
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        }
+    )
+
+    asset_context = derive_context(
+        definition_module=stage1.entry_module,
+        source_file_digests={"entry.orc": "abc123"},
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": {"asset_file": "prompts/implementation/execute.md"}},
+        command_boundary_environment=command_env,
+        imported_workflow_bundles={},
+    )
+    input_context = derive_context(
+        definition_module=stage1.entry_module,
+        source_file_digests={"entry.orc": "abc123"},
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": {"input_file": "prompts/workspace/implementation/execute.md"}},
+        command_boundary_environment=command_env,
+        imported_workflow_bundles={},
+    )
+
+    assert asset_context["prompt_extern_bindings"] == {
+        "prompts.implementation.execute": "prompts/implementation/execute.md"
+    }
+    assert asset_context["prompt_extern_source_bindings"] == {
+        "prompts.implementation.execute": {"asset_file": "prompts/implementation/execute.md"}
+    }
+    assert input_context["prompt_extern_bindings"] == {}
+    assert input_context["prompt_extern_source_bindings"] == {
+        "prompts.implementation.execute": {"input_file": "prompts/workspace/implementation/execute.md"}
+    }
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "prompts.implementation.execute": {
+                "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+                "input_file": "prompts/workspace/implementation/execute.md",
+            }
+        },
+        {
+            "prompts.implementation.execute": {
+                "source_kind": "input_file",
+                "path": "prompts/workspace/implementation/execute.md",
+            }
+        },
+        {"prompts.implementation.execute": {"unknown": "value"}},
+        {"prompts.implementation.execute": {"asset_file": 5}},
+    ],
+)
+def test_prompt_extern_object_shape_invalid_diagnostic(tmp_path: Path, payload: dict[str, object]) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    manifest_path = tmp_path / "prompts.invalid-object.json"
+    manifest_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_frontend_bundle(
+            request_cls(
+                source_path=ENTRYPOINT,
+                source_roots=(SOURCE_ROOT,),
+                entry_workflow="orchestrate",
+                provider_externs_path=CLI_FIXTURES / "providers.json",
+                prompt_externs_path=manifest_path,
+                imported_workflow_bundles_path=CLI_FIXTURES / "imported_workflow_bundles.json",
+                command_boundaries_path=CLI_FIXTURES / "commands.json",
+                emit_debug_yaml=False,
+                workspace_root=tmp_path,
+            )
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_lisp_manifest_invalid"
+    assert "prompt externs manifest entries" in excinfo.value.diagnostics[0].message
 
 
 def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:

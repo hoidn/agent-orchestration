@@ -2271,6 +2271,7 @@ def _derive_resume_producer_fingerprint_basis(
             "source_file_digests": {},
             "provider_extern_bindings": {},
             "prompt_extern_bindings": {},
+            "prompt_extern_source_bindings": {},
             "command_boundary_bindings": {},
             "imported_workflow_fingerprints": {},
             "compile_inputs_fingerprint": "<unknown>",

@@ -1176,7 +1176,10 @@ def _count_surface_provider_steps(step: Any) -> int:
 def _count_surface_prompt_steps(step: Any) -> int:
     """Count provider steps with prompt assets in an elaborated step tree."""
 
-    total = 1 if getattr(step, "kind", None) == SurfaceStepKind.PROVIDER and getattr(step, "asset_file", None) else 0
+    total = 1 if (
+        getattr(step, "kind", None) == SurfaceStepKind.PROVIDER
+        and (getattr(step, "asset_file", None) or getattr(step, "input_file", None))
+    ) else 0
     total += sum(_count_surface_prompt_steps(nested) for nested in _surface_nested_steps(step))
     return total
 
@@ -1227,13 +1230,13 @@ def _specialize_backlog_drain_call_target(
     provider_binding = context.extern_environment.bindings_by_name.get(provider_name) if provider_name else None
     prompt_binding = context.extern_environment.bindings_by_name.get(prompt_name) if prompt_name else None
     provider_id = provider_binding.provider_id if isinstance(provider_binding, ProviderExtern) else None
-    prompt_path = prompt_binding.asset_file if isinstance(prompt_binding, PromptExtern) else None
+    prompt_binding_value = prompt_binding if isinstance(prompt_binding, PromptExtern) else None
     specialized_name = f"{workflow_name}__{role_name.replace('-', '_')}_rebound"
     if imported_bundle is not None:
         specialized_bundle = _specialize_imported_bundle_provider_metadata(
             imported_bundle,
             provider_id=provider_id,
-            prompt_path=prompt_path,
+            prompt_binding=prompt_binding_value,
             alias=specialized_name,
         )
         mutable_imports = context.imported_workflow_bundles
@@ -1243,7 +1246,7 @@ def _specialize_backlog_drain_call_target(
         specialized_workflow = _specialize_same_file_lowered_workflow_provider_metadata(
             same_file_callee,
             provider_id=provider_id,
-            prompt_path=prompt_path,
+            prompt_binding=prompt_binding_value,
             alias=specialized_name,
         )
         mutable_callees = context.lowered_callees
@@ -1308,12 +1311,12 @@ def _specialize_imported_bundle_provider_metadata(
     bundle: LoadedWorkflowBundle,
     *,
     provider_id: str | None,
-    prompt_path: str | None,
+    prompt_binding: PromptExtern | None,
     alias: str,
 ) -> LoadedWorkflowBundle:
     """Clone an imported bundle with provider or prompt metadata rebound."""
 
-    if provider_id is None and prompt_path is None:
+    if provider_id is None and prompt_binding is None:
         return bundle
 
     def rewrite_surface_step(step: Any) -> Any:
@@ -1322,7 +1325,7 @@ def _specialize_imported_bundle_provider_metadata(
             updated_step = replace(
                 updated_step,
                 provider=provider_id or getattr(updated_step, "provider", None),
-                asset_file=prompt_path or getattr(updated_step, "asset_file", None),
+                **lowering_core._prompt_source_replace_kwargs(prompt_binding),
             )
         then_branch = getattr(updated_step, "then_branch", None)
         else_branch = getattr(updated_step, "else_branch", None)
@@ -1370,7 +1373,7 @@ def _specialize_imported_bundle_provider_metadata(
             execution_config = replace(
                 execution_config,
                 provider=provider_id or execution_config.provider,
-                asset_file=prompt_path or execution_config.asset_file,
+                **lowering_core._prompt_source_replace_kwargs(prompt_binding),
             )
             rewritten_nodes[node_id] = replace(node, execution_config=execution_config)
         else:
@@ -1387,14 +1390,14 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
     lowered_workflow: LoweredWorkflow,
     *,
     provider_id: str | None,
-    prompt_path: str | None,
+    prompt_binding: PromptExtern | None,
     alias: str,
 ) -> LoweredWorkflow:
     """Clone a same-file lowered workflow with provider/prompt metadata rebound."""
 
     from .core import LoweredWorkflow
 
-    if provider_id is None and prompt_path is None:
+    if provider_id is None and prompt_binding is None:
         return lowered_workflow
 
     def rewrite(value: Any) -> Any:
@@ -1407,8 +1410,7 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
             }
             if isinstance(value.get("provider"), str):
                 rewritten["provider"] = provider_id or str(value["provider"])
-                if "asset_file" in rewritten:
-                    rewritten["asset_file"] = prompt_path or rewritten["asset_file"]
+                rewritten = lowering_core._rewrite_prompt_source_mapping(rewritten, prompt_binding)
             return rewritten
         return value
 

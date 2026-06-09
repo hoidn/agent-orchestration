@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from orchestrator.workflow.loaded_bundle import workflow_output_contracts, workflow_public_input_contracts
 
@@ -84,12 +84,57 @@ class ProviderExtern:
     provider_id: str
 
 
-@dataclass(frozen=True)
+PromptExternSourceKind = Literal["asset_file", "input_file"]
+PromptExternBindingValue = "PromptExtern | str | Mapping[str, object]"
+
+
+@dataclass(frozen=True, init=False)
 class PromptExtern:
-    """Prompt asset binding supplied from the build environment."""
+    """Prompt binding supplied from the build environment.
+
+    The canonical shape records the prompt source surface explicitly while
+    keeping the legacy ``asset_file=...`` constructor/property surface for
+    current direct callers.
+    """
 
     name: str
-    asset_file: str
+    source_kind: PromptExternSourceKind
+    path: str
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        source_kind: PromptExternSourceKind | None = None,
+        path: str | None = None,
+        asset_file: str | None = None,
+        input_file: str | None = None,
+    ) -> None:
+        raw_value: dict[str, object] = {}
+        if source_kind is not None:
+            raw_value["source_kind"] = source_kind
+        if path is not None:
+            raw_value["path"] = path
+        if asset_file is not None:
+            raw_value["asset_file"] = asset_file
+        if input_file is not None:
+            raw_value["input_file"] = input_file
+        resolved_source_kind, resolved_path = _coerce_prompt_extern_source(
+            name=name,
+            raw_value=raw_value,
+            allow_prompt_extern_instance=False,
+        )
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "source_kind", resolved_source_kind)
+        object.__setattr__(self, "path", resolved_path)
+
+    @property
+    def asset_file(self) -> str | None:
+        return self.path if self.source_kind == "asset_file" else None
+
+    @property
+    def input_file(self) -> str | None:
+        return self.path if self.source_kind == "input_file" else None
 
 
 @dataclass(frozen=True)
@@ -102,6 +147,120 @@ class ExternEnvironment:
     """
 
     bindings_by_name: Mapping[str, ProviderExtern | PromptExtern]
+
+
+def prompt_extern_source_payload(binding: PromptExtern) -> dict[str, str]:
+    """Serialize one prompt extern to its canonical source-aware payload."""
+
+    return {binding.source_kind: binding.path}
+
+
+def prompt_extern_legacy_binding_value(binding: PromptExtern) -> str | None:
+    """Return the legacy string-valued binding view for asset-backed prompts."""
+
+    return binding.asset_file
+
+
+def normalize_prompt_extern_binding(
+    name: str,
+    raw_value: PromptExtern | str | Mapping[str, object],
+) -> PromptExtern:
+    """Validate and normalize one prompt extern binding."""
+
+    source_kind, path = _coerce_prompt_extern_source(name=name, raw_value=raw_value)
+    return PromptExtern(name=name, source_kind=source_kind, path=path)
+
+
+def normalize_public_prompt_extern_binding(
+    name: str,
+    raw_value: str | Mapping[str, object],
+) -> PromptExtern:
+    """Validate one authored manifest binding without exposing internal shapes."""
+
+    source_kind, path = _coerce_prompt_extern_source(
+        name=name,
+        raw_value=raw_value,
+        allow_prompt_extern_instance=False,
+        allow_canonical_source_payload=False,
+    )
+    return PromptExtern(name=name, source_kind=source_kind, path=path)
+
+
+def normalize_prompt_extern_bindings(
+    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None,
+) -> dict[str, PromptExtern]:
+    """Validate and normalize prompt extern bindings keyed by authored name."""
+
+    return {
+        name: normalize_prompt_extern_binding(name, raw_value)
+        for name, raw_value in (prompt_externs or {}).items()
+    }
+
+
+def prompt_extern_source_bindings_payload(
+    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None,
+) -> dict[str, dict[str, str]]:
+    """Return canonical source-aware payloads keyed by authored prompt name."""
+
+    bindings = normalize_prompt_extern_bindings(prompt_externs)
+    return {
+        name: prompt_extern_source_payload(binding)
+        for name, binding in sorted(bindings.items())
+    }
+
+
+def prompt_extern_legacy_bindings(
+    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None,
+) -> dict[str, str]:
+    """Return the legacy string-valued asset-backed prompt binding view."""
+
+    bindings = normalize_prompt_extern_bindings(prompt_externs)
+    return {
+        name: binding.path
+        for name, binding in sorted(bindings.items())
+        if binding.source_kind == "asset_file"
+    }
+
+
+def _coerce_prompt_extern_source(
+    *,
+    name: str,
+    raw_value: PromptExtern | str | Mapping[str, object],
+    allow_prompt_extern_instance: bool = True,
+    allow_canonical_source_payload: bool = True,
+) -> tuple[PromptExternSourceKind, str]:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("require non-empty authored names")
+    if allow_prompt_extern_instance and isinstance(raw_value, PromptExtern):
+        return raw_value.source_kind, raw_value.path
+    if isinstance(raw_value, str):
+        if not raw_value.strip():
+            raise ValueError("require non-empty string shorthand values")
+        return "asset_file", raw_value
+    if not isinstance(raw_value, Mapping):
+        raise ValueError("must map names to string values or source objects")
+
+    if "source_kind" in raw_value or "path" in raw_value:
+        if not allow_canonical_source_payload:
+            raise ValueError("canonical source payloads are not a public manifest shape")
+        source_kind = raw_value.get("source_kind")
+        path = raw_value.get("path")
+        if source_kind not in ("asset_file", "input_file"):
+            raise ValueError("canonical bindings require `source_kind` of `asset_file` or `input_file`")
+        if not isinstance(path, str) or not path.strip():
+            raise ValueError("canonical bindings require non-empty string `path` values")
+        return source_kind, path
+
+    allowed_keys = ("asset_file", "input_file")
+    present_keys = tuple(key for key in allowed_keys if key in raw_value)
+    unknown_keys = tuple(key for key in raw_value if key not in allowed_keys)
+    if unknown_keys or len(present_keys) != 1:
+        raise ValueError("source objects must contain exactly one of `asset_file` or `input_file`")
+    source_kind = present_keys[0]
+    path = raw_value[source_kind]
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError(f"`{source_kind}` values must be non-empty strings")
+    return source_kind, path
 
 
 @dataclass(frozen=True)
@@ -1473,7 +1632,7 @@ def _raise_error(
 def build_extern_environment(
     *,
     provider_externs: Mapping[str, str] | None = None,
-    prompt_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None = None,
 ) -> ExternEnvironment:
     """Validate build-supplied provider and prompt bindings."""
 
@@ -1492,17 +1651,17 @@ def build_extern_environment(
             continue
         bindings[name] = ProviderExtern(name=name, provider_id=provider_id)
 
-    for name, asset_file in (prompt_externs or {}).items():
-        if not isinstance(name, str) or not name.strip() or not isinstance(asset_file, str) or not asset_file.strip():
+    for name, raw_binding in (prompt_externs or {}).items():
+        try:
+            bindings[name] = normalize_prompt_extern_binding(name, raw_binding)
+        except ValueError as exc:
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="provider_result_prompt_invalid",
-                    message="prompt extern bindings require non-empty authored names and asset files",
+                    message=f"prompt extern bindings {exc}",
                     span=_environment_span(),
                 )
             )
-            continue
-        bindings[name] = PromptExtern(name=name, asset_file=asset_file)
 
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))

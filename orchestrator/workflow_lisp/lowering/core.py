@@ -275,6 +275,37 @@ from .phase_stdlib import (
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
+def _prompt_source_step_fields(prompt_binding: PromptExtern) -> dict[str, str]:
+    """Project one canonical prompt extern onto provider-step source fields."""
+
+    return {prompt_binding.source_kind: prompt_binding.path}
+
+
+def _prompt_source_replace_kwargs(prompt_binding: PromptExtern | None) -> dict[str, Any]:
+    """Build dataclass replacement kwargs for provider prompt source fields."""
+
+    if prompt_binding is None:
+        return {}
+    if prompt_binding.source_kind == "asset_file":
+        return {"asset_file": prompt_binding.path, "input_file": None}
+    return {"asset_file": None, "input_file": prompt_binding.path}
+
+
+def _rewrite_prompt_source_mapping(
+    payload: Mapping[str, Any],
+    prompt_binding: PromptExtern | None,
+) -> dict[str, Any]:
+    """Rewrite a lowered step mapping to use the requested prompt source."""
+
+    rewritten = dict(payload)
+    if prompt_binding is None:
+        return rewritten
+    rewritten.pop("asset_file", None)
+    rewritten.pop("input_file", None)
+    rewritten.update(_prompt_source_step_fields(prompt_binding))
+    return rewritten
+
+
 @dataclass(frozen=True)
 class LoweredWorkflow:
     """Boundary object between Workflow Lisp and the shared runtime pipeline.

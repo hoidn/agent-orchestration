@@ -173,6 +173,31 @@ It should not look like low-level runtime plumbing:
 Those lower-level concepts may still exist after lowering, but they should not
 dominate high-level authored Lisp.
 
+## Prompt Externs
+
+Prompt externs are compile-time build bindings, not workflow-boundary inputs.
+They tell the Workflow Lisp frontend which shared provider prompt source field
+to emit when a workflow refers to a named prompt extern.
+
+- String shorthand means `asset_file`.
+- Use `asset_file` for reusable library prompts and other workflow-source-owned
+  prompt assets.
+- Use explicit `input_file` object bindings for workspace-owned or
+  runtime-generated prompt material.
+- Runtime prompt existence checks, path-root enforcement, and prompt-read
+  diagnostics still belong to the shared provider/runtime layer.
+
+Examples:
+
+```json
+{
+  "prompts.implementation.execute": "prompts/implementation/execute.md",
+  "prompts.project.review": {
+    "input_file": "prompts/workspace/project-review.md"
+  }
+}
+```
+
 ## 1. Mental Model
 
 Think in five layers.
