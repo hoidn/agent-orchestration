@@ -3,7 +3,10 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import pytest
+
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -228,3 +231,106 @@ def test_design_delta_migration_union_match_projection_compiles(tmp_path: Path) 
     )
 
     assert result.lowered_workflows[0].typed_workflow.definition.name == "summarize"
+
+
+def test_design_delta_domain_types_import_from_two_candidate_modules(tmp_path: Path) -> None:
+    package_dir = tmp_path / "lisp_frontend_design_delta_probe"
+    selector = _write_module(
+        package_dir / "selector.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule lisp_frontend_design_delta_probe/selector)",
+                "  (import lisp_frontend_design_delta/types :only (RunStatePath SelectionResult))",
+                "  (export select-next-work)",
+                "  (defworkflow select-next-work",
+                "    ((run-state RunStatePath))",
+                "    -> SelectionResult",
+                "    (provider-result providers.selector",
+                "      :prompt prompts.selector",
+                "      :inputs (run-state)",
+                "      :returns SelectionResult)))",
+            ]
+        )
+        + "\n",
+    )
+    work_item = _write_module(
+        package_dir / "work_item.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule lisp_frontend_design_delta_probe/work_item)",
+                "  (import lisp_frontend_design_delta/types :only (DesignRevisionResult WorkReport))",
+                "  (export run-work-item)",
+                "  (defworkflow run-work-item",
+                "    ((report WorkReport))",
+                "    -> DesignRevisionResult",
+                "    (provider-result providers.work-item",
+                "      :prompt prompts.work-item",
+                "      :inputs (report)",
+                "      :returns DesignRevisionResult)))",
+            ]
+        )
+        + "\n",
+    )
+
+    selector_result = compile_stage3_entrypoint(
+        selector,
+        source_roots=(REPO_ROOT / "workflows" / "library", tmp_path),
+        provider_externs={"providers.selector": "fake-selector"},
+        prompt_externs={"prompts.selector": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    work_item_result = compile_stage3_entrypoint(
+        work_item,
+        source_roots=(REPO_ROOT / "workflows" / "library", tmp_path),
+        provider_externs={"providers.work-item": "fake-work-item"},
+        prompt_externs={"prompts.work-item": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "lisp_frontend_design_delta/types" in selector_result.compiled_results_by_name
+    assert "lisp_frontend_design_delta/types" in work_item_result.compiled_results_by_name
+    assert selector_result.entry_result.validated_bundles
+    assert work_item_result.entry_result.validated_bundles
+
+
+def test_design_delta_domain_types_reject_invalid_drain_result_variant(tmp_path: Path) -> None:
+    module_path = _write_module(
+        tmp_path / "invalid_drain_result_variant.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule invalid_drain_result_variant)",
+                "  (import lisp_frontend_design_delta/types :only (DrainResult RunStatePath))",
+                "  (export invalid-drain)",
+                "  (defworkflow invalid-drain",
+                "    ((run-state RunStatePath))",
+                "    -> DrainResult",
+                "    (variant DrainResult FINISHED",
+                "      :run-state run-state)))",
+            ]
+        )
+        + "\n",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            module_path,
+            source_roots=(REPO_ROOT / "workflows" / "library", tmp_path),
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert any(
+        diagnostic.code == "union_variant_unknown" or "FINISHED" in diagnostic.message
+        for diagnostic in excinfo.value.diagnostics
+    )

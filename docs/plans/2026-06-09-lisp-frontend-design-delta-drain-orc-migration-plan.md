@@ -1,28 +1,50 @@
 # Lisp Frontend Design Delta Drain .orc Migration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Execution note for agentic workers:** This is a task-by-task execution plan. Use the repo's current agent instructions and available implementation-planning skills before making large edits. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate the `lisp_frontend_design_delta_drain` workflow family from YAML v2.14 to a principled Workflow Lisp `.orc` candidate while preserving typed dataflow, artifact authority, review/revise semantics, blocked recovery, resume behavior, and machine-computed promotion evidence. YAML remains primary until parity tooling proves the `.orc` family is non-regressive and promotable.
 
 **Architecture:** Treat this as a workflow-family migration, not a one-file syntax rewrite. Start with an inventory and domain model, then migrate leaf phases, imported workflows, parent drain orchestration, recovery routing, and parity evidence. Use `.orc` records/unions/enums/procedures for semantic state; keep command scripts only as certified adapters or explicit migration debt; use structured provider/command results rather than reports, pointer files, stdout, or debug YAML as authority.
 
-**Tech Stack:** Workflow Lisp `.orc`, YAML DSL v2.14, shared validation, Semantic IR / Executable IR, `std/phase.orc` review/revise forms, orchestrator CLI, `migration-parity`, pytest, fake-provider fixtures, command adapter scripts, provider prompt assets.
+**Implementation Surfaces:** Workflow Lisp `.orc`, YAML DSL v2.14, shared validation, Semantic IR / Executable IR, `std/phase.orc` review/revise forms imported from the standard library, implementation file path to verify as `orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`, orchestrator CLI, `migration-parity`, pytest, fake-provider fixtures, command adapter scripts, provider prompt assets.
 
 ---
 
 ## Governing Documents
 
 - `docs/index.md`
+- `docs/work_definition_model.md`
 - `docs/lisp_workflow_drafting_guide.md`
+- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md`
 - `docs/design/workflow_lisp_runtime_migration_foundation.md`
 - `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
 - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
 - `docs/design/workflow_lisp_state_layout.md`
 - `docs/design/workflow_command_adapter_contract.md`
+- `docs/design/lisp_frontend_review_fix_loops.md`
+- `docs/design/workflow_lisp_stdlib_lowering.md`
 - `specs/dsl.md`
 - `specs/io.md`
 - `specs/providers.md`
 - `specs/state.md`
+
+## Authority And Prerequisite Status
+
+Normative runtime and DSL behavior is owned by `specs/`. The design documents listed above are migration architecture and authoring guidance unless a linked spec says otherwise. This plan is procedural: it does not promote any `.orc` workflow and does not redefine runtime semantics.
+
+Before implementation work beyond inventory, verify the current checkout satisfies the runtime migration foundation required for this family:
+
+- command structured-output bundles validate and fail closed;
+- frontend-lowered private typed values can cross runtime boundaries without pointer-file authority;
+- provider `output_bundle.path` and `variant_output.path` target binding is runtime-owned;
+- `migration-parity` enforces strict schema/version/gate behavior;
+- StateLayout / PathAllocator owns generated state and bundle paths;
+- compiler-owned write roots are not exposed as public workflow inputs; and
+- source maps and Semantic IR include generated-path provenance.
+
+If any item is missing, record a prerequisite gap and stop before translating the workflow family, except for inventory and characterization work.
+
+The foundation gate is not a risk note. It is a hard prerequisite for promotion-grade translation. The runtime migration foundation says YAML remains authoritative until parity computes non-regression, and the post-foundation composition design says further `.orc` primary-promotion work is blocked until the foundation success criteria are complete.
 
 ## Source Workflow Family
 
@@ -38,7 +60,7 @@ Imported workflows:
 - `workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml`
 - `workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml`
 
-Existing `.orc` examples to mine, not blindly copy:
+Reference `.orc` examples to inspect, not copy:
 
 - `workflows/examples/review_revise_design_docs.orc`
 - `workflows/examples/review_revise_parametric_design_docs.orc`
@@ -78,13 +100,20 @@ If the current `.orc` importer does not support nested library directories clean
 
 Define authority-bearing types before translating steps:
 
-- `DrainStatus`: `CONTINUE`, `DONE`, `BLOCKED`
+- `DrainIterationStatus`: `CONTINUE`, `DONE`, `BLOCKED`
+- `DrainTerminalStatus`: `DONE`, `BLOCKED`, `EXHAUSTED`
 - `DrainResult`: terminal status plus `run_state_path` and `drain_summary_path`
 - `SelectionStatus`: `SELECT_BACKLOG_ITEM`, `DRAFT_DESIGN_GAP`, `DONE`, `BLOCKED`
 - `SelectionResult`: selected work item, design gap request, done, blocked
 - `PreSelectionRoute`: `SELECT_NORMAL_WORK`, `SELECT_PREREQUISITE_WORK`, `RECOVER_BLOCKED_DESIGN_GAP`, `BLOCKED`
 - `BlockedRecoveryDecision`: `GAP_DESIGN_REVISION_REQUIRED`, `TARGET_DESIGN_REVISION_REQUIRED`, `PREREQUISITE_GAP_REQUIRED`, `TERMINAL_BLOCKED`
 - `BlockedRecoveryReason`: existing reason enum values, with user-input-required reserved for genuine intention ambiguity or external environment intervention
+- `DesignRevisionDecision`: `REVISED`, `BLOCKED`, plus any current source values.
+- `DesignRevisionReviewDecision`: `APPROVE`, `REVISE`, `BLOCKED`.
+- `DesignRevisionResult`: record wrapper for design revision decisions and report evidence.
+- `RecoveryDrainStatus`: `CONTINUE`, `BLOCKED`, `RUN_RECOVERED_GAP`.
+- `RecoveredGapAttempt`: recovered draft, validation result, prepared work-item route, unavailable retry.
+- `BlockedRecoveryOutcome`: recorded recovery event, retry-ready event, terminal block, or prerequisite child edge.
 - `ArchitectureValidationResult`: `VALID`, `BLOCKED`, `INVALID`
 - `WorkItemSource`: `BACKLOG_ITEM`, `DESIGN_GAP`
 - `WorkItemTerminalRoute`: `COMPLETE`, `PLAN_REVIEW_EXHAUSTED`, `IMPLEMENTATION_BLOCKED`, `IMPLEMENTATION_REVIEW_EXHAUSTED`
@@ -95,9 +124,26 @@ Define authority-bearing types before translating steps:
 - `ReviewFindings`: use stdlib type where possible
 - path records for steering, target/baseline design docs, ledgers, run state, state roots, artifact roots, report/check targets, architecture bundle paths, and selection bundles
 
+Current frontend constraint: workflow-boundary union payloads should remain
+first-order fields. Do not put a union-valued field inside another union return
+surface until Stage 3 explicitly supports nested union boundary lowering. Use
+flat recovery outcome variants at exported workflow boundaries and reserve
+nested helper unions for internal procedures only when the compiler route
+supports them.
+
+Current boundary/lint constraint: recovery records that carry low-level
+`state/` paths are internal/private or certified-adapter surfaces until
+StateLayout/private executable contracts are foundation-ready. Public
+high-level `.orc` boundaries should expose typed decisions and stable artifact
+paths instead of raw generated state paths.
+
+Current return constraint: exported workflows must return record or union
+types. Bare enum decisions should be wrapped in record result types that carry
+the decision plus any report or evidence path.
+
 ## Adapter Classification Rules
 
-Every command helper must be classified before migration:
+Every command helper must be classified before migration, including transitive helpers called by named scripts:
 
 | Behavior | Preferred treatment |
 | --- | --- |
@@ -111,7 +157,30 @@ Every command helper must be classified before migration:
 
 Command adapters that remain must have a stable script path, typed inputs/outputs, declared effects, path-safety behavior, exit-code taxonomy, fixtures, negative tests, and source-map coverage.
 
+The inventory must classify not only direct workflow command steps, but also scripts that call other scripts, parse reports, move queue/run-state resources, read pointer files, decide variants, or perform ad hoc JSON rewrites. The command-adapter contract is behavior-based: hidden routing, report parsing, pointer-as-state, and unvalidated JSON state are migration debt whenever they determine workflow state or resource movement.
+
 ## Implementation Tasks
+
+### 0. Runtime Foundation Readiness Gate
+
+- [ ] Verify command structured-output bundle conformance is implemented and covered by fail-closed tests.
+- [ ] Verify private frontend-lowered typed values can validate, materialize as views when needed, publish, consume, and render without pointer-file authority.
+- [ ] Verify provider `output_bundle.path` and `variant_output.path` target binding is runtime-owned and wrong-path output fails closed.
+- [ ] Verify `migration-parity` strict schema/version/gate behavior exists for `--require-non-regressive` and `--require-promotable`.
+- [ ] Verify StateLayout / PathAllocator owns generated state and bundle paths used by Workflow Lisp lowering.
+- [ ] Verify compiler-owned write roots do not appear as public workflow inputs.
+- [ ] Verify source maps and Semantic IR contain generated-path provenance for the relevant lowered forms.
+- [ ] Record any missing item as a prerequisite design gap and stop before translating workflow-family semantics.
+
+Verification:
+
+- [ ] Focused runtime/provider/CLI pytest selectors for each foundation surface.
+- [ ] Compile and dry-run of a small `.orc` fixture exercising provider/command structured outputs and generated paths.
+- [ ] `git diff --check`
+
+Commit checkpoint:
+
+- [ ] Commit readiness evidence or prerequisite-gap records before starting translation.
 
 ### 1. Baseline Inventory And Migration Record
 
@@ -121,7 +190,16 @@ Command adapters that remain must have a stable script path, typed inputs/output
 - [x] List every provider step, prompt asset, structured output contract, and expected artifact.
 - [x] List every manual pointer/materialization behavior that must become typed authority, a value view, or a certified adapter.
 - [x] List every loop and recovery route, including normal selection, prerequisite selection, design-gap drafting, blocked recovery, recovered-gap retry, and drain summary.
-- [x] Record current YAML baseline commands and representative run evidence, including the recent completed drain against `docs/design/workflow_lisp_runtime_migration_foundation.md`.
+- [x] Record reproducible YAML baseline evidence:
+  - repo commit SHA;
+  - exact workflow command(s);
+  - input file(s) or CLI input JSON;
+  - provider mode, fake-provider fixtures, and model aliases;
+  - run id(s);
+  - final `drain_status`, `run_state_path`, and `drain_summary_path`;
+  - checksums for run-state, summaries, selection bundles, work-item summaries, reports, validation bundles, and recovery bundles;
+  - known accepted differences, if any; and
+  - whether evidence is real-provider, fake-provider, or dry-run evidence.
 - [x] Add a migration record skeleton for this workflow family with status `inventory`.
 
 Verification:
@@ -129,6 +207,7 @@ Verification:
 - [x] `python -m json.tool state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json`
 - [x] `python -m json.tool artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json`
 - [x] `rg -n "command:|provider:|output_bundle:|variant_output:|repeat_until|requires_variant|call:" workflows/examples/lisp_frontend_design_delta_drain.yaml workflows/library/lisp_frontend_design_delta_*.v214.yaml`
+- [x] Checksum command output for baseline evidence artifacts recorded in the migration inventory.
 - [x] `git diff --check`
 
 Commit checkpoint:
@@ -156,22 +235,22 @@ Commit checkpoint:
 
 ### 3. Domain Type Module
 
-- [ ] Add the `.orc` domain type module with enums, unions, records, and path aliases.
-- [ ] Keep the module side-effect free.
-- [ ] Reuse stdlib `ReviewDecision`, `ReviewFindings`, and review-loop result types where they fit.
-- [ ] Avoid duplicating stdlib types unless the drain family needs stricter domain-specific wrappers.
-- [ ] Add compile tests proving the type module imports from at least two candidate modules.
+- [x] Add the `.orc` domain type module with enums, unions, records, and path aliases.
+- [x] Keep the module side-effect free.
+- [x] Reuse stdlib `ReviewDecision`, `ReviewFindings`, and review-loop result types where they fit.
+- [x] Avoid duplicating stdlib types unless the drain family needs stricter domain-specific wrappers.
+- [x] Add compile tests proving the type module imports from at least two candidate modules.
 
 Verification:
 
-- [ ] Type module compile test.
-- [ ] Import visibility test.
-- [ ] Negative test for invalid enum/variant usage if the current test harness supports it.
-- [ ] `git diff --check`
+- [x] Type module compile test.
+- [x] Import visibility test.
+- [x] Negative test for invalid enum/variant usage if the current test harness supports it.
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit type module and tests.
+- [x] Commit type module and tests.
 
 ### 4. Plan Phase Candidate
 
@@ -244,7 +323,9 @@ Commit checkpoint:
 
 ### 7. Design Gap Architect Candidate
 
-- [ ] Translate `lisp_frontend_design_delta_design_gap_architect.v214.yaml` into `design_gap_architect.orc`.
+- [ ] Decide whether this migration is strictly behavior-preserving for the current `lisp_frontend_design_delta_design_gap_architect.v214.yaml` or whether it also incorporates the accepted architecture review/revise target from `docs/design/lisp_frontend_review_fix_loops.md`.
+- [ ] If behavior-preserving, translate the current draft + validate shape and record architecture review/revise as an accepted follow-on gap.
+- [ ] If incorporating architecture review/revise, add `ArchitectureReviewDecision`, `ArchitectureLoopResult`, and architecture-review-exhausted terminal routing before implementation.
 - [ ] Replace inline target path construction with pure typed functions or StateLayout-derived allocation.
 - [ ] Keep existing architecture-index builder as a certified command adapter unless replaced by native logic.
 - [ ] Convert draft provider step to `provider-result`.
@@ -254,9 +335,10 @@ Commit checkpoint:
 Verification:
 
 - [ ] Compile/typecheck `design_gap_architect.orc`.
-- [ ] Fake-provider drafted path.
+- [ ] Fake-provider drafted/valid path.
 - [ ] Blocked draft path.
 - [ ] Validation invalid path.
+- [ ] If architecture review/revise is in scope: approve, revise-then-approve, blocked, and exhaustion paths.
 - [ ] Adapter fixture for architecture index and validation scripts.
 - [ ] `git diff --check`
 
@@ -294,12 +376,14 @@ Commit checkpoint:
 
 - [ ] Translate `lisp_frontend_design_delta_drain.yaml` into `lisp_frontend_design_delta_drain.orc`.
 - [ ] Use a typed bounded drain loop with an accumulator and explicit exhaustion behavior.
+- [ ] Keep iteration state separate from terminal result state: `DrainIterationStatus` has `CONTINUE`, `DONE`, `BLOCKED`; `DrainTerminalStatus` has `DONE`, `BLOCKED`, `EXHAUSTED`; `DrainResult` carries terminal status plus run-state and summary paths.
 - [ ] Express pre-selection as `PreSelectionRoute`, not placeholder string files.
 - [ ] Call selector, design gap architect, and work item `.orc` modules.
 - [ ] Model normal work, prerequisite work, design-gap drafting, blocked recovery, recovered retry, and terminal blocked as typed branches.
 - [ ] Convert drain summary publishing to a typed terminal projection or certified adapter.
 - [ ] Preserve max iteration budget of 60 unless a separate design change says otherwise.
 - [ ] Preserve public inputs and outputs of the YAML primary.
+- [ ] Preserve public input defaults for target/baseline paths, artifact roots, provider aliases, and other defaulted YAML inputs.
 
 Verification:
 
@@ -311,6 +395,8 @@ Verification:
 - [ ] Fake-provider blocked path.
 - [ ] Fake-provider prerequisite recovery path.
 - [ ] Fake-provider recovered design-gap retry path.
+- [ ] Fake-provider exhaustion path where selection keeps returning work or `CONTINUE` until the 60-iteration budget is exhausted.
+- [ ] Input-default parity tests: no optional inputs supplied, overridden artifact roots, overridden provider aliases, and identical defaulted public input hashes between YAML baseline and `.orc` candidate.
 - [ ] `git diff --check`
 
 Commit checkpoint:
@@ -387,17 +473,19 @@ Commit checkpoint:
 - `backlog-drain` may not yet be expressive enough for normal/prerequisite/recovery work selection; if so, harden the stdlib/Core form before forcing the YAML shape into `.orc`.
 - Source maps and Semantic IR layout entries must survive generated paths from loops, calls, and recovered-gap branches.
 - Real smoke runs may be expensive; use fake-provider fixtures first and reserve provider runs for promotion evidence.
+- Stage 3 currently rejects nested union payloads at workflow boundaries; keep exported recovery and drain result unions flat until that frontend gap is closed.
+- Required lints currently reject low-level state paths on high-level workflow boundaries; do not expose recovery state internals publicly before the StateLayout/private contract gate passes.
 
 ## First Implementation Slice Recommendation
 
-Start with the inventory and plan phase candidate.
+Start with the foundation readiness gate before translating any workflow phase.
 
 Reasoning:
 
 - The inventory prevents accidental YAML-shaped translation and identifies certified adapters before code churn.
-- The plan phase is the smallest meaningful loop with provider draft, provider review, provider revise, final projection, and exhaustion semantics.
-- It exercises the stdlib review/revise route without the full parent drain recovery matrix.
-- It gives early evidence for whether the target module layout and prompt extern model are workable.
+- The feasibility probe and domain module show the target module layout is workable.
+- The runtime foundation is now a hard prerequisite; provider output binding, private typed value transport, strict parity gates, and StateLayout cannot remain aspirational if the migrated family is expected to become promotion-grade.
+- After the foundation gate passes, the plan phase remains the smallest meaningful loop with provider draft, provider review, provider revise, final projection, and exhaustion semantics.
 
 Do not start by translating the parent drain. The parent depends on selector, gap architect, work item, plan phase, implementation phase, recovery routing, run-state mutation, and checkpoint identity; starting there would hide semantic gaps behind a large control-flow port.
 

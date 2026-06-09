@@ -37,14 +37,16 @@ Baseline evidence checked during inventory:
 - `python -m json.tool state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json`
 - `python -m json.tool artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json`
 - `python -m orchestrator report --run-id 20260609T003338Z-iroxpc`
+- `baseline_evidence.md`
 
 ## Migration Status
 
 | Evidence area | Status | Evidence |
 | --- | --- | --- |
 | Workflow-family inventory | complete for first pass | `inventory.md` |
+| Reproducible baseline characterization | complete for first pass | `baseline_evidence.md` |
 | Command adapter classification | complete for first pass | `inventory.md` |
-| Domain type module | not started | none |
+| Domain type module | complete for first pass | `workflows/library/lisp_frontend_design_delta/types.orc`; `test_design_delta_domain_types_import_from_two_candidate_modules` |
 | `.orc` import/layout feasibility | complete for first pass | `feasibility_probe.md`; `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` |
 | Plan phase `.orc` candidate | not started | none |
 | Implementation phase `.orc` candidate | not started | none |
@@ -90,9 +92,17 @@ None yet.
   `.orc` candidate must not preserve them as semantic authority.
 - `PublishUpdatedExecutionReport` includes copy-recovery behavior that may be
   incompatible with the authority model unless certified as compatibility-only.
+- Stage 3 currently rejects nested union payloads at workflow boundaries, so
+  exported recovery and drain results must stay first-order until that frontend
+  limitation is closed or intentionally accepted.
+- Required lints currently reject low-level state paths on high-level workflow
+  boundaries, so full recovery-state payloads must remain internal/private or
+  certified-adapter surfaces until the StateLayout/private contract gate passes.
+- Exported workflows must return records or unions, so bare enum decisions need
+  record wrappers with decision and evidence fields.
 - Resume parity must exercise stale prerequisite/recovery edges, not just
   ordinary happy-path resume.
 
 ## Next Checkpoint
 
-Proceed to the domain type module for the candidate package layout.
+Run the runtime foundation readiness gate before translating any workflow phase.

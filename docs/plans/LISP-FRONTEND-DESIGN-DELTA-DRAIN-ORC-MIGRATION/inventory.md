@@ -36,6 +36,7 @@ Validated local evidence:
 - `python -m json.tool state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json`
 - `python -m json.tool artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json`
 - `python -m orchestrator report --run-id 20260609T003338Z-iroxpc`
+- `baseline_evidence.md`
 
 ## Workflow Family
 
@@ -163,13 +164,20 @@ compatibility views where parity requires them.
 
 ## Domain Types Needed Before Code Migration
 
-- `DrainStatus`
+- `DrainIterationStatus`
+- `DrainTerminalStatus`
 - `DrainResult`
 - `SelectionStatus`
 - `SelectionResult`
 - `PreSelectionRoute`
 - `BlockedRecoveryDecision`
 - `BlockedRecoveryReason`
+- `DesignRevisionDecision`
+- `DesignRevisionReviewDecision`
+- `DesignRevisionResult`
+- `RecoveryDrainStatus`
+- `RecoveredGapAttempt`
+- `BlockedRecoveryOutcome`
 - `ArchitectureValidationResult`
 - `WorkItemSource`
 - `WorkItemTerminalRoute`
