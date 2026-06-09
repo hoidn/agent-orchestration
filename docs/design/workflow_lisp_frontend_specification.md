@@ -5,14 +5,12 @@ Target substrate: v2.14+ core workflow AST and semantic IR
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
-Lifecycle note: this document remains the parent language contract for Workflow
-Lisp. The initial autonomous drain against this design is complete, but
-follow-on language extensions may be tracked as scoped design deltas. Current
-accepted deltas include
-[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md)
-and the completed
-[Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md).
-The current follow-up target is
+Lifecycle note: this document is the parent language contract for Workflow
+Lisp. Focused companion contracts refine current ProcRef, runtime migration,
+and composition/stdlib behavior:
+[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md),
+[Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md),
+and
 [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md).
 
 Design principles: this specification follows the language-wide principles in
@@ -304,16 +302,16 @@ The following component docs define the missing implementation contracts:
     IR.
 
 15. [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md)
-    Accepted migration-foundation delta for runtime-owned command/provider
+    Runtime-migration contract for runtime-owned command/provider
     structured-output targets, private frontend-lowered typed value transport,
     strict migration-parity gates, prompt extern source semantics, and the
-    first `StateLayout` / `PathAllocator` boundary.
+    `StateLayout` / `PathAllocator` boundary.
 
 16. [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md)
-    Active follow-up target after the runtime foundation, covering generic
-    effectful composition hardening, imported/std `.orc` reuse, stdlib
-    review/revise convergence, entrypoint bootstrap/defaults, canonical
-    `resume-or-start` validation, and staged adapter-lint inventory.
+    Composition and stdlib-migration contract for generic effectful
+    composition hardening, imported/std `.orc` reuse, stdlib review/revise
+    convergence, entrypoint bootstrap/defaults, canonical `resume-or-start`
+    validation, and staged adapter-lint inventory.
 
 ### Implementation Gate
 
@@ -332,20 +330,19 @@ If a high-level frontend form cannot lower into these contracts, it is not
 implementation-ready. It should remain a design sketch or be backed by a
 clearly marked legacy adapter.
 
-Accepted migration deltas since the original baseline:
+Current companion contracts:
 
-- The runtime migration foundation is the accepted lower-level authority
-  boundary for `.orc` promotion work. It completed five foundation tranches:
+- The runtime migration foundation is the lower-level authority boundary for
+  `.orc` promotion work. It covers:
   command structured-output conformance, frontend-lowered typed value
   transport, provider structured-output target binding, strict migration
-  promotion gates, and `StateLayout` / `PathAllocator` ownership. It also
-  records prompt extern source semantics and the `resume-or-start` proof
-  alignment discovered during foundation verification.
-- The post-foundation composition/stdlib migration design is the current
-  follow-up target. It starts from the completed foundation and should treat
-  existing stdlib review/revise, ProcRef specialization, loop exhaustion,
-  structural constraints, and imported generic-loop evidence as inventory to
-  verify and harden, not as work to rebuild from zero.
+  promotion gates, and `StateLayout` / `PathAllocator` ownership. Prompt
+  extern source semantics and canonical `resume-or-start` proof alignment are
+  part of that boundary when compatibility or promotion proof traverses those
+  paths.
+- The composition/stdlib migration contract starts from the existing stdlib
+  review/revise route, ProcRef specialization, loop exhaustion, structural
+  constraints, and imported generic-loop evidence.
 
 Current review/revise stdlib status:
 
@@ -3886,10 +3883,10 @@ capability. A `.orc` candidate must have machine-computed non-regressive parity
 evidence before replacing a YAML primary, even if the candidate compiles,
 validates, and dry-runs.
 
-## 105.1 Runtime Migration Foundation Delta
+## 105.1 Runtime Migration Foundation Contract
 
-Before promotion-grade post-foundation work, the runtime migration foundation
-must be complete:
+Promotion-grade Workflow Lisp composition relies on these runtime-foundation
+contracts:
 
 - command structured-output conformance;
 - frontend-lowered typed value transport;
@@ -3900,12 +3897,12 @@ must be complete:
 - canonical `resume-or-start` proof alignment for compatibility paths that
   traverse reusable-state recovery.
 
-The foundation is a prerequisite for using generic provider-heavy `.orc`
-workflows as promotion evidence.
+Generic provider-heavy `.orc` workflows are valid promotion evidence only when
+these contracts are satisfied by the exercised runtime path.
 
 ## 105.2 Post-Foundation Composition And Stdlib Migration
 
-The current follow-up target proceeds as:
+Composition and stdlib migration requires:
 
 1. inventory the implemented composition and stdlib route;
 2. harden generic effectful composition;
@@ -3917,9 +3914,6 @@ The current follow-up target proceeds as:
 7. inventory adapter lint debt before strict enforcement;
 8. use `--require-non-regressive` for evidence and `--require-promotable` for
    any primary-surface decision.
-
-This tranche should verify and generalize implemented pieces rather than
-rebuild them from zero.
 
 ## Part XIX. Open Design Decisions
 
