@@ -49,7 +49,7 @@ Baseline evidence checked during inventory:
 | Command adapter classification | complete for first pass | `inventory.md` |
 | Domain type module | complete for first pass | `workflows/library/lisp_frontend_design_delta/types.orc`; `test_design_delta_domain_types_import_from_two_candidate_modules` |
 | `.orc` import/layout feasibility | complete for first pass | `feasibility_probe.md`; `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` |
-| Plan phase `.orc` candidate | not started | none |
+| Plan phase `.orc` candidate | compile candidate complete for first pass; runtime/parity paths open | `workflows/library/lisp_frontend_design_delta/plan_phase.orc`; `test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop` |
 | Implementation phase `.orc` candidate | not started | none |
 | Selector `.orc` candidate | not started | none |
 | Design-gap architect `.orc` candidate | not started | none |
@@ -85,6 +85,10 @@ None yet.
 
 - Parent drain recovery is not equivalent to the simple design-doc review/revise
   `.orc` workflow; it needs typed recovery routing and resource-state mutation.
+- The first plan-phase `.orc` candidate avoids raw public `state/` path inputs
+  by modeling work-item context and ledger context as artifact inputs. The
+  parent/private context layer must bridge the YAML `state/` compatibility
+  inputs before parity evidence can claim public-boundary equivalence.
 - Provider `variant_output.path` target binding must be reliable before
   provider-heavy implementation attempts are promotion evidence.
 - Several scripts mutate run state and cannot be converted to pure helpers

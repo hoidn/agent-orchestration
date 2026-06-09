@@ -334,3 +334,57 @@ def test_design_delta_domain_types_reject_invalid_drain_result_variant(tmp_path:
         diagnostic.code == "union_variant_unknown" or "FINISHED" in diagnostic.message
         for diagnostic in excinfo.value.diagnostics
     )
+
+
+def test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop(tmp_path: Path) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "plan_phase.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={
+            "providers.plan.draft": "codex",
+            "providers.plan.review": "codex",
+            "providers.plan.fix": "codex",
+        },
+        prompt_externs={
+            "prompts.plan.draft": (
+                "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md"
+            ),
+            "prompts.plan.review": (
+                "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
+            ),
+            "prompts.plan.fix": (
+                "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md"
+            ),
+        },
+        command_boundaries={
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "lisp_frontend_design_delta/types" in result.compiled_results_by_name
+    assert result.entry_result.validated_bundles
+    lowered = result.entry_result.lowered_workflows[0].authored_mapping
+    assert lowered["version"] == "2.14"
+
+    def _walk_steps(steps):
+        for step in steps:
+            yield step
+            if "repeat_until" in step:
+                yield from _walk_steps(step["repeat_until"].get("steps", []))
+            if "match" in step:
+                for case in step["match"].get("cases", {}).values():
+                    yield from _walk_steps(case.get("steps", []))
+
+    all_steps = list(_walk_steps(lowered["steps"]))
+    assert any(step.get("provider") == "codex" for step in all_steps)
+    assert any("repeat_until" in step for step in all_steps)
+    assert "return__variant" in lowered["outputs"]

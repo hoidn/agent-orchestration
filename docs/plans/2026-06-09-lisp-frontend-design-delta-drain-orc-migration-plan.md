@@ -254,26 +254,27 @@ Commit checkpoint:
 
 ### 4. Plan Phase Candidate
 
-- [ ] Translate `lisp_frontend_design_delta_plan_phase.v214.yaml` into `plan_phase.orc`.
+- [x] Translate `lisp_frontend_design_delta_plan_phase.v214.yaml` into `plan_phase.orc`.
 - [ ] Preserve inputs and outputs: plan path, plan review report path, final plan review decision.
-- [ ] Replace the manual `repeat_until` review loop with stdlib `review-revise-loop` or an equivalent typed procedure built from the same semantics.
-- [ ] Preserve `APPROVE` and `REVISE`; exhaustion must remain explicit and must not masquerade as approval.
-- [ ] Convert draft/review/revise provider calls to `provider-result` with typed return records or unions.
-- [ ] Replace final inline Python pointer validation with a typed terminal projection or a certified adapter if the runtime still requires a compatibility pointer.
-- [ ] Preserve prompt assets and prompt consume semantics without moving routing decisions into prompt prose.
+- [x] Replace the manual `repeat_until` review loop with stdlib `review-revise-loop` or an equivalent typed procedure built from the same semantics.
+- [x] Preserve `APPROVE` and `REVISE`; exhaustion must remain explicit and must not masquerade as approval.
+- [x] Convert draft/review/revise provider calls to `provider-result` with typed return records or unions.
+- [x] Replace final inline Python pointer validation with a typed terminal projection or a certified adapter if the runtime still requires a compatibility pointer.
+- [x] Preserve prompt assets and prompt consume semantics without moving routing decisions into prompt prose.
+- [x] Record the current public-boundary delta: the first `.orc` candidate avoids raw public `state/` path inputs and requires a parent/private context bridge before parity can claim boundary equivalence.
 
 Verification:
 
-- [ ] Compile/typecheck `plan_phase.orc`.
+- [x] Compile/typecheck `plan_phase.orc`.
 - [ ] Fake-provider approval path test.
 - [ ] Fake-provider revise-then-approve test.
 - [ ] Exhaustion test returning non-approval terminal state.
 - [ ] Source-map check for generated review loop steps.
-- [ ] `git diff --check`
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit plan phase candidate and focused tests.
+- [x] Commit plan phase candidate and focused tests.
 
 ### 5. Implementation Phase Candidate
 
