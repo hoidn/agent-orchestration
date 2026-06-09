@@ -1,0 +1,104 @@
+# Post-Foundation Composition Design Extension Plan
+
+Status: plan
+Created: 2026-06-09
+Scope: extend `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+so it addresses the unresolved findings in
+`docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
+in a principled way.
+
+## Inputs
+
+- `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
+  (findings F1-F11, priority work items P0/P1, design-docs-to-update list).
+- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+  (current target; tranches 1-6 plus deferred work).
+- `docs/design/workflow_lisp_runtime_migration_foundation.md`
+  (format/quality reference: authority direction, status snapshot, tranche
+  contract/tasks/acceptance, evidence boundaries, prohibited evidence,
+  declarative acceptance scenarios, success criteria).
+
+## Findings-to-design mapping
+
+| Finding | Disposition in the updated design |
+| --- | --- |
+| F1 (fixed) | Architecture invariant: structural/capability recognition across module boundaries; no short-name-local stdlib checks. |
+| F2 | New top-priority tranche: nested structured-control composition with the implementation-phase acceptance fixture. |
+| F3 | New tranche: typed result translation; output variant derives from returned variant expression. |
+| F4 | Same tranche: variant-scoped field identity, with documented-restriction fallback. |
+| F5 | Expand entrypoint bootstrap tranche into a private executable context bridge (incl. YAML interop bridge). |
+| F6 | Expand adapter tranche: helper classification, certified adapters, run-state/resource transitions as typed effects. |
+| F7 | New tranche: typed projection for selection/bundle publication with preference order. |
+| F8 | Strengthen imported/std reuse + review-loop tranches: stdlib loops valid in branch scopes, reusable calls, parent modules. |
+| F9 | New tranche: parent-callable workflow family and `backlog-drain` typed abstraction. |
+| F10 | Adapter tranche: importable certified-adapter declaration surface with typed fields, not raw argv. |
+| F11 | Parity criteria: leaf-versus-parent-callable evidence labels; `--require-promotable` fails on leaf-only evidence. |
+
+## Edits
+
+1. Rewrite `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+   in place: updated metadata/scope, driving evidence, revised executive
+   decision and work order, updated inventory table, expanded authority and
+   invariants, restructured tranches with contract/tasks/acceptance, evidence
+   boundaries (required + prohibited), declarative acceptance scenarios,
+   verification strategy, success criteria.
+2. Refresh the one-line descriptions of the doc in `docs/design/README.md`
+   and `docs/index.md` so discoverability matches the expanded scope.
+
+## Ownership guardrails
+
+- Do not reopen foundation tranches; the foundation doc owns command/provider
+  structured-output authority, private value transport, strict gate schema,
+  and the first StateLayout/PathAllocator boundary.
+- StateLayout identity rules stay with `workflow_lisp_state_layout.md`;
+  this design states the composition-facing requirements and routes identity
+  ownership there.
+- Adapter certification policy details stay with
+  `workflow_command_adapter_contract.md`; this design owns sequencing and the
+  `.orc` calling surface requirements.
+
+## Verification
+
+- `git diff --check` clean.
+- Cross-references resolve to existing files.
+
+## Revision (2026-06-09, second pass)
+
+The doc was rewritten as a synthesis of two drafts. Base: the
+alternate draft with Design Details, Contracts And Interfaces,
+Dependencies And Sequencing, Work Blocked, per-tranche normative spec
+deltas, readiness-label vocabulary, context families, and the
+resource-transition model. Merged from the first draft:
+
+- Related-docs and §4.1 evidence links to the parent-drain blocker
+  record and the feasibility test module;
+- tranche labels (Tranche 0-8) aligned between the executive decision
+  and section headers, with P0/P1 markers from the findings report;
+- explicit Deferred Work section (runtime closures, broad legacy lint,
+  `orchestrate explain`);
+- private-runtime-context inventory row corrected from "Partial" to
+  "Gap";
+- composition-regularity, F1 structural-recognition, and
+  leaf-evidence-insufficiency invariants;
+- F4 documented-restriction fallback (drafting-guide entry plus
+  compile-time diagnostic) in Tranche 2;
+- F7 third route (private context bridge) and bridge replacement-route
+  recording in Tranche 5;
+- foundation non-reopening paragraph in the prerequisite boundary; and
+- snapshot rows for nested structured control, union translation, and
+  variant field identity.
+
+## Revision (2026-06-09, third pass)
+
+Cross-review of the two drafts surfaced one remaining substantive
+delta: the F4 documented-restriction fallback was demoted from an
+acceptance/success alternative to a required interim mitigation.
+Variant-scoped lowered identity is now the only outcome that satisfies
+Tranche 2 acceptance, required evidence, and the success criteria; the
+drafting-guide restriction plus compile-time diagnostic remains
+mandatory while the gap is open but lives in Compatibility And
+Migration and is listed under prohibited evidence as a completion
+claim. The cross-review's other four recommendations (Tranche 1 owning
+generic effectful normalization, Contracts And Interfaces section,
+resource-transition contract, resume-or-start schema/taxonomy) were
+already incorporated in the second-pass synthesis.

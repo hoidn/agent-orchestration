@@ -1,17 +1,15 @@
 # Workflow Lisp Post-Foundation Composition And Stdlib Migration
 
 Status: draft design
-Kind: follow-on architecture / migration target design
+Kind: architecture decision / migration target design
 Created: 2026-06-08
 Updated: 2026-06-09
-Scope: work that should begin after the runtime migration foundation is
-accepted: nested structured-control composition, typed result translation,
-generic effectful composition, imported/std `.orc` reuse,
-`review-revise-loop` stdlib convergence, private executable context bridging,
-certified adapter call surfaces and run-state/resource-transition ownership,
-typed projections for deterministic bundle publication, entrypoint
-bootstrap/defaults, canonical `resume-or-start` validation, and parent-callable
-workflow-family parity.
+Scope: post-foundation Workflow Lisp composition: nested structured control,
+typed result translation, imported/std `.orc` reuse, `review-revise-loop`
+first-class composition, private executable context, typed projection,
+certified adapter/resource-transition ownership, entrypoint
+bootstrap/defaults, canonical `resume-or-start` validation, parent-callable
+workflow-family migration, and promotion evidence.
 
 Authority:
 
@@ -19,8 +17,13 @@ Authority:
   prerequisite for this document.
 - Normative DSL/runtime behavior remains in `specs/`.
 - `docs/design/workflow_lisp_frontend_specification.md` remains the umbrella
-  frontend contract.
-- This document does not by itself promote any `.orc` workflow to primary.
+  Workflow Lisp frontend contract.
+- `docs/design/workflow_lisp_state_layout.md` owns state/path layout
+  principles and context-derived path namespaces.
+- `docs/design/workflow_command_adapter_contract.md` owns adapter
+  certification, legacy glue classification, and lint policy.
+- This document does not by itself promote any `.orc` workflow to primary
+  surface.
 - A behavior described here is implementation-complete only when the listed
   verification evidence passes.
 
@@ -38,19 +41,19 @@ Related docs:
 - `docs/design/workflow_lisp_structural_parametric_constraints.md`
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/design/workflow_command_adapter_contract.md`
-- `docs/lisp_workflow_drafting_guide.md`
 - `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
 - `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
+- `docs/lisp_workflow_drafting_guide.md`
 - `specs/dsl.md`
 - `specs/io.md`
+- `specs/providers.md`
 - `specs/state.md`
 
 ## 1. Purpose
 
 This document defines the next Workflow Lisp target after the runtime migration
-foundation is complete.
-
-The foundation target hardens five lower-level authority seams:
+foundation is complete. The foundation target hardens five lower-level
+authority seams:
 
 1. command structured-output conformance;
 2. frontend-lowered typed value transport;
@@ -58,70 +61,84 @@ The foundation target hardens five lower-level authority seams:
 4. machine-readable migration promotion gates; and
 5. centralized generated state/path allocation.
 
-This document starts after those seams are reliable. Its job is to make higher
-level `.orc` composition and stdlib reuse implementation-ready without
-recreating compiler-special forms, hidden command glue, or YAML-shaped
-frontends.
+This document starts after those seams are reliable. Its job is to make
+higher-level `.orc` composition and stdlib reuse implementation-ready without
+recreating compiler-special forms, hidden command glue, YAML-shaped public
+boundaries, or parent workflows that merely wrap legacy state files.
 
-The 2026-06-09 design-delta drain migration
-(`docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`)
-tested this target against a real workflow family and demonstrated that the
-remaining blockers are composition blockers, not syntax blockers. Typed leaf
-workflows compile; the family does not compose. The drain produced eleven
-findings (F1-F11). One was fixed in place (F1); the remaining ten map onto
-this document's tranches and are treated here as driving evidence, not as
-optional follow-ups.
+The immediate diagnostic input is the Design Delta Drain `.orc` migration
+findings report
+(`docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`).
+That report shows that the migration is not blocked by Lisp syntax. It is
+blocked by first-class workflow composition:
 
-The target is practical: one real workflow family should reach
-machine-computed `non_regressive=true` and, when eligible for primary
-replacement, strict `--require-promotable` success through `.orc`, with visible
-effects, source maps, deterministic generated state/path allocation, no
-compiler-special review-loop branch, and no parent `.orc` wrapper that hides
-workflow semantics inside command glue or YAML state files.
+- nested structured control must survive lowering and shared validation;
+- stdlib workflows such as `review-revise-loop` must compose inside branches
+  and reusable calls;
+- union result translation must not force outer domain types to mirror inner
+  control-state names;
+- high-level `.orc` boundaries need private runtime context instead of public
+  generated `state/` path inputs;
+- deterministic publication and selector bundle helpers need typed projection
+  or certified adapter contracts;
+- run-state and recovery updates need declared resource-transition authority;
+  and
+- migration evidence must distinguish leaf compile success from
+  parent-callable family parity.
+
+YAML remains authoritative for a workflow family until strict migration parity
+computes non-regressive evidence for the complete family and promotion
+eligibility is proven by the gate.
 
 ## 2. Executive Decision
 
 After `workflow_lisp_runtime_migration_foundation.md` is accepted and its
-verification evidence passes, implement the next tranche as an
-inventory-driven hardening and promotion pass rather than a from-zero rebuild.
+verification evidence passes, implement the next tranche as an issue-driven
+composition and parent-callability hardening pass. Do not start by writing a
+parent `.orc` wrapper around the existing YAML state choreography. First
+complete the language/runtime surfaces that make the leaf candidates
+parent-callable.
 
-The work order is:
+Implement the work in these ordered tranches:
 
-1. Current implementation inventory and stale-claim repair, seeded with the
-   2026-06-09 design-delta findings.
-2. Nested structured-control composition (P0). Structured `match`,
-   structured `repeat_until`, and stdlib `review-revise-loop` must compose
-   inside branch scopes and procedure calls while still passing shared
-   validation.
-3. Typed result translation hardening (P1): union-to-union variant
-   normalization and variant-scoped output field identity.
-4. Imported/std `.orc` expansion and reuse hardening, including stdlib forms
-   used inside branch scopes and reusable calls.
-5. `review-revise-loop` promoted-route convergence and parity proof, including
-   nested-composition fixtures.
-6. Private executable context bridge (P0), subsuming entrypoint context
-   bootstrap and input defaults.
-7. Certified adapter call surface, retained-helper classification, and
-   run-state/resource-transition ownership (P0 for family parity).
-8. Typed projection for selection/bundle publication (P1).
-9. Canonical `resume-or-start` reusable-state validation.
-10. Parent-callable workflow-family composition: work-item and
-    `backlog-drain` abstractions, plus leaf-versus-parent-callable parity
-    evidence labeling.
-11. Focused adapter lint inventory and staged enforcement.
-12. Optional `orchestrate explain` only after source maps, Semantic IR layout,
-    effects, and path allocation are stable enough to explain.
+- Tranche 0: current-state inventory, issue map, and readiness labels.
+- Tranche 1 (P0): nested structured-control composition and generic effectful
+  normalization.
+- Tranche 2 (P1): union-result normalization and variant-scoped output
+  identity.
+- Tranche 3 (P0): private executable context bridge, entrypoint bootstrap,
+  defaults, and hidden reusable-call binding.
+- Tranche 4: imported/std `.orc` reuse and `review-revise-loop` first-class
+  composition.
+- Tranche 5 (P1): typed projection and selector/bundle materialization.
+- Tranche 6 (P0 for family parity): certified adapter declarations and
+  resource-transition ownership.
+- Tranche 7: work-item and parent backlog-drain composition over typed
+  resources.
+- Tranche 8: canonical resume/reuse validation and strict parent-callable
+  parity evidence.
 
-The P0/P1 labels mirror the priority work items in the 2026-06-09 findings
-report. The three P0 items — nested structured control, the private executable
-context bridge, and run-state/resource-transition ownership — gate
-parent-callable migration for the drain family. Until they land, migrations of
-that family must continue as typed leaf candidates plus explicit bridge
-records, with YAML remaining primary.
+The P0/P1 labels mirror the priority work items in the findings report. The
+three P0 blockers — nested structured control, the private executable context
+bridge, and run-state/resource-transition ownership — gate parent-callable
+migration for the drain family. Until they land, migrations of that family
+must continue as typed leaf candidates plus explicit bridge records, with YAML
+remaining primary.
 
-This document deliberately does not prioritize runtime closures, broad legacy
-YAML lint hard errors, or explain tooling before the composition and migration
-surfaces are stable.
+The target success condition is not "more leaves compile." The target success
+condition is that at least one real workflow family reaches parent-callable
+`.orc` evidence with:
+
+- compile/typecheck/lowering success;
+- shared validation success;
+- visible provider, command, workflow, resource, state, artifact, and
+  projection effects;
+- source-map and Semantic IR provenance for generated statements, contexts,
+  paths, variants, and adapter/resource effects;
+- deterministic `StateLayout` / `PathAllocator` ownership;
+- no promoted compiler branch keyed to a stdlib workflow name; and
+- strict migration parity with computed `non_regressive=true` and
+  `--require-promotable` before YAML-primary replacement.
 
 ## 3. Prerequisite Boundary
 
@@ -133,22 +150,22 @@ its success criteria:
 - frontend-lowered private scalar, collection, record-like, and nested relpath
   values validate, materialize as views, publish, consume, and render through
   shared runtime contracts;
-- provider structured-output target binding exists for `output_bundle.path` and
-  `variant_output.path`, wrong-path bundle writes fail closed, and
+- provider structured-output target binding exists for `output_bundle.path`
+  and `variant_output.path`, wrong-path bundle writes fail closed, and
   provider-session/managed-job wrappers preserve the binding;
 - prompt extern source semantics distinguish `asset_file` from `input_file`
   and preserve string shorthand as source-relative assets;
 - `migration-parity` has strict gate behavior and schema/version validation;
 - `StateLayout` / `PathAllocator` owns the blocking generated path families;
-- generated path provenance is present in source maps and Semantic IR; and
+- generated path provenance is present in source maps and Semantic IR;
 - compiler-owned `__write_root__...` inputs are not exposed at public workflow
-  entrypoints;
+  entrypoints; and
 - compatibility proof paths that traverse `resume-or-start` have certified
   validator/writer bindings available through the normal compiler-owned
   command-boundary route.
 
-If any of those remain incomplete, this document may be used for planning but
-must not be used to justify more `.orc` primary-promotion work.
+If any of those remain incomplete, this document may be used for planning, but
+it must not be used to justify additional `.orc` primary-promotion work.
 
 The design-delta findings do not reopen the foundation. The private executable
 context bridge in this document builds on the foundation's private value
@@ -156,7 +173,14 @@ transport and `StateLayout` / `PathAllocator` boundary; it does not redefine
 them. Any identity or path-shape changes the bridge needs are routed through
 `workflow_lisp_state_layout.md`, not redesigned here.
 
-## 4. Driving Evidence
+## 4. Current Evidence And Issue Map
+
+The post-foundation target must start from durable current state, not from
+older roadmap phrasing. Before selecting work, the next drain must verify
+source, fixtures, tests, parity artifacts, run state, and design-index status
+entries. If a row is stale, repair the inventory before implementation.
+
+### 4.1 Durable evidence
 
 The 2026-06-09 design-delta drain migration executed the foundation gate,
 domain module, feasibility probes, plan phase, implementation phase, selector,
@@ -172,64 +196,51 @@ assessment against this target. Durable evidence:
 - feasibility test module
   `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`.
 
-Finding-to-tranche mapping:
-
-| Finding | Severity | Status | Owning tranche in this document |
-| --- | --- | --- | --- |
-| F1 imported `PhaseCtx` recognition was name-local | High | fixed | Architecture invariant (Section 9); no tranche work beyond regression coverage |
-| F2 nested structured control rejected after lowering | High | unresolved | Tranche 1 (Section 10) |
-| F3 union-to-union mapping assumes source case name | High | unresolved | Tranche 2 (Section 11) |
-| F4 variant output field names globally unique | Medium | unresolved, mitigated | Tranche 2 (Section 11) |
-| F5 public boundaries need private runtime context | High | unresolved | Tranche 5 (Section 14) |
-| F6 stateful scripts need certified adapters / native effects | High | unresolved | Tranche 6 (Section 15) |
-| F7 selector/bundle publication needs typed projection | Medium | unresolved | Tranche 7 (Section 16) |
-| F8 `review-revise-loop` not first-class in branches | High | unresolved | Tranches 3-4 (Sections 12-13) |
-| F9 work-item/parent-drain composition model missing | High | unresolved | Tranche 9 (Section 18) |
-| F10 adapter calling ergonomics too low-level | Medium | unresolved | Tranche 6 (Section 15) |
-| F11 leaf compile success mistakable for parity | Medium | unresolved | Tranche 9 (Section 18) and parity evidence rules (Section 20) |
-
-F1's durable lesson is recorded as an invariant: stdlib and phase forms must
-recognize capability/shape contracts across module boundaries through
-structural validation plus source provenance, never through short authored-name
-matching.
-
-## 5. Current Implementation Inventory
-
-This document must start from durable current state, not from older roadmap
-phrasing. The next drain should first verify this inventory against source,
-fixtures, tests, parity artifacts, and run state. If a row is stale, repair the
-inventory before selecting implementation work.
+### 4.2 Current status snapshot
 
 | Surface | Current state | Remaining post-foundation work |
 | --- | --- | --- |
-| Runtime foundation | Implemented foundation in the completed runtime-foundation drain | Treat as prerequisite evidence; reopen only if a listed success criterion regresses. |
-| Generic effectful composition | Partial/implemented across existing lowering and stdlib fixtures; design-delta drain proved top-level shapes work | Inventory supported shapes, harden missing branch/proof/effect cases, and add negative diagnostics. |
-| Nested structured control | Gap; structured `match` / `repeat_until` accepted only top-level, branch-local generated refs invisible to shared validation (F2) | Design and implement the nested lowering/validation route; acceptance fixture in Section 10. |
-| Union-to-union result translation | Bug/gap; lowering normalizes by enclosing matched case name and raises `KeyError` for legitimate cross-union mappings (F3) | Derive output variant from the returned variant expression; tests in Section 11. |
-| Variant output field identity | Gap, mitigated by verbose variant-specific field naming (F4) | Variant-scoped artifact/json-pointer identity, or an explicit documented restriction. |
-| Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route; imported-name canonicalization bug fixed (F1) | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage. |
-| `review-revise-loop` stdlib route | Implemented first route through `stdlib_modules/std/phase.orc`; works for leaf/top-level patterns; does not compose inside typed branches (F8) | Do not rebuild from zero; prove promoted route has no name-special compiler branch, then make the loop valid wherever typed effectful procedures are valid. |
-| ProcRef specialization and structural constraints | Implemented/partial substrate from prior drains | Verify no runtime ProcRef/provider/prompt/type leakage through imported stdlib routes. |
-| Private executable context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Specify and implement the private executable context bridge in Section 14. |
-| Entrypoint bootstrap/defaults | Partial; still blocks YAML-equivalent wrapper parity in some families | Subsumed into the private context bridge; specify hidden RunCtx/PhaseCtx/default binding contract and public/private boundary inspection. |
-| Certified adapter call surface | Gap; `.orc` authors hand-assemble argv for helper scripts (F10) | Importable certified-adapter declarations with typed fields; Section 15. |
-| Run-state / resource transitions | Gap; YAML family helpers mutate run state, decide routing, and reconcile recovery outside any certified boundary (F6) | Classify retained helpers; move state transitions toward typed runtime effects or certified adapters; Section 15. |
-| Selection/bundle publication | Gap; deterministic publication scripts stand between provider decisions and downstream callers (F7) | Native typed projection preferred; certification as bridge; Section 16. |
-| Work-item / parent-drain composition | Gap; leaf candidates compile, parent drain intentionally blocked (F9) | `backlog-drain`-shaped typed abstraction after the P0 tranches; Section 18. |
-| `resume-or-start` validation | Existing reusable-state validation plus certified writer-binding alignment | Canonicalize failure taxonomy and promoted-wrapper proof paths; avoid treating pointer files or reports as state authority. |
-| Migration parity gates | Strict gate hardening implemented in foundation; leaf-versus-family distinction relies on prose labels in migration records (F11) | Machine-checkable parent-callable parity criteria; `--require-promotable` must fail on leaf-only evidence; Sections 18 and 20. |
-| Adapter lint inventory | Not the main foundation target | Inventory and staged enforcement only; avoid broad legacy hard errors before migration evidence. |
+| Runtime foundation | Implemented in the completed runtime-foundation drain, subject to the prerequisite evidence above | Treat as prerequisite evidence; reopen only if a listed success criterion regresses |
+| Design Delta Drain leaf candidates | Leaf candidates compile for plan, implementation pieces, selector, design-gap architect, and work-item pieces | Do not mistake leaf compile evidence for parent-callable parity |
+| Parent drain | Intentionally blocked before implementation; blocker record in force | Unblock only after nested composition, private context, typed projection, resource transitions, and parent-callable evidence exist |
+| Imported `PhaseCtx` recognition | Fixed frontend bug (F1) from name-local to structural/provenance-aware recognition | Preserve as invariant for future stdlib/context forms; keep regression coverage |
+| Generic effectful composition | Partial/implemented across existing lowering and stdlib fixtures; design-delta drain proved top-level shapes work | Harden nested `match`, nested `repeat_until`, stdlib calls in branches, branch-local refs, proof scopes, and shared validation |
+| Nested structured control | Gap; structured `match` / `repeat_until` accepted only top-level, branch-local generated refs invisible to shared validation (F2) | Tranche 1: nested structured-control composition and branch-scope shared validation |
+| Union-to-union result translation | Bug/gap; lowering normalizes by enclosing matched case name and raises `KeyError` for legitimate cross-union mappings (F3) | Tranche 2: returned-variant-based normalization |
+| Variant output field identity | Gap, mitigated by verbose variant-specific field naming (F4) | Tranche 2: variant-scoped identity, or an explicit documented restriction |
+| Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage |
+| `review-revise-loop` stdlib route | First route exists through `stdlib_modules/std/phase.orc` with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions; works for leaf/top-level patterns only (F8) | Prove it composes under nested branches and promoted routes without name-special compiler behavior |
+| Private runtime context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Tranche 3: private executable context bridge and hidden reusable-call binding |
+| Selector/bundle publication | Selector leaf can model provider decision; publication remains an unclassified script (F7) | Tranche 5: typed projection or certified adapter authority for selection bundle publication |
+| Adapter/resource-transition authority | Adapter contract exists; family scripts still encode workflow semantics (F6, F10) | Tranche 6: classify helpers, certify retained adapters, move recurring state/resource transitions to typed runtime effects where justified |
+| Migration parity gates | Strict gate hardening implemented in foundation; leaf-versus-family distinction relies on prose labels in migration records (F11) | Tranche 8: parent-callable readiness labels; leaf-only evidence insufficient for promotability |
 
-## 6. Authority And Dependency Direction
+### 4.3 Findings map
 
-### 6.1 This Document Consumes
+| Finding | Type | Target response | Promotion consequence |
+| --- | --- | --- | --- |
+| F1 imported `PhaseCtx` recognition | Fixed frontend bug | Preserve structural/capability recognition across module boundaries | Regression blocks stdlib/context promotion |
+| F2 nested structured control | P0 frontend/runtime design gap | Tranche 1: nested structured-control composition and branch-scope shared validation | Parent implementation phase remains split until fixed |
+| F3 union-to-union result mapping | P1 lowering bug/design gap | Tranche 2: returned variant controls target union normalization | Domain result types must not be shaped by inner control names |
+| F4 variant output field uniqueness | P1 ergonomics/shared-validation issue | Tranche 2: variant-scoped output field identity; documented restriction is interim mitigation only | Variant-specific field-name workarounds remain compatibility only |
+| F5 private context and StateLayout | P0 frontend/runtime design gap | Tranche 3: private executable context bridge and entrypoint bootstrap | Public state roots or fake `PhaseCtx` inputs are not parity evidence |
+| F6 certified adapters and resources | P0 runtime/adapter authority gap | Tranche 6: certified adapter/resource-transition ownership | Hidden state mutation blocks family promotion |
+| F7 selector/bundle publication | P1 projection/materialization gap | Tranche 5: typed projection and materialized bundle views | Selector leaves remain non-parity candidates until publication is authoritative |
+| F8 review loop first-class composition | P0 stdlib composition gap | Tranches 1 and 4: stdlib review loops compose wherever effectful procedures are valid | Review-loop leaves are insufficient if nested branches fail |
+| F9 work-item and parent drain | P0 workflow-family design gap | Tranche 7: typed work-item/backlog-drain model | Parent `.orc` wrapper must not hide YAML-shaped state choreography |
+| F10 command adapter ergonomics | P1 authoring ergonomics issue | Tranche 6: typed adapter declaration/call surface | Raw argv plumbing is allowed only as low-level compatibility |
+| F11 migration readiness evidence | P1 migration evidence gap | Tranche 8: parent-callable readiness and strict parity labels | `--require-promotable` fails on leaf-only evidence |
+
+## 5. Authority And Dependency Direction
+
+### 5.1 This document consumes
 
 - `workflow_lisp_runtime_migration_foundation.md` owns command output
-  authority, private typed value transport, strict promotion gates, and the
-  first generated path allocation boundary.
+  authority, private value transport, provider structured-output binding,
+  strict promotion gates, and the first generated path allocation boundary.
 - `workflow_lisp_frontend_specification.md` owns the baseline Workflow Lisp
-  compiler pipeline and authority rule: `.orc` lowers into the existing
-  validated workflow model.
+  compiler pipeline and the authority rule that `.orc` lowers into the
+  existing validated workflow model.
 - `workflow_lisp_unified_frontend_design.md` owns future/deferred frontend
   surfaces, including the rule that future features must lower into the
   existing validated model or a separately accepted future runtime contract.
@@ -237,175 +248,230 @@ inventory before selecting implementation work.
   forms should be ordinary `.orc` stdlib code unless accepted as primitives.
 - `workflow_lisp_review_revise_stdlib_parametric_integration.md` owns the
   review/revise migration rationale, shape, and historical route.
-- `workflow_lisp_state_layout.md` owns generated path identity, run/phase/
-  call/loop path ownership, and layout invariants; the private context bridge
-  here consumes that contract.
+- `workflow_lisp_state_layout.md` owns context-derived path layout principles
+  and the run-isolation invariant for generated private paths.
 - `workflow_lisp_runtime_closures_boundary.md` owns the decision to keep
   runtime closures deferred.
-- `workflow_command_adapter_contract.md` owns adapter certification policy,
-  classification vocabulary, and lint policy; this document sequences which
-  helpers must be classified and certified for family parity.
+- `workflow_command_adapter_contract.md` owns adapter certification, behavior
+  classification, and lint policy.
 - `workflow_lisp_key_migration_parity_architecture.md` owns promotion evidence
   and family-level parity policy.
-- `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
-  supplies the concrete composition-gap evidence this revision responds to.
+- The Design Delta Drain findings report and parent-drain blocker record
+  supply the current blocker evidence for nested composition, private context,
+  typed projection, resource transitions, and parent-callability.
 
-### 6.2 This Document Owns
+### 5.2 This document owns
 
 - the post-foundation implementation sequence for Workflow Lisp composition;
-- the current-state inventory required before new implementation;
+- the issue map and current-state inventory required before new
+  implementation;
 - the acceptance boundary for nested structured-control composition;
-- the acceptance boundary for typed result translation: union-to-union variant
-  normalization and variant-scoped field identity;
-- the acceptance boundary for generic effectful composition;
-- the acceptance boundary for ordinary imported/std `.orc` reuse, including
-  stdlib forms in branch scopes;
-- the post-foundation target for `review-revise-loop` convergence;
-- the composition-facing contract for the private executable context bridge,
-  including the YAML interop bridge for legacy `state/` values;
-- the sequencing requirement that retained workflow-family helpers be
-  classified, and that run-state/resource transitions move to typed runtime
-  effects or certified adapters before parent-callable parity is claimed;
-- the `.orc` certified-adapter call-surface requirement;
-- the typed-projection preference order for deterministic bundle publication;
-- the entrypoint bootstrap/defaults gap that prevents YAML parity for wrapper
-  workflows;
-- the canonical `resume-or-start` validation gap;
-- the parent-callable workflow-family composition target, including the
-  `backlog-drain` abstraction boundary and leaf-versus-parent-callable parity
-  evidence labels; and
-- which later work remains optional or deferred.
+- the acceptance boundary for union result normalization and variant-scoped
+  output identity;
+- the private executable context bridge and hidden reusable-call binding
+  target;
+- the acceptance boundary for ordinary imported/std `.orc` reuse under nested
+  composition;
+- the post-foundation target for `review-revise-loop` convergence as a
+  first-class reusable workflow abstraction;
+- the typed projection target for selector and bundle publication;
+- the certified adapter declaration and resource-transition target for
+  migration families;
+- the work-item/backlog-drain composition target for parent-callable workflow
+  families;
+- canonical `resume-or-start` validation as used by parent-callable parity;
+  and
+- the readiness labels that distinguish leaf compile evidence from promotable
+  family parity.
 
-### 6.3 This Document Does Not Own
+### 5.3 This document does not own
 
 - command structured-output runtime rules;
+- provider structured-output runtime target binding;
 - private typed value transport runtime rules;
-- migration report schema and strict gate CLI behavior;
-- the first `StateLayout` / `PathAllocator` implementation boundary, or
-  generated path identity rules;
+- the first `StateLayout` / `PathAllocator` implementation boundary;
 - adapter certification policy vocabulary or lint policy details;
-- runtime closures;
+- runtime closures or dynamic procedure values;
 - a full semantic diff engine;
-- broad hard-error linting for all legacy YAML; or
+- broad hard-error linting for all legacy YAML;
+- public authored-YAML collection artifact widening;
+- arbitrary child-process filesystem sandboxing;
+- provider domain correctness; or
 - operator explain tooling as a prerequisite for stdlib migration.
 
-## 7. Target Dependency Direction
+## 6. Target Dependency Directions
 
-The desired post-foundation dependency direction is:
+Nested composition:
 
 ```text
 authored .orc
-  -> imported/std .orc definitions
-  -> macro/procedure expansion, if any
-  -> generic effectful block normalization, including nested structured control
-  -> Core AST with explicit statements, branch scopes, effects, proof scopes,
-     and source maps
-  -> shared validation, seeing branch-scoped generated steps and private
-     executable context contracts
-  -> Semantic IR / Executable IR
-  -> existing runtime, with typed effects or certified adapters for state
-     transitions
-  -> migration-parity strict gate with parent-callable evidence
-  -> primary-surface decision, only if non_regressive and eligible
+-> typed expression / effect tree
+-> composition-normalized structured control graph
+-> explicit scopes, proof tokens, effect summaries, source-map frames
+-> Core AST / executable IR projection
+-> shared validation with scope-aware refs
+-> existing runtime
 ```
 
-The prohibited direction is:
+Imported/std reuse:
 
 ```text
 authored .orc
-  -> compiler recognizes a library form by name
-  -> hidden Python lowerer builds workflow control
-  -> generated paths are synthesized locally
-  -> generated state roots become public authored inputs
-  -> run-state mutation hides inside uncertified command glue
-  -> effects or proof scopes appear only after the fact
-  -> leaf compile/dry-run success is treated as family promotion parity
+-> ordinary import resolution
+-> hygienic imported-body cloning
+-> compile-time specialization / ProcRef substitution
+-> re-typecheck
+-> generic effectful normalization
+-> shared validation
+-> runtime artifacts with no ProcRef/provider/prompt/type leakage
+```
+
+Private executable context:
+
+```text
+public .orc entry boundary
+-> runtime-owned bootstrap request
+-> PrivateExecCtx from RunCtx / PhaseCtx / ItemCtx / DrainCtx / StateLayout
+-> hidden internal call bindings
+-> executable/runtime contract
+-> source-map and Semantic IR explanation
+```
+
+Typed projection and resource transitions:
+
+```text
+validated typed provider/command/workflow state
+-> typed projection or certified adapter declaration
+-> declared artifact/resource effects
+-> StateLayout/path-safe materialized views when needed
+-> source-mapped state/artifact/resource versions
+```
+
+Migration promotion:
+
+```text
+candidate family manifest
+-> compile/shared-validation/runtime evidence
+-> parent-callable readiness evidence
+-> output/terminal/artifact/resume/resource parity
+-> schema-validated migration-parity report
+-> computed non_regressive
+-> --require-promotable before primary-surface replacement
+```
+
+## 7. Prohibited Dependency Directions
+
+Nested composition anti-pattern:
+
+```text
+authored .orc
+-> compiler recognizes one high-level form by literal name
+-> hidden Python lowerer hand-builds branch/loop steps
+-> branch-local refs appear without scope metadata
+-> shared validation is patched around the generated shape
+```
+
+Private context anti-pattern:
+
+```text
+high-level .orc entrypoint
+-> public inputs for state_root / manifest_path / progress_ledger_path / run_state_path / __write_root__...
+-> authored code manually passes state paths
+-> compile or dry-run success is claimed as parity
+```
+
+Adapter/resource anti-pattern:
+
+```text
+command-result :argv ("python" "script.py" ...)
+-> script mutates run state, moves resources, parses reports, writes pointer files
+-> effects are invisible to shared validation
+-> parent workflow appears to compose but semantics live outside the workflow model
+```
+
+Projection anti-pattern:
+
+```text
+provider decision
+-> helper script publishes bundle path by convention
+-> downstream reads pointer/report path as semantic authority
+-> typed selection state and materialized bundle identity diverge
+```
+
+Promotion anti-pattern:
+
+```text
+leaf .orc compile success
+-> hand-written migration note says parity is close
+-> non_regressive asserted or inferred
+-> YAML primary is replaced before parent-callable family evidence exists
 ```
 
 ## 8. Goals
 
-- Make nested structured control — structured `match`, structured
-  `repeat_until`, and stdlib `review-revise-loop` — valid inside branch scopes
-  and procedure calls, surviving lowering and shared validation with agreeing
-  generated step IDs, branch-local visibility, source maps, Semantic IR
-  layout, and `StateLayout` entries.
-- Make union-to-union result translation derive the output variant from the
-  returned variant expression, never from the enclosing matched source case.
-- Give variant output fields variant-scoped lowered identity so the same
-  logical field name can appear in different variants; or, if deferred,
-  document the restriction explicitly in the drafting guide.
-- Inventory, verify, harden, and generalize existing generic effectful
-  composition so new high-level forms do not need one-off lowerers.
-- Harden imported/std `.orc` definitions through the ordinary compiler
-  pipeline rather than reimplementing completed stdlib routes.
-- Keep provider, command, workflow, state, artifact, and resource effects
-  visible after expansion.
-- Preserve source maps through imported definitions, generated statements,
-  generated paths, and selected compile-time procedure hooks.
-- Keep `ProcRef`, `bind-proc`, specialization details, and procedure choices
-  compile-time-only.
-- Prove the existing `review-revise-loop` imported/std `.orc` route is the
-  promoted route: no compiler-name special case, no hidden bridge dependency,
-  no runtime ref leakage, valid in nested composition contexts, and parity
-  evidence for real workflow families.
-- Define a private executable context bridge so high-level `.orc` boundaries
-  exclude generated state roots while the compiler/runtime injects run, state,
-  artifact, phase, selection, and recovery context internally with source-map
-  and Semantic IR provenance, including a YAML interop bridge for legacy
-  `state/` values during migration.
-- Add entrypoint context bootstrap and input defaults so `.orc` wrappers can
-  match YAML public boundaries.
-- Classify every retained workflow-family helper as pure typed projection,
-  certified adapter, resource/state-transition primitive, or migration debt;
-  move run-state and recovery transitions toward typed runtime effects or
-  certified adapters.
-- Give `.orc` an importable certified-adapter call surface with typed fields
-  so authors do not hand-assemble argv in high-level workflow code.
-- Replace deterministic publication scripts with native typed projections
-  where feasible, with certification only as a migration bridge.
-- Specify canonical `resume-or-start` validation so reusable state recovery is
-  typed and parity-testable.
-- Make the work-item and parent-drain family parent-callable through a typed
-  `backlog-drain`-shaped abstraction rather than a wrapper over YAML state
-  files.
-- Keep parity evidence honest: leaf compile evidence is labeled as such,
-  parent-callable behavior is proven separately, and `--require-promotable`
-  fails until the full family is callable and non-regressive.
-- Produce at least one real workflow-family `.orc` parity report with
-  computed `non_regressive=true`, and require `--require-promotable` before any
-  YAML-primary replacement.
+- Make nested `match`, nested `repeat_until`, nested stdlib calls, and
+  branch-local effectful procedures lower through one generic composition
+  route.
+- Keep shared validation authoritative while making it scope-aware enough to
+  validate generated branch-local refs and nested structured control.
+- Preserve variant proof scopes across `let*`, `match`, reusable calls,
+  projection, and union-return normalization.
+- Normalize union-to-union returns from the actual returned variant, not from
+  the matched source case.
+- Allow logical field names to repeat across union variants while preserving
+  distinct lowered artifact and JSON-pointer identities.
+- Introduce private executable context values so public `.orc` boundaries do
+  not expose generated state roots, write roots, run ids, phase roots, or YAML
+  compatibility paths.
+- Harden imported/std `.orc` reuse through ordinary import, specialization,
+  typecheck, lowering, source maps, and effect visibility.
+- Prove `review-revise-loop` is first-class enough to appear inside branch
+  scopes, reusable calls, parent workflow modules, and nested phase contexts.
+- Replace deterministic publication helpers with typed projections where
+  possible and certified adapters where needed.
+- Move recurring run-state/resource semantics toward declared
+  resource-transition effects or certified adapters with explicit contracts.
+- Add a typed authoring surface for certified adapters so high-level `.orc`
+  code does not hand-author raw argv plumbing.
+- Build a parent-callable work-item/backlog-drain model over typed resources
+  and explicit terminal results.
+- Require strict parity evidence that distinguishes leaf candidates,
+  parent-callable candidates, non-regressive families, and promotable
+  families.
 
 ## 9. Non-Goals
 
 - Do not add runtime closures.
 - Do not add runtime procedure values or dynamic dispatch.
 - Do not make `orchestrate explain` a prerequisite for this tranche.
-- Do not hard-error all legacy YAML inline glue before migration inventory.
-- Do not use report parsing, pointer files, stdout, debug YAML, or generated
-  summaries as semantic authority.
-- Do not replace YAML primaries based on compile, shared validation, or dry-run
-  alone.
+- Do not hard-error all legacy YAML inline glue before migration inventory and
+  allowlist metadata exist.
+- Do not use report parsing, pointer files, stdout, debug YAML, generated
+  summaries, or generated markdown as semantic authority.
+- Do not replace YAML primaries based on parse, compile, shared validation, or
+  dry-run alone.
 - Do not treat `non_regressive=true` by itself as a primary-surface decision
   when the candidate is not promotion-eligible.
-- Do not treat leaf compile success as workflow-family migration evidence.
 - Do not weaken the required lints that reject raw generated `state/` paths at
   public high-level `.orc` boundaries; the fix is a private bridge, not lint
   relaxation.
-- Do not write a parent `.orc` drain that wraps uncertified helper scripts or
-  legacy YAML state files to simulate composition.
 - Do not rebuild implemented review/revise stdlib or ProcRef/specialization
   substrate from scratch; audit and harden the current route.
+- Do not introduce a compiler-special `review-revise-loop` branch as the
+  promoted route.
+- Do not write a parent `.orc` drain wrapper that hides unresolved state
+  mutation, recovery, or resource movement in adapters.
+- Do not widen public authored-YAML collection artifact contracts as a
+  prerequisite for private executable Workflow Lisp value transport.
 - Do not expand the foundation tranches in this document; fix missing
   foundation work in the foundation design or its implementation plans.
-- Do not redesign `StateLayout` identity rules or adapter certification policy
-  here; route those deltas to their owning documents.
 
 ## 10. Architecture Invariants
 
 - Workflow Lisp remains a frontend over the existing validated workflow model.
 - Shared validation remains authoritative after lowering.
-- Future frontend features may add authoring power only by lowering into the
-  existing validated workflow model or into a separately accepted future
+- Any future frontend feature may add authoring power only by lowering into
+  the existing validated workflow model or into a separately accepted future
   runtime contract.
 - Composition regularity: a typed effectful form that is valid at workflow top
   level is valid in any branch scope or procedure position where its type and
@@ -415,100 +481,178 @@ authored .orc
 - Stdlib and phase forms recognize capability/shape contracts across module
   boundaries through structural validation plus source provenance, never
   through short authored-name matching (F1 lesson).
+- All effects introduced by imported/std `.orc` code are visible after
+  expansion.
+- Every generated statement, branch scope, loop frame, path, helper, context
+  value, adapter/resource effect, and selected `ProcRef` body has source-map
+  provenance.
+- Generated state/path allocation goes through `StateLayout` /
+  `PathAllocator`.
+- Branch-local refs are visible only inside scopes where their producers
+  dominate the consumer.
 - Union result translation derives the output variant from the returned
-  variant expression; the enclosing matched case is control flow, not output
-  identity.
-- Generated state roots, run roots, phase roots, and recovery state are never
-  public authored inputs; runtime-owned context crosses workflow boundaries
-  only through the private executable context bridge.
+  variant expression; the matched source case is control flow and branch
+  proof, not output identity.
+- Variant proof tokens cannot be inferred from variant names alone after a
+  branch returns a different union type.
+- Logical field names in union variants are scoped by `(union, variant,
+  field)` for lowered artifact/output identity.
+- Runtime state, artifact contracts, provider results, command results,
+  workflow outputs, and resource-transition results contain no `ProcRef`,
+  provider ref, prompt ref, closure, unresolved type parameter, or runtime
+  type object.
+- Private executable context values are runtime-owned; public boundary
+  projections may explain them but must not convert them into authored public
+  inputs.
 - Run-state mutation, recovery recording, prerequisite reconciliation, and
-  terminal drain updates are typed runtime effects or certified adapters;
+  terminal drain updates are typed resource transitions or certified adapters;
   hidden semantic glue in command steps is migration debt.
-- All effects introduced by imported/std `.orc` code are visible.
-- Every generated statement, path, helper, branch scope, and selected ProcRef
-  body has source-map provenance.
-- Generated state/path allocation goes through `StateLayout` / `PathAllocator`.
-- No runtime state, artifact contract, provider result, command result, or
-  workflow output contains `ProcRef`, provider ref, prompt ref, closure,
-  unresolved type parameter, or runtime type object.
-- Reports and debug projections are views.
+- Reports, pointer files, materialized views, and debug projections are views
+  unless explicitly contracted otherwise.
 - Migration promotion is machine-computed by strict parity evidence.
 - `non_regressive` is evidence; `--require-promotable` is required before a
   primary-surface decision.
 - Leaf compile evidence is necessary but never sufficient for family
-  promotion; parity evidence carries explicit leaf-versus-parent-callable
-  labels.
+  promotion; parity evidence carries explicit readiness labels.
 
-## 11. Tranche 1: Nested Structured-Control Composition
+## 11. Tranche 0: Current-State Inventory And Readiness Labels
 
 ### 11.1 Contract
 
-This is the highest-priority post-foundation tranche (P0, F2). Structured
-control forms must compose. The blocking shape is concrete: the implementation
-phase of the drain family naturally branches on a typed attempt result and
-runs the stdlib review loop inside the completed branch:
+Every implementation drain using this document must start by updating a
+current-state inventory. The inventory is a design input, not a status boast.
+It must identify which surfaces are implemented, partially implemented,
+missing, blocked by foundation evidence, or intentionally deferred.
 
-```text
-attempt = execute(...)            ; provider-result -> ImplementationAttempt
-match attempt:
-  COMPLETED -> run checks, then review-revise-loop(...)  ; bounded loop
-  BLOCKED   -> typed terminal blocked result
-```
+### 11.2 Required labels
 
-Today this fails after lowering/shared validation because:
+Each candidate should be labeled with exactly one highest applicable migration
+readiness state:
 
-- structured `repeat_until` is accepted only at top level;
-- structured `match` is accepted only at top level;
-- generated branch-local refs point at steps not visible to shared validation;
-  and
-- review-loop generated steps become invalid when nested under a match branch.
+| Label | Meaning |
+| --- | --- |
+| `leaf_compile_candidate` | The `.orc` leaf parses, typechecks, lowers, and may pass focused tests, but it is not parent-callable parity evidence |
+| `leaf_runtime_candidate` | The leaf has dry-run or smoke evidence for its own contract, but not family-level parent-callability |
+| `parent_callable_candidate` | The workflow can be called by its intended parent without public generated context/state inputs and without hiding unresolved semantics |
+| `family_non_regressive` | Machine evidence proves no required parity regression for the selected family target |
+| `promotion_eligible` | The family is non-regressive and passes policy eligibility for primary-surface replacement |
 
-The consequence is that the implementation phase, the work item, and the
-parent drain cannot become single parent-callable `.orc` workflows; they must
-be split into artificial leaves.
+Leaf-only evidence must never satisfy `--require-promotable`.
 
-The principled fix adds a frontend/lowering/shared-validation route for nested
-structured control. Two implementation routes are acceptable; the
-implementation architecture for this tranche must choose one and defend it:
+### 11.3 Tasks
 
-1. lower nested structured forms into validation-compatible top-level step
-   graphs with explicit branch scopes, so shared validation sees branch-local
-   generated steps with correct visibility; or
-2. introduce an executable IR layer that preserves nesting until rendering,
-   with shared validation extended to walk branch scopes.
-
-Under either route, generated step IDs, branch-local visibility rules, source
-maps, Semantic IR layout entries, and `StateLayout` allocations must agree on
-the same branch-scope identity.
-
-### 11.2 Required Shapes
-
-- structured `match` nested inside a `match` branch;
-- structured `repeat_until` nested inside a `match` branch;
-- stdlib `review-revise-loop` invoked inside a `match` branch;
-- nested structured control inside a reusable procedure body invoked from a
-  branch; and
-- branch-local provider/command results feeding nested loops.
-
-### 11.3 Required Implementation Detail
-
-The implementation architecture for this tranche must specify:
-
-- the branch-scope representation carried into shared validation, including
-  generated step ID namespacing and visibility rules;
-- how `StateLayout` / `PathAllocator` identity incorporates branch-scope and
-  loop identity so repeated branches and iterations cannot collide;
-- how resume identity is preserved for steps generated inside branch scopes;
-- source-map frames for authored branch forms and generated branch-local
-  statements;
-- Semantic IR layout entries for branch-scoped generated state; and
-- diagnostics for any nested shape that remains intentionally unsupported,
-  emitted before lowering and naming the restriction.
+- Verify current source routes for `std/phase.orc`, `review-revise-loop`,
+  imported `.orc` expansion, `ProcRef` specialization, and structural context
+  recognition.
+- Verify focused test evidence for Design Delta Drain leaves, starting from
+  `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`.
+- Record every known split-leaf workaround and its missing parent-callable
+  dependency.
+- Mark each helper script as pure projection, certified adapter candidate,
+  resource transition candidate, runtime-native candidate, or migration debt.
+- Record which parity evidence is leaf-only, parent-callable, family-level,
+  non-regressive, or promotable.
+- Repair stale design-index/status entries before new implementation work
+  starts.
 
 ### 11.4 Acceptance
 
-The acceptance fixture is the implementation-phase shape from the design-delta
-drain:
+- The inventory names every blocker from the Design Delta Drain findings
+  report and maps it to a tranche in this document.
+- No implementation ticket claims a current feature is missing without
+  checking source and tests first.
+- No parent-drain work item is scheduled ahead of its P0 prerequisites unless
+  it is explicitly a failing fixture.
+- Migration manifests and readiness reports distinguish leaf candidates from
+  parent-callable candidates.
+
+## 12. Tranche 1: Nested Structured-Control Composition
+
+### 12.1 Contract
+
+Nested structured control is the compiler/runtime substrate that allows
+effectful `match`, effectful `repeat_until`, `loop/recur`, stdlib workflow
+calls, provider-result steps, command-result steps, and typed projections to
+appear inside branch scopes and reusable procedures while still passing shared
+validation.
+
+The selected target is a composition-normalized structured control graph
+between typed Workflow Lisp expressions and Core/executable projection. The
+graph may render to validation-compatible top-level step graphs or to an
+executable IR layer that preserves nested control, but either route must make
+branch scopes, loop frames, proof tokens, source maps, and generated path
+allocation explicit before shared validation. The implementation architecture
+for this tranche must choose one rendering route and defend it.
+
+Representative normalization:
+
+```text
+authored expression
+-> typed expression/effect tree
+-> structured control graph
+-> scoped statements, control frames, proof tokens, effect summaries
+-> Core AST / executable IR projection
+-> shared validation
+```
+
+### 12.2 Required shapes
+
+The first tranche must cover:
+
+- effectful `let*` with provider and command results;
+- effectful `match` arms that contain provider, command, workflow-call,
+  stdlib-call, projection, and materialization effects;
+- structured `repeat_until` or `loop/recur` nested under a `match` branch;
+- stdlib `review-revise-loop` inside a branch selected by an outer domain
+  result;
+- same-file calls with locally constructed records;
+- imported reusable procedures containing provider/command/workflow effects;
+- generated write roots across reusable call boundaries;
+- branch-local refs that are consumed only in valid scopes;
+- proof-preserving projection from normalized branches; and
+- source maps and Semantic IR layout entries for every generated branch, step,
+  loop, path, and projection.
+
+### 12.3 Branch scope and validation model
+
+The compiler must produce a scope graph with at least:
+
+- `scope_id`;
+- parent scope;
+- entering control node;
+- active variant proof, if any;
+- loop/call-frame identity, if any;
+- values produced in the scope;
+- values projected out of the scope;
+- effects declared in the scope; and
+- generated allocation identities requested in the scope.
+
+Shared validation must reject a consumer ref unless the producer is in the
+same scope, an ancestor scope, or an explicitly projected branch result.
+Generated step IDs alone are not proof of visibility.
+
+### 12.4 Tasks
+
+- Define the composition-normalized structured control graph data model.
+- Define pass order relative to import expansion, compile-time specialization,
+  typecheck, effectful normalization, Core projection, source-map emission,
+  and shared validation.
+- Add effect summaries for provider, command, workflow-call, projection,
+  materialization, state, artifact, resource, and adapter effects.
+- Add proof-scope transfer through `let*`, `match`, calls, loops, and branch
+  projections.
+- Route branch-local generated paths through `StateLayout` / `PathAllocator`
+  with call-frame and loop-frame identity.
+- Preserve resume identity for steps generated inside branch scopes.
+- Add diagnostics for unsupported nested control before ordinary lowering
+  emits invalid Core.
+- Add negative tests for branch-local ref leakage, missing branch projection,
+  and invalid proof use.
+
+### 12.5 Acceptance
+
+The canonical acceptance fixture is the implementation-phase shape from the
+design-delta drain:
 
 ```text
 provider-result -> ImplementationAttempt
@@ -517,553 +661,1049 @@ match ImplementationAttempt:
   BLOCKED   -> ImplementationPhaseResult
 ```
 
-Required evidence for the fixture:
+Acceptance requires:
 
-- compile/typecheck;
-- shared validation;
-- source-map generated-path entries for branch-scoped steps;
-- Semantic IR state-layout entries for branch-scoped state;
-- dry-run or fake-provider smoke; and
-- resume identity stability for branch-scoped generated steps.
+- compile/typecheck succeeds;
+- lowering emits no invalid branch-local refs;
+- shared validation succeeds;
+- source maps identify authored forms, imported/std definitions, generated
+  statements, branch scopes, loop frames, and generated paths;
+- Semantic IR records matching state-layout entries;
+- dry-run or fake-provider smoke succeeds;
+- branch-local producers are not visible outside their branch except through
+  explicit projections;
+- resume identity is stable for branch-scoped generated steps;
+- unsupported nested shapes fail with actionable diagnostics; and
+- the implementation phase no longer has to split into
+  `execute-implementation-attempt` and `review-completed-implementation`
+  solely to satisfy lowering/shared validation.
 
-Additional acceptance:
+### 12.6 Normative spec deltas
 
-- nested `match`-in-`match` and `repeat_until`-in-`match` fixtures pass the
-  same evidence set;
-- variant proof scopes survive nesting;
-- unsupported nested shapes fail before lowering with actionable diagnostics;
-  and
-- the previously split `execute-implementation-attempt` /
-  `review-completed-implementation` leaves can be recomposed into one
-  parent-callable implementation phase.
+If existing specs describe structured `match` or `repeat_until` only as
+top-level constructs, update the relevant DSL/frontend design text to clarify
+one of two accepted routes:
 
-## 12. Tranche 2: Typed Result Translation Hardening
+1. Workflow Lisp may author nested effectful structured control when lowering
+   normalizes it into the existing validated executable model with explicit
+   branch scopes; or
+2. an accepted executable IR layer may preserve nested control until
+   rendering, provided shared validation receives equivalent scope, proof,
+   effect, and source-map information.
 
-### 12.1 Contract
-
-Typed workflows translate inner control-state unions into outer domain result
-unions. That translation must be principled in two ways.
-
-Union-to-union variant normalization (F3). When a `match` arm over one union
-returns a variant of a different result union, lowering must derive the output
-variant from the returned `variant` expression, not from the enclosing matched
-case name. The current behavior raises `KeyError` for legitimate mappings such
-as:
-
-```text
-match ReviewLoopResult.APPROVED:
-  -> DesignDeltaImplementationPhaseResult.COMPLETED
-```
-
-This pushes authors toward compatibility-shaped unions whose variant names are
-dictated by inner loops, leaking intermediate control states into outer domain
-types. Inner control states and outer terminal states intentionally have
-different names; the frontend must support that.
-
-Variant-scoped field identity (F4). Lowered `variant_output` currently
-requires output field names to be globally unique across variants, because
-artifact names and JSON pointers are derived without variant scope. Authors
-are forced into `approved_plan_path` / `blocked_plan_path` /
-`exhausted_plan_path` style naming, shaping domain types around output-bundle
-implementation details. The target is variant-scoped lowered identity:
-`APPROVED.plan_path` and `BLOCKED.plan_path` are distinct lowered artifact
-identities even when the logical field name is the same.
-
-### 12.2 Tasks
-
-- In union-return normalization, resolve the output variant from the returned
-  variant expression.
-- Remove any lowering path that keys result normalization on the enclosing
-  matched case name.
-- Add variant-scoped artifact/json-pointer identity for `variant_output`
-  lowering, derived through `StateLayout` allocation identity so variant scope
-  participates in generated identity rather than being string-mangled locally.
-- If variant-scoped identity is deferred beyond this tranche, add the
-  documented restriction and required naming style to
-  `docs/lisp_workflow_drafting_guide.md` with examples, and record the
-  deferral in the inventory.
-
-### 12.3 Acceptance
-
-- `ReviewLoopResult.APPROVED -> ImplementationPhaseResult.COMPLETED` lowers
-  and validates.
-- `ReviewLoopResult.EXHAUSTED -> ImplementationPhaseResult.REVIEW_EXHAUSTED`
-  lowers and validates.
-- `ImplementationAttempt.BLOCKED -> ImplementationPhaseResult.BLOCKED` lowers
-  and validates.
-- No lowering path raises `KeyError` for well-typed cross-union mappings; any
-  rejected mapping has a typed diagnostic.
-- Either: the same logical field name validates in two variants of one result
-  union with distinct lowered identities; or: the restriction is documented in
-  the drafting guide with the required naming style, and a diagnostic names
-  the restriction at compile time.
-
-## 13. Tranche 3: Generic Effectful Composition And Imported/Std `.orc` Reuse Hardening
+## 13. Tranche 2: Union Result Normalization And Variant-Scoped Output Identity
 
 ### 13.1 Contract
 
-Generic effectful composition is the compiler substrate that turns authored
-expression structure into explicit executable statements without one-off
-lowering per high-level form. Imported/std `.orc` definitions must be reusable
-through the ordinary compiler pipeline. A stdlib form may provide ergonomic
-syntax, but the control flow must belong to grammar-accepted `.orc`
-definitions or to generic compiler machinery available to ordinary `.orc`.
+Union return normalization must be based on the actual returned variant
+expression and expected target type, not on the source variant that happened
+to be matched. A `match` branch may intentionally translate an inner control
+result into a different outer domain result.
 
-This tranche begins with inventory: identify which shapes are already
-implemented, which are only supported by special-case lowering, and which fail
-without owned diagnostics.
+Variant output identity must be scoped by union variant. Logical field names
+may repeat across variants without colliding in lowered artifact names, JSON
+pointers, validation keys, or publication identities.
 
-Representative normalization:
+### 13.2 Union-to-union normalization rule
+
+When a branch is expected to return union type `TargetUnion`:
+
+- if the branch expression is an explicit `TargetUnion.VARIANT(...)`, use
+  `TargetUnion.VARIANT` as the output variant;
+- if the branch expression has a statically known union variant proof, use
+  that proof only when it belongs to `TargetUnion`;
+- if the branch expression maps an inner variant to an outer variant, the
+  returned outer variant controls normalization;
+- the matched source case contributes branch proof for allowed field access,
+  not target variant selection; and
+- ambiguous or incompatible branches fail with an explicit union-normalization
+  diagnostic.
+
+Examples that must work:
 
 ```text
-authored expression
-  -> typed expression/effect tree
-  -> effectful block normalization
-  -> explicit statements with dependencies and branch scopes
-  -> proof/effect/source-map annotations
-  -> Core AST
-  -> shared validation
+ReviewLoopResult.APPROVED  -> ImplementationPhaseResult.COMPLETED
+ReviewLoopResult.EXHAUSTED -> ImplementationPhaseResult.REVIEW_EXHAUSTED
+ImplementationAttempt.BLOCKED -> ImplementationPhaseResult.BLOCKED
 ```
 
-### 13.2 Required Shapes
+### 13.3 Variant-scoped field identity
 
-- effectful `let*`;
-- effectful `match` arms, including nested structured control per Tranche 1;
-- same-file calls with locally constructed records;
-- reusable procedures containing provider/command/workflow effects;
-- imported stdlib forms invoked from branch scopes and reusable calls;
-- generated write roots across reusable call boundaries; and
-- proof-preserving projection from normalized branches.
+The canonical lowered identity for a variant output field is:
 
-### 13.3 Tasks
+```text
+<producer_step_identity>/<union_type>/<variant_name>/<field_name>
+```
 
-- Specify the expansion pipeline stage that normalizes effectful expressions,
-  and its pass order relative to import expansion, ProcRef specialization,
-  typecheck, and lowering.
-- Specify the effect-summary representation carried into shared validation.
-- Specify how proof scopes transfer through `let*`, `match`, calls, and
-  projections.
+or an equivalent stable tuple containing the same semantic components. The
+authored field name remains simple:
+
+```text
+APPROVED.plan_path
+BLOCKED.plan_path
+EXHAUSTED.plan_path
+```
+
+Lowered artifact names, JSON pointers, bundle paths, source-map entries, and
+Semantic IR entries must remain distinct even when the logical field name is
+reused.
+
+### 13.4 Tasks
+
+- Replace source-case-name-based union return normalization with
+  returned-variant-based normalization.
+- Add diagnostics for ambiguous returned union variants, missing expected
+  type, and incompatible target variants.
+- Introduce variant-scoped output identity in lowering and shared validation.
+- Update artifact/json-pointer uniqueness checks to use `(producer, union,
+  variant, field)` rather than only field or artifact name.
+- Preserve backward compatibility for already-authored variant-specific field
+  names.
+- Add source-map and Semantic IR entries that record both authored field name
+  and lowered variant-scoped identity.
+- While variant-scoped identity remains unimplemented, document the
+  restriction and the required variant-specific naming style in
+  `docs/lisp_workflow_drafting_guide.md` with examples, add a compile-time
+  diagnostic that names the restriction, and record the open gap in the
+  Tranche 0 inventory. This is a required interim mitigation; it does not
+  satisfy this tranche's acceptance or the target success criteria.
+
+### 13.5 Acceptance
+
+- Branches can translate inner review-loop variants to outer domain-specific
+  result variants.
+- Domain unions do not need to mirror inner control-state names.
+- No lowering path raises `KeyError` for well-typed cross-union mappings; any
+  rejected mapping has a typed diagnostic.
+- The same logical field name may appear in multiple variants without
+  validation collisions. The documented restriction plus diagnostic is an
+  interim mitigation while the gap is open; it does not satisfy this
+  acceptance.
+- Shared validation checks only the active variant's required fields.
+- Generated bundle/artifact identities remain collision-proof.
+- Existing verbose variant-specific names continue to compile as compatibility
+  style.
+- Diagnostics identify the union, source branch, returned expression, and
+  expected target union when normalization fails.
+
+### 13.6 Normative spec deltas
+
+Update DSL/frontend design text for variant outputs to state that field
+identity is variant-scoped in generated executable artifacts, even when the
+authored logical field name repeats across variants. If public YAML currently
+requires globally unique field names, preserve that public restriction only as
+a public-authoring compatibility rule; do not force private frontend-lowered
+`.orc` unions to inherit it when variant-scoped identities are available.
+
+## 14. Tranche 3: Private Executable Context Bridge And Entrypoint Bootstrap
+
+### 14.1 Contract
+
+High-level `.orc` entrypoints must not expose runtime-owned context, generated
+state roots, generated write roots, phase roots, item roots, drain roots,
+selection bundle paths, recovery paths, or YAML compatibility paths as
+ordinary public inputs.
+
+The frontend/runtime must provide a private executable context bridge. The
+bridge derives internal context values from runtime execution context and
+`StateLayout`, binds them to reusable calls and stdlib workflows, and emits
+source-map/Semantic IR evidence explaining the generated bindings without
+making them public authored inputs.
+
+This tranche needs a pre-implementation design before code changes. Parity
+architecture has already exposed missing phase-context binding as a real
+wrapper-promotion failure mode, and synthetic top-level `PhaseCtx` inputs are
+not acceptable promotion evidence.
+
+### 14.2 Private context values
+
+Initial private context families:
+
+- `RunCtx`: run id, run root, artifact root, state root, temp root, runtime
+  identity, and run-scoped allocation namespace;
+- `PhaseCtx`: phase namespace, phase state root, phase artifact root, phase
+  bundle roots, phase checkpoint identity, and phase-specific write roots;
+- `ItemCtx`: selected item identity, item state namespace, item artifact
+  namespace, prerequisite/recovery linkage, and item-scoped allocation
+  identity;
+- `DrainCtx`: drain state namespace, selection/recovery queues, iteration
+  identity, and terminal drain accumulator;
+- `SelectionCtx`: typed selection state, selection bundle view identity, and
+  prerequisite/gap classification state; and
+- `RecoveryCtx`: blocked outcome, recovery attempt state, retry identity, and
+  reconciliation resources.
+
+These are private executable values. They may appear in executable/runtime
+contracts and source maps, but they are not public authored boundary fields.
+
+### 14.3 Hidden reusable-call binding
+
+A promoted entry workflow may call a reusable workflow or `resume-or-start`
+surface whose internal signature requires `RunCtx`, `PhaseCtx`, `ItemCtx`, or
+`DrainCtx`. The compiler/runtime must satisfy those internal parameters from
+private bootstrap bindings.
+
+The public boundary must exclude:
+
+- `run_id`;
+- `state_root`;
+- `artifact_root`;
+- phase/item/drain state roots;
+- compiler-managed write roots;
+- synthetic top-level `PhaseCtx` or `RunCtx` inputs;
+- `__write_root__...` inputs; and
+- legacy YAML state path fields unless explicitly declared as public
+  compatibility inputs.
+
+### 14.4 YAML compatibility bridge
+
+During migration, a YAML-compatible wrapper may bridge legacy `state/` values
+into private context. That bridge must be:
+
+- explicit in the compiled executable contract;
+- source-mapped as compatibility, not authored public Workflow Lisp API;
+- hidden from the promoted `.orc` public boundary when parity claims the YAML
+  user did not provide those fields;
+- excluded from promotion evidence if it preserves non-isolated private path
+  shapes as authority; and
+- retired or narrowed when typed resource/state transitions replace the legacy
+  path dependency.
+
+### 14.5 Tasks
+
+- Define `PrivateExecCtx` and context-family projection into executable
+  contracts.
+- Define how runtime creates private context for entry workflows.
+- Define how reusable calls receive hidden context bindings.
+- Define how defaults are represented in Core AST, Semantic IR, and executable
+  IR.
+- Route context-derived generated paths through `StateLayout` /
+  `PathAllocator`.
+- Add public/private boundary inspection in shared validation and migration
+  parity.
+- Preserve structural/capability context recognition across module-qualified
+  imports.
+- Add diagnostics for missing hidden context bootstrap, invalid public context
+  exposure, and context capability mismatch.
+
+### 14.6 Acceptance
+
+- A promoted `.orc` wrapper can call reusable workflows requiring
+  runtime-owned context without exposing run ids, write roots, state roots,
+  artifact roots, or synthetic `PhaseCtx` inputs at the public boundary.
+- Public input inspection proves generated write roots, state roots, and phase
+  roots are hidden for plan, selector, architect, work-item, and parent
+  candidates.
+- Internal reusable-call bindings succeed because runtime-owned context
+  satisfies them, not because authored defaults fake them.
+- `.orc` input defaults match the corresponding YAML public boundary where
+  parity is claimed.
+- Shared validation and migration parity inspect public and private boundary
+  projections separately.
+- Resume reconstructs the same private context paths for the same
+  run/call/loop identity.
+- A YAML-compatible migration wrapper passes legacy `state/` values privately
+  without making them normal `.orc` inputs, and the bridge values are labeled
+  as migration bridges in provenance.
+- Source maps and Semantic IR identify generated context/default bindings.
+- Module-qualified imported context types are recognized by
+  structural/capability contracts, not by short local names alone.
+
+### 14.7 Normative spec deltas
+
+Update frontend/runtime design text to distinguish:
+
+- public authored inputs;
+- private executable context values;
+- compatibility bridge values;
+- generated internal input bindings; and
+- source-map/Semantic IR projections over those values.
+
+Update `docs/design/workflow_lisp_state_layout.md` to include the initial
+`RunCtx`, `PhaseCtx`, `ItemCtx`, `DrainCtx`, `SelectionCtx`, and `RecoveryCtx`
+derivation responsibilities needed by parent-callable migration.
+
+## 15. Tranche 4: Imported/Std `.orc` Reuse And Review-Revise First-Class Composition
+
+### 15.1 Contract
+
+Imported/std `.orc` definitions must be reusable through the ordinary compiler
+pipeline. A stdlib form may provide ergonomic syntax, but control flow must
+belong to grammar-accepted `.orc` definitions or to generic compiler machinery
+available to ordinary `.orc`.
+
+`review-revise-loop` must remain an ordinary imported/std `.orc` abstraction
+in the promoted route. It must compose anywhere effectful procedures are
+valid, including inside match branches, reusable workflow calls, parent
+workflow modules, and nested phase contexts.
+
+### 15.2 Current route
+
+The current checkout already has a first stdlib route through
+`orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`, using compile-time
+`ProcRef` hooks, `loop/recur` exhaustion projection, `command-result`
+validation, `match`, and typed stdlib unions. This tranche is therefore
+convergence and parity hardening, not a from-zero implementation.
+
+### 15.3 Required behavior
+
+For `review-revise-loop`:
+
+- `APPROVE` exits with typed completion;
+- `REVISE` invokes fix and continues; it is not completion;
+- `BLOCKED` exits with typed non-completion;
+- `EXHAUSTED` is explicit typed non-completion;
+- review findings are validated structured state, not markdown extraction;
+- report paths and findings paths are independently seeded and projected;
+- carried evidence identity comes from inputs/state, not provider replacement
+  fields;
+- branch proof, effects, generated paths, source maps, loop state, and resume
+  identity survive nested calls; and
+- runtime artifacts contain no `ProcRef`, provider ref, prompt ref, closure,
+  or unresolved type parameter.
+
+### 15.4 Tasks
+
 - Load stdlib `.orc` through ordinary import resolution.
-- Clone parsed imported bodies through a hygienic imported-definition boundary.
+- Clone parsed imported bodies through a hygienic imported-definition
+  boundary.
 - Expand or specialize imported definitions without hidden runtime semantics.
-- Resolve compile-time ProcRef substitutions and specialization identity before
-  lowering; re-typecheck specialized helpers before ordinary lowering.
-- Recognize imported capability/shape contracts structurally: any stdlib form
-  that depends on a special record shape such as `PhaseCtx` must validate the
-  authored record definition structurally with provenance, not match short
-  local names (F1 regression coverage).
+- Resolve compile-time `ProcRef` substitutions and specialization identity
+  before lowering.
+- Re-typecheck specialized helpers before ordinary lowering.
 - Preserve cache/reuse behavior without changing source-map identity.
-- Preserve source maps for caller, imported definition, generated helpers, and
-  generated paths.
+- Preserve source maps for caller, imported definition, generated helpers,
+  generated paths, review `ProcRef`, and fix `ProcRef`.
 - Preserve effect summaries for imported provider/command/workflow calls.
 - Keep compile-time `ProcRef` values out of runtime artifacts.
 - Add architectural denylist tests for promoted name-special compiler paths.
 - Check reserved names against the form registry so stdlib ownership is not
   blocked by stale compiler-special classifications.
-- Add diagnostics for unsupported effectful composition before ordinary
-  lowering.
+- Add review-loop fixtures under branch scopes and parent modules, not only
+  top-level leaves.
 
-### 13.4 Acceptance
+### 15.5 Acceptance
 
-- A non-review imported `.orc` fixture uses the same effectful composition
-  route as later stdlib forms.
 - A tiny imported `.orc` helper expands, typechecks, lowers, and validates.
 - An imported `.orc` helper with provider/command effects exposes those
-  effects to shared validation and runtime planning.
+  effects.
 - An imported `.orc` helper with `match` preserves variant proof.
-- An imported `.orc` helper with loop state preserves source maps and
-  generated path provenance.
-- An imported `.orc` helper invoked from a `match` branch passes the Tranche 1
-  evidence set.
-- An imported phase-context record from another module validates structurally
-  and is accepted everywhere the short-name-local check previously applied.
-- Variant proof scopes survive normalization.
-- Generated write roots use `StateLayout` / `PathAllocator`.
+- An imported `.orc` helper with loop state preserves source maps, checkpoint
+  identity, and generated path provenance.
 - Promoted fixtures fail if they use compiler branches keyed to stdlib form
   names rather than the generic import/expansion route.
-- Unsupported effectful compositions fail before lowering with actionable
-  diagnostics.
-
-## 14. Tranche 4: `review-revise-loop` Promoted-Route Convergence
-
-### 14.1 Contract
-
-`review-revise-loop` must remain an ordinary imported/std `.orc` abstraction in
-the promoted route, and it must be first-class: valid wherever a typed
-effectful procedure with its signature is valid, including inside `match`
-branches, reusable workflow calls, parent workflow modules, and nested phase
-contexts (F8).
-
-Current checkout evidence already includes a first stdlib route through
-`orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`, using compile-time
-ProcRef hooks, loop/recur exhaustion projection, command-result validation,
-match, and typed stdlib unions. The design-delta drain proved the route works
-for leaf/top-level patterns, including the plan phase, and fails inside richer
-typed branches. This tranche is therefore a convergence, composition, and
-parity tranche, not a from-zero implementation.
-
-It may keep a thin macro only when that macro expands to ordinary `.orc`
-semantics. It must not depend on a promoted compiler branch that recognizes the
-literal name `review-revise-loop`.
-
-### 14.2 Required Behavior
-
-- `APPROVE` exits with typed completion.
-- `REVISE` invokes fix and continues; it is not completion.
-- `BLOCKED` exits with typed non-completion.
-- `EXHAUSTED` is explicit typed non-completion.
-- Review findings are validated structured state, not markdown extraction.
-- Report paths and findings paths are independently seeded and projected.
-- Carried evidence identity comes from inputs/state, not review-provider
-  replacement fields.
-- Branch proof, effects, generated paths, source maps, loop state, and resume
-  identity are preserved when the loop is invoked from a nested context.
-
-### 14.3 Remaining Risk Focus
-
-- nested-composition validity: the loop inside `match` cases, reusable
-  workflow calls, parent workflow modules, and nested phase contexts;
-- loop-result-to-domain-result translation through the Tranche 2 variant
-  normalization fix;
-- promoted-route denylist and no `ReviewReviseLoopExpr` dependency;
-- historical bridge quarantine and documentation cleanup;
-- imported review-loop resume checkpoint identity, including under branch
-  scopes;
-- report path versus findings path split;
-- provider structured-output target binding in real review/fix provider steps;
-- public boundary and hidden generated-input inspection; and
-- real workflow-family parity through strict migration gates.
-
-### 14.4 Acceptance
-
-- Disable promoted review-loop-specific typechecker/lowerer paths.
-- Compile `review-revise-loop` through imported/std `.orc`.
+- `review-revise-loop` compiles through imported/std `.orc` inside the
+  completed branch of an implementation-attempt match.
 - Generated workflow contains ordinary provider, command, match, loop,
-  projection, and materialization surfaces.
-- Source maps include caller, stdlib definition, generated helper, generated
-  paths, review ProcRef, and fix ProcRef.
-- Runtime artifacts contain no ProcRef, provider ref, prompt ref, closure, or
-  unresolved type parameter.
-- APPROVE, REVISE->APPROVE, BLOCKED, and EXHAUSTED fixtures pass.
-- The same four fixtures pass with the loop invoked inside a `match` branch,
-  inside a reusable workflow call, and from a parent workflow module, with
-  stable resume checkpoint identity.
-- Loop terminal variants translate into a differently named domain result
-  union through the Tranche 2 route.
-- A real workflow-family parity report computes `non_regressive=true`.
-- Any YAML-primary replacement passes `--require-promotable`.
+  projection, materialization, and resource surfaces.
+- APPROVE, REVISE->APPROVE, BLOCKED, EXHAUSTED, and resume fixtures pass,
+  including with the loop invoked from nested contexts.
+- A real workflow-family parity report can include review/revise evidence
+  without relying on split-leaf workarounds.
 
-## 15. Tranche 5: Private Executable Context Bridge, Entrypoint Bootstrap, And Defaults
-
-### 15.1 Contract
-
-This tranche is P0 (F5) and subsumes the earlier entrypoint bootstrap/defaults
-tranche.
-
-The YAML drain family exposes many low-level `state/` paths as ordinary
-inputs: `state_root`, `manifest_path`, `progress_ledger_path`,
-`run_state_path`, phase state roots, and selection bundle paths. High-level
-`.orc` must not reproduce that boundary. The required lints that reject raw
-generated `state/` paths at public `.orc` boundaries are directionally
-correct and stay; what is missing is the principled alternative.
-
-The private executable context bridge is that alternative:
-
-- the public authored `.orc` boundary excludes generated state roots, run
-  roots, phase roots, selection state, and recovery state;
-- the compiler/runtime injects run/state/artifact roots, phase roots,
-  generated write roots, selection state, and recovery state internally, as
-  private executable context values;
-- runtime-owned contexts such as `RunCtx` and `PhaseCtx` are introduced
-  through an accepted bootstrap surface and kept out of public workflow
-  signatures;
-- reusable calls receive internal context through the bridge, not through
-  public inputs;
-- source maps and Semantic IR expose provenance for every generated context
-  value;
-- shared validation sees the executable/runtime context contracts without
-  treating them as public inputs;
-- path identity for bridged context values comes from `StateLayout` /
-  `PathAllocator`, and any new identity families needed are specified in
-  `workflow_lisp_state_layout.md`; and
-- a YAML interop bridge can pass legacy `state/` values into private context
-  during migration, so a YAML-compatible wrapper does not need to surface
-  legacy paths as normal `.orc` inputs.
-
-This tranche needs a pre-implementation design before code changes. It is not
-a convenience patch: parity architecture has already exposed missing
-phase-context binding as a real wrapper-promotion failure mode, and synthetic
-top-level `PhaseCtx` inputs are not acceptable promotion evidence.
-
-### 15.2 Required Design Detail
-
-- how `RunCtx`, `PhaseCtx`, and other runtime-owned contexts are derived and
-  injected;
-- the full vocabulary of bridged context values: run roots, state roots,
-  artifact roots, phase roots, generated write roots, selection state, and
-  recovery state;
-- which generated inputs are runtime-owned versus public;
-- how public inputs exclude run/state/artifact roots and generated write
-  roots, and how the existing lints verify that;
-- how reusable calls and nested branch scopes receive internal context;
-- how defaults are represented in Core AST, Semantic IR, and executable IR;
-- how resume reconstructs the same private context values;
-- how the YAML interop bridge maps legacy `state/` inputs into private context
-  with explicit migration-bridge labeling and an expiry expectation;
-- how source maps explain generated context/default bindings; and
-- how migration parity inspects public versus private boundaries.
-
-### 15.3 Acceptance
-
-- Public input inspection proves generated write roots, state roots, and phase
-  roots are hidden from the public boundary of plan, selector, architect,
-  work-item, and parent candidates.
-- A promoted `.orc` wrapper can call reusable workflows requiring runtime-owned
-  context without exposing `run_id`, write roots, or synthetic `PhaseCtx`
-  inputs at the public boundary.
-- Resume reconstructs the same private context paths for the same run and
-  call-frame identity.
-- Source-map and Semantic IR entries identify every generated context value.
-- A YAML-compatible migration wrapper passes legacy `state/` values privately
-  without making them normal `.orc` inputs, and the bridge values are labeled
-  as migration bridges in provenance.
-- `.orc` input defaults match the corresponding YAML public boundary where
-  parity is claimed.
-- Shared validation and migration parity inspect the public boundary, not only
-  private generated bindings.
-
-## 16. Tranche 6: Certified Adapter Surface And Run-State / Resource-Transition Ownership
+## 16. Tranche 5: Typed Projection And Selector/Bundle Materialization
 
 ### 16.1 Contract
 
-This tranche is P0 for family parity (F6) plus the adapter ergonomics fix
-(F10). Certification policy vocabulary remains owned by
-`workflow_command_adapter_contract.md`; this tranche owns the sequencing for
-the drain family and the `.orc` call surface.
+Deterministic projection from validated typed state to materialized
+bundle/path views must be explicit. A projection is not hidden command glue.
+It is a typed relationship between semantic state and a representation needed
+by downstream workflow calls, prompts, compatibility paths, or legacy
+consumers.
 
-The YAML drain family relies on helper scripts that encode real workflow
-semantics: selection bundle publication, architecture index construction,
-design-gap validation, work-item input materialization, terminal
-classification, blocked-recovery route selection, run-state updates,
-blocked-recovery outcome recording, and prerequisite/recovery reconciliation.
-These helpers are not equivalent: some are deterministic projections, some
-mutate run state, some decide routing or recovery semantics. A compileable
-`command-result` wrapper around them is not migration parity; it is hidden
-semantics behind an uncertified boundary.
+Selector and bundle publication should follow this preference order:
 
-Required classification. Every retained helper must be classified as exactly
-one of:
+1. native typed projection (preferred): derive the bundle identity from
+   runtime-known provider output bundle identity and `StateLayout` allocation;
+2. certified adapter (migration bridge only): keep the publication script,
+   certified explicitly as deterministic projection with a recorded
+   native-projection replacement route; or
+3. private context bridge: keep the bundle path private to
+   runtime/`StateLayout` and expose typed selection values to `.orc`, when
+   downstream callers need values rather than paths.
 
-- pure typed projection — candidate for native typed projection (Tranche 7)
-  or certification as a deterministic projection;
-- certified adapter — kept behind the certification contract: stable command
-  prefix, typed input/output contract, declared effects, path-safety rules,
-  exit taxonomy, fixtures, negative fixtures, and source-map behavior;
-- resource-transition / state-transition primitive — target for first-class
-  typed runtime effects where practical, certified adapter only as an interim
-  bridge with replacement route recorded; or
-- migration debt — scheduled for replacement, never wrapped into promoted
-  `.orc`.
+### 16.2 Projection authority rules
 
-Required call surface. `.orc` authors must not hand-assemble argv for
-adapters:
+- The validated typed value is semantic authority.
+- A structured bundle is authority only after validation against its declared
+  output contract.
+- A materialized bundle path may be a view, a public artifact, or a
+  compatibility pointer depending on its declared contract.
+- Pointer files and report paths are representations unless explicitly
+  contracted otherwise.
+- A projection must declare input state, output representation, path
+  allocation, artifact publication behavior, and source-map provenance.
+- Variant-scoped output identity must survive projection.
 
-```lisp
-;; prohibited at high-level boundaries
-(command-result run_neurips_backlog_checks
-  :argv ("python" "workflows/library/scripts/run_neurips_backlog_checks.py" ...))
+### 16.3 Selector/bundle publication target
+
+For selector workflows:
+
+```text
+provider-result -> typed SelectionDecision
+-> typed projection over validated decision and provider bundle identity
+-> selection bundle materialized view or artifact
+-> parent-callable typed selection result
 ```
 
-The target is an importable certified-adapter surface or stdlib adapter
-declaration: `.orc` calls a named adapter with typed fields; the adapter
-declaration owns argv assembly, the command prefix, and the typed contract;
-source-map and command-boundary evidence are preserved. The declaration makes
-the helper's classification visible at the call site, so a reader can tell a
-pure projection from a state transition without reading the script.
+The preferred route is a native typed projection that derives
+`selection_bundle_path` from runtime-known provider output bundle identity and
+`StateLayout` allocation. If retained as a script,
+`publish_lisp_frontend_selection_bundle.py` must be certified as deterministic
+projection, not hidden routing.
 
-### 16.2 Tasks
+### 16.4 Tasks
 
-- Inventory and classify every retained drain-family helper using the
-  classification above; record the classification durably.
-- Define the `.orc` adapter declaration surface: import form, typed
-  field-to-argv binding, declared effects, and diagnostics.
-- Lower adapter calls through the existing command-result/certified-adapter
-  runtime route; do not invent a parallel execution path.
-- Move run-state completion, blocked-recovery recording, prerequisite edge
-  reconciliation, and terminal drain updates toward typed runtime effects;
-  where an interim certified adapter is used, record the replacement route and
-  expiry expectation.
-- Keep argv assembly out of high-level `.orc`; allow raw `command-result`
-  argv only for external tools and explicitly accepted temporary bridges.
-- Preserve source maps and command-boundary evidence for adapter calls.
+- Define a projection effect class visible to shared validation and Semantic
+  IR.
+- Add projection contracts for selector bundle publication and other
+  deterministic bundle/path materializations.
+- Route projection bundle/view paths through `StateLayout` / `PathAllocator`.
+- Preserve source maps from authored projection forms and imported/std
+  helpers.
+- Add projection negative tests for stale input, missing input bundle, schema
+  mismatch, path escape, and treating a view as authority.
+- Certify retained projection scripts with typed input/output contracts,
+  fixtures, and source-map behavior, recording the native-projection
+  replacement route.
+- Update drafting guidance so authors do not hand-author publication scripts
+  for deterministic projection.
 
-### 16.3 Acceptance
+### 16.5 Acceptance
 
-- Every retained drain-family helper has a recorded classification with a
-  replacement route where applicable.
-- An `.orc` fixture calls a certified adapter through the declaration surface
-  with typed fields; the lowered workflow shows the certified command
-  boundary, declared effects, and source-map entries.
-- A declared adapter with a wrong-typed field fails at compile/typecheck, not
-  at runtime argv assembly.
-- Run-state mutation and recovery recording on the migration path go through
-  typed runtime effects or certified adapters; no promoted `.orc` wraps an
-  unclassified script.
-- Negative fixture: a high-level `.orc` candidate that hand-assembles argv for
-  a semantic helper is rejected or flagged by lint.
+- Selector candidate returns typed selection state and a declared
+  bundle/materialized view identity.
+- Downstream workflows can consume selection state without reading a pointer
+  or report as semantic authority.
+- A native projection can materialize the selection bundle path from typed
+  state and provider bundle identity.
+- If a certified adapter bridge is used, its behavior class is
+  `typed_projection`, its effects are visible, it has positive and negative
+  fixtures, and its certification record names the native replacement route.
+- Source maps and Semantic IR identify projection inputs, outputs, allocation
+  identity, and authority class.
+- Parent workflow calls do not need to know the legacy publication script
+  path.
 
-## 17. Tranche 7: Typed Projection For Selection And Bundle Publication
+### 16.6 Normative spec deltas
+
+Clarify in DSL/frontend design text that typed projections may materialize
+deterministic views over validated private executable state, and that such
+views do not become semantic authority unless their contract explicitly says
+they are public artifacts.
+
+## 17. Tranche 6: Certified Adapter Declarations And Resource-Transition Ownership
 
 ### 17.1 Contract
 
-Deterministic publication steps must not stand between typed provider
-decisions and downstream callers as opaque scripts (F7). The concrete case is
-the selector: YAML returns `selection_status` from provider output, then runs
-`publish_lisp_frontend_selection_bundle.py` to publish
-`selection_bundle_path`; the first `.orc` selector candidate models only the
-provider decision, so downstream workflow calls have no authoritative bundle
-path and the parent drain cannot route work.
+Command execution remains legitimate. Hidden workflow semantics inside raw
+command text are not legitimate for new high-level `.orc` workflows. Any
+retained helper that decides workflow state, routing, resource movement,
+artifact lineage, or resume behavior must be expressed as one of:
 
-Preference order:
+1. a typed Workflow Lisp procedure;
+2. a typed workflow call;
+3. a typed projection;
+4. a certified command adapter with declared inputs, outputs, effects,
+   fixtures, and source maps; or
+5. a runtime-native resource/state transition effect.
 
-1. Native typed projection (preferred): derive `selection_bundle_path` from
-   runtime-known provider output bundle identity; selection bundle publication
-   becomes a typed projection over structured provider state, visible to
-   shared validation, with `StateLayout`-allocated paths.
-2. Certified adapter (migration bridge only): keep the publication script,
-   certified explicitly as a deterministic projection per Tranche 6, with a
-   recorded replacement route.
-3. Private context bridge: keep the selection bundle path private to
-   runtime/StateLayout and expose typed selection values to `.orc`, when
-   downstream callers need values rather than paths.
+Certification policy vocabulary remains owned by
+`workflow_command_adapter_contract.md`; this tranche owns the sequencing for
+migration families and the `.orc` call surface.
 
-### 17.2 Acceptance
+### 17.2 Adapter classification
 
-- The `.orc` selector exposes a typed selection result whose bundle identity
-  is authoritative for downstream calls.
-- The projection route used is visible in lowered output: native projection,
-  certified adapter, or private context, never an unlabeled script.
-- The published bundle path is `StateLayout`-allocated with source-map and
-  Semantic IR provenance.
-- A downstream work-item fixture consumes the selection result without reading
-  legacy pointer files or re-running publication glue.
-- If the certified-adapter bridge is used, the certification record includes
-  the native-projection replacement route.
+Classify every retained helper first by behavior:
 
-## 18. Tranche 8: Canonical `resume-or-start` Validation
+- pure typed projection;
+- structured validator;
+- provider-output protocol bridge;
+- variant selection;
+- assertion gate;
+- resume-state reuse;
+- resource transition;
+- ledger update;
+- outcome finalization;
+- report parsing;
+- pointer materialization; or
+- external tool invocation.
+
+Then classify the replacement route:
+
+- native typed Workflow Lisp;
+- existing DSL surface;
+- certified adapter;
+- runtime-native transition;
+- legacy compatibility adapter; or
+- migration debt to replace.
+
+### 17.3 Certified adapter declaration surface
+
+High-level `.orc` should call named adapters with typed fields rather than raw
+argv assembly. The exact syntax may be manifest-based or `.orc`-based, but the
+declaration must contain at least:
+
+```text
+name
+stable command path
+typed input signature
+typed output signature
+declared effects
+artifact contracts
+state/resource writes
+path-safety expectations
+exit-code and error taxonomy
+fixture tests
+negative tests
+source-map behavior
+owner module
+replacement path, if temporary
+```
+
+Illustrative non-normative shape:
+
+```lisp
+(defadapter publish-selection-bundle
+  :class typed-projection
+  :command workflows/library/scripts/publish_lisp_frontend_selection_bundle.py
+  :inputs  (decision SelectionDecision provider_bundle ProviderBundleRef)
+  :outputs (bundle SelectionBundle)
+  :effects (materializes selection_bundle_path))
+```
+
+Raw `:argv` remains available as a low-level command boundary, but new
+high-level `.orc` libraries must not use raw argv to hide semantic workflow
+transitions.
+
+### 17.4 Resource-transition ownership
+
+Run-state completion, blocked recovery recording, prerequisite edge
+reconciliation, selected-item terminal classification, retry state, and drain
+terminal updates are resource transitions. The target model is:
+
+```text
+resource state version + typed transition request
+-> validated transition effect
+-> new resource state version + typed transition result
+```
+
+A resource transition must declare:
+
+- resource kind and identity;
+- input version or snapshot identity;
+- transition name;
+- typed request payload;
+- typed result union;
+- atomicity/idempotency expectations;
+- resume/retry behavior;
+- conflict behavior;
+- emitted artifacts or views;
+- source-map provenance; and
+- audit/ledger representation.
+
+Certified adapters may implement resource transitions during migration, but
+recurring transitions with atomic multi-file/resource semantics should move
+toward runtime-native effects.
+
+### 17.5 Tasks
+
+- Inventory helper scripts used by the migration family.
+- Classify each helper by behavior and replacement route.
+- Add certified adapter declarations for retained helpers.
+- Add typed adapter call ergonomics for `.orc` authors.
+- Define `resource-transition` effect summary and Semantic IR projection.
+- Define negative lint behavior for new `.orc` hidden semantic glue.
+- Add fixtures for state mutation, path safety, error taxonomy, idempotency,
+  and resume conflict handling.
+- Promote only repeated/fundamental transitions to runtime-native effects.
+
+### 17.6 Acceptance
+
+- Every retained migration-family helper has a recorded classification with a
+  replacement route where applicable.
+- New high-level `.orc` rejects hidden semantic glue unless it is behind a
+  certified adapter or accepted temporary bridge.
+- Strict migration CI rejects hidden glue unless allowlisted with owner,
+  replacement, and expiry.
+- Adapter invocations expose typed inputs, typed outputs, effects, path-safety
+  rules, and source maps.
+- A declared adapter with a wrong-typed field fails at compile/typecheck, not
+  at runtime argv assembly.
+- Resource transitions are visible to shared validation, Semantic IR, parity
+  evidence, and run-state audit views.
+- Parent workflows no longer rely on unclassified scripts for completion,
+  blocked recovery, prerequisite reconciliation, or terminal drain state.
+
+### 17.7 Normative spec deltas
+
+Update `docs/design/workflow_command_adapter_contract.md` with the typed
+adapter declaration/call surface once accepted. Update state/runtime design
+text for any runtime-native resource-transition effect that leaves adapter
+status.
+
+## 18. Tranche 7: Work-Item And Parent Backlog-Drain Composition
 
 ### 18.1 Contract
 
-`resume-or-start` must become a typed reusable-state validation surface, not a
-prettier recovery gate over ad hoc files or report text.
+The parent drain is not a loop over script paths. It is a typed workflow over
+resources, selections, work items, design gaps, prerequisite edges, blocked
+recovery, retry, terminal block, and bounded exhaustion.
 
-It validates prior reusable state, normalizes resumed and fresh branches to the
-same return type, and exposes explicit recoverable outcomes when prior state is
-stale, missing, incompatible, or unsupported.
+A parent-callable `.orc` family must expose typed public inputs and outputs
+while carrying private runtime context, resource state, selection state,
+recovery state, and generated paths internally.
 
-### 18.2 Acceptance
-
-- Reusable approved prior result resumes without rerunning fresh work.
-- Stale input hash routes through typed stale-state handling.
-- Missing artifact routes through typed missing-state handling.
-- Schema mismatch routes through typed incompatible-state handling.
-- Unsupported version routes through typed unsupported-state handling.
-- Fresh branch normalizes to the same result type as resumed branch.
-- Resume decisions are based on state/artifact contracts, not report parsing or
-  pointer-file authority.
-
-## 19. Tranche 9: Parent-Callable Workflow-Family Composition
-
-### 19.1 Contract
-
-The parent drain is not just a loop over work items (F9). It owns: normal
-selection; prerequisite selection; design-gap drafting; selected work-item
-execution; blocked implementation recovery; recovered-gap retry;
-run-state/resource updates; bounded exhaustion; and resume/recovery
-reconciliation.
-
-Writing a parent `.orc` before the P0 tranches land would either call
-incomplete surfaces or hide semantics in adapters, recreating YAML-shaped
-Lisp. The design-delta migration correctly stopped before the parent drain;
-the blocker record at
+The design-delta migration correctly stopped before the parent drain; the
+blocker record at
 `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
 remains in force until this tranche's prerequisites pass.
 
-The principled sequence is:
+### 18.2 Parent-callable phase surfaces
 
-1. Land Tranches 1-7 so the leaf modules become parent-callable: one complete
-   implementation phase (Tranche 1), clean result translation (Tranche 2),
-   composable stdlib loops (Tranches 3-4), private context (Tranche 5),
-   certified state transitions (Tranche 6), and authoritative selection
-   projection (Tranche 7).
-2. Then introduce or harden a `backlog-drain`-shaped typed abstraction that
-   owns selection, running, gap drafting, recovery, retry, terminal block, and
-   bounded exhaustion. The parent drain is a typed loop with an accumulator
-   and an explicit terminal result union, not a wrapper around YAML state
-   files.
-3. Only then assemble the parent `.orc` and compute family parity.
+Before a parent `.orc` drain can be promoted, each child phase must be
+parent-callable:
 
-`backlog-drain` follows the stdlib lowering rule: ordinary imported/std `.orc`
-built on the generic composition substrate, with compile-time ProcRef hooks
-for the family-specific phases, no compiler-name special casing, and full
-effect/source-map/state-layout visibility.
+- public inputs match the intended YAML/user boundary;
+- private context is hidden and runtime-owned;
+- generated write roots are hidden and allocator-owned;
+- child terminal results are typed unions;
+- artifact and state effects are declared;
+- resource transitions are visible;
+- retry/resume identity is stable; and
+- source-map/Semantic IR provenance is complete.
 
-### 19.2 Parity Evidence Labeling
+### 18.3 Backlog-drain typed model
 
-Leaf compile success must never be mistakable for family parity (F11):
+The target parent model is a typed loop with an accumulator and terminal
+union, not a wrapper around YAML state files.
 
-- every migration record labels each candidate as `leaf candidate`,
-  `parent-callable candidate`, or `family candidate`;
-- leaf compile evidence is necessary but insufficient; parent-callable
-  behavior must be proven by fixtures that call the candidate from a parent
-  context;
-- output, terminal-state, artifact, resume/reuse, and recovery parity are
-  machine-computed, never asserted;
-- `--require-non-regressive` does not pass for a family target on leaf-only
-  evidence; and
-- `--require-promotable` fails until the full family is callable and
-  non-regressive.
+Representative shape:
 
-### 19.3 Acceptance
+```text
+DrainState
+-> select next resource or prerequisite/gap/recovery action
+-> match selection:
+     SELECTED_ITEM     -> run work-item phase -> resource transition -> recur
+     DESIGN_GAP        -> draft/validate design gap -> resource transition -> recur
+     PREREQUISITE      -> reconcile prerequisite edge -> resource transition -> recur
+     BLOCKED_RECOVERY  -> run recovery route -> retry or terminal block
+     EMPTY             -> completed terminal result
+     EXHAUSTED         -> exhausted terminal result
+```
 
-- A `backlog-drain` fixture drives selection, work-item execution, blocked
-  recovery, retry, and bounded exhaustion as a typed loop with an explicit
-  terminal result union.
-- The parent drain `.orc` calls the implementation phase, work item, selector,
-  and architect as single parent-callable workflows, not split leaves.
-- No parent-drain semantics live in uncertified command glue or YAML state
-  files.
-- Run-state and recovery transitions on the drain path go through Tranche 6
-  surfaces.
-- Family parity evidence carries explicit candidate labels, and a family
-  target with leaf-only evidence fails `--require-non-regressive`.
-- The full family parity report computes `non_regressive=true` before any
-  primary-surface decision, and `--require-promotable` passes before any
-  YAML-primary replacement.
+This may become an imported/std `.orc` abstraction such as `backlog-drain`,
+but it must be built from ordinary `.orc` composition, typed resource
+transitions, and certified/runtime effects rather than a compiler-special
+drain lowerer.
 
-## 20. Tranche 10: Focused Adapter Lint Inventory
+### 18.4 Tasks
 
-### 20.1 Contract
+- Define typed `DrainState`, `WorkItemState`, `SelectionResult`,
+  `RecoveryResult`, and `DrainTerminalResult` contracts.
+- Define parent-callable readiness checks for each phase candidate.
+- Replace split-leaf boundaries with single parent-callable phase workflows as
+  nested composition permits.
+- Define resource-transition calls for selection, completion, blocked
+  recovery, prerequisite reconciliation, retry, and terminal finalization.
+- Define how `DrainCtx`, `ItemCtx`, `SelectionCtx`, and `RecoveryCtx` are
+  derived and passed privately.
+- Add fixtures for normal completion, prerequisite selection, design-gap
+  drafting, blocked recovery, recovered-gap retry, terminal blocked, and
+  bounded exhaustion.
+- Add parity evidence roles for parent-callability and resource-transition
+  parity.
 
-Adapter linting should be staged. New `.orc` and strict migration CI should
-fail on hidden semantic glue. Legacy YAML should first receive inventory,
-classification, and allowlist metadata rather than broad hard errors.
+### 18.5 Acceptance
 
-### 20.2 Acceptance
+- The implementation phase can be expressed as one parent-callable workflow
+  rather than split leaves.
+- A work-item workflow can call plan, implementation, selector/architect, and
+  recovery phases without public generated context/state inputs.
+- A parent drain can execute at least one normal selected item path and one
+  blocked/recovery path in typed `.orc` without hiding semantics in
+  unclassified adapters.
+- Drain terminal results are typed and parity-comparable.
+- Resource transitions and ledger updates are declared and visible.
+- Strict parity evidence distinguishes parent-callable success from family
+  non-regression.
 
-- Inventory covers inline Python, inline shell, heredocs, nested subprocesses,
-  pointer reads/writes, markdown report parsing, stdout scraping, and manual
-  JSON rewrites.
-- Each occurrence is classified by behavior class and replacement route,
-  consistent with the Tranche 6 classification of drain-family helpers.
-- New `.orc` rejects hidden semantic glue unless it is behind a certified
-  adapter or explicitly accepted temporary bridge.
-- Strict migration CI rejects hidden glue unless allowlisted with owner,
-  replacement, and expiry.
+## 19. Tranche 8: Canonical Resume/Reuse Validation And Migration Evidence
 
-## 21. Deferred Work
+### 19.1 Contract
 
-### 21.1 Runtime Closures
+`resume-or-start` must be a typed reusable-state validation surface, not a
+prettier recovery gate over ad hoc files or report text. It validates prior
+reusable state, normalizes resumed and fresh branches to the same return type,
+and exposes explicit recoverable outcomes when prior state is stale, missing,
+incompatible, unsupported, failed, or blocked.
+
+Migration evidence must distinguish:
+
+- leaf compile success;
+- leaf runtime evidence;
+- parent-callable evidence;
+- family non-regression evidence; and
+- promotion eligibility.
+
+### 19.2 Resume/reuse validation
+
+A reusable state record must include:
+
+- schema version;
+- workflow/procedure identity;
+- input digest or typed input identity;
+- private context allocation identity where relevant;
+- terminal variant;
+- referenced artifact contracts;
+- resource-transition version references where relevant;
+- source-map/provenance reference;
+- creation/update time as evidence, not semantic identity; and
+- compatibility labels when old state layouts are bridged.
+
+Failure taxonomy:
+
+| Case | Required behavior |
+| --- | --- |
+| reusable approved prior result | resume without rerunning fresh work |
+| stale input hash | typed stale-state branch or fresh rerun according to contract |
+| missing artifact | typed missing-artifact branch or fresh rerun according to contract |
+| schema mismatch | typed incompatible-state branch |
+| unsupported version | typed unsupported-version branch |
+| prior failed/blocked terminal | typed non-reusable branch unless explicitly accepted |
+| private context identity mismatch | typed context-mismatch branch |
+| resource version conflict | typed conflict branch or declared retry |
+
+Resume decisions must be based on state/artifact/resource contracts, not
+report parsing or pointer-file authority.
+
+### 19.3 Migration evidence roles
+
+A promotable family target must carry evidence for:
+
+- compile;
+- typecheck;
+- lowering;
+- shared validation;
+- dry-run or fake-provider smoke;
+- real smoke where safe and required;
+- output contract parity;
+- terminal state parity;
+- artifact parity;
+- source-map and generated-path provenance;
+- public/private boundary parity;
+- nested structured-control parity for parent-callable phases;
+- review/revise loop parity;
+- selector/projection parity;
+- resource-transition parity;
+- resume/reuse parity;
+- deprecated-mechanic replacement or accepted waiver; and
+- strict `migration-parity` computation.
+
+### 19.4 Tasks
+
+- Canonicalize reusable-state schema and failure taxonomy.
+- Add resume fixtures for approved, stale, missing, incompatible, unsupported,
+  failed/blocked, context mismatch, and resource conflict cases.
+- Add parent-callable readiness fields to target manifests or parity reports.
+- Ensure `--require-non-regressive` cannot pass with stale or incomplete
+  parent-callable evidence for selected family targets.
+- Ensure `--require-promotable` fails for leaf-only evidence even when leaves
+  compile and smoke individually.
+- Add report/index labels for leaf, parent-callable, family non-regressive,
+  and promotion-eligible states.
+
+### 19.5 Acceptance
+
+- Reusable approved prior result resumes without rerunning fresh work.
+- Fresh and resumed branches normalize to the same result type.
+- Resume decisions do not parse reports, pointer files, or markdown as
+  authority.
+- Parent-callable parity evidence is required for family non-regression.
+- Leaf compile evidence is displayed as useful progress but is insufficient
+  for `--require-promotable`.
+- A real workflow-family `.orc` parity report computes `non_regressive=true`
+  only when required parent-callable evidence is complete.
+- Any YAML-primary replacement passes `--require-promotable`.
+
+## 20. Design Details
+
+### 20.1 Nested control graph contract
+
+A composition-normalized graph node should include:
+
+```text
+node_id
+source_span
+source_frame_stack
+scope_id
+node_kind
+input_refs
+output_refs
+proof_requirements
+proof_outputs
+effect_summary
+allocation_requests
+runtime_projection_hints
+```
+
+Control nodes additionally include:
+
+```text
+control_kind: match | loop | repeat_until | call | projection
+child_scopes
+entry_proofs
+exit_projection
+resume_identity
+```
+
+The graph is not semantic authority after projection. It is an intermediate
+representation that ensures ordinary lowering and shared validation receive
+explicit scope, proof, effect, and allocation data.
+
+### 20.2 Variant proof contract
+
+A variant proof is valid only inside the branch or projected value that
+produced it. Proof identity includes:
+
+```text
+source_union_type
+source_variant
+producer_ref
+scope_id
+proof_path
+```
+
+A target union return carries its own returned variant identity. Source proof
+may justify field access, but not target variant selection unless the target
+expression is itself the source value and the types match.
+
+### 20.3 Private context contract
+
+Private executable context authority layers:
+
+```text
+runtime execution context
+-> StateLayout semantic context request
+-> PrivateExecCtx value
+-> hidden internal call binding
+-> executable contract
+-> source-map / Semantic IR projection
+```
+
+Authority rules:
+
+- runtime execution context owns run identity;
+- `StateLayout` owns context-derived path namespaces;
+- executable IR owns hidden internal bindings;
+- source maps and Semantic IR explain generated values;
+- public boundary projection must not turn private values into authored
+  inputs; and
+- compatibility bridge values are migration views unless explicitly contracted
+  as public inputs.
+
+### 20.4 Projection contract
+
+A typed projection has:
+
+```text
+projection_id
+projection_class
+input_contracts
+output_contract
+path_allocation, when materialized
+authority_class: semantic_state | materialized_view | public_artifact | compatibility_view
+effect_summary
+source_map_entries
+negative_validation_cases
+```
+
+Projection classes initially include:
+
+- `variant_field_projection`;
+- `selection_bundle_projection`;
+- `materialized_value_view`;
+- `compatibility_pointer_view`;
+- `report_view_projection`; and
+- `resource_snapshot_view`.
+
+### 20.5 Certified adapter contract
+
+Certified adapters must use the structured command-output authority from the
+foundation. Stdout may be debug output; it is not semantic authority for
+structured results. Adapter declarations must be source-mapped and must expose
+effects to shared validation and Semantic IR.
+
+Required failure behavior:
+
+| Case | Result |
+| --- | --- |
+| adapter writes undeclared bundle | output-contract failure |
+| adapter writes valid stdout but missing bundle | output-contract failure |
+| adapter mutates undeclared state/resource | adapter contract failure |
+| adapter reads pointer/report as authority without certification | lint/error in new `.orc` |
+| adapter path escapes allowed root | path-safety failure before launch |
+| adapter returns undeclared exit code | adapter error taxonomy failure |
+
+### 20.6 Resource-transition contract
+
+A resource transition is authoritative only after the runtime or certified
+adapter validates:
+
+- input resource version;
+- transition preconditions;
+- typed transition payload;
+- conflict/idempotency policy;
+- output state/version;
+- declared artifacts/views;
+- audit/ledger entry; and
+- source-map provenance.
+
+Reports and ledgers are views over transition state unless explicitly accepted
+as transition authority.
+
+### 20.7 Parent-callability contract
+
+A workflow is parent-callable when:
+
+- its public inputs are stable and parity-comparable;
+- all internal context/state roots are private or explicit compatibility
+  bridge values;
+- its outputs are typed and terminal-state comparable;
+- child effects are declared;
+- resource transitions are visible;
+- resume identity is stable;
+- source maps and Semantic IR explain generated internals; and
+- parity tooling can compare its behavior as a child of the parent, not only
+  as an isolated leaf.
+
+## 21. Contracts And Interfaces
+
+### 21.1 Workflow Lisp frontend
+
+- Produces composition-normalized structured control graph for nested
+  effectful expressions.
+- Emits scope-aware proof and effect metadata before shared validation.
+- Normalizes union returns from returned variants, not matched source cases.
+- Emits variant-scoped output identities.
+- Expands imported/std `.orc` through ordinary
+  import/specialization/typecheck/lowering.
+- Recognizes imported capability/shape contracts structurally with provenance,
+  never by short local names.
+- Keeps `ProcRef`, provider refs, prompt refs, and type parameters
+  compile-time-only.
+- Emits private executable context bootstrap requests at promoted entry
+  boundaries.
+- Emits source maps for generated contexts, scopes, branches, loops, paths,
+  projections, adapters, resources, and stdlib bodies.
+
+### 21.2 Shared validation
+
+- Validates scoped refs according to branch/call/loop dominance.
+- Validates effect summaries for provider, command, workflow, projection,
+  adapter, resource, state, and artifact effects.
+- Validates variant-scoped output identities without global field-name
+  collisions.
+- Separates public boundary validation from executable/private binding
+  validation.
+- Rejects hidden semantic glue in new high-level `.orc` unless certified or
+  allowlisted.
+
+### 21.3 Runtime/executable
+
+- Consumes `StateLayout` allocation metadata rather than synthesizing
+  generated paths independently.
+- Creates private executable context at entrypoints.
+- Binds hidden context values to reusable calls.
+- Preserves provider/command structured-output authority from the foundation.
+- Executes typed projections and certified adapters according to declared
+  contracts.
+- Executes or delegates resource transitions with version/conflict semantics.
+- Persists resume state by semantic identity, call frame, loop frame, and
+  private context identity.
+
+### 21.4 StateLayout / PathAllocator
+
+- Owns context-derived namespaces for `RunCtx`, `PhaseCtx`, `ItemCtx`,
+  `DrainCtx`, `SelectionCtx`, and `RecoveryCtx`.
+- Allocates generated bundle paths, projection views, reusable call write
+  roots, entrypoint managed write roots, and compatibility views.
+- Provides run-isolated private generated paths by default.
+- Provides resume-stable allocation identity for the same run/call-frame/loop
+  identity.
+- Emits metadata consumed by runtime/executable, workflow boundary projection,
+  source maps, and Semantic IR.
+
+### 21.5 Adapter registry
+
+- Stores certified adapter declarations.
+- Records behavior class, effect class, owner, replacement path, and expiry
+  for temporary bridges.
+- Provides typed signatures to compiler/shared validation.
+- Provides fixture and negative-fixture metadata for migration evidence.
+- Rejects inline heredoc/raw shell/Python semantic glue in new high-level
+  `.orc`.
+
+### 21.6 Migration parity CLI
+
+- Keeps `migration-parity` as machine-readable promotion evidence.
+- Computes `non_regressive` from evidence; manifests and hand-authored reports
+  cannot assert it.
+- Adds parent-callable readiness labels and evidence roles.
+- Requires valid, complete, current, parent-callable family evidence for
+  `--require-non-regressive` where a family target is selected.
+- Requires `eligible_for_primary_surface=true` for `--require-promotable`.
+
+## 22. Dependencies And Sequencing
+
+Tranche 0 must land first because stale inventory can cause reimplementation
+of completed stdlib/foundation routes or premature parent-wrapper work.
+
+Tranche 1 must land before the implementation phase, work item, or parent
+drain can be represented as natural single `.orc` workflows. It is the most
+important composition blocker.
+
+Tranche 2 can land in parallel with Tranche 1 once branch proof metadata is
+available. Union normalization and variant-scoped field identity reduce
+authoring workarounds and make domain types independent from control-state
+internals.
+
+Tranche 3 should land before promoted wrapper parity, because public generated
+state roots and synthetic context inputs are not acceptable evidence.
+
+Tranche 4 depends on Tranche 1 for rich composition. It should not rebuild
+existing stdlib routes; it should harden them under nested branches and
+parent-callable contexts.
+
+Tranche 5 can begin after foundation value transport and StateLayout are
+stable. Selector publication may initially use certified adapter bridges, but
+the target is typed projection.
+
+Tranche 6 can begin as an inventory immediately, but enforcement for new
+high-level `.orc` should become strict only after certified declaration
+mechanics are available.
+
+Tranche 7 should wait for at least the P0 portions of Tranches 1, 3, 5, and 6.
+A parent drain written before then would likely recreate YAML-shaped Lisp.
+
+Tranche 8 can proceed in parallel for report schema/readiness labels, but
+promotable family evidence must wait for parent-callable workflows.
+
+Work that can proceed in parallel:
+
+- source/test inventory for current stdlib and design delta leaves;
+- failing nested-control fixtures;
+- union normalization and variant-field negative fixtures;
+- adapter/helper classification inventory;
+- projection contract sketches for selector bundle publication;
+- parity-report label/schema updates; and
+- drafting-guide documentation for temporary limitations (nested structured
+  control, variant field naming, and `state/` path boundaries) while they
+  remain unfixed.
+
+## 23. Deferred Work
+
+### 23.1 Runtime closures
 
 Runtime closures remain deferred. The practical composition route is
 compile-time `ProcRef`, `bind-proc`, `let-proc` where accepted, and
@@ -1072,340 +1712,454 @@ specialization before runtime artifacts are produced.
 Do not use runtime closures to work around missing effectful composition,
 nested structured control, stdlib expansion, or ProcRef specialization.
 
-### 21.2 Broad Legacy YAML Lint Enforcement
+### 23.2 Broad legacy YAML lint enforcement
 
-Do not hard-error all legacy YAML inline glue as part of this tranche. Legacy
-workflows may remain warning/allowlist surfaces until selected for migration or
-strict CI.
+Do not hard-error all legacy YAML inline glue as part of this target. Legacy
+workflows may remain warning/allowlist surfaces until selected for migration
+or strict CI. New high-level `.orc` enforcement is in scope (Tranche 6);
+legacy-wide hard errors are not.
 
-### 21.3 `orchestrate explain`
+### 23.3 `orchestrate explain`
 
 `orchestrate explain` is valuable, but it should follow stable source maps,
-Semantic IR layout entries, effect summaries, proof scopes, and path allocation
-records. Until then, it risks becoming a brittle report generator over moving
-internals.
+Semantic IR layout entries, effect summaries, proof scopes, and path
+allocation records. Until then, it risks becoming a brittle report generator
+over moving internals.
 
-## 22. Evidence And Implementation Boundaries
+## 24. Work Blocked Until This Target Lands
 
-### 22.1 Required Evidence
+- Parent `.orc` drain implementation as a promotion candidate.
+- YAML-primary replacement for the Design Delta Drain family.
+- Treating split implementation leaves as parent-callable
+  implementation-phase parity.
+- Treating selector decision leaves as selector parity without bundle
+  publication authority.
+- Treating raw argv adapter calls as acceptable high-level `.orc` workflow
+  semantics.
+- Treating public state roots or synthetic `PhaseCtx` defaults as promoted
+  boundary parity.
+- Treating leaf compile success as `--require-promotable` evidence.
+- Promoted `review-revise-loop` route that depends on a compiler branch keyed
+  to the literal stdlib name.
 
-Nested structured control follows this design only if the implementation-phase
-acceptance fixture passes compile/typecheck, shared validation, source-map and
-Semantic IR evidence, and dry-run or fake-provider smoke as one workflow.
-Splitting the fixture into leaves is not evidence.
+## 25. Evidence And Implementation Boundaries
 
-Typed result translation follows this design only if the three cross-union
-mappings in Section 12 lower and validate; renaming variants to match is not
-evidence.
+### 25.1 Required evidence
 
-The private context bridge follows this design only if public-boundary
-inspection proves generated roots are hidden and resume reconstructs the same
-private paths. A lint waiver that re-admits raw `state/` inputs is not
-evidence.
+Nested structured control follows this design only if nested `match`, nested
+`repeat_until`/`loop`, and stdlib calls inside branches compile, lower,
+validate, source-map, and smoke without split-leaf workarounds.
 
-Adapter and state-transition work follows this design only if every retained
-drain-family helper has a recorded classification and the migration path's
-state transitions go through typed effects or certified adapters. A
-compileable `command-result` wrapper is not evidence.
+Union normalization follows this design only if branch return normalization
+derives the target variant from the returned expression and variant-scoped
+output fields can reuse logical names across variants. The documented
+restriction plus diagnostic is interim mitigation, not evidence.
 
-Family composition follows this design only if the parent drain is a typed
-loop over parent-callable workflows with machine-computed family parity.
-Parent wrappers over YAML state files are not evidence.
+Private context follows this design only if promoted public boundaries hide
+generated state/write-root/context inputs while executable/runtime contracts
+still receive the required private bindings, and resume reconstructs the same
+private paths.
 
-### 22.2 Prohibited Evidence
+Imported/std reuse follows this design only if promoted fixtures pass through
+ordinary import/specialization/typecheck/lowering without compiler-name
+special casing and without runtime ref leakage.
 
-The following do not prove this design:
+Typed projection follows this design only if materialized bundles/views are
+generated from validated typed state with declared authority class, source
+maps, and StateLayout allocation.
 
+Certified adapters follow this design only if adapter declarations provide
+typed input/output/effect contracts, positive and negative fixtures,
+path-safety rules, and source-map behavior, and every retained family helper
+has a recorded classification.
+
+Resource transitions follow this design only if run-state/resource updates
+have declared version/conflict/idempotency semantics and are visible in shared
+validation, Semantic IR, and parity evidence.
+
+Promotion follows this design only if parent-callable family evidence is
+valid, complete, current, and machine-computed.
+
+### 25.2 Prohibited evidence
+
+The following do not prove this target:
+
+- a parent `.orc` wrapper that calls YAML-shaped scripts for core
+  state/recovery semantics;
+- a split implementation phase leaf pair used as proof of complete
+  implementation-phase parity;
+- a stdlib review loop that only works at top level;
+- a compiler-specific review-loop lowering branch used by promoted fixtures;
 - a nested-control fixture that only typechecks but is rejected by shared
   validation;
-- leaves recomposed by a YAML parent while the `.orc` parent remains blocked,
-  presented as family parity;
-- a compatibility-shaped union whose variant names were chosen to avoid the
-  union-translation defect;
-- variant fields renamed to globally unique names presented as variant-scoped
-  identity;
-- a synthetic top-level `PhaseCtx` or `state_root` input presented as context
-  bootstrap;
+- branch-local generated refs accepted only because shared validation missed
+  the scope error;
+- union result types renamed to match inner control variants solely to satisfy
+  lowering;
+- verbose variant-specific field names used as evidence that repeated logical
+  field names are supported;
+- a drafting-guide restriction note plus compile-time diagnostic presented as
+  variant-scoped identity completion;
+- public `state_root`, `manifest_path`, `progress_ledger_path`, or
+  `__write_root__...` inputs in a promoted `.orc` boundary;
+- a synthetic top-level `PhaseCtx` input presented as context bootstrap;
 - legacy `state/` paths exposed as public `.orc` inputs under a lint waiver;
-- an uncertified helper script wrapped in `command-result` presented as a
-  certified adapter;
-- raw argv assembly in high-level `.orc` presented as an adapter call surface;
-- a publication script whose output path is consumed via pointer files rather
-  than typed projection or private context;
-- a leaf-only parity report passing a family-level gate; or
-- a hand-labeled "parent-callable" claim without fixtures that call the
-  candidate from a parent context.
+- a selector bundle path written by an uncertified script and then treated as
+  semantic authority;
+- a resource update hidden inside inline Python, shell, or an unclassified
+  helper;
+- a pointer file, report, stdout payload, or debug YAML projection treated as
+  semantic state;
+- hand-authored `non_regressive`; or
+- a migration report without parent-callable evidence used to pass
+  `--require-promotable`.
 
-## 23. Verification Strategy
+## 26. Compatibility And Migration
 
-Current-state inventory tests:
+Existing YAML and `.orc` workflows remain valid. Existing split leaves may
+remain as compile candidates and diagnostic fixtures. They should be labeled
+as leaf candidates, not family parity.
 
-- verify `std/phase.orc` exports the current review/revise stdlib entrypoints;
-- verify any claimed implemented route has focused compile/typecheck/lowering
-  evidence before a new gap tries to rebuild it;
-- verify design-index/status entries do not describe completed foundation work
-  as future work;
-- verify run-state or parity evidence backs any `implemented` status claim; and
-- verify the design-delta findings rows in Section 5 still describe current
-  behavior before selecting tranche work.
+Existing verbose variant-specific field names remain valid. They become
+compatibility style once variant-scoped field identity is implemented. While
+that gap remains open, the drafting guide must document the restriction and
+the required naming style; that documentation is a migration note, not target
+completion.
 
-Nested structured-control tests:
+Existing helper scripts may remain during migration if they are classified
+and, when semantically meaningful, certified or allowlisted with owner,
+replacement path, and expiry. New high-level `.orc` libraries must not
+introduce hidden semantic glue.
 
-- implementation-phase acceptance fixture (Section 11.4) end to end;
-- `match` nested in a `match` branch;
-- `repeat_until` nested in a `match` branch;
-- `review-revise-loop` invoked in a `match` branch;
-- nested structured control inside a reusable procedure invoked from a branch;
-- branch-scope step ID collision fixtures across repeated branches and loop
-  iterations;
-- resume identity stability for branch-scoped generated steps;
-- unsupported nested composition negative fixtures with pre-lowering
+Existing public YAML state paths may remain public YAML inputs where YAML
+already exposes them. A promoted high-level `.orc` wrapper must not expose
+them as ordinary authored inputs unless parity explicitly says the user-facing
+YAML boundary exposed them.
+
+Existing prompt/report outputs remain useful views. They must not be promoted
+to semantic authority.
+
+Existing parity reports remain historical. Strict gates may reject old reports
+that lack parent-callable readiness fields, source-map evidence,
+resource-transition parity, or current freshness comparators.
+
+## 27. Verification Strategy
+
+### 27.1 Inventory tests
+
+- Verify `std/phase.orc` exports current review/revise stdlib entrypoints.
+- Verify any claimed implemented route has focused compile/typecheck/lowering
+  evidence before a new gap tries to rebuild it.
+- Verify Design Delta Drain leaf candidates are labeled leaf candidates, not
+  parent-callable parity.
+- Verify design-index/status entries do not describe completed foundation work
+  as future work.
+- Verify run-state or parity evidence backs any `implemented` status claim.
+
+### 27.2 Nested structured-control tests
+
+- Effectful `let*` with provider and command results.
+- Effectful `match` branch containing provider and command results.
+- `review-revise-loop` inside the `COMPLETED` branch of
+  `ImplementationAttempt`.
+- Nested `loop/recur` or `repeat_until` under a `match` branch.
+- Same-file call using locally constructed records.
+- Imported procedure containing provider/command effects under a branch.
+- Branch-scope step ID collision fixtures across repeated branches and loop
+  iterations.
+- Resume identity stability for branch-scoped generated steps.
+- Branch-local ref leakage negative fixture.
+- Missing branch projection negative fixture.
+- Unsupported nested shape diagnostic fixture.
+- Source-map and Semantic IR generated path fixture.
+
+### 27.3 Union and variant-output tests
+
+- `ReviewLoopResult.APPROVED -> ImplementationPhaseResult.COMPLETED`.
+- `ReviewLoopResult.EXHAUSTED -> ImplementationPhaseResult.REVIEW_EXHAUSTED`.
+- `ImplementationAttempt.BLOCKED -> ImplementationPhaseResult.BLOCKED`.
+- Cross-union mapping never raises `KeyError`; rejections are typed
   diagnostics.
+- Ambiguous returned union variant diagnostic.
+- Incompatible target union diagnostic.
+- Repeated logical field names across variants: `APPROVED.plan_path`,
+  `BLOCKED.plan_path`, `EXHAUSTED.plan_path`.
+- Variant-scoped artifact/json-pointer identity.
+- Source-map and Semantic IR entries for variant-scoped fields.
 
-Typed result translation tests:
+### 27.4 Private context tests
 
-- `ReviewLoopResult.APPROVED -> ImplementationPhaseResult.COMPLETED`;
-- `ReviewLoopResult.EXHAUSTED -> ImplementationPhaseResult.REVIEW_EXHAUSTED`;
-- `ImplementationAttempt.BLOCKED -> ImplementationPhaseResult.BLOCKED`;
-- cross-union mapping never raises `KeyError`; rejections are typed
-  diagnostics;
-- same logical field name in two variants with distinct lowered identities, or
-  the documented-restriction compile-time diagnostic.
-
-Generic effectful composition tests:
-
-- effectful `let*` with provider and command results;
-- effectful `match` branch normalization with variant proof;
-- same-file call using locally constructed records;
-- reusable procedure containing provider/command effects;
-- unsupported composition negative fixtures.
-
-Imported/std `.orc` tests:
-
-- tiny imported helper;
-- imported helper with visible provider/command effects;
-- imported helper with match proof;
-- imported helper with loop state and source-map provenance;
-- imported helper invoked from a branch scope;
-- imported phase-context record validated structurally across module
-  boundaries (F1 regression);
-- denylist test for promoted stdlib-name compiler special casing.
-
-Review/revise tests:
-
-- APPROVE;
-- REVISE->APPROVE;
-- BLOCKED;
-- EXHAUSTED;
-- the same four outcomes with the loop nested in a `match` branch, a reusable
-  workflow call, and a parent module;
-- loop terminal variants translated to a differently named domain union;
-- findings validation;
-- evidence redirection negative case;
-- no runtime ProcRef/provider/prompt/type leak;
-- source-map provenance;
-- nested-invocation resume checkpoint identity.
-
-Private context bridge tests:
-
-- runtime-owned context hidden from public boundary for plan, selector,
-  architect, work-item, and parent candidates;
-- resume reconstructs identical private context paths;
-- source-map/Semantic IR provenance for generated context values;
+- Runtime-owned context hidden from public boundary for plan, selector,
+  architect, work-item, and parent candidates.
+- Synthetic top-level `PhaseCtx` input rejected as promotion evidence.
+- Hidden reusable-call binding satisfies internal context parameters.
+- Public defaults match YAML candidate.
+- Shared validation sees correct public/private split.
+- Resume reconstructs same private paths for same run/call/loop identity.
 - YAML interop wrapper passes legacy `state/` values privately with
-  migration-bridge labeling;
-- defaults match YAML candidate;
-- shared validation sees correct public/private split.
+  migration-bridge labeling.
+- Module-qualified imported context recognized by structural/capability
+  checks (F1 regression).
 
-Certified adapter and state-transition tests:
+### 27.5 Imported/std and review-loop tests
 
-- adapter declaration call with typed fields lowers to a certified command
-  boundary;
-- wrong-typed adapter field fails at compile/typecheck;
-- classification record exists for every retained drain-family helper;
-- run-state/recovery transition routes through a typed effect or certified
-  adapter;
-- negative fixture: raw argv assembly for a semantic helper at a high-level
-  boundary is rejected or flagged.
+- Tiny imported helper.
+- Imported helper with visible provider/command effects.
+- Imported helper with match proof.
+- Imported helper with loop state and source-map provenance.
+- Denylist test for promoted stdlib-name compiler special casing.
+- APPROVE.
+- REVISE->APPROVE.
+- BLOCKED.
+- EXHAUSTED.
+- Findings validation.
+- Evidence redirection negative case.
+- No runtime `ProcRef`/provider/prompt/type leak.
+- Review loop inside a branch.
+- Review loop inside a parent-callable phase.
+- Nested-invocation resume checkpoint identity.
 
-Typed projection tests:
+### 27.6 Projection tests
 
-- selector exposes typed selection result with authoritative bundle identity;
-- published bundle path is allocator-owned with provenance;
-- downstream work-item consumes the selection result without pointer-file
-  reads;
-- bridge-certified publication records its native replacement route.
+- Selector decision to selection bundle typed projection.
+- Projection path allocation through `StateLayout`.
+- Projection view not treated as semantic authority.
+- Missing input bundle.
+- Stale input.
+- Schema mismatch.
+- Path escape.
+- Certified projection adapter positive and negative fixtures.
+- Bridge-certified publication records its native replacement route.
+- Downstream consumption of typed selection state without pointer/report
+  authority.
 
-Resume-or-start tests:
+### 27.7 Adapter/resource-transition tests
 
-- reusable approved prior result;
-- stale input hash;
-- missing artifact;
-- schema mismatch;
-- unsupported version;
-- fresh/resumed branch normalization.
+- Adapter declaration schema validation.
+- Adapter typed input/output validation; wrong-typed field fails at
+  compile/typecheck.
+- Adapter output bundle authority.
+- Adapter path-safety failure before launch.
+- Adapter undeclared state/resource mutation negative fixture.
+- New `.orc` raw semantic argv lint failure.
+- Classification record exists for every retained migration-family helper.
+- Resource transition success.
+- Resource transition conflict.
+- Resource transition idempotent retry.
+- Resource transition resume/replay.
+- Resource transition audit/source-map evidence.
 
-Family composition and parity tests:
+### 27.8 Parent/backlog-drain tests
 
-- `backlog-drain` typed loop with accumulator and explicit terminal union;
-- parent drain calls single parent-callable phase/work-item workflows;
-- candidate labels (`leaf`, `parent-callable`, `family`) present in parity
-  evidence;
-- family target with leaf-only evidence fails `--require-non-regressive`;
-- recovery and run-state parity machine-computed.
+- Complete implementation phase as one parent-callable workflow.
+- Work-item workflow calls child phases with hidden private contexts.
+- Parent drain normal selected item path.
+- Parent drain prerequisite path.
+- Parent drain design-gap path.
+- Parent drain blocked recovery path.
+- Parent drain recovered-gap retry path.
+- Parent drain terminal blocked path.
+- Parent drain bounded exhaustion path.
+- Parent-callable parity report includes resource-transition evidence.
 
-Migration evidence:
+### 27.9 Resume and migration parity tests
 
-- compile;
-- shared validation;
-- dry-run or smoke;
-- output contract parity;
-- terminal state parity;
-- artifact parity;
-- resume/reuse parity;
-- recovery parity for the drain family;
-- deprecated-mechanic replacement or accepted waiver;
-- strict `migration-parity` report computes `non_regressive=true`; and
-- `--require-promotable` passes before any primary-surface replacement.
+- Reusable approved prior result.
+- Stale input hash.
+- Missing artifact.
+- Schema mismatch.
+- Unsupported version.
+- Failed/blocked prior terminal.
+- Private context mismatch.
+- Resource version conflict.
+- Fresh/resumed branch normalization.
+- Leaf-only evidence fails `--require-promotable`.
+- Parent-callable but regressive evidence fails `--require-non-regressive`.
+- Non-regressive but ineligible evidence passes non-regressive gate and fails
+  promotable gate.
+- Promotable family passes both gates.
 
-## 24. Declarative Acceptance Scenarios
+## 28. Declarative Acceptance Scenarios
 
-### 24.1 Nested Implementation Phase
+### 28.1 Nested implementation phase
 
-Initial state: an `.orc` implementation phase lowers
-`provider-result -> ImplementationAttempt`, matches on the attempt, runs
-`command-result` checks plus `review-revise-loop` in the `COMPLETED` branch,
-and returns a typed `ImplementationPhaseResult` from both branches.
+Initial state: an implementation phase executes a provider attempt that may
+return `COMPLETED` or `BLOCKED`.
 
-Entrypoint: compile, shared validation, and dry-run or fake-provider smoke.
+Entrypoint: compile, shared validation, and fake-provider smoke for a `.orc`
+workflow whose `COMPLETED` branch runs checks and then calls
+`review-revise-loop`.
 
-Expected result: one parent-callable workflow validates, with branch-scoped
-generated steps visible to shared validation, allocator-owned generated paths,
-and matching source-map and Semantic IR entries.
+Expected result: the workflow compiles as one parent-callable phase,
+branch-local refs validate by scope, review-loop steps run inside the
+completed branch, source maps identify nested generated steps, and terminal
+`ImplementationPhaseResult` is produced.
 
-Forbidden result: the phase must be split into `execute-implementation-attempt`
-and `review-completed-implementation` leaves to pass validation.
+Forbidden result: the phase must be split into execute/review leaves solely
+because nested structured control fails validation.
 
-### 24.2 Union Result Translation
+### 28.2 Union-to-union translation
 
-Initial state: the implementation phase maps `ReviewLoopResult.APPROVED` to
-`ImplementationPhaseResult.COMPLETED` and `ReviewLoopResult.EXHAUSTED` to
-`ImplementationPhaseResult.REVIEW_EXHAUSTED`.
+Initial state: `ReviewLoopResult.APPROVED` must become
+`ImplementationPhaseResult.COMPLETED`.
 
-Entrypoint: compile/typecheck and lowering.
+Entrypoint: compile and typecheck a `match` over `ReviewLoopResult` returning
+a different domain union.
 
-Expected result: the output variant comes from the returned variant
-expression; both mappings lower and validate.
+Expected result: lowering chooses the returned
+`ImplementationPhaseResult.COMPLETED` variant.
 
-Forbidden result: lowering raises `KeyError`, or the author renames domain
-variants to match inner loop states.
+Forbidden result: lowering looks up `APPROVED` in `ImplementationPhaseResult`
+or forces the outer domain union to reuse inner variant names.
 
-### 24.3 Private Context Wrapper
+### 28.3 Variant-scoped fields
 
-Initial state: a YAML-compatible `.orc` migration wrapper must call reusable
-phase workflows that need run/state/phase roots, while the legacy YAML caller
-still passes `state_root` and `run_state_path`.
+Initial state: a plan phase has `APPROVED.plan_path`, `BLOCKED.plan_path`, and
+`EXHAUSTED.plan_path`.
 
-Entrypoint: compile, public-boundary inspection, run, and resume.
+Entrypoint: compile, shared validation, and source-map inspection.
 
-Expected result: the wrapper's public boundary excludes all generated roots;
-legacy values enter through the labeled YAML interop bridge; resume
-reconstructs identical private paths; source maps and Semantic IR identify
-every bridged value.
+Expected result: authored field names remain `plan_path`, lowered identities
+are variant-scoped, and active variant validation requires only the active
+variant's fields.
 
-Forbidden result: `state_root` appears as an ordinary public `.orc` input, or
-a synthetic `PhaseCtx` input is added to satisfy the type checker.
+Forbidden result: authors must write `approved_plan_path`,
+`blocked_plan_path`, and `exhausted_plan_path` solely to avoid
+artifact/json-pointer collisions.
 
-### 24.4 Certified Selector Projection
+### 28.4 Private promoted entry context
 
-Initial state: the selector provider returns a typed selection decision; the
-parent drain needs an authoritative selection bundle identity.
+Initial state: a promoted `.orc` wrapper calls a reusable phase requiring
+`PhaseCtx`, while the legacy YAML caller still passes `state_root` and
+`run_state_path`.
 
-Entrypoint: compile and run of the selector plus a downstream work-item call.
+Entrypoint: compile, public-boundary inspection, dry-run, and resume.
 
-Expected result: the bundle identity comes from a native typed projection or
-an explicitly certified deterministic projection; the downstream call consumes
-the typed selection result.
+Expected result: public inputs exclude `phase-ctx`, run id, state roots,
+artifact roots, and generated write roots; hidden runtime bootstrap binds the
+internal call; legacy values enter through the labeled YAML interop bridge;
+resume reconstructs identical private paths; source maps and Semantic IR
+explain the private context.
 
-Forbidden result: the parent reads a pointer file written by an unclassified
-script to discover the bundle path.
+Forbidden result: a synthetic public `PhaseCtx` default or public `state_root`
+input is used as parity evidence.
 
-### 24.5 Family Parity Gate
+### 28.5 Selector typed projection
 
-Initial state: plan, implementation, selector, architect, and work-item
-candidates compile as leaves; the parent drain `.orc` does not yet exist.
+Initial state: a selector provider returns typed selection status and
+evidence.
+
+Entrypoint: run selector candidate and inspect downstream consumption.
+
+Expected result: typed projection materializes a selection bundle view or
+artifact from validated state, downstream consumes typed selection state, and
+source maps identify projection authority.
+
+Forbidden result: an uncertified publication script writes a pointer path and
+downstream treats it as semantic selection authority.
+
+### 28.6 Certified resource transition
+
+Initial state: a work item completes and run state must record the terminal
+outcome.
+
+Entrypoint: execute a declared resource transition or certified adapter
+transition.
+
+Expected result: transition validates input resource version, writes declared
+state/artifact effects, emits typed result, records audit/source-map evidence,
+and is parity-comparable.
+
+Forbidden result: a command adapter silently rewrites run state or recovery
+ledger outside declared effects.
+
+### 28.7 Parent backlog drain
+
+Initial state: a drain has selectable items, possible prerequisites, possible
+design gaps, and bounded attempts.
+
+Entrypoint: fake-provider or controlled smoke of parent `.orc` drain.
+
+Expected result: parent loop selects, runs item phase, handles design
+gaps/recovery, records resource transitions, and emits typed terminal result
+without public generated context inputs.
+
+Forbidden result: parent `.orc` succeeds only because it delegates
+state/routing to opaque YAML-era scripts.
+
+### 28.8 Promotion gate
+
+Initial state: all leaves compile, but parent-callable drain evidence is
+missing.
 
 Entrypoint:
 
 ```bash
-python -m orchestrator migration-parity \
-  workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json \
-  --require-non-regressive
+python -m orchestrator migration-parity <targets> --require-promotable
 ```
 
-Expected result: the family-level target fails the gate, and the evidence
-labels each candidate as a leaf candidate.
+Expected result: gate exits nonzero and reports leaf evidence as insufficient
+for promotion.
 
-Forbidden result: leaf compile evidence aggregates into a passing family gate,
-or `--require-promotable` passes before the parent drain is parent-callable.
+Forbidden result: YAML primary is replaced because leaf compile/dry-run
+evidence exists.
 
-## 25. Success Criteria
+## 29. Success Criteria
 
-This post-foundation tranche succeeds when:
+This post-foundation target succeeds when:
 
-- the nested implementation-phase fixture compiles, validates, and smokes as
-  one parent-callable workflow, and nested `match` / `repeat_until` /
-  `review-revise-loop` shapes pass the Tranche 1 evidence set;
-- union-to-union result translation derives output variants from returned
-  variant expressions, and variant field identity is variant-scoped or the
-  restriction is explicitly documented with compile-time diagnostics;
-- generic effectful composition is used by at least one non-review imported
-  `.orc` fixture and the review/revise stdlib route;
+- current-state inventory is accurate and maps all Design Delta Drain findings
+  to implemented, blocked, or deferred work;
+- nested structured control supports the canonical implementation-phase shape
+  without split-leaf workarounds;
+- branch scopes, proof scopes, effect summaries, source maps, Semantic IR
+  entries, and generated path allocation survive nested normalization;
+- union-to-union result mapping uses returned variants rather than matched
+  source cases;
+- variant-scoped output identity allows repeated logical field names across
+  variants;
+- promoted `.orc` entrypoints hide private runtime context, generated write
+  roots, state roots, and compatibility paths from public boundaries;
+- hidden reusable-call binding supplies internal `RunCtx`, `PhaseCtx`,
+  `ItemCtx`, and `DrainCtx` values where required;
 - imported/std `.orc` definitions preserve effects, source maps, proof scopes,
-  and generated path provenance, including from branch scopes, and stdlib
-  shape recognition is structural across module boundaries;
-- current review/revise stdlib implementation is inventoried and hardened,
-  rather than rebuilt, compiles in promoted mode without compiler-name
-  special casing, and composes in nested contexts with stable resume identity;
-- `.orc` entrypoints hide runtime-owned context behind the private executable
-  context bridge, expose YAML-equivalent defaults where parity is claimed, and
-  a YAML interop bridge carries legacy `state/` values privately during
-  migration;
-- every retained drain-family helper is classified, run-state and recovery
-  transitions go through typed runtime effects or certified adapters, and
-  `.orc` calls adapters through a typed declaration surface rather than raw
-  argv;
-- deterministic selection/bundle publication is a typed projection or an
-  explicitly certified bridge with a recorded replacement route;
+  loop state, and generated path provenance, and stdlib shape recognition is
+  structural across module boundaries;
+- current review/revise stdlib implementation is inventoried and hardened
+  rather than rebuilt, and it compiles in promoted mode without compiler-name
+  special casing;
+- `review-revise-loop` composes inside branches and parent-callable phases
+  with stable resume identity;
+- typed projection or certified projection adapters provide selector/bundle
+  publication authority;
+- certified adapter declarations expose typed inputs, outputs, effects,
+  path-safety rules, fixtures, and source maps, and every retained
+  migration-family helper is classified;
+- recurring run-state/resource semantics are represented as declared resource
+  transitions or accepted certified bridges;
+- a work-item and parent backlog-drain path can be expressed as typed `.orc`
+  composition rather than hidden YAML-shaped state choreography;
 - `resume-or-start` has canonical typed reusable-state validation;
-- the parent drain is a typed `backlog-drain`-shaped loop over parent-callable
-  workflows, with no semantics hidden in uncertified glue or YAML state files;
-- parity evidence distinguishes leaf, parent-callable, and family candidates,
-  and family gates fail on leaf-only evidence;
-- adapter linting has an inventory and staged enforcement policy;
+- migration parity distinguishes leaf candidates, parent-callable candidates,
+  family non-regression, and promotion eligibility;
 - at least one real workflow family reaches strict, machine-computed
   `non_regressive=true` through `.orc`; and
 - any YAML-primary replacement also passes `--require-promotable`.
 
-## 26. Summary Recommendation
+## 30. Summary Recommendation
 
-Use this document as the next target only after a short current-state inventory
-pass updates stale claims and confirms the foundation success criteria remain
-implemented. The next implementation driver should select from the inventory,
-not from roadmap wording that predates the completed stdlib and foundation
-routes.
-
-The 2026-06-09 design-delta drain sharpened the priority: the migration is not
-blocked by Lisp syntax, it is blocked by first-class workflow composition.
-Until nested structured control survives shared validation, runtime-owned
-context crosses boundaries privately, and run-state transitions have certified
-or native owners, the drain family must continue as typed leaf candidates plus
-explicit bridge records, with YAML primary.
+Use this document as the next target only after the foundation evidence is
+confirmed and a current-state inventory pass updates stale claims. The next
+implementation driver should select work from the issue map, not from roadmap
+wording that predates the Design Delta Drain findings.
 
 The key post-foundation move is to stop adding one-off frontend conveniences
-and instead verify, harden, and generalize the composition substrate that makes
-stdlib `.orc` credible: nested structured control, principled result
-translation, generic effectful blocks, imported/std definitions, visible
-effects, proof preservation, source maps, private executable context,
-certified state transitions, generated path ownership, and strict
-parent-callable migration evidence.
+and instead make Workflow Lisp a first-class workflow composition frontend:
+nested structured control, principled result translation, ordinary
+imported/std `.orc`, private runtime context, typed projection, certified
+adapters, declared resource transitions, parent-callable family workflows, and
+strict migration evidence.
+
+Until the P0 tranches land, the correct migration shape remains compileable
+typed leaves, explicit bridge records, and no parent `.orc` wrapper pretending
+to be a principled migration.
