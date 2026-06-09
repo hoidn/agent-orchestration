@@ -1,0 +1,188 @@
+{
+  "case_id": "module_graph_imported_bundle_mix",
+  "compiled_module_names": [
+    "neurips/entry",
+    "neurips/helper",
+    "neurips/types"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [
+    {
+      "bundle_fingerprint": "73aa130602777319fe38032d433afe8265f7044cfe32a78238decd6233324d55",
+      "bundle_kind": "yaml",
+      "canonical_key": "selector-run",
+      "load_status": "loaded",
+      "manifest_entry_path": "imported_selector.yaml",
+      "resolved_bundle_path": "tests/fixtures/workflow_lisp/cli/imported_selector.yaml",
+      "workflow_name": "selector-run"
+    }
+  ],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "input__report": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "input__status": {
+            "kind": "scalar",
+            "type": "string"
+          },
+          "report_path": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "neurips/entry::orchestrate",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "call": "neurips/helper::provider-attempt",
+            "id": "neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt",
+            "name": "neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt",
+            "with": {
+              "__write_root__neurips_helper_provider_attempt__result__result_bundle": ".orchestrate/workflow_lisp/calls/neurips/entry::orchestrate/neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt/neurips/helper::provider-attempt/__write_root__neurips_helper_provider_attempt__result__result_bundle.json",
+              "input__report": {
+                "ref": "inputs.input__report"
+              },
+              "input__status": {
+                "ref": "inputs.input__status"
+              },
+              "report_path": {
+                "ref": "inputs.report_path"
+              }
+            }
+          },
+          {
+            "call": "selector-run",
+            "id": "neurips_entry_orchestrate__remote__call_selector_run",
+            "name": "neurips/entry::orchestrate__remote__call_selector-run",
+            "with": {
+              "input__report": {
+                "ref": "inputs.input__report"
+              },
+              "input__status": {
+                "ref": "inputs.input__status"
+              },
+              "report_path": {
+                "ref": "inputs.report_path"
+              }
+            }
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [],
+      "step_labels": [
+        "neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt",
+        "neurips/entry::orchestrate__remote__call_selector-run"
+      ],
+      "workflow_name": "neurips/entry::orchestrate"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": "neurips/entry::orchestrate",
+  "source_digest": "beb5a6038ff2516a4f267907832f585fd943c2d175313760e80c88dacc9e0664",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:neurips_entry_orchestrate:reusable_call_write_root:4cd656cc037fd8b7",
+          "concrete_path_template": ".orchestrate/workflow_lisp/calls/neurips/entry::orchestrate/neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt/neurips/helper::provider-attempt/__write_root__neurips_helper_provider_attempt__result__result_bundle.json",
+          "generated_input_name": "__write_root__neurips_helper_provider_attempt__result__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "call_frame",
+          "semantic_role": "reusable_call_write_root",
+          "stable_identity": "neurips/entry::orchestrate/neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt/neurips/helper::provider-attempt/__write_root__neurips_helper_provider_attempt__result__result_bundle"
+        }
+      ],
+      "input_keys": [
+        "input__report",
+        "input__status",
+        "report_path"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {
+          "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt": {
+            "iteration_owner_node_id": null,
+            "iteration_step_id_suffix": null,
+            "node_id": "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt",
+            "presentation_key": "neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt",
+            "step_id": "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt"
+          },
+          "root.neurips_entry_orchestrate__remote__call_selector_run": {
+            "iteration_owner_node_id": null,
+            "iteration_step_id_suffix": null,
+            "node_id": "root.neurips_entry_orchestrate__remote__call_selector_run",
+            "presentation_key": "neurips/entry::orchestrate__remote__call_selector-run",
+            "step_id": "root.neurips_entry_orchestrate__remote__call_selector_run"
+          }
+        },
+        "for_each_nodes": {},
+        "match_cases": {},
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt",
+            "presentation_key": "neurips/entry::orchestrate__local__call_neurips/helper::provider-attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "call",
+            "step_id": "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "neurips/entry::orchestrate__remote__call_selector-run",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.neurips_entry_orchestrate__remote__call_selector_run",
+            "presentation_key": "neurips/entry::orchestrate__remote__call_selector-run",
+            "provider": null,
+            "region": "body",
+            "report_kind": "call",
+            "step_id": "root.neurips_entry_orchestrate__remote__call_selector_run"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.neurips_entry_orchestrate__local__call_neurips_helper_provider_attempt",
+          "root.neurips_entry_orchestrate__remote__call_selector_run"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "neurips/entry::orchestrate"
+    }
+  ],
+  "workflow_names": [
+    "neurips/entry::orchestrate"
+  ]
+}

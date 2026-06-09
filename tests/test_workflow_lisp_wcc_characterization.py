@@ -1,0 +1,169 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from tests.workflow_lisp_characterization import (
+    CHARACTERIZATION_MANIFEST_PATH,
+    build_behavior_observation,
+    build_structural_snapshot,
+    compare_structural_snapshots,
+    load_characterization_cases,
+)
+
+
+def test_manifest_covers_required_m0_tags() -> None:
+    cases = load_characterization_cases()
+
+    assert CHARACTERIZATION_MANIFEST_PATH.is_file()
+    assert {tag for case in cases for tag in case.tags} == {
+        "value_only",
+        "straight_line",
+        "match",
+        "loop",
+        "review_loop",
+        "module_graph",
+        "design_delta_leaf",
+    }
+
+
+def test_manifest_tags_are_present_exactly_once() -> None:
+    cases = load_characterization_cases()
+    tag_counts: dict[str, int] = {}
+    for case in cases:
+        for tag in case.tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    assert tag_counts == {
+        "value_only": 1,
+        "straight_line": 1,
+        "match": 1,
+        "loop": 1,
+        "review_loop": 1,
+        "module_graph": 1,
+        "design_delta_leaf": 1,
+    }
+
+
+def test_manifest_behavior_contracts_are_complete() -> None:
+    cases = load_characterization_cases()
+
+    for case in cases:
+        if case.evidence_mode == "structural_and_behavioral":
+            assert case.golden_behavior is not None
+            assert case.behavior_runtime is not None
+            assert case.behavior_runtime.bound_inputs
+        else:
+            assert case.golden_behavior is None
+            assert case.behavior_runtime is None
+
+
+def test_design_delta_case_uses_checked_in_characterization_source() -> None:
+    cases = {case.case_id: case for case in load_characterization_cases()}
+    case = cases["design_delta_union_match_projection"]
+
+    assert case.source_path == Path(
+        "tests/fixtures/workflow_lisp/characterization/sources/design_delta_union_match_projection.orc"
+    )
+
+
+def test_manifest_goldens_exist_and_match_evidence_mode() -> None:
+    for case in load_characterization_cases():
+        assert (Path.cwd() / case.golden_structural).is_file()
+        if case.evidence_mode == "structural_and_behavioral":
+            assert case.golden_behavior is not None
+            assert (Path.cwd() / case.golden_behavior).is_file()
+        else:
+            assert case.golden_behavior is None
+
+
+def test_manifest_declares_empty_rename_maps_for_m0_cases() -> None:
+    for case in load_characterization_cases():
+        assert set(case.declared_rename_map) == {"step_labels", "generated_input_names"}
+        assert case.declared_rename_map["step_labels"] == {}
+        assert case.declared_rename_map["generated_input_names"] == {}
+
+
+def test_command_bearing_cases_declare_boundaries_and_module_graph_uses_import_manifest() -> None:
+    cases = {case.case_id: case for case in load_characterization_cases()}
+
+    review_loop = cases["stdlib_review_revise_loop"]
+    assert isinstance(review_loop.command_boundaries, dict)
+    assert "validate_review_findings_v1" in review_loop.command_boundaries
+
+    module_graph = cases["module_graph_imported_bundle_mix"]
+    assert module_graph.command_boundaries == Path("tests/fixtures/workflow_lisp/cli/commands.json")
+    assert module_graph.imported_workflow_bundles_path == Path(
+        "tests/fixtures/workflow_lisp/cli/imported_workflow_bundles.json"
+    )
+
+
+@pytest.mark.parametrize("case", load_characterization_cases(), ids=lambda case: case.case_id)
+def test_characterization_structural_cases_match_golden(tmp_path: Path, case) -> None:
+    actual = build_structural_snapshot(case, tmp_path)
+    golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
+
+    assert compare_structural_snapshots(actual, golden, case.declared_rename_map) == "identical"
+
+
+def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergence() -> None:
+    baseline = {
+        "schema_version": "workflow_lisp.characterization.v1",
+        "case_id": "synthetic",
+        "workflow_names": ["demo"],
+        "lowered_workflows": [
+            {
+                "workflow_name": "demo",
+                "step_labels": ["step-a"],
+                "generated_input_names": ["input-a"],
+            }
+        ],
+        "validated_bundles": [
+            {
+                "workflow_name": "demo",
+                "node_ids": ["node-a"],
+            }
+        ],
+        "diagnostics": [],
+    }
+    renamed = {
+        **baseline,
+        "lowered_workflows": [
+            {
+                "workflow_name": "demo",
+                "step_labels": ["step-b"],
+                "generated_input_names": ["input-b"],
+            }
+        ],
+    }
+    divergent = {
+        **baseline,
+        "validated_bundles": [
+            {
+                "workflow_name": "demo",
+                "node_ids": ["node-z"],
+            }
+        ],
+    }
+    rename_map = {
+        "step_labels": {"step-b": "step-a"},
+        "generated_input_names": {"input-b": "input-a"},
+    }
+
+    assert compare_structural_snapshots(baseline, baseline, {}) == "identical"
+    assert compare_structural_snapshots(renamed, baseline, rename_map) == "rename_only"
+    assert compare_structural_snapshots(divergent, baseline, rename_map) == "divergent"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in load_characterization_cases() if case.evidence_mode == "structural_and_behavioral"],
+    ids=lambda case: case.case_id,
+)
+def test_characterization_behavior_cases_match_golden(tmp_path: Path, case) -> None:
+    actual = build_behavior_observation(case, tmp_path)
+    golden = json.loads((Path.cwd() / case.golden_behavior).read_text(encoding="utf-8"))
+
+    assert actual == golden

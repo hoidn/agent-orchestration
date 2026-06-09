@@ -1,0 +1,361 @@
+{
+  "cases": [
+    {
+      "case_id": "value_only_minimal_module",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/valid/minimal_module.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/valid"
+      ],
+      "provider_externs": null,
+      "prompt_externs": null,
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "value_only"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/value_only_minimal_module.structural.json"
+    },
+    {
+      "case_id": "straight_line_provider_phase",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/valid/phase_stdlib_run_provider_phase.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/valid"
+      ],
+      "provider_externs": {
+        "providers.execute": "fake"
+      },
+      "prompt_externs": {
+        "prompts.implementation.execute": "prompts/implementation/execute.md"
+      },
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_and_behavioral",
+      "behavior_runtime": {
+        "bound_inputs": {
+          "phase-ctx__run__run-id": "char-run-provider-phase",
+          "phase-ctx__run__state-root": "state/characterization/run-provider-phase",
+          "phase-ctx__run__artifact-root": "artifacts",
+          "phase-ctx__phase-name": "implementation",
+          "phase-ctx__state-root": "state/characterization/run-provider-phase",
+          "phase-ctx__artifact-root": "artifacts",
+          "inputs__design": "docs/design/workflow_lisp_frontend_specification.md",
+          "inputs__plan": "docs/plans/implementation_plan.md",
+          "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target": "artifacts/work/execution_report.md",
+          "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target": "artifacts/work/progress_report.md"
+        },
+        "workspace_seed_files": [
+          {
+            "path": "prompts/implementation/execute.md",
+            "text_payload": "Return a structured implementation result.\n"
+          },
+          {
+            "path": "docs/design/workflow_lisp_frontend_specification.md",
+            "text_payload": "# design\n"
+          },
+          {
+            "path": "docs/plans/implementation_plan.md",
+            "text_payload": "# plan\n"
+          }
+        ],
+        "fake_provider_scenario": {
+          "provider_payloads": {
+            "fake": {
+              "variant": "COMPLETED",
+              "implementation_state": "COMPLETED",
+              "execution_report_path": "artifacts/work/execution_report.md"
+            }
+          }
+        }
+      },
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "straight_line"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/straight_line_provider_phase.structural.json",
+      "golden_behavior": "tests/fixtures/workflow_lisp/characterization/golden/straight_line_provider_phase.behavior.json"
+    },
+    {
+      "case_id": "top_level_match_attempt",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/valid/neurips_implementation_attempt.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/valid"
+      ],
+      "provider_externs": {
+        "providers.execute": "fake"
+      },
+      "prompt_externs": {
+        "prompts.implementation.execute": "prompts/implementation/execute.md"
+      },
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_and_behavioral",
+      "behavior_runtime": {
+        "bound_inputs": {
+          "phase-ctx__implementation_state_bundle_path": "artifacts/work/implementation_state.json",
+          "phase-ctx__execution_report_target": "artifacts/work/execution_report.md",
+          "phase-ctx__progress_report_target": "artifacts/work/progress_report.md",
+          "inputs__design": "docs/design/workflow_lisp_frontend_specification.md",
+          "inputs__plan": "docs/plans/implementation_plan.md"
+        },
+        "workspace_seed_files": [
+          {
+            "path": "prompts/implementation/execute.md",
+            "text_payload": "Return a structured implementation result.\n"
+          },
+          {
+            "path": "docs/design/workflow_lisp_frontend_specification.md",
+            "text_payload": "# design\n"
+          },
+          {
+            "path": "docs/plans/implementation_plan.md",
+            "text_payload": "# plan\n"
+          }
+        ],
+        "fake_provider_scenario": {
+          "provider_payloads": {
+            "fake": {
+              "variant": "COMPLETED",
+              "implementation_state": "COMPLETED",
+              "execution_report_path": "artifacts/work/execution_report.md"
+            }
+          }
+        }
+      },
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "match"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/top_level_match_attempt.structural.json",
+      "golden_behavior": "tests/fixtures/workflow_lisp/characterization/golden/top_level_match_attempt.behavior.json"
+    },
+    {
+      "case_id": "top_level_loop_recur",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/valid/loop_recur_minimal.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/valid"
+      ],
+      "provider_externs": {
+        "providers.execute": "fake"
+      },
+      "prompt_externs": {
+        "prompts.implementation.execute": "prompts/implementation/execute.md"
+      },
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_and_behavioral",
+      "behavior_runtime": {
+        "bound_inputs": {
+          "input__status": "ready",
+          "input__report": "artifacts/work/checks_report.md",
+          "report_path": "artifacts/work/execution_report.md"
+        },
+        "workspace_seed_files": [
+          {
+            "path": "prompts/implementation/execute.md",
+            "text_payload": "Return a structured implementation result.\n"
+          },
+          {
+            "path": "artifacts/work/checks_report.md",
+            "text_payload": "# checks\n"
+          },
+          {
+            "path": "artifacts/work/execution_report.md",
+            "text_payload": "# execution\n"
+          }
+        ],
+        "fake_provider_scenario": {
+          "provider_payloads": {
+            "fake": {
+              "variant": "COMPLETED",
+              "execution_report": "artifacts/work/execution_report.md"
+            }
+          }
+        }
+      },
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "loop"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/top_level_loop_recur.structural.json",
+      "golden_behavior": "tests/fixtures/workflow_lisp/characterization/golden/top_level_loop_recur.behavior.json"
+    },
+    {
+      "case_id": "stdlib_review_revise_loop",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/valid/phase_stdlib_review_loop.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/valid"
+      ],
+      "provider_externs": {
+        "providers.review": "fake-review",
+        "providers.fix": "fake-fix"
+      },
+      "prompt_externs": {
+        "prompts.implementation.review": "prompts/implementation/review.md",
+        "prompts.implementation.fix": "prompts/implementation/fix.md"
+      },
+      "command_boundaries": {
+        "validate_review_findings_v1": {
+          "kind": "external_tool",
+          "stable_command": [
+            "python",
+            "-m",
+            "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"
+          ]
+        }
+      },
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_and_behavioral",
+      "behavior_runtime": {
+        "bound_inputs": {
+          "phase-ctx__run__run-id": "char-review-loop",
+          "phase-ctx__run__state-root": "state/characterization/review-loop",
+          "phase-ctx__run__artifact-root": "artifacts",
+          "phase-ctx__phase-name": "implementation-review",
+          "phase-ctx__state-root": "state/characterization/review-loop",
+          "phase-ctx__artifact-root": "artifacts",
+          "completed__execution_report_path": "artifacts/work/completed_execution_report.md",
+          "inputs__design_review_prompt": "artifacts/work/design-review-prompt.md",
+          "inputs__fix_plan_prompt": "artifacts/work/fix-plan-prompt.md"
+        },
+        "workspace_seed_files": [
+          {
+            "path": "prompts/implementation/review.md",
+            "text_payload": "review prompt\n"
+          },
+          {
+            "path": "prompts/implementation/fix.md",
+            "text_payload": "fix prompt\n"
+          },
+          {
+            "path": "artifacts/work/completed_execution_report.md",
+            "text_payload": "# completed execution report\n"
+          },
+          {
+            "path": "artifacts/work/design-review-prompt.md",
+            "text_payload": "# review focus\n"
+          },
+          {
+            "path": "artifacts/work/fix-plan-prompt.md",
+            "text_payload": "# fix plan\n"
+          },
+          {
+            "path": "artifacts/work/review-findings-seed.json",
+            "json_payload": {
+              "items": [
+                {
+                  "severity": "medium",
+                  "summary": "Seed finding"
+                }
+              ]
+            }
+          }
+        ],
+        "fake_provider_scenario": {
+          "provider_sequences": {
+            "fake-review": [
+              {
+                "variant": "REVISE",
+                "review_report": "artifacts/review/review_round_1.md",
+                "revise_review_report": "artifacts/review/review_round_1.md",
+                "findings": {
+                  "schema_version": "ReviewFindings.v1",
+                  "items_path": "artifacts/work/review_round_1_findings.json"
+                }
+              },
+              {
+                "variant": "APPROVE",
+                "checks_report": "artifacts/work/checks_report.md",
+                "review_report": "artifacts/review/review_round_2.md",
+                "review_decision": "APPROVE",
+                "findings": {
+                  "schema_version": "ReviewFindings.v1",
+                  "items_path": "artifacts/work/review_round_2_findings.json"
+                }
+              }
+            ],
+            "fake-fix": [
+              {
+                "execution_report_path": "artifacts/work/fixed_execution_report.md"
+              }
+            ]
+          }
+        }
+      },
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "review_loop"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/stdlib_review_revise_loop.structural.json",
+      "golden_behavior": "tests/fixtures/workflow_lisp/characterization/golden/stdlib_review_revise_loop.behavior.json"
+    },
+    {
+      "case_id": "module_graph_imported_bundle_mix",
+      "fixture_kind": "entrypoint",
+      "source_path": "tests/fixtures/workflow_lisp/modules/valid/imported_bundle_mix/neurips/entry.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/modules/valid/imported_bundle_mix"
+      ],
+      "entry_workflow": "orchestrate",
+      "provider_externs": "tests/fixtures/workflow_lisp/cli/providers.json",
+      "prompt_externs": "tests/fixtures/workflow_lisp/cli/prompts.json",
+      "command_boundaries": "tests/fixtures/workflow_lisp/cli/commands.json",
+      "imported_workflow_bundles_path": "tests/fixtures/workflow_lisp/cli/imported_workflow_bundles.json",
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "module_graph"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/module_graph_imported_bundle_mix.structural.json"
+    },
+    {
+      "case_id": "design_delta_union_match_projection",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/characterization/sources/design_delta_union_match_projection.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/characterization/sources"
+      ],
+      "provider_externs": {
+        "providers.execute": "fake-execute"
+      },
+      "prompt_externs": {
+        "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+      },
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "design_delta_leaf"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/design_delta_union_match_projection.structural.json"
+    }
+  ]
+}

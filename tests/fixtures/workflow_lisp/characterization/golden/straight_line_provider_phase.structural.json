@@ -1,0 +1,1699 @@
+{
+  "case_id": "straight_line_provider_phase",
+  "compiled_module_names": [
+    "phase_stdlib_run_provider_phase"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "artifacts": {
+          "design": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/design.txt",
+            "type": "relpath",
+            "under": "docs/design"
+          },
+          "execution_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/execution_report_target.txt",
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "plan": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/plan.txt",
+            "type": "relpath",
+            "under": "docs/plans"
+          },
+          "progress_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/progress_report_target.txt",
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "inputs": {
+          "__phase_prompt__produce-one-of-demo__attempt__execution_report_target": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "__phase_prompt__produce-one-of-demo__attempt__progress_report_target": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "inputs__design": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "docs/design"
+          },
+          "inputs__plan": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "docs/plans"
+          },
+          "phase-ctx__artifact-root": {
+            "default": "artifacts/phase",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts"
+          },
+          "phase-ctx__phase-name": {
+            "default": "phase",
+            "kind": "scalar",
+            "type": "string"
+          },
+          "phase-ctx__run__artifact-root": {
+            "default": "artifacts/run",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts"
+          },
+          "phase-ctx__run__run-id": {
+            "default": "test-run",
+            "kind": "scalar",
+            "type": "string"
+          },
+          "phase-ctx__run__state-root": {
+            "default": "state/run",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "state"
+          },
+          "phase-ctx__state-root": {
+            "default": "state/phase",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "state"
+          }
+        },
+        "name": "produce-one-of-demo",
+        "outputs": {
+          "return__implementation_state": {
+            "allowed": [
+              "COMPLETED",
+              "BLOCKED"
+            ],
+            "from": {
+              "ref": "root.steps.produce-one-of-demo__match_attempt.artifacts.return__implementation_state"
+            },
+            "kind": "scalar",
+            "type": "enum"
+          },
+          "return__report_path": {
+            "from": {
+              "ref": "root.steps.produce-one-of-demo__match_attempt.artifacts.return__report_path"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "id": "produce_one_of_demo__attempt__prompt_inputs",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "inherit": "source"
+                  },
+                  "name": "design",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/design.txt"
+                  },
+                  "source": {
+                    "input": "inputs__design"
+                  }
+                },
+                {
+                  "contract": {
+                    "inherit": "source"
+                  },
+                  "name": "plan",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/plan.txt"
+                  },
+                  "source": {
+                    "input": "inputs__plan"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "execution_report_target",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/execution_report_target.txt"
+                  },
+                  "source": {
+                    "input": "__phase_prompt__produce-one-of-demo__attempt__execution_report_target"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "progress_report_target",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/progress_report_target.txt"
+                  },
+                  "source": {
+                    "input": "__phase_prompt__produce-one-of-demo__attempt__progress_report_target"
+                  }
+                }
+              ]
+            },
+            "name": "produce-one-of-demo__attempt__prompt_inputs",
+            "publishes": [
+              {
+                "artifact": "design",
+                "from": "design"
+              },
+              {
+                "artifact": "plan",
+                "from": "plan"
+              },
+              {
+                "artifact": "execution_report_target",
+                "from": "execution_report_target"
+              },
+              {
+                "artifact": "progress_report_target",
+                "from": "progress_report_target"
+              }
+            ]
+          },
+          {
+            "asset_file": "prompts/implementation/execute.md",
+            "consumes": [
+              {
+                "artifact": "design",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "plan",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "execution_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "progress_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              }
+            ],
+            "id": "produce_one_of_demo__attempt__produce",
+            "name": "produce-one-of-demo__attempt__produce",
+            "pre_snapshot": {
+              "candidates": {
+                "BLOCKED": {
+                  "ref": "root.steps.produce-one-of-demo__attempt__prompt_inputs.artifacts.progress_report_target"
+                },
+                "COMPLETED": {
+                  "ref": "root.steps.produce-one-of-demo__attempt__prompt_inputs.artifacts.execution_report_target"
+                }
+              },
+              "digest": "sha256",
+              "name": "produce-one-of-demo__attempt_before"
+            },
+            "prompt_consumes": [
+              "design",
+              "plan",
+              "execution_report_target",
+              "progress_report_target"
+            ],
+            "provider": "fake"
+          },
+          {
+            "id": "produce_one_of_demo__attempt__select_variant",
+            "name": "produce-one-of-demo__attempt__select_variant",
+            "select_variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "evidence": {
+                "mode": "snapshot_diff",
+                "snapshot": {
+                  "ref": "root.steps.produce-one-of-demo__attempt__produce.snapshots.produce-one-of-demo__attempt_before"
+                }
+              },
+              "path": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
+              "shared_fields": [
+                {
+                  "allowed": [
+                    "COMPLETED",
+                    "BLOCKED"
+                  ],
+                  "json_pointer": "/implementation_state",
+                  "name": "implementation_state",
+                  "type": "enum"
+                }
+              ],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report_path",
+                      "must_exist_target": true,
+                      "name": "progress_report_path",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "json_pointer": "/blocker_class",
+                      "name": "blocker_class",
+                      "type": "enum"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report_path",
+                      "must_exist_target": true,
+                      "name": "execution_report_path",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "produce_one_of_demo__attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "produce_one_of_demo__attempt__blocked",
+                  "outputs": {
+                    "blocker_class": {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.blocker_class"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "execution_report_path": {
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.progress_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "self.steps.MaterializeSharedFields.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "progress_report_path": {
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.progress_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "id": "materialize_shared_fields",
+                      "materialize_artifacts": {
+                        "values": [
+                          {
+                            "contract": {
+                              "allowed": [
+                                "COMPLETED",
+                                "BLOCKED"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "implementation_state",
+                            "source": {
+                              "literal": "BLOCKED"
+                            }
+                          }
+                        ]
+                      },
+                      "name": "MaterializeSharedFields"
+                    },
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                          }
+                        }
+                      },
+                      "id": "produce_one_of_demo__attempt__blocked__projection_anchor",
+                      "name": "produce-one-of-demo__attempt__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "produce_one_of_demo__attempt__completed",
+                  "outputs": {
+                    "blocker_class": {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "from": {
+                        "ref": "self.steps.MaterializeSharedFields.artifacts.blocker_class"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "execution_report_path": {
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.execution_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "self.steps.MaterializeSharedFields.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "progress_report_path": {
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.execution_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "id": "materialize_shared_fields",
+                      "materialize_artifacts": {
+                        "values": [
+                          {
+                            "contract": {
+                              "allowed": [
+                                "COMPLETED",
+                                "BLOCKED"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "implementation_state",
+                            "source": {
+                              "literal": "COMPLETED"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "allowed": [
+                                "missing_resource",
+                                "unavailable_hardware",
+                                "roadmap_conflict",
+                                "external_dependency_outside_authority",
+                                "user_decision_required",
+                                "unrecoverable_after_fix_attempt"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "blocker_class",
+                            "source": {
+                              "literal": "missing_resource"
+                            }
+                          }
+                        ]
+                      },
+                      "name": "MaterializeSharedFields"
+                    },
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                          }
+                        }
+                      },
+                      "id": "produce_one_of_demo__attempt__completed__projection_anchor",
+                      "name": "produce-one-of-demo__attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+            },
+            "name": "produce-one-of-demo__attempt"
+          },
+          {
+            "id": "produce_one_of_demo__match_attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "produce_one_of_demo__match_attempt__blocked",
+                  "outputs": {
+                    "return__implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "return__report_path": {
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.progress_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                          }
+                        }
+                      },
+                      "id": "produce_one_of_demo__match_attempt__blocked__projection_anchor",
+                      "name": "produce-one-of-demo__match_attempt__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "produce_one_of_demo__match_attempt__completed",
+                  "outputs": {
+                    "return__implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "return__report_path": {
+                      "from": {
+                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.execution_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                          }
+                        }
+                      },
+                      "id": "produce_one_of_demo__match_attempt__completed__projection_anchor",
+                      "name": "produce-one-of-demo__match_attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.produce-one-of-demo__attempt.artifacts.variant"
+            },
+            "name": "produce-one-of-demo__match_attempt"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__phase_prompt__produce-one-of-demo__attempt__execution_report_target",
+        "__phase_prompt__produce-one-of-demo__attempt__progress_report_target"
+      ],
+      "step_labels": [
+        "produce-one-of-demo__attempt__prompt_inputs",
+        "produce-one-of-demo__attempt__produce",
+        "produce-one-of-demo__attempt__select_variant",
+        "produce-one-of-demo__attempt",
+        "MaterializeSharedFields",
+        "produce-one-of-demo__attempt__blocked__projection_anchor",
+        "MaterializeSharedFields",
+        "produce-one-of-demo__attempt__completed__projection_anchor",
+        "produce-one-of-demo__match_attempt",
+        "produce-one-of-demo__match_attempt__blocked__projection_anchor",
+        "produce-one-of-demo__match_attempt__completed__projection_anchor"
+      ],
+      "workflow_name": "produce-one-of-demo"
+    },
+    {
+      "authored_mapping": {
+        "artifacts": {
+          "design": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/design.txt",
+            "type": "relpath",
+            "under": "docs/design"
+          },
+          "execution_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/execution_report_target.txt",
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "plan": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/plan.txt",
+            "type": "relpath",
+            "under": "docs/plans"
+          },
+          "progress_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/progress_report_target.txt",
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "inputs": {
+          "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "inputs__design": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "docs/design"
+          },
+          "inputs__plan": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "docs/plans"
+          },
+          "phase-ctx__artifact-root": {
+            "default": "artifacts/phase",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts"
+          },
+          "phase-ctx__phase-name": {
+            "default": "phase",
+            "kind": "scalar",
+            "type": "string"
+          },
+          "phase-ctx__run__artifact-root": {
+            "default": "artifacts/run",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts"
+          },
+          "phase-ctx__run__run-id": {
+            "default": "test-run",
+            "kind": "scalar",
+            "type": "string"
+          },
+          "phase-ctx__run__state-root": {
+            "default": "state/run",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "state"
+          },
+          "phase-ctx__state-root": {
+            "default": "state/phase",
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "state"
+          }
+        },
+        "name": "run-provider-phase-demo",
+        "outputs": {
+          "return__implementation_state": {
+            "allowed": [
+              "COMPLETED",
+              "BLOCKED"
+            ],
+            "from": {
+              "ref": "root.steps.run-provider-phase-demo__match_attempt.artifacts.return__implementation_state"
+            },
+            "kind": "scalar",
+            "type": "enum"
+          },
+          "return__report_path": {
+            "from": {
+              "ref": "root.steps.run-provider-phase-demo__match_attempt.artifacts.return__report_path"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "id": "run_provider_phase_demo__attempt__prompt_inputs",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "inherit": "source"
+                  },
+                  "name": "design",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/design.txt"
+                  },
+                  "source": {
+                    "input": "inputs__design"
+                  }
+                },
+                {
+                  "contract": {
+                    "inherit": "source"
+                  },
+                  "name": "plan",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/plan.txt"
+                  },
+                  "source": {
+                    "input": "inputs__plan"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "execution_report_target",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/execution_report_target.txt"
+                  },
+                  "source": {
+                    "input": "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "progress_report_target",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/progress_report_target.txt"
+                  },
+                  "source": {
+                    "input": "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target"
+                  }
+                }
+              ]
+            },
+            "name": "run-provider-phase-demo__attempt__prompt_inputs",
+            "publishes": [
+              {
+                "artifact": "design",
+                "from": "design"
+              },
+              {
+                "artifact": "plan",
+                "from": "plan"
+              },
+              {
+                "artifact": "execution_report_target",
+                "from": "execution_report_target"
+              },
+              {
+                "artifact": "progress_report_target",
+                "from": "progress_report_target"
+              }
+            ]
+          },
+          {
+            "asset_file": "prompts/implementation/execute.md",
+            "consumes": [
+              {
+                "artifact": "design",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "plan",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "execution_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "progress_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              }
+            ],
+            "id": "run_provider_phase_demo__attempt",
+            "inject_output_contract": true,
+            "name": "run-provider-phase-demo__attempt",
+            "prompt_consumes": [
+              "design",
+              "plan",
+              "execution_report_target",
+              "progress_report_target"
+            ],
+            "provider": "fake",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
+              "shared_fields": [
+                {
+                  "allowed": [
+                    "COMPLETED",
+                    "BLOCKED"
+                  ],
+                  "json_pointer": "/implementation_state",
+                  "name": "implementation_state",
+                  "type": "enum"
+                }
+              ],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report_path",
+                      "must_exist_target": true,
+                      "name": "progress_report_path",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "json_pointer": "/blocker_class",
+                      "name": "blocker_class",
+                      "type": "enum"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report_path",
+                      "must_exist_target": true,
+                      "name": "execution_report_path",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "run_provider_phase_demo__match_attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "run_provider_phase_demo__match_attempt__blocked",
+                  "outputs": {
+                    "return__implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "return__report_path": {
+                      "from": {
+                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.progress_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                          }
+                        }
+                      },
+                      "id": "run_provider_phase_demo__match_attempt__blocked__projection_anchor",
+                      "name": "run-provider-phase-demo__match_attempt__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "run_provider_phase_demo__match_attempt__completed",
+                  "outputs": {
+                    "return__implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "return__report_path": {
+                      "from": {
+                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.execution_report_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                          }
+                        }
+                      },
+                      "id": "run_provider_phase_demo__match_attempt__completed__projection_anchor",
+                      "name": "run-provider-phase-demo__match_attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.variant"
+            },
+            "name": "run-provider-phase-demo__match_attempt"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target",
+        "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target"
+      ],
+      "step_labels": [
+        "run-provider-phase-demo__attempt__prompt_inputs",
+        "run-provider-phase-demo__attempt",
+        "run-provider-phase-demo__match_attempt",
+        "run-provider-phase-demo__match_attempt__blocked__projection_anchor",
+        "run-provider-phase-demo__match_attempt__completed__projection_anchor"
+      ],
+      "workflow_name": "run-provider-phase-demo"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "5a504b007a0b0e30ba3974dbc87a608180ff9ab15b3149cac12acb4afe978fe4",
+  "validated_bundles": [
+    {
+      "artifact_keys": [
+        "design",
+        "execution_report_target",
+        "plan",
+        "progress_report_target"
+      ],
+      "generated_input_names": [
+        "__phase_prompt__produce-one-of-demo__attempt__execution_report_target",
+        "__phase_prompt__produce-one-of-demo__attempt__progress_report_target"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:produce-one-of-demo:variant_projection_bundle:3c0672ebe9536b27",
+          "concrete_path_template": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "variant_projection_bundle",
+          "stable_identity": "produce-one-of-demo/produce-one-of-demo__attempt__select_variant/select_variant"
+        },
+        {
+          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:110fae21cf6c033d",
+          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/design.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "produce-one-of-demo/prompt_inputs/design"
+        },
+        {
+          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:9a53aca7c122f0bb",
+          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/plan.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "produce-one-of-demo/prompt_inputs/plan"
+        },
+        {
+          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:4d98b60ee331d8fd",
+          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/execution_report_target.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "produce-one-of-demo/prompt_inputs/execution_report_target"
+        },
+        {
+          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:14324f93dc3a1c28",
+          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/progress_report_target.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "produce-one-of-demo/prompt_inputs/progress_report_target"
+        }
+      ],
+      "input_keys": [
+        "__phase_prompt__produce-one-of-demo__attempt__execution_report_target",
+        "__phase_prompt__produce-one-of-demo__attempt__progress_report_target",
+        "inputs__design",
+        "inputs__plan",
+        "phase-ctx__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__state-root"
+      ],
+      "output_keys": [
+        "return__implementation_state",
+        "return__report_path"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.produce_one_of_demo__attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "produce-one-of-demo__attempt.BLOCKED",
+              "marker_step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked",
+              "step_presentation_keys": [
+                "produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
+                "produce-one-of-demo__attempt.BLOCKED.produce-one-of-demo__attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "produce-one-of-demo__attempt.COMPLETED",
+              "marker_step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed",
+              "step_presentation_keys": [
+                "produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
+                "produce-one-of-demo__attempt.COMPLETED.produce-one-of-demo__attempt__completed__projection_anchor"
+              ]
+            }
+          },
+          "root.produce_one_of_demo__match_attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "produce-one-of-demo__match_attempt.BLOCKED",
+              "marker_step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked",
+              "step_presentation_keys": [
+                "produce-one-of-demo__match_attempt.BLOCKED.produce-one-of-demo__match_attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "produce-one-of-demo__match_attempt.COMPLETED",
+              "marker_step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed",
+              "step_presentation_keys": [
+                "produce-one-of-demo__match_attempt.COMPLETED.produce-one-of-demo__match_attempt__completed__projection_anchor"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt__prompt_inputs",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt__prompt_inputs",
+            "presentation_key": "produce-one-of-demo__attempt__prompt_inputs",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.produce_one_of_demo__attempt__prompt_inputs"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [
+              {
+                "artifact": "design",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "plan",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "execution_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "progress_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              }
+            ],
+            "display_name": "produce-one-of-demo__attempt__produce",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt__produce",
+            "presentation_key": "produce-one-of-demo__attempt__produce",
+            "provider": "fake",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.produce_one_of_demo__attempt__produce"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt__select_variant",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt__select_variant",
+            "presentation_key": "produce-one-of-demo__attempt__select_variant",
+            "provider": null,
+            "region": "body",
+            "report_kind": "select_variant_output",
+            "step_id": "root.produce_one_of_demo__attempt__select_variant"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed",
+            "presentation_key": "produce-one-of-demo__attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.materialize_shared_fields",
+            "presentation_key": "produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.materialize_shared_fields"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt.COMPLETED.produce-one-of-demo__attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.produce_one_of_demo__attempt__completed__projection_anchor",
+            "presentation_key": "produce-one-of-demo__attempt.COMPLETED.produce-one-of-demo__attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.produce_one_of_demo__attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 6,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked",
+            "presentation_key": "produce-one-of-demo__attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 7,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.materialize_shared_fields",
+            "presentation_key": "produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.materialize_shared_fields"
+          },
+          {
+            "command": null,
+            "compatibility_index": 8,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt.BLOCKED.produce-one-of-demo__attempt__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.produce_one_of_demo__attempt__blocked__projection_anchor",
+            "presentation_key": "produce-one-of-demo__attempt.BLOCKED.produce-one-of-demo__attempt__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.produce_one_of_demo__attempt__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 9,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__attempt",
+            "presentation_key": "produce-one-of-demo__attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.produce_one_of_demo__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 10,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__match_attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed",
+            "presentation_key": "produce-one-of-demo__match_attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 11,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__match_attempt.COMPLETED.produce-one-of-demo__match_attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed.produce_one_of_demo__match_attempt__completed__projection_anchor",
+            "presentation_key": "produce-one-of-demo__match_attempt.COMPLETED.produce-one-of-demo__match_attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed.produce_one_of_demo__match_attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 12,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__match_attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked",
+            "presentation_key": "produce-one-of-demo__match_attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 13,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__match_attempt.BLOCKED.produce-one-of-demo__match_attempt__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked.produce_one_of_demo__match_attempt__blocked__projection_anchor",
+            "presentation_key": "produce-one-of-demo__match_attempt.BLOCKED.produce-one-of-demo__match_attempt__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked.produce_one_of_demo__match_attempt__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 14,
+            "consumes": [],
+            "display_name": "produce-one-of-demo__match_attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.produce_one_of_demo__match_attempt",
+            "presentation_key": "produce-one-of-demo__match_attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.produce_one_of_demo__match_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.produce_one_of_demo__attempt__prompt_inputs",
+          "root.produce_one_of_demo__attempt__produce",
+          "root.produce_one_of_demo__attempt__select_variant",
+          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed",
+          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.materialize_shared_fields",
+          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.produce_one_of_demo__attempt__completed__projection_anchor",
+          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked",
+          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.materialize_shared_fields",
+          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.produce_one_of_demo__attempt__blocked__projection_anchor",
+          "root.produce_one_of_demo__attempt",
+          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed",
+          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed.produce_one_of_demo__match_attempt__completed__projection_anchor",
+          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked",
+          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked.produce_one_of_demo__match_attempt__blocked__projection_anchor",
+          "root.produce_one_of_demo__match_attempt"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "produce-one-of-demo"
+    },
+    {
+      "artifact_keys": [
+        "design",
+        "execution_report_target",
+        "plan",
+        "progress_report_target"
+      ],
+      "generated_input_names": [
+        "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target",
+        "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:run-provider-phase-demo:provider_result_bundle:9d05aed8c6b83841",
+          "concrete_path_template": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "run-provider-phase-demo/run-provider-phase-demo__attempt/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:d2fbbda524ee2c27",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/design.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-provider-phase-demo/prompt_inputs/design"
+        },
+        {
+          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:08e0e79f91267acd",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/plan.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-provider-phase-demo/prompt_inputs/plan"
+        },
+        {
+          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:dc91115af4b1b9bb",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/execution_report_target.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-provider-phase-demo/prompt_inputs/execution_report_target"
+        },
+        {
+          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:3cbda36ab0e949b1",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/progress_report_target.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-provider-phase-demo/prompt_inputs/progress_report_target"
+        }
+      ],
+      "input_keys": [
+        "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target",
+        "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target",
+        "inputs__design",
+        "inputs__plan",
+        "phase-ctx__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__state-root"
+      ],
+      "output_keys": [
+        "return__implementation_state",
+        "return__report_path"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.run_provider_phase_demo__match_attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "run-provider-phase-demo__match_attempt.BLOCKED",
+              "marker_step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked",
+              "step_presentation_keys": [
+                "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "run-provider-phase-demo__match_attempt.COMPLETED",
+              "marker_step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed",
+              "step_presentation_keys": [
+                "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "run-provider-phase-demo__attempt__prompt_inputs",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__attempt__prompt_inputs",
+            "presentation_key": "run-provider-phase-demo__attempt__prompt_inputs",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.run_provider_phase_demo__attempt__prompt_inputs"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [
+              {
+                "artifact": "design",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "plan",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "execution_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "progress_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              }
+            ],
+            "display_name": "run-provider-phase-demo__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__attempt",
+            "presentation_key": "run-provider-phase-demo__attempt",
+            "provider": "fake",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.run_provider_phase_demo__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "run-provider-phase-demo__match_attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed",
+            "presentation_key": "run-provider-phase-demo__match_attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed.run_provider_phase_demo__match_attempt__completed__projection_anchor",
+            "presentation_key": "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed.run_provider_phase_demo__match_attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "run-provider-phase-demo__match_attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked",
+            "presentation_key": "run-provider-phase-demo__match_attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked.run_provider_phase_demo__match_attempt__blocked__projection_anchor",
+            "presentation_key": "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked.run_provider_phase_demo__match_attempt__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 6,
+            "consumes": [],
+            "display_name": "run-provider-phase-demo__match_attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_provider_phase_demo__match_attempt",
+            "presentation_key": "run-provider-phase-demo__match_attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.run_provider_phase_demo__match_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.run_provider_phase_demo__attempt__prompt_inputs",
+          "root.run_provider_phase_demo__attempt",
+          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed",
+          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed.run_provider_phase_demo__match_attempt__completed__projection_anchor",
+          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked",
+          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked.run_provider_phase_demo__match_attempt__blocked__projection_anchor",
+          "root.run_provider_phase_demo__match_attempt"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "run-provider-phase-demo"
+    }
+  ],
+  "workflow_names": [
+    "produce-one-of-demo",
+    "run-provider-phase-demo"
+  ]
+}
