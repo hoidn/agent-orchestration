@@ -1973,35 +1973,7 @@ def _augment_resume_command_boundaries(
     resume_exprs = list(expressions)
     if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
         return command_boundary_environment
-    bindings["validate_reusable_phase_state"] = CertifiedAdapterBinding(
-        name="validate_reusable_phase_state",
-        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
-        input_contract={"type": "object"},
-        output_type_name="ResumeReuseDecision",
-        effects=("resume_state_reuse", "structured_result"),
-        path_safety={"kind": "workspace_relpath"},
-        source_map_behavior="step",
-        fixture_ids=("resume_state_reuse_valid",),
-        negative_fixture_ids=(
-            "resume_state_pointer_authority_forbidden",
-            "resume_state_contract_fingerprint_mismatch",
-            "resume_state_bundle_schema_invalid",
-        ),
-    )
-    bindings["write_reusable_phase_state_v1"] = CertifiedAdapterBinding(
-        name="write_reusable_phase_state_v1",
-        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
-        input_contract={"type": "object"},
-        output_type_name="ReusablePhaseStateWriteAck",
-        effects=("resume_state_reuse", "structured_result"),
-        path_safety={"kind": "workspace_relpath"},
-        source_map_behavior="step",
-        fixture_ids=("resume_state_write_v1",),
-        negative_fixture_ids=(
-            "resume_state_path_unsafe",
-            "resume_state_required_artifact_missing",
-        ),
-    )
+    bindings.update(_fixed_resume_command_boundary_bindings())
     for return_type_name in sorted(
         {
             return_type_name
@@ -2022,6 +1994,42 @@ def _augment_resume_command_boundaries(
             negative_fixture_ids=("resume_state_loader_schema_invalid",),
         )
     return build_command_boundary_environment(bindings)
+
+
+def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBinding]:
+    """Return the fixed certified adapter bindings required by `resume-or-start`."""
+
+    return {
+        "validate_reusable_phase_state": CertifiedAdapterBinding(
+            name="validate_reusable_phase_state",
+            stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
+            input_contract={"type": "object"},
+            output_type_name="ResumeReuseDecision",
+            effects=("resume_state_reuse", "structured_result"),
+            path_safety={"kind": "workspace_relpath"},
+            source_map_behavior="step",
+            fixture_ids=("resume_state_reuse_valid",),
+            negative_fixture_ids=(
+                "resume_state_pointer_authority_forbidden",
+                "resume_state_contract_fingerprint_mismatch",
+                "resume_state_bundle_schema_invalid",
+            ),
+        ),
+        "write_reusable_phase_state_v1": CertifiedAdapterBinding(
+            name="write_reusable_phase_state_v1",
+            stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
+            input_contract={"type": "object"},
+            output_type_name="ReusablePhaseStateWriteAck",
+            effects=("resume_state_reuse", "structured_result"),
+            path_safety={"kind": "workspace_relpath"},
+            source_map_behavior="step",
+            fixture_ids=("resume_state_write_v1",),
+            negative_fixture_ids=(
+                "resume_state_path_unsafe",
+                "resume_state_required_artifact_missing",
+            ),
+        ),
+    }
 
 
 def _augment_resource_transition_command_boundaries(command_boundary_environment):

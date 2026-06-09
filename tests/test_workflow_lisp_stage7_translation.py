@@ -4,6 +4,7 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
+    _fixed_resume_command_boundary_bindings,
     _validate_definition_module,
     compile_stage3_module,
 )
@@ -110,21 +111,7 @@ def _command_boundaries():
                 fixture_ids=("resource_transition_ok",),
                 negative_fixture_ids=("resource_transition_bad",),
             ),
-            "validate_reusable_phase_state": CertifiedAdapterBinding(
-                name="validate_reusable_phase_state",
-                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
-                input_contract={"type": "object"},
-                output_type_name="ResumeReuseDecision",
-                effects=("resume_state_reuse", "structured_result"),
-                path_safety={"kind": "workspace_relpath"},
-                source_map_behavior="step",
-                fixture_ids=("resume_state_reuse_valid",),
-                negative_fixture_ids=(
-                    "resume_state_pointer_authority_forbidden",
-                    "resume_state_contract_fingerprint_mismatch",
-                    "resume_state_bundle_schema_invalid",
-                ),
-            ),
+            **_fixed_resume_command_boundary_bindings(),
             "load_canonical_phase_result__PlanGateResult": CertifiedAdapterBinding(
                 name="load_canonical_phase_result__PlanGateResult",
                 stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
@@ -137,6 +124,17 @@ def _command_boundaries():
                 negative_fixture_ids=("resume_state_loader_schema_invalid",),
             ),
         }
+    )
+
+
+def test_stage7_resume_command_boundaries_include_certified_writer() -> None:
+    bindings = _command_boundaries().bindings_by_name
+
+    assert isinstance(bindings["write_reusable_phase_state_v1"], CertifiedAdapterBinding)
+    assert bindings["write_reusable_phase_state_v1"].stable_command == (
+        "python",
+        "-m",
+        "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
     )
 
 
