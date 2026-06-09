@@ -52,7 +52,7 @@ Baseline evidence checked during inventory:
 | Plan phase `.orc` candidate | compile candidate complete for first pass; runtime/parity paths open | `workflows/library/lisp_frontend_design_delta/plan_phase.orc`; `test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop` |
 | Implementation phase `.orc` candidate | leaf execute-attempt and completed-review candidate complete for first pass; full phase composition/output parity open | `workflows/library/lisp_frontend_design_delta/implementation_phase.orc`; `test_design_delta_implementation_phase_candidate_compiles_with_variant_and_review_loop` |
 | Selector `.orc` candidate | provider-decision candidate complete for first pass; bundle publication/output parity open | `workflows/library/lisp_frontend_design_delta/selector.orc`; `test_design_delta_selector_candidate_compiles_as_provider_decision` |
-| Design-gap architect `.orc` candidate | not started | none |
+| Design-gap architect `.orc` candidate | behavior-preserving draft/validate leaves complete for first pass; review/revise and path parity open | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc`; `test_design_delta_architect_candidate_compiles_draft_and_validation_leaves` |
 | Work-item `.orc` candidate | not started | none |
 | Parent drain `.orc` candidate | not started | none |
 | Resume/recovery parity | not started | none |
@@ -102,6 +102,12 @@ None yet.
   boundary. Selection-bundle publication still needs a typed projection,
   certified adapter, or private context bridge before parity can claim
   equivalence.
+- The first design-gap architect `.orc` candidate is behavior-preserving for
+  the current YAML draft/validate shape. It does not incorporate the accepted
+  architecture review/revise loop from `docs/design/lisp_frontend_review_fix_loops.md`.
+  Target derivation, architecture-index construction, and work-item bundle
+  publication still need StateLayout/private context or certified-adapter
+  bridges before public-boundary parity can be claimed.
 - Provider `variant_output.path` target binding must be reliable before
   provider-heavy implementation attempts are promotion evidence.
 - Several scripts mutate run state and cannot be converted to pure helpers

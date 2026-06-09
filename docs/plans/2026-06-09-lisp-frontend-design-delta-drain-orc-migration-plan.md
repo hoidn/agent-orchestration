@@ -326,28 +326,29 @@ Commit checkpoint:
 
 ### 7. Design Gap Architect Candidate
 
-- [ ] Decide whether this migration is strictly behavior-preserving for the current `lisp_frontend_design_delta_design_gap_architect.v214.yaml` or whether it also incorporates the accepted architecture review/revise target from `docs/design/lisp_frontend_review_fix_loops.md`.
-- [ ] If behavior-preserving, translate the current draft + validate shape and record architecture review/revise as an accepted follow-on gap.
+- [x] Decide whether this migration is strictly behavior-preserving for the current `lisp_frontend_design_delta_design_gap_architect.v214.yaml` or whether it also incorporates the accepted architecture review/revise target from `docs/design/lisp_frontend_review_fix_loops.md`.
+- [x] If behavior-preserving, translate the current draft + validate shape and record architecture review/revise as an accepted follow-on gap.
 - [ ] If incorporating architecture review/revise, add `ArchitectureReviewDecision`, `ArchitectureLoopResult`, and architecture-review-exhausted terminal routing before implementation.
 - [ ] Replace inline target path construction with pure typed functions or StateLayout-derived allocation.
 - [ ] Keep existing architecture-index builder as a certified command adapter unless replaced by native logic.
-- [ ] Convert draft provider step to `provider-result`.
-- [ ] Convert validation to `command-result` with typed `ArchitectureValidationResult`.
-- [ ] Preserve target design, baseline design, command adapter contract, selection bundle, and existing architecture index as explicit inputs/consumes.
+- [x] Convert draft provider step to `provider-result`.
+- [x] Convert validation to `command-result` with typed architecture validation result.
+- [x] Preserve target design, baseline design, command adapter contract, selection bundle, and existing architecture index as explicit inputs/consumes for the leaf candidate.
+- [x] Record the current path-boundary delta: target derivation, architecture-index building, and work-item state bundle parity still need StateLayout/private context or certified-adapter bridges.
 
 Verification:
 
-- [ ] Compile/typecheck `design_gap_architect.orc`.
+- [x] Compile/typecheck `design_gap_architect.orc` leaf workflows.
 - [ ] Fake-provider drafted/valid path.
 - [ ] Blocked draft path.
 - [ ] Validation invalid path.
 - [ ] If architecture review/revise is in scope: approve, revise-then-approve, blocked, and exhaustion paths.
 - [ ] Adapter fixture for architecture index and validation scripts.
-- [ ] `git diff --check`
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit design gap architect candidate and focused tests.
+- [x] Commit design gap architect candidate and focused tests.
 
 ### 8. Work Item Candidate
 

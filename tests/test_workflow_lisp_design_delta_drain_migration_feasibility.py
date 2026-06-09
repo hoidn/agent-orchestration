@@ -500,3 +500,56 @@ def test_design_delta_selector_candidate_compiles_as_provider_decision(
     assert lowered["version"] == "2.14"
     assert any(step.get("provider") == "codex" for step in lowered["steps"])
     assert "return__selection_status" in lowered["outputs"]
+
+
+def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "lisp_frontend_design_delta"
+        / "design_gap_architect.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.architect.draft": "codex"},
+        prompt_externs={
+            "prompts.architect.draft": (
+                "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/"
+                "draft_implementation_architecture.md"
+            ),
+        },
+        command_boundaries={
+            "validate_lisp_frontend_design_gap_architecture": ExternalToolBinding(
+                name="validate_lisp_frontend_design_gap_architecture",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered_workflows = [
+        workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    ]
+    assert all(lowered["version"] == "2.14" for lowered in lowered_workflows)
+    assert any(
+        step.get("provider") == "codex"
+        for lowered in lowered_workflows
+        for step in lowered["steps"]
+    )
+    assert any(
+        "command" in step
+        for lowered in lowered_workflows
+        for step in lowered["steps"]
+    )
+    assert any("return__draft_status" in lowered["outputs"] for lowered in lowered_workflows)
+    assert any(
+        "return__architecture_validation_status" in lowered["outputs"]
+        for lowered in lowered_workflows
+    )
