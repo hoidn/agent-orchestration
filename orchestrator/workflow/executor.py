@@ -4439,6 +4439,9 @@ class WorkflowExecutor:
         )
         if path_error is not None:
             return path_error
+        bundle_path_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
+        if bundle_path_error is not None:
+            return bundle_path_error
         prompt_contract_step = step
         if resolved_expected_outputs is not None:
             prompt_contract_step = dict(step)

@@ -92,6 +92,36 @@ def test_managed_provider_wraps_invocation_recovers_and_routes_complete(tmp_path
     assert not (tmp_path / "fix.txt").exists()
 
 
+def test_managed_provider_structured_output_binding_survives_guard_wrap(tmp_path: Path) -> None:
+    provider_code = (
+        "import json, os, pathlib; "
+        "bundle_path = pathlib.Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']); "
+        "bundle_path.write_text(json.dumps({'selection_decision': 'READY'}) + '\\n', encoding='utf-8')"
+    )
+    workflow_path = _write_workflow(tmp_path, provider_code=provider_code)
+    payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    payload["steps"][0]["output_bundle"] = {
+        "path": "state/nested/output/selection.json",
+        "fields": [
+            {
+                "name": "selection_decision",
+                "json_pointer": "/selection_decision",
+                "type": "enum",
+                "allowed": ["READY", "NONE_READY"],
+            }
+        ],
+    }
+    workflow_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    executor = _executor(tmp_path, workflow_path)
+    state = executor.execute()
+
+    assert state["steps"]["Execute"]["exit_code"] == 0
+    assert state["steps"]["Execute"]["artifacts"] == {"selection_decision": "READY"}
+    assert state["steps"]["Execute"]["managed_jobs"]["managed_job_outcome"] == "COMPLETE"
+    assert (tmp_path / "state" / "nested" / "output" / "selection.json").exists()
+
+
 def test_managed_provider_disables_global_provider_retries(tmp_path: Path) -> None:
     executor = _executor(tmp_path, _write_workflow(tmp_path), max_retries=3)
     calls = {"count": 0}

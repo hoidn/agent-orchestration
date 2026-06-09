@@ -492,6 +492,45 @@ class TestProviderExecutor:
         assert "resume" in invocation.command
         assert "sess-123" in invocation.command
 
+    def test_provider_session_preserves_runtime_output_bundle_env(self):
+        """Session command selection preserves the runtime-owned bundle env binding."""
+        env = {
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "state/runtime-owned/bundle.json",
+            "EXISTING": "1",
+        }
+
+        fresh_invocation, fresh_error = self.executor.prepare_invocation(
+            "codex",
+            ProviderParams(),
+            {},
+            "Test prompt",
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+            env=env,
+        )
+        resume_invocation, resume_error = self.executor.prepare_invocation(
+            "codex",
+            ProviderParams(),
+            {},
+            "Test prompt",
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.RESUME,
+                session_id="sess-123",
+            ),
+            env=env,
+        )
+
+        assert fresh_error is None
+        assert fresh_invocation is not None
+        assert fresh_invocation.command_variant == "fresh_command"
+        assert fresh_invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        assert fresh_invocation.env["EXISTING"] == "1"
+
+        assert resume_error is None
+        assert resume_invocation is not None
+        assert resume_invocation.command_variant == "resume_command"
+        assert resume_invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        assert resume_invocation.env["EXISTING"] == "1"
+
     def test_prepare_invocation_preserves_escaped_session_id_literal(self):
         """Escaped ${SESSION_ID} tokens remain literal while the unescaped token is bound."""
         custom = ProviderTemplate(

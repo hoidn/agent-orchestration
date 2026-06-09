@@ -386,8 +386,7 @@ def test_provider_variant_output_receives_runtime_bundle_env(tmp_path: Path, mon
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
 
     def _execute(_invocation, **_kwargs):
-        bundle_path = tmp_path / "state" / "review.json"
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path = tmp_path / captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
         bundle_path.write_text(json.dumps({"variant": "REVISE"}) + "\n", encoding="utf-8")
         return SimpleNamespace(
             exit_code=0,
@@ -763,8 +762,7 @@ def test_provider_output_bundle_receives_runtime_bundle_env(tmp_path: Path):
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
 
     def _execute(_invocation, **_kwargs):
-        bundle_path = tmp_path / "state" / "run-root" / "test-run" / "selection.json"
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path = tmp_path / captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
         bundle_path.write_text(
             json.dumps({
                 "selection_decision": "READY",

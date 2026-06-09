@@ -58,6 +58,35 @@ def test_wraps_provider_invocation_with_guard(tmp_path: Path) -> None:
     assert wrapped.command[-4:] == ["codex", "exec", "--model", "gpt-5.3"]
 
 
+def test_managed_provider_wrap_preserves_runtime_output_bundle_env(tmp_path: Path) -> None:
+    invocation = ProviderInvocation(
+        command=["codex", "exec", "--model", "gpt-5.3"],
+        input_mode=InputMode.STDIN,
+        prompt="do work",
+        output_file="artifacts/out.txt",
+        env={
+            "EXISTING": "1",
+            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "state/runtime-owned/bundle.json",
+        },
+        timeout_sec=120,
+    )
+    runtime = ManagedProviderRuntime(
+        run_root=tmp_path / ".orchestrate" / "runs" / "run-1",
+        workspace=tmp_path,
+    )
+
+    wrapped = runtime.wrap_invocation(
+        invocation,
+        step_name="Execute",
+        visit_count=1,
+        config=_managed_config(),
+    )
+
+    assert wrapped.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == "state/runtime-owned/bundle.json"
+    assert wrapped.env["EXISTING"] == "1"
+    assert wrapped.env["MANAGED_JOB_AUDIT_PATH"].endswith("managed_job_events.jsonl")
+
+
 def test_recovery_no_audited_jobs_is_complete(tmp_path: Path) -> None:
     summary = recover_managed_jobs(tmp_path / "managed_job_events.jsonl")
 
