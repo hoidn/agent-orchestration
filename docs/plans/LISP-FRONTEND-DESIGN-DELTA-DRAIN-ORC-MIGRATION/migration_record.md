@@ -50,7 +50,7 @@ Baseline evidence checked during inventory:
 | Domain type module | complete for first pass | `workflows/library/lisp_frontend_design_delta/types.orc`; `test_design_delta_domain_types_import_from_two_candidate_modules` |
 | `.orc` import/layout feasibility | complete for first pass | `feasibility_probe.md`; `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` |
 | Plan phase `.orc` candidate | compile candidate complete for first pass; runtime/parity paths open | `workflows/library/lisp_frontend_design_delta/plan_phase.orc`; `test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop` |
-| Implementation phase `.orc` candidate | not started | none |
+| Implementation phase `.orc` candidate | leaf execute-attempt and completed-review candidate complete for first pass; full phase composition/output parity open | `workflows/library/lisp_frontend_design_delta/implementation_phase.orc`; `test_design_delta_implementation_phase_candidate_compiles_with_variant_and_review_loop` |
 | Selector `.orc` candidate | not started | none |
 | Design-gap architect `.orc` candidate | not started | none |
 | Work-item `.orc` candidate | not started | none |
@@ -89,6 +89,13 @@ None yet.
   by modeling work-item context and ledger context as artifact inputs. The
   parent/private context layer must bridge the YAML `state/` compatibility
   inputs before parity evidence can claim public-boundary equivalence.
+- The first implementation-phase `.orc` candidate is intentionally split into
+  leaf workflows. The current frontend/shared-validation path cannot place the
+  stdlib review/revise loop inside the `COMPLETED` arm of an implementation
+  attempt `match`; nested structured `repeat_until` and `match` steps fail
+  shared validation when generated below that branch. Full phase composition
+  and exact YAML output parity remain open until that composition gap is fixed
+  or a certified adapter boundary is accepted.
 - Provider `variant_output.path` target binding must be reliable before
   provider-heavy implementation attempts are promotion evidence.
 - Several scripts mutate run state and cannot be converted to pure helpers

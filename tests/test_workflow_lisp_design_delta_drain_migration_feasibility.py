@@ -372,8 +372,12 @@ def test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop(tmp_
 
     assert "lisp_frontend_design_delta/types" in result.compiled_results_by_name
     assert result.entry_result.validated_bundles
-    lowered = result.entry_result.lowered_workflows[0].authored_mapping
-    assert lowered["version"] == "2.14"
+    lowered_workflows = [
+        workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    ]
+    assert all(lowered["version"] == "2.14" for lowered in lowered_workflows)
 
     def _walk_steps(steps):
         for step in steps:
@@ -384,7 +388,91 @@ def test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop(tmp_
                 for case in step["match"].get("cases", {}).values():
                     yield from _walk_steps(case.get("steps", []))
 
-    all_steps = list(_walk_steps(lowered["steps"]))
+    all_steps = [
+        step
+        for lowered in lowered_workflows
+        for step in _walk_steps(lowered["steps"])
+    ]
     assert any(step.get("provider") == "codex" for step in all_steps)
     assert any("repeat_until" in step for step in all_steps)
-    assert "return__variant" in lowered["outputs"]
+    assert any("return__variant" in lowered["outputs"] for lowered in lowered_workflows)
+
+
+def test_design_delta_implementation_phase_candidate_compiles_with_variant_and_review_loop(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "lisp_frontend_design_delta"
+        / "implementation_phase.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={
+            "providers.implementation.execute": "codex",
+            "providers.implementation.review": "codex",
+            "providers.implementation.fix": "codex",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/"
+                "implement_plan.md"
+            ),
+            "prompts.implementation.review": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/"
+                "review_implementation.md"
+            ),
+            "prompts.implementation.fix": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/"
+                "fix_implementation.md"
+            ),
+        },
+        command_boundaries={
+            "run_neurips_backlog_checks": ExternalToolBinding(
+                name="run_neurips_backlog_checks",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/run_neurips_backlog_checks.py",
+                ),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "lisp_frontend_design_delta/types" in result.compiled_results_by_name
+    assert result.entry_result.validated_bundles
+    lowered_workflows = [
+        workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    ]
+    assert all(lowered["version"] == "2.14" for lowered in lowered_workflows)
+
+    def _walk_steps(steps):
+        for step in steps:
+            yield step
+            if "repeat_until" in step:
+                yield from _walk_steps(step["repeat_until"].get("steps", []))
+            if "match" in step:
+                for case in step["match"].get("cases", {}).values():
+                    yield from _walk_steps(case.get("steps", []))
+
+    all_steps = [
+        step
+        for lowered in lowered_workflows
+        for step in _walk_steps(lowered["steps"])
+    ]
+    assert any(step.get("provider") == "codex" for step in all_steps)
+    assert any("variant_output" in step for step in all_steps)
+    assert any("repeat_until" in step for step in all_steps)
+    assert any("command" in step for step in all_steps)
+    assert any("return__variant" in lowered["outputs"] for lowered in lowered_workflows)

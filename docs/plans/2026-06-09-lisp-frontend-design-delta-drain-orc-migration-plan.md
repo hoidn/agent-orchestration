@@ -278,29 +278,30 @@ Commit checkpoint:
 
 ### 5. Implementation Phase Candidate
 
-- [ ] Translate `lisp_frontend_design_delta_implementation_phase.v214.yaml` into `implementation_phase.orc`.
-- [ ] Model `COMPLETED` and `BLOCKED` as an `ImplementationAttempt` union.
-- [ ] Preserve variant proof for completed-only execution/check/review fields and blocked-only progress report fields.
-- [ ] Convert `ExecuteImplementation` to `provider-result` returning the implementation attempt union.
-- [ ] Convert checks to `command-result` or a certified checks adapter.
-- [ ] Replace the manual implementation review/fix `repeat_until` with stdlib review/revise semantics where possible.
+- [x] Translate the leaf execute-attempt and completed-review portions of `lisp_frontend_design_delta_implementation_phase.v214.yaml` into `implementation_phase.orc`.
+- [x] Model `COMPLETED` and `BLOCKED` as an `ImplementationAttempt` union.
+- [x] Preserve variant proof at the execute-attempt boundary; full completed-vs-blocked phase composition remains blocked by the current nested structured-control limitation.
+- [x] Convert `ExecuteImplementation` to `provider-result` returning the implementation attempt union.
+- [x] Convert checks to `command-result` or a certified checks adapter.
+- [x] Replace the manual implementation review/fix `repeat_until` with stdlib review/revise semantics for the completed-review leaf workflow.
 - [ ] Preserve `NOT_APPLICABLE` review decision for blocked attempts.
 - [ ] Remove copy-recovery behavior that treats stale execution reports as authority unless it is explicitly certified as a compatibility adapter.
 - [ ] Preserve output parity for `implementation_state` and `implementation_review_decision`.
+- [x] Record the current composition delta: the full phase cannot yet place the stdlib review loop inside the `COMPLETED` arm of the implementation-attempt `match` without shared-validation failures for nested structured `repeat_until`/`match`.
 
 Verification:
 
-- [ ] Compile/typecheck `implementation_phase.orc`.
+- [x] Compile/typecheck `implementation_phase.orc` leaf workflows.
 - [ ] Fake-provider completed/approve path.
 - [ ] Fake-provider completed/revise/approve path.
 - [ ] Fake-provider blocked path.
 - [ ] Bad variant access negative test.
 - [ ] Missing/wrong report target negative test.
-- [ ] `git diff --check`
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit implementation phase candidate and focused tests.
+- [x] Commit implementation phase candidate and focused tests.
 
 ### 6. Selector Candidate
 
