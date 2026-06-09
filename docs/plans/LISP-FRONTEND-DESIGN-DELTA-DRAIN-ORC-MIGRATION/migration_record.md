@@ -45,7 +45,7 @@ Baseline evidence checked during inventory:
 | Workflow-family inventory | complete for first pass | `inventory.md` |
 | Command adapter classification | complete for first pass | `inventory.md` |
 | Domain type module | not started | none |
-| `.orc` import/layout feasibility | not started | none |
+| `.orc` import/layout feasibility | complete for first pass | `feasibility_probe.md`; `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` |
 | Plan phase `.orc` candidate | not started | none |
 | Implementation phase `.orc` candidate | not started | none |
 | Selector `.orc` candidate | not started | none |
@@ -95,10 +95,4 @@ None yet.
 
 ## Next Checkpoint
 
-Run the feasibility probe from the implementation plan:
-
-1. compile the existing tested design-doc review/revise `.orc` workflow;
-2. prove or reject the intended nested library import layout;
-3. probe YAML-call interop as a checkpoint only;
-4. compile a tiny stdlib `review-revise-loop` fixture; and
-5. compile a tiny union/match fixture.
+Proceed to the domain type module for the candidate package layout.

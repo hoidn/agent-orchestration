@@ -137,22 +137,22 @@ Commit checkpoint:
 
 ### 2. Feasibility Probe For .orc Imports, Calls, And Existing Stdlib Forms
 
-- [ ] Compile the existing tested `.orc` review/revise workflow to confirm the current frontend route still works.
-- [ ] Compile or add a tiny fixture that imports one library `.orc` module from the planned target layout.
-- [ ] Probe whether `.orc` can call YAML workflows directly. If unsupported or semantically too weak, record that a YAML-call wrapper is not a valid migration route.
-- [ ] Compile a tiny fixture using `review-revise-loop` from `std/phase.orc`.
-- [ ] Compile a tiny fixture that returns a union and narrows it with `match`.
-- [ ] Compile a tiny fixture that passes provider aliases through inputs, or record the current provider-alias limitation.
+- [x] Compile the existing tested `.orc` review/revise workflow to confirm the current frontend route still works.
+- [x] Compile or add a tiny fixture that imports one library `.orc` module from the planned target layout.
+- [x] Probe whether `.orc` can call YAML workflows directly. If unsupported or semantically too weak, record that a YAML-call wrapper is not a valid migration route.
+- [x] Compile a tiny fixture using `review-revise-loop` from `std/phase.orc`.
+- [x] Compile a tiny fixture that returns a union and narrows it with `match`.
+- [x] Compile a tiny fixture that passes provider aliases through inputs, or record the current provider-alias limitation.
 
 Verification:
 
-- [ ] Narrow pytest selectors for existing `.orc` examples.
-- [ ] New compile-only fixture tests for import layout, union/match, and stdlib review/revise use.
-- [ ] `git diff --check`
+- [x] Narrow pytest selectors for existing `.orc` examples.
+- [x] New compile-only fixture tests for import layout, union/match, and stdlib review/revise use.
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit feasibility fixtures and any recorded gaps.
+- [x] Commit feasibility fixtures and any recorded gaps.
 
 ### 3. Domain Type Module
 
