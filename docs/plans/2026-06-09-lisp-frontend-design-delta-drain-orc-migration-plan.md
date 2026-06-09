@@ -163,24 +163,24 @@ The inventory must classify not only direct workflow command steps, but also scr
 
 ### 0. Runtime Foundation Readiness Gate
 
-- [ ] Verify command structured-output bundle conformance is implemented and covered by fail-closed tests.
-- [ ] Verify private frontend-lowered typed values can validate, materialize as views when needed, publish, consume, and render without pointer-file authority.
-- [ ] Verify provider `output_bundle.path` and `variant_output.path` target binding is runtime-owned and wrong-path output fails closed.
-- [ ] Verify `migration-parity` strict schema/version/gate behavior exists for `--require-non-regressive` and `--require-promotable`.
-- [ ] Verify StateLayout / PathAllocator owns generated state and bundle paths used by Workflow Lisp lowering.
-- [ ] Verify compiler-owned write roots do not appear as public workflow inputs.
-- [ ] Verify source maps and Semantic IR contain generated-path provenance for the relevant lowered forms.
-- [ ] Record any missing item as a prerequisite design gap and stop before translating workflow-family semantics.
+- [x] Verify command structured-output bundle conformance is implemented and covered by fail-closed tests.
+- [x] Verify private frontend-lowered typed values can validate, materialize as views when needed, publish, consume, and render without pointer-file authority.
+- [x] Verify provider `output_bundle.path` and `variant_output.path` target binding is runtime-owned and wrong-path output fails closed.
+- [x] Verify `migration-parity` strict schema/version/gate behavior exists for `--require-non-regressive` and `--require-promotable`.
+- [x] Verify StateLayout / PathAllocator owns generated state and bundle paths used by Workflow Lisp lowering.
+- [x] Verify compiler-owned write roots do not appear as public workflow inputs.
+- [x] Verify source maps and Semantic IR contain generated-path provenance for the relevant lowered forms.
+- [x] Record the gate outcome; no missing prerequisite gap remains after the imported `PhaseCtx` proof fix.
 
 Verification:
 
-- [ ] Focused runtime/provider/CLI pytest selectors for each foundation surface.
-- [ ] Compile and dry-run of a small `.orc` fixture exercising provider/command structured outputs and generated paths.
-- [ ] `git diff --check`
+- [x] Focused runtime/provider/CLI pytest selectors for each foundation surface.
+- [x] Compile and dry-run of a small `.orc` fixture exercising provider/command structured outputs and generated paths.
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit readiness evidence or prerequisite-gap records before starting translation.
+- [x] Commit readiness evidence or prerequisite-gap records before starting translation.
 
 ### 1. Baseline Inventory And Migration Record
 

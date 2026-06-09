@@ -84,6 +84,18 @@ def is_implementation_attempt_result_type(type_ref: TypeRef) -> bool:
     return isinstance(type_ref, UnionTypeRef) and type_ref.name == IMPLEMENTATION_ATTEMPT_RESULT_NAME
 
 
+def _record_definition_name(type_ref: RecordTypeRef) -> str:
+    """Return the authored record name before import canonicalization."""
+
+    return type_ref.definition.name
+
+
+def is_record_definition_named(type_ref: TypeRef, expected_name: str) -> bool:
+    """Return whether a record ref's authored definition has the expected name."""
+
+    return isinstance(type_ref, RecordTypeRef) and _record_definition_name(type_ref) == expected_name
+
+
 def build_phase_scope(
     type_ref: TypeRef,
     *,
@@ -94,7 +106,8 @@ def build_phase_scope(
 ) -> PhaseScope:
     """Validate one authored phase context and build its scope."""
 
-    if isinstance(type_ref, RecordTypeRef) and type_ref.name == IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME:
+    if is_record_definition_named(type_ref, IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME):
+        assert isinstance(type_ref, RecordTypeRef)
         return build_implementation_attempt_phase_scope(
             type_ref,
             phase_name=phase_name,
@@ -103,7 +116,7 @@ def build_phase_scope(
             form_path=form_path,
         )
 
-    if not isinstance(type_ref, RecordTypeRef) or type_ref.name != PHASE_CONTEXT_NAME:
+    if not is_record_definition_named(type_ref, PHASE_CONTEXT_NAME):
         _raise_error(
             code="phase_context_invalid",
             message="`with-phase` requires a `PhaseCtx` value or the bounded legacy implementation bridge",
@@ -291,13 +304,13 @@ def derive_promoted_entry_hidden_context_metadata(
     requirements: dict[str, PromotedEntryHiddenContextRequirement] = {}
     ambiguities: dict[str, tuple[str, ...]] = {}
     for param_name, type_ref in signature.params:
-        if isinstance(type_ref, RecordTypeRef) and type_ref.name == RUN_CONTEXT_NAME:
+        if is_record_definition_named(type_ref, RUN_CONTEXT_NAME):
             requirements[param_name] = PromotedEntryHiddenContextRequirement(
                 param_name=param_name,
                 context_kind=RUN_CONTEXT_NAME,
             )
             continue
-        if not isinstance(type_ref, RecordTypeRef) or type_ref.name != PHASE_CONTEXT_NAME:
+        if not is_record_definition_named(type_ref, PHASE_CONTEXT_NAME):
             continue
         phase_names = tuple(sorted(_collect_with_phase_names(body_expr, ctx_name=param_name)))
         if len(phase_names) == 1:
@@ -351,7 +364,7 @@ def _require_record_field_type(
     form_path: tuple[str, ...],
 ) -> None:
     field_type = type_env.record_field(record_type, field_name, span=span, form_path=form_path)
-    if not isinstance(field_type, RecordTypeRef) or field_type.name != expected_record_name:
+    if not is_record_definition_named(field_type, expected_record_name):
         _raise_error(
             code="phase_context_invalid",
             message=f"`{record_type.name}.{field_name}` must be `{expected_record_name}`",

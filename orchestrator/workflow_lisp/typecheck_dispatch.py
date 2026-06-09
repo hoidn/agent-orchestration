@@ -80,6 +80,7 @@ from .phase import (
     build_phase_scope,
     IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME,
     is_implementation_attempt_result_type,
+    is_record_definition_named,
     resolve_phase_target_type,
 )
 from .phase_stdlib import ReusableStateValidationSpec
@@ -1973,14 +1974,14 @@ def _require_normative_phase_ctx_type(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
-    if isinstance(type_ref, RecordTypeRef) and type_ref.name == IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME:
+    if is_record_definition_named(type_ref, IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME):
         _raise_error(
             "generic phase stdlib forms require `PhaseCtx`; the legacy bridge is reserved for the Stage 4 implementation-attempt regression",
             code="phase_ctx_legacy_bridge_invalid",
             span=span,
             form_path=form_path,
         )
-    if not isinstance(type_ref, RecordTypeRef) or type_ref.name != PHASE_CONTEXT_NAME:
+    if not is_record_definition_named(type_ref, PHASE_CONTEXT_NAME):
         _raise_error(
             "generic phase stdlib forms require `PhaseCtx`",
             code="phase_context_invalid",

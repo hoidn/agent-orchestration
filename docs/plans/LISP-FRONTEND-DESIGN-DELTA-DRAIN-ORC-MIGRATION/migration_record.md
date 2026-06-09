@@ -45,6 +45,7 @@ Baseline evidence checked during inventory:
 | --- | --- | --- |
 | Workflow-family inventory | complete for first pass | `inventory.md` |
 | Reproducible baseline characterization | complete for first pass | `baseline_evidence.md` |
+| Runtime foundation readiness gate | complete for first pass | `foundation_readiness_gate.md` |
 | Command adapter classification | complete for first pass | `inventory.md` |
 | Domain type module | complete for first pass | `workflows/library/lisp_frontend_design_delta/types.orc`; `test_design_delta_domain_types_import_from_two_candidate_modules` |
 | `.orc` import/layout feasibility | complete for first pass | `feasibility_probe.md`; `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py` |
@@ -105,4 +106,6 @@ None yet.
 
 ## Next Checkpoint
 
-Run the runtime foundation readiness gate before translating any workflow phase.
+Proceed to the plan phase `.orc` candidate. Do not translate the parent drain
+until selector, gap architect, work item, plan phase, implementation phase,
+and recovery routing candidates have focused evidence.
