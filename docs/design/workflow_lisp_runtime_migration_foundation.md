@@ -149,10 +149,12 @@ Generated path allocation:
 
 ```text
 semantic allocation request
-  -> StateLayout
-  -> PathAllocator
-  -> neutral allocation metadata
-  -> runtime binding + workflow boundary projection + source-map projection + Semantic IR projection
+  -> StateLayout semantic request normalization
+  -> PathAllocator concrete allocation metadata
+  -> runtime/executable binding projection
+  -> workflow boundary projection
+  -> source-map projection
+  -> Semantic IR state-layout projection
 ```
 
 ### 3.5 Prohibited Dependency Directions
@@ -209,16 +211,16 @@ Current checkout already contains partial implementation evidence for several su
 | Surface | Current normative status | Current implementation status | Evidence required before foundation-ready |
 | --- | --- | --- | --- |
 | command `output_bundle.path` env injection | Normative in `specs/io.md` | Must be verified in runtime executor | env override, parent creation/validation, missing-bundle failure tests |
-| command `variant_output.path` | Conditional unless accepted in normative specs | Do not assume as foundation behavior | normative spec update, or `output_bundle.path` plus compiler-owned validator/projection |
+| command `variant_output.path` | `specs/dsl.md` defines command validation, but runtime-owned env binding is ambiguous across the current spec chain | Needs an explicit `specs/dsl.md` or `specs/io.md` clarification before promotion evidence counts | spec clarification, then env override, parent creation/validation, missing-bundle failure tests, command `variant_output` coverage |
 | provider `output_bundle.path` target binding | Normative in `specs/io.md` / `specs/dsl.md` | Implemented enough to launch, but needs focused conformance evidence | provider target-binding tests and provider spec/readme alignment |
 | provider `variant_output.path` target binding | Normative in `specs/io.md` / `specs/dsl.md` | Runtime validates expected path; wrong-path provider output exposed the need for focused coverage | provider target-binding tests and wrong-path failure diagnostic |
 | private collection contracts | Not ordinary public authored-YAML boundary | Frontend-lowered executable workflows can expose gaps | validator tests for list/map/record-like values and nested relpaths |
 | scalar/list/map materialized value views | Public YAML `pointer.path` remains relpath-only unless widened | Needed for uniform `.orc` prompt-input materialization | string/list/map view tests; pointer-as-view invariants |
-| collection publish/consume | Public artifact registry is primarily relpath/scalar | Collection consume can fail at provider boundary | collection artifact publish/consume tests with embedded contracts |
+| collection publish/consume | Public authored artifact registry remains relpath/scalar; private executable artifacts require a separate authority lane | Collection consume can fail at provider boundary until the private catalog/state lane is explicit | private artifact catalog + state persistence tests; collection artifact publish/consume tests with embedded contracts |
 | prompt extern source semantics | `asset_file` is source-relative; `input_file` is workspace-relative | `.orc` extern strings are easy to mislaunch | explicit extern manifest model and docs/examples |
 | `migration-parity` report generation | Tool/evidence surface; promotion policy in migration docs | Existing tool computes `non_regressive` | schema validation, strict gate mode, stable nonzero exit tests |
 | `non_regressive` | Must be tooling-computed | Existing reports compute it from evidence | target-manifest and hand-authored-report negative tests |
-| StateLayout / PathAllocator | Draft design direction | Partial/scattered generated path evidence | one allocation/provenance boundary plus source-map and Semantic IR tests |
+| StateLayout / PathAllocator | Draft design direction with stricter run-isolation invariant already owned by `workflow_lisp_state_layout.md` | Partial/scattered generated path evidence | one allocation/provenance boundary plus run-isolated private path, source-map, and Semantic IR tests |
 | hidden `__write_root__...` inputs | Compatibility mechanism, not public API | Existing generated/private binding mechanics | public-boundary inspection tests and runtime-contract visibility tests |
 
 The remaining gap is coherence: these surfaces are implemented in several places, but not yet hardened as one promotion-grade foundation.
@@ -240,12 +242,12 @@ Fifth, generated path allocation is scattered across lowering helpers, managed w
 ## 6. Goals
 
 - Make declared command `output_bundle.path` files the semantic authority for command structured outputs.
-- Treat command `variant_output.path` as conditional until accepted by normative DSL/IO specs, or lower command-produced unions through `output_bundle.path` plus compiler-owned validator/projection.
+- Treat command `variant_output.path` as part of the explicit-path structured-output surface only after an explicit `specs/dsl.md` or `specs/io.md` clarification, then prove the runtime-owned binding/validation contract in executor tests.
 - Ensure the runtime, not command adapters, owns structured command bundle target injection and parent-directory readiness.
 - Define a private executable/runtime value-transport contract for frontend-lowered scalar, relpath, list, map, record-like, and nested relpath-containing values.
 - Keep public authored-YAML compatibility restrictions unless a versioned spec change intentionally widens them.
 - Allow frontend-lowered private materialization to write scalar/list/map value-view files without making those files semantic authority.
-- Allow frontend-lowered private collection artifacts to publish and consume through runtime dataflow when their embedded contracts are available.
+- Allow frontend-lowered private collection artifacts to publish and consume through runtime dataflow through an explicit private executable artifact catalog carried in executable IR and additive state.
 - Prove provider structured-output target binding for provider steps with `output_bundle.path` or `variant_output.path`.
 - Preserve post-execution validation as the final authority for provider and command structured outputs.
 - Make prompt extern source semantics explicit for Workflow Lisp authoring.
@@ -305,10 +307,7 @@ For command steps with `output_bundle.path`, implementation evidence must prove 
 
 Stdout JSON remains debug/captured output unless the step explicitly uses `output_capture: json`. It must not become structured command state when an `output_bundle` contract is present.
 
-For command-produced union results, this tranche is conditional:
-
-- use `variant_output.path` only after that surface is accepted by the normative DSL/IO specs; or
-- lower through an authoritative `output_bundle.path` containing the raw discriminant and payload, followed by a compiler-owned validator/projection step that establishes variant-proof-compatible typed refs.
+Command-produced `variant_output.path` is intended to join the same explicit-path structured-output family, but promotion-grade evidence must not rely on the current indirect spec chain. Until `specs/dsl.md` or `specs/io.md` explicitly states the command `variant_output.path` runtime-owned target-binding rule, Tranche 1 conformance evidence is limited to command `output_bundle.path`. After that spec clarification lands, command `variant_output.path` uses the same runtime-owned target resolution, environment precedence, parent-readiness, and post-exit validation contract as `output_bundle.path`; the extra `variant_output` rules are the tagged-union validation and selected-field projection defined by `specs/dsl.md`.
 
 ### 9.2 Tasks
 
@@ -318,7 +317,7 @@ For command-produced union results, this tranche is conditional:
 - Validate the declared bundle after successful command exit.
 - Preserve nonzero command exit as primary failure.
 - Treat stdout JSON as debug/capture unless the step explicitly uses `output_capture: json`.
-- Add or update normative spec text for every structured command-bundle surface covered by this rule.
+- Add an explicit `specs/dsl.md` or `specs/io.md` clarification for command `variant_output.path` runtime-owned target binding before counting command variant evidence as promotion-grade.
 
 ### 9.3 Acceptance
 
@@ -328,13 +327,13 @@ For command-produced union results, this tranche is conditional:
 - Exit `0` plus invalid bundle fails as output-contract failure.
 - Nonzero command exit remains primary.
 - Stdout JSON does not satisfy a missing bundle.
-- Covered command `variant_output` behavior is either normatively specified or explicitly deferred.
+- After the explicit spec clarification lands, command `variant_output.path` follows the same runtime-owned target contract and adds tagged-union validation/projection.
 
 ### 9.4 Normative Spec Deltas
 
 `output_bundle.path` behavior is already normative in `specs/io.md`.
 
-`variant_output.path` remains conditional in this document. If command-produced `variant_output` with an explicit bundle path is intended to be a promotion foundation surface, update `specs/io.md` and `specs/dsl.md` so that it uses the same runtime-owned environment, parent-readiness, path-safety, and post-exit validation contract as `output_bundle.path`.
+Command `variant_output.path` needs an explicit normative clarification before its runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding evidence can count toward migration promotion. The clarification should live in `specs/dsl.md` or `specs/io.md` and state that command steps with `variant_output.path` receive the same runtime-owned target resolution, environment precedence, parent-readiness, and post-exit validation as command `output_bundle.path`, plus tagged-union validation/projection. The implementation may prepare tests and executor support, but promotion-grade evidence remains blocked until that spec delta lands.
 
 ## 10. Tranche 2: Frontend-Lowered Typed Value Transport
 
@@ -399,12 +398,21 @@ The term `pointer` should remain reserved for relpath indirection when possible.
 
 ### 10.4 Collection Publish/Consume Dataflow
 
-If a frontend-lowered executable workflow publishes a private collection value, the runtime artifact ledger may record it as a collection artifact only when the embedded contract and origin metadata are available.
+If a frontend-lowered executable workflow publishes a private collection value, it must do so through a private executable artifact catalog owned by executable IR and persisted additively in state. This document chooses that lane explicitly rather than widening the public authored `artifacts`/`artifact_versions` contract.
 
-A private collection artifact record should include at least:
+The ownership split is:
+
+- public authored `artifacts`, `publishes`, `consumes`, and `artifact_versions` keep their current relpath/scalar contract and state shape;
+- Workflow Lisp lowering may synthesize private executable artifact ids for collection or record-like values that are never exposed as public authored artifact names;
+- executable IR carries the catalog entries for those private artifact ids, including contract, provenance class, and rendering hints;
+- state persists versions for those ids in a separate additive ledger such as `private_artifact_versions`, keyed by executable artifact id and versioned independently from the public ledger shape; and
+- consume/materialization/prompt-rendering code paths resolve private artifacts through that executable/state lane, not by overloading public top-level artifact declarations.
+
+A private executable artifact catalog entry should include at least:
 
 ```json
 {
+  "artifact_id": "orc.private.context_docs",
   "kind": "collection",
   "private": true,
   "origin": "workflow_lisp_lowering",
@@ -414,9 +422,31 @@ A private collection artifact record should include at least:
       "type": "relpath",
       "under": "docs/design"
     }
+  },
+  "rendering": {
+    "prompt_format": "deterministic_json"
   }
 }
 ```
+
+The additive state ledger for one published version should carry the normalized value plus a reference back to the executable catalog identity, for example:
+
+```json
+{
+  "artifact_id": "orc.private.context_docs",
+  "version": 2,
+  "value": [
+    "docs/design/workflow_lisp_runtime_migration_foundation.md"
+  ],
+  "catalog_ref": "orc.private.context_docs",
+  "producer_step_id": "root.steps.Review",
+  "provenance": {
+    "origin": "workflow_lisp_lowering"
+  }
+}
+```
+
+This keeps typed state authoritative for private executable artifacts without changing the meaning of public `artifact_versions` rows consumed by ordinary YAML workflows and existing runtime tooling.
 
 Consume preflight for collection artifacts must:
 
@@ -443,10 +473,11 @@ Prompt rendering for collection consumes must:
 - Validate nested relpaths through output-contract path-safety logic.
 - Add private materialized value-view support for scalar/list/map values.
 - Keep public authored-YAML `pointer.path` compatibility restrictions unless a DSL spec change widens them.
-- Allow collection-valued private artifacts to be recorded in `artifact_versions` when they include embedded contracts.
-- Allow `consumes` preflight to resolve and validate private collection artifacts.
+- Add executable-private artifact catalog entries for collection/record-like lowered values.
+- Persist private artifact versions in an additive state ledger rather than overloading public `artifact_versions`.
+- Allow `consumes` preflight to resolve and validate private collection artifacts through that private catalog/state lane.
 - Render collection consumes deterministically in provider prompt injection.
-- Add source-map and StateLayout provenance for generated value-view files.
+- Carry allocation provenance for generated value-view files into source-map and state-layout projections.
 
 ### 10.6 Acceptance
 
@@ -457,7 +488,7 @@ Prompt rendering for collection consumes must:
 - String, scalar, list, and map values can be materialized as private value views.
 - Value-view files are marked as views and do not become semantic artifact authority.
 - Public authored YAML still rejects unsupported collection artifacts unless a versioned DSL decision changes that.
-- Collection artifacts published by frontend-lowered workflows can be consumed by downstream provider steps.
+- Private collection artifacts published by frontend-lowered workflows are cataloged in executable IR, persisted in additive state, and can be consumed by downstream provider steps.
 - `_resolved_consumes` may contain native list/map values.
 - Provider prompt injection renders collection consumes deterministically.
 - Collection consume failures are ordinary contract violations with nested details.
@@ -474,8 +505,10 @@ Add a `materialize_artifacts` clarification:
 
 Add a `publishes`/`consumes` clarification:
 
-- private collection artifacts may be published and consumed only with embedded contracts and provenance; and
+- private collection artifacts may be published and consumed only through executable-private artifact ids with embedded contracts and provenance, carried by executable IR plus additive state; and
 - prompt injection is a deterministic rendering over resolved consume values, not the dataflow authority.
+
+Add a `specs/state.md` clarification that any private executable artifact ledger introduced for Workflow Lisp is additive state owned by the executable/runtime contract and does not redefine the public authored `artifact_versions` row shape.
 
 ## 11. Tranche 3: Provider Structured-Output Target Binding
 
@@ -536,8 +569,6 @@ Provider session and managed-job wrappers must preserve the structured-output bi
 Provider `output_bundle.path` and `variant_output.path` structured-output target binding is already represented in `specs/io.md` and `specs/dsl.md`. This tranche hardens implementation evidence and documentation alignment.
 
 Update `specs/providers.md` if needed so provider-template and provider-session transport text explicitly preserves the runtime-owned binding.
-
-If command-produced `variant_output.path` remains conditional, keep that distinction explicit: this provider tranche does not by itself accept command-produced `variant_output.path` as a promotion foundation surface.
 
 ## 12. Companion Authoring Contract: Prompt Extern Source Semantics
 
@@ -603,7 +634,7 @@ Gate modes:
 
 - selected targets must satisfy all `--require-non-regressive` requirements;
 - selected targets must also have `eligible_for_primary_surface=true`;
-- aggregate promotion decisions may derive `primary_surface` only under this mode.
+- strict gate acceptance/rejection is the only place where derived `primary_surface` carries release-policy force.
 
 Decision table:
 
@@ -619,7 +650,11 @@ The command must validate both freshly generated reports and reused existing rep
 
 Existing reports are not authority merely because they are JSON objects. `non_regressive` remains computed from evidence. Target manifests and hand-authored reports must not provide it.
 
-Per-target parity reports stay evidence-only artifacts. If the CLI needs a machine-readable strict-gate result beyond markdown/index rendering, it should emit a separate versioned gate-evaluation object rather than turning the report itself into promotion policy authority.
+Per-target parity reports stay evidence-only artifacts. If the CLI needs a machine-readable strict-gate result beyond markdown/index rendering, it should emit a separate versioned `gate_evaluation` object rather than turning the report itself into promotion policy authority.
+
+Rendered markdown and index rows may still display a derived `primary_surface` informatively, matching current reusable-report behavior. That display remains a view. Only `--require-promotable` gate evaluation may treat the derivation as release-policy authority.
+
+If persisted, `gate_evaluation` should record gate mode, selected-target identities, per-target pass/fail reasons, and any derived `primary_surface` decision. It may be regenerated from reusable reports plus current manifest/selection context without mutating the per-target reports themselves.
 
 Gate-layer or derived-view `primary_surface` is derived from:
 
@@ -642,6 +677,7 @@ The strict gate report schema must include at least:
 - `evidence`;
 - `evidence_freshness`;
 - `promotion_eligibility`;
+- `compile_artifacts`;
 - tooling-computed `non_regressive`;
 - `generated_at`;
 - `generated_by`;
@@ -666,13 +702,15 @@ The strict gate report schema must include at least:
 - `compile_manifest_path`, when compile evidence produced one;
 - `compile_manifest_sha256`, when compile evidence produced one;
 - `compiled_workflow_checksum`, when compile/run evidence exposes it;
-- `required_artifact_paths` for emitted required compile artifacts; and
-- per-role evidence references needed to prove the report still corresponds to the selected target and current evidence set.
+- `required_artifacts`, including each required artifact's expected path and status/digest comparator when available; and
+- `evidence_refs`, keyed by evidence role, with the path, digest or stable identifier, and freshness notes needed to prove the report still corresponds to the selected target and current evidence set.
+
+Strict reuse checks compare the selected target against the report's manifest hash, candidate source digest, compile-manifest digest when present, compiled workflow checksum when present, and required evidence references. Any mismatch or missing required comparator makes the reused report stale for gate purposes.
 
 `report_valid` and `evidence_complete` are gate-derived checks, not authored fields:
 
-- `report_valid=true` only when the report schema version matches, all required fields above are present, authored computed fields are absent, and `target_identity` matches the selected manifest row exactly.
-- `evidence_complete=true` only when required evidence roles are present, required compile artifacts are present, waivers are still valid, and `evidence_freshness` proves the report still matches the selected manifest, compile manifest, and candidate workflow checksum.
+- `report_valid=true` only when the report schema version matches, all required fields above are present and parse as the declared structures, `target_identity` matches the selected manifest row exactly, the report does not publish gate-owned fields such as `primary_surface`, and tooling can recompute `non_regressive` from the embedded evidence without disagreement.
+- `evidence_complete=true` only when required evidence roles are present, required compile artifacts are present and passing, waivers are still valid, and `evidence_freshness` supplies every comparator required for the selected target: manifest digest, candidate digest, compile-manifest digest when present, compiled-workflow checksum when present, and required evidence/artifact references.
 
 `primary_surface` is a gate-layer or derived-view delta in this document. It must be derived by tooling from computed non-regression and eligibility; it is not authored in the target manifest and it is not a required parity-report field.
 
@@ -689,7 +727,7 @@ The strict gate report schema must include at least:
 
 ### 14.1 Contract
 
-Introduce a concrete `StateLayout` / `PathAllocator` boundary without forcing a large path migration in the first patch.
+Introduce a concrete `StateLayout` / `PathAllocator` boundary without forcing a large public-path migration in the first patch.
 
 The first implementation should centralize allocation and provenance for:
 
@@ -697,36 +735,42 @@ The first implementation should centralize allocation and provenance for:
 - generated provider result bundle write roots;
 - generated variant projection bundle paths;
 - generated value-view files;
-- generated internal inputs such as `__write_root__...`;
+- allocation metadata from which runtime/executable lowering derives generated internal-input bindings such as `__write_root__...`;
 - reusable call write-root bindings;
 - entrypoint runtime-owned managed write roots;
+- allocation metadata consumed by `workflow_boundary_projection`;
 - allocation metadata consumed by source-map projection; and
 - allocation metadata consumed by Semantic IR state-layout projection.
 
-The initial allocator should preserve current concrete path shapes where practical; the first migration is ownership/provenance centralization, not a path-shape migration. The important first step is that every generated path family goes through one allocation interface and one provenance interface.
+The boundary returns neutral allocation metadata, not finished runtime, workflow-boundary, source-map, or Semantic IR projections. The first allocator patch must already satisfy the `workflow_lisp_state_layout.md` run-isolation invariant for private generated write paths that participate in promotion-relevant evidence: command/provider result bundles, reusable-call write roots, entrypoint managed write roots, variant projection bundles, and value-view files must be run-isolated by default and resume-stable within the same run/call-frame/loop identity.
 
-After that interface is stable, path families can move toward the `workflow_lisp_state_layout.md` target: private generated write paths are run-isolated by default, resume reconstructs the same private path for the same run/call-frame/loop identity, and authored stable workspace artifacts remain explicit.
+Preserving current concrete path shapes remains acceptable only where those shapes already satisfy the run-isolation invariant or where the path is explicitly a compatibility/public surface rather than a private generated write path. Any preserved non-isolated concrete shape is compatibility-only, must be labeled as such in allocation metadata, and is not acceptable as migration-promotion evidence.
 
 ### 14.2 Tasks
 
 - Add a concrete allocation request shape with stable semantic identity, provenance, privacy, resume scope, and path-safety policy.
 - Route command-result bundle allocation through the new boundary.
 - Route provider-result bundle allocation through the new boundary.
+- Route generated variant projection bundle allocation through the new boundary.
 - Route private value-view allocation through the new boundary.
 - Route reusable-call write-root allocation through the new boundary.
+- Route entrypoint runtime-owned managed write-root allocation through the new boundary.
 - Keep downstream projection owners explicit: runtime/executable binding owns generated hidden-input projection, workflow boundary projection owns public boundary explanation, SourceMap owns traceability entries, and Semantic IR owns typed state-layout entries derived from allocation metadata.
 - Keep compiler-owned generated write roots hidden from public workflow signatures.
-- Preserve current concrete path shapes where practical.
+- Preserve current concrete path shapes only where they already satisfy run isolation or are explicitly compatibility/public surfaces.
 
 ### 14.3 Acceptance
 
 - Generated command result bundle paths route through the allocator.
 - Generated provider result bundle paths route through the allocator.
+- Generated variant projection bundle paths route through the allocator.
 - Generated value-view paths route through the allocator.
+- Entrypoint runtime-owned managed write roots route through the allocator.
 - Generated internal inputs remain hidden from public inputs and present in executable/runtime contracts where required.
 - Source maps and Semantic IR contain matching generated path/layout entries derived from allocation metadata.
 - Repeated calls, loop iterations, and match arms produce collision-proof allocations.
 - Resume reconstructs the same allocation identity for the same run and call-frame/loop identity.
+- Promotion-relevant private generated paths are run-isolated across independent runs unless explicitly authored as stable public artifacts.
 - Formatting-only source-span changes do not change stable allocation identity.
 
 ### 14.4 StateLayout Non-Goals
@@ -834,9 +878,11 @@ target manifest
   -> evidence commands and accepted waivers
   -> generated report
   -> computed non_regressive
-  -> derived aggregate index / gate evaluation
+  -> derived aggregate index / gate_evaluation
   -> optional primary-surface view or decision
 ```
+
+If persisted, `gate_evaluation` is a versioned machine-readable policy artifact separate from the per-target report and separate from markdown/index views.
 
 Required evidence roles remain those already represented by the migration parity implementation and architecture:
 
@@ -907,6 +953,8 @@ Initial privacy classes:
 - `compatibility_view`; and
 - `runtime_sidecar`.
 
+`private_generated` allocations are run-isolated by default. `compatibility_view` may preserve an older concrete shape only when it is explicitly non-authoritative and not used as migration-promotion evidence.
+
 Initial resume scopes:
 
 - `none`;
@@ -928,6 +976,8 @@ resume_identity
 projection_hints
 ```
 
+These fields are projector-ready metadata, not finished runtime bindings or serialized derived artifacts.
+
 `StateLayout` does not decide semantic workflow outcomes. It decides where compiler/runtime-owned state and generated bundle/view files live, how they are hidden from public inputs, and how they are explained.
 
 Projection ownership stays separate:
@@ -947,6 +997,7 @@ Projection ownership stays separate:
 - Runtime validates output bundles after successful command/provider exit.
 - Runtime validates private frontend-lowered typed values consistently across validation/materialization/publish/consume/prompt-rendering boundaries.
 - Runtime entry binding for compiler-managed write roots remains hidden from public workflow inputs.
+- Runtime/executable binding consumes allocation metadata for generated variant projection bundles and entrypoint managed write roots instead of synthesizing those paths independently.
 
 ### 16.2 CLI
 
@@ -959,7 +1010,7 @@ Projection ownership stays separate:
 - Workflow Lisp may lower richer private typed values than public authored YAML exposes, but only into validated executable contracts with source-map provenance.
 - Workflow Lisp must not flatten collections into report prose or ad hoc pointer files to work around runtime gaps.
 - Workflow Lisp prompt externs must document and validate whether each prompt source is `asset_file` or `input_file`.
-- Generated private write roots and materialized view paths must go through StateLayout/PathAllocator once that boundary exists.
+- Generated private write roots, variant projection bundles, entrypoint managed write roots, and materialized view paths must go through StateLayout/PathAllocator once that boundary exists.
 
 ### 16.4 Generated Artifacts
 
@@ -967,6 +1018,7 @@ Projection ownership stays separate:
 - Semantic IR records corresponding state-layout entries derived from the same allocation metadata.
 - Validated parity JSON reports are machine-readable gate evidence.
 - Parity JSON reports are not workflow semantic authority and do not redefine runtime behavior.
+- Any persisted `gate_evaluation` JSON is a separate machine-readable gate-decision artifact derived from current selection context.
 - Markdown parity reports and indexes are views.
 
 ## 17. Dependencies And Sequencing
@@ -979,7 +1031,7 @@ Tranche 3 should land with provider/spec/runtime conformance checks before gener
 
 Tranche 4 can land after or alongside Tranche 1 because the command exists; hardening it does not require StateLayout to be complete. It should include any spec/CLI doc updates needed to treat the command as a gate.
 
-Tranche 5 should follow as a staged refactor. It has broader blast radius and should start by routing existing allocation families through a shared boundary without changing all concrete paths at once.
+Tranche 5 should follow as a staged refactor. It has broader blast radius, but its first patch still needs to make promotion-relevant private generated paths run-isolated while routing the existing allocation families through a shared boundary. Broader public-path cleanup or compatibility-shape retirement can happen later.
 
 Work that can proceed in parallel:
 
@@ -1022,7 +1074,7 @@ Typed value transport follows this design only if private frontend-lowered colle
 
 Migration promotion follows this design only if the CLI can fail as a gate. Generated reports that compute `non_regressive` but never affect exit behavior are useful evidence, but not a release valve.
 
-State layout follows this design only if generated path families route through one allocation/provenance boundary. Existing helpers that merely keep producing `__write_root__...` names are compatibility mechanics, not the target architecture.
+State layout follows this design only if generated path families route through one allocation/provenance boundary and promotion-relevant private generated paths are run-isolated by default. That includes generated command result bundles, provider result bundles, variant projection bundles, value views, reusable call write roots, and entrypoint runtime-owned managed write roots. Existing helpers that merely keep producing `__write_root__...` names without that invariant are compatibility mechanics, not the target architecture.
 
 ### 19.2 Prohibited Evidence
 
@@ -1059,7 +1111,7 @@ Existing prompt extern string manifests remain valid as `asset_file` shorthand. 
 
 Existing parity reports remain readable, but strict gate mode may reject old reports that lack schema/version fields, target-identity fingerprints, or required freshness evidence. That is expected: old evidence can remain historical, but it should not be promotion gate evidence.
 
-StateLayout migration is incremental. The first implementation should preserve current concrete paths where practical and move ownership behind an allocator facade before changing path shapes.
+StateLayout migration is incremental. The first implementation should move ownership behind an allocator facade immediately and enforce run isolation for private generated write paths used by promotion-relevant workflows. Older non-isolated shapes may survive only as explicitly labeled compatibility/public surfaces until they are retired.
 
 ## 21. Verification Strategy
 
@@ -1075,7 +1127,7 @@ StateLayout migration is incremental. The first implementation should preserve c
 - nonzero command exit remains primary over bundle validation;
 - command exits zero and writes valid stdout JSON but no bundle: output-contract failure;
 - command under reusable `call` preserves workspace-relative authored contract paths while runtime-owned identities remain namespaced;
-- `variant_output.path` is tested only after normative spec support exists, or the `output_bundle.path` plus validator/projection route is tested instead.
+- after explicit spec clarification, command `variant_output.path` receives the same runtime-owned target binding/validation coverage as `output_bundle.path`, plus tagged-union validation/projection coverage.
 
 ### 21.2 Frontend-Lowered Typed Value Transport Tests
 
@@ -1088,8 +1140,8 @@ StateLayout migration is incremental. The first implementation should preserve c
 - scalar/list/map materialized value views are written with stable encoding;
 - value views are not recorded as semantic authority unless explicitly contracted;
 - public authored YAML still rejects unsupported collection artifacts;
-- private collection artifacts publish with embedded contracts and provenance;
-- private collection artifacts consume with nested validation details;
+- private collection artifacts publish through executable-private artifact ids with embedded contracts and provenance;
+- private collection artifacts consume through the private catalog/state lane with nested validation details;
 - provider prompt consume injection renders collection values deterministically.
 
 ### 21.3 Provider Structured-Output Target Binding Tests
@@ -1121,6 +1173,7 @@ StateLayout migration is incremental. The first implementation should preserve c
 - strict reuse checks require target manifest hash and candidate/workflow checksum identity material in the report;
 - reused report generated from a different target manifest hash is rejected;
 - reused report generated from a different workflow checksum is rejected;
+- stored `non_regressive` must match recomputation from the report payload or the report is invalid for strict gating;
 - strict gate exits nonzero for regressive eligible targets;
 - strict gate exits zero for non-regressive eligible targets;
 - non-regressive but ineligible target does not become primary;
@@ -1128,6 +1181,7 @@ StateLayout migration is incremental. The first implementation should preserve c
 - markdown-only report never contributes to promotion;
 - reused existing reports are schema/version validated;
 - report validity and evidence completeness are derived from the report's identity/freshness fields rather than authored booleans;
+- reusable parity reports do not carry report-owned `primary_surface`, and any persisted `gate_evaluation` object is schema-versioned separately;
 - expired waivers, missing required evidence, missing required artifacts, and hidden managed write-root inputs force non-regression false;
 - aggregate index or gate-evaluation view derives `primary_surface` from computed non-regression and promotion eligibility.
 
@@ -1135,7 +1189,9 @@ StateLayout migration is incremental. The first implementation should preserve c
 
 - generated command result bundle paths route through the allocator;
 - generated provider result bundle paths route through the allocator;
+- generated variant projection bundle paths route through the allocator;
 - generated value-view paths route through the allocator;
+- entrypoint runtime-owned managed write roots route through the allocator;
 - generated internal inputs remain hidden from public inputs and present in runtime contracts;
 - source maps and Semantic IR contain matching generated path/layout entries;
 - repeated calls, loop iterations, and match arms produce collision-proof allocations;
@@ -1143,6 +1199,7 @@ StateLayout migration is incremental. The first implementation should preserve c
 - formatting-only source-span changes do not change stable allocation identity;
 - semantic target changes do change allocation identity;
 - private generated path differs across independent runs when run-isolation is required;
+- preserved compatibility/public shapes are labeled and excluded from promotion evidence;
 - same procedure called from two call sites does not collide;
 - absolute paths and `..` escapes are rejected.
 
@@ -1224,7 +1281,8 @@ Forbidden result: generated path strings are synthesized independently by loweri
 - Prompt extern source semantics are explicit, documented, and covered by examples/tests.
 - `migration-parity` has a strict gate mode with focused CLI tests.
 - Existing parity reports and indexes are still generated, but reused reports are schema/version checked.
-- A `StateLayout` / `PathAllocator` implementation boundary exists and at least command-result, provider-result, reusable-call write-root, and value-view allocation route through it.
+- A `StateLayout` / `PathAllocator` implementation boundary exists and at least command-result, provider-result, variant-projection, reusable-call write-root, entrypoint managed write-root, and value-view allocation route through it.
+- Promotion-relevant private generated paths are run-isolated by default, with any preserved non-isolated shapes labeled compatibility-only and excluded from promotion evidence.
 - Source-map and Semantic IR tests prove generated path provenance survives.
 - No public workflow entrypoint exposes compiler-owned `__write_root__...` inputs.
 - The generic design-doc review/revise workflow can route typed review decisions without frontend-specific runtime crashes, hidden prompt-path assumptions, collection-artifact failures, or provider structured-output placement failures.
