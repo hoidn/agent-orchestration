@@ -36,6 +36,11 @@ Source candidate sketches:
 - `tmp/mle/mle3/mlevolve_orc_solution/`
 - `tmp/mle/mle4/mlevolve_approx_solution/`
 
+These paths are local working evidence, not durable implementation evidence.
+Before using this document as an implementation handoff, preserve the reviewed
+candidates under a committed fixture path, a report artifact, or a recorded
+commit/ref.
+
 ## 1. Purpose
 
 This document defines a recommended system architecture for implementing an MLEvolve-style autonomous ML engineering workflow in Workflow Lisp.
@@ -70,17 +75,21 @@ workflows/examples/mlevolve_approx.orc
 
 Treat the scheduler, executor, validator, memory indexer, and finalizer as certified command adapters in the first tranche. They may own deterministic algorithmic mechanics, but they must not hide workflow authority behind prose, stdout, pointer files, or unvalidated JSON.
 
-After the concrete workflow compiles and dry-runs, split the architecture toward the candidate-2 module shape:
+After the concrete workflow compiles, shared-validates, and has a fixture smoke
+path, split the architecture toward the candidate-2 module shape:
 
 ```text
-workflows/library/search/mcgs.orc
+workflows/library/search/mcgs/types.orc
+workflows/library/search/mcgs/contracts.orc
+workflows/library/search/mcgs/loop.orc
   generic MCGS types, graph operators, and reusable search contracts
 
-workflows/library/ml/mlevolve_types.orc
-  ML task, candidate, metric, memory, execution, and result types
-
-workflows/library/ml/mle_engineering.orc
-  ML-specific provider roles and adapter calls
+workflows/library/ml/mlevolve/types.orc
+workflows/library/ml/mlevolve/provider_roles.orc
+workflows/library/ml/mlevolve/adapter_contracts.orc
+workflows/library/ml/mlevolve/review.orc
+workflows/library/ml/mlevolve/memory.orc
+  ML task, candidate, metric, memory, execution, provider, review, and adapter contracts
 
 workflows/examples/mlevolve_approx.orc
   small entrypoint wiring task inputs, MCGS config, and ML engineering layer
@@ -111,6 +120,22 @@ candidate 2 -> candidate 1 -> candidate 4 -> candidate 3
 
 The implementation should choose practical convergence first and preserve a path to the cleaner architecture.
 
+### 3.1 Candidate Evidence Required
+
+The candidate ranking is advisory until backed by durable evidence. Record this
+table before implementation work starts:
+
+| Candidate | Source ref | Parser status | Compile/typecheck status | Adapter coverage | Prompt coverage | Runtime evidence | Disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Candidate 1 | TBD | TBD | TBD | TBD | TBD | TBD | generic callback reference |
+| Candidate 2 | TBD | TBD | TBD | TBD | TBD | TBD | long-term module reference |
+| Candidate 3 | TBD | TBD | TBD | TBD | TBD | TBD | reference only |
+| Candidate 4 | TBD | TBD | TBD | TBD | TBD | TBD | first implementation base |
+
+Temporary `tmp/` paths are not sufficient evidence for future review. The
+evidence must include enough information to reproduce why candidate 4 is the
+first runnable base and why candidate 2 is the preferred module shape.
+
 ## 4. Problem
 
 MLEvolve-style workflows are difficult to express safely because they mix several concerns:
@@ -138,17 +163,37 @@ Runtime contracts own validation, artifacts, paths, state, and resume.
 Reports remain views.
 ```
 
+### 4.1 MLEvolve Mechanism Traceability
+
+This workflow is an MLEvolve-style architecture, not a line-for-line upstream
+clone. The intended fidelity boundary is:
+
+| MLEvolve mechanism | Workflow Lisp expression |
+| --- | --- |
+| Progressive Monte Carlo Graph Search | `SchedulerTick`, `SearchLoopState`, `CandidateNode`, `ReferenceEdge`, `NodeSnapshot`, and typed expansion requests. |
+| Retrospective memory | coldstart guidance, memory layer state, memory retrieval context, memory update deltas, and memory ledger artifacts. |
+| Hierarchical planning and adaptive code generation | provider roles for draft, debug, improve, evolve, fuse, aggregate, and typed generation modes. |
+| Execution and metric feedback | sandboxed execution adapter, typed `EvaluationResult`, typed metric direction/value, and validation/leakage reports. |
+| Branch reuse and fusion | explicit parent/reference edges and node-set snapshots, not report-parsed branch names. |
+
+The scheduler may compute exploration/exploitation policy in an adapter, but
+the selected action, rationale, and downstream request must be typed workflow
+values.
+
 ## 5. Goals
 
 - Express the MLEvolve loop as typed Workflow Lisp composition, not as one Python script.
 - Keep terminal workflow outcomes in typed unions.
 - Keep per-step provider decisions separate from terminal workflow status.
 - Represent search state, pending work, candidate nodes, metrics, memory context, and blockers as typed records/unions.
+- Use refined path types for task inputs, candidate code, plans, reports, snapshots, queues, memory ledgers, submissions, and generated bundles.
+- Prefer typed state deltas over adapters committing opaque whole-state mutations.
 - Use provider-result steps for draft, debug, improve, evolution, fusion, aggregation, and code-review roles.
 - Use certified command adapters for deterministic setup, scheduling, queue updates, execution, validation, memory indexing, and finalization.
 - Keep benchmark execution and sandboxing out of provider prompts.
 - Preserve artifact lineage for plans, code, execution reports, validation reports, reviews, submissions, memory context, journals, and snapshots.
 - Make stdout/debug reports views; typed bundles and runtime state are authority.
+- Make effectful provider, command, state, and artifact effects visible in source maps and Semantic IR.
 - Allow an incremental path from a direct workflow to reusable MCGS library modules.
 
 ## 6. Non-Goals
@@ -246,6 +291,12 @@ Initial certified adapters:
 - `execute_parse_validate_commit_batch`: run candidate code, parse metrics, validate outputs, update best/top-k state.
 - `finalize_run`: produce terminal summary and submission bundle.
 
+`execute_parse_validate_commit_batch` is acceptable only as a first-tranche
+fixture/adapter boundary with a typed transition bundle. Promotion-grade work
+should split execution, metric parsing, leakage validation, and state commit
+unless the combined adapter has explicit idempotency, replay, state-schema, and
+negative-test evidence.
+
 Each adapter must have:
 
 ```text
@@ -303,10 +354,15 @@ Use a direct, practical layout:
 
 ```text
 workflows/examples/mlevolve_approx.orc
-adapters/mlevolve/
 prompts/mlevolve/
 tests/workflow_lisp/examples/test_mlevolve_approx.py
 ```
+
+Adapter scripts must live under an accepted command-adapter convention before
+implementation. Current repo conventions include `orchestrator/workflow_lisp/adapters/`
+for frontend adapter helpers and `scripts/` for standalone command utilities.
+Do not introduce a new top-level `adapters/` tree unless the command-adapter
+contract and workflow catalog accept it.
 
 The `.orc` module path must match the file path. For example:
 
@@ -322,15 +378,21 @@ workflows/examples/mlevolve_approx.orc
 
 ### 8.2 Long-Term Layout
 
-After the first workflow compiles and dry-runs:
+After the first workflow compiles, shared-validates, and fixture-smokes:
 
 ```text
-workflows/library/search/mcgs.orc
-workflows/library/ml/mlevolve_types.orc
-workflows/library/ml/mle_engineering.orc
+workflows/library/search/mcgs/types.orc
+workflows/library/search/mcgs/contracts.orc
+workflows/library/search/mcgs/loop.orc
+workflows/library/search/mcgs/policy_adapters.orc
+workflows/library/ml/mlevolve/types.orc
+workflows/library/ml/mlevolve/provider_roles.orc
+workflows/library/ml/mlevolve/adapter_contracts.orc
+workflows/library/ml/mlevolve/review.orc
+workflows/library/ml/mlevolve/memory.orc
 workflows/library/prompts/mlevolve/
 workflows/examples/mlevolve_approx.orc
-adapters/mlevolve/
+registered mlevolve command adapters under the accepted adapter convention
 ```
 
 The entrypoint should shrink toward:
@@ -367,16 +429,112 @@ setup run
              done
            RUN_TIMEOUT:
              done
+           RUN_EXHAUSTED:
+             done
            RUN_BLOCKED:
              done
-       COMPLETED/TIMED_OUT/BLOCKED:
+       COMPLETED/TIMED_OUT/EXHAUSTED/BLOCKED:
          done
   -> finalize
 ```
 
 The scheduler tick is a typed event, not a gate string. It must carry enough data for downstream steps to run without parsing reports.
 
+### 9.1 Authoring Skeleton
+
+The target authoring shape should feel like typed orchestration rather than a
+manual state-file script:
+
+```lisp
+(defworkflow run-mlevolve-approx
+  ((inputs MleTaskInputs)
+   (mle-cfg MleConfig)
+   (mcgs-cfg McgsConfig))
+  -> MleSearchOutput
+  :effects ((uses-provider providers.mlevolve.draft
+                           providers.mlevolve.debug
+                           providers.mlevolve.review)
+            (runs-command adapters.mlevolve.scheduler
+                          adapters.mlevolve.execute
+                          adapters.mlevolve.finalize)
+            (updates-state SearchLoopState)
+            (writes SearchSnapshotPath ExecutionReportPath SubmissionPath))
+  (let* ((setup (mle/setup-run inputs mle-cfg))
+         (preview (mle/build-preview setup))
+         (memory (mle/init-memory setup preview))
+         (initial (mcgs/init-search-state inputs mcgs-cfg memory)))
+    (loop/recur
+      :max mcgs-cfg.max-steps
+      :state initial
+      (fn (state)
+        (let ((tick (mcgs/scheduler-tick state)))
+          (match tick
+            ((EXPAND_SELECTED selected)
+              (continue (mle/expand-and-enqueue state selected.request)))
+            ((EXECUTE_PENDING_BATCH pending)
+              (continue (mle/execute-and-commit state pending.batch)))
+            ((RUN_COMPLETE completed)
+              (done (mle/finalize-completed completed)))
+            ((RUN_TIMEOUT timed-out)
+              (done (mle/finalize-timeout timed-out)))
+            ((RUN_EXHAUSTED exhausted)
+              (done (mle/finalize-exhausted exhausted)))
+            ((RUN_BLOCKED blocked)
+              (done (mle/finalize-blocked blocked)))))))))
+```
+
+This skeleton is an authoring target, not proof that every shown helper already
+exists. Implementation must use the current accepted `.orc` import, effect,
+and stdlib surfaces.
+
 ## 10. Data Contracts
+
+The first implementation should define concrete `.orc` contracts before writing
+provider prompts or adapters.
+
+### 10.1 Refined Path Families
+
+Use path contracts instead of plain strings for durable file/state surfaces:
+
+```lisp
+(defpath TaskDescriptionPath :kind relpath :under "inputs" :must-exist true)
+(defpath DatasetManifestPath :kind relpath :under "inputs" :must-exist true)
+(defpath CandidateCodePath :kind relpath :under "artifacts/mlevolve/code" :must-exist true)
+(defpath CandidatePlanPath :kind relpath :under "artifacts/mlevolve/plans" :must-exist true)
+(defpath ExecutionReportPath :kind relpath :under "artifacts/mlevolve/execution" :must-exist true)
+(defpath ValidationReportPath :kind relpath :under "artifacts/mlevolve/validation" :must-exist true)
+(defpath SearchSnapshotPath :kind relpath :under "state/mlevolve/search" :must-exist true)
+(defpath PendingQueuePath :kind relpath :under "state/mlevolve/queue" :must-exist true)
+(defpath MemoryLedgerPath :kind relpath :under "state/mlevolve/memory" :must-exist true)
+(defpath SubmissionPath :kind relpath :under "artifacts/mlevolve/submissions" :must-exist true)
+```
+
+These path contracts are semantic constraints. Pointer files, reports, and
+materialized prompt views remain representations unless a specific contract
+promotes them.
+
+### 10.2 Minimum Search Records
+
+Minimum supporting records:
+
+```text
+MetricValue(direction, value, parsed)
+SearchBudget(max_steps, time_limit_sec, completed_steps, elapsed_sec)
+NodeRef(node_id, branch_id, stage, health, metric)
+ReferenceEdge(source_node, target_node, relation)
+CandidateNode(node, parent, references, plan, code, generation_report, provenance)
+ExecutionResult(node, report, validation_report, metric, health)
+MemoryContext(items, context_view, retrieval_report, ledger)
+ExecutionBatch(queue, parallel_width, selected_nodes)
+SchedulerRationale(policy, reason, selected_node, exploration_score, exploitation_score)
+```
+
+Private typed list/map/record values should be used for node sets, top-k
+snapshots, memory contexts, queues, and execution batches once the runtime
+foundation supports them. Do not collapse these values into ad hoc pointer
+files or markdown reports.
+
+### 10.3 Terminal Status
 
 Minimum terminal status union:
 
@@ -385,17 +543,24 @@ SearchLoopStatus =
   ACTIVE(state)
   COMPLETED(summary, best_solution, top_k_submissions, journal, memory_ledger)
   TIMED_OUT(summary, best_solution, journal, memory_ledger)
+  EXHAUSTED(summary, best_solution, journal, memory_ledger)
   BLOCKED(summary, blocker, journal)
 ```
+
+`EXHAUSTED` is distinct from `TIMED_OUT`: it means the bounded search budget was
+consumed without another active route. If implementation intentionally
+normalizes exhaustion to `COMPLETED` or `BLOCKED`, that normalization must be a
+typed field and a recorded parity decision.
 
 Minimum scheduler tick union:
 
 ```text
 SchedulerTick =
-  EXPAND_SELECTED(request, scheduler_report)
-  EXECUTE_PENDING_BATCH(queue, parallel_width, scheduler_report)
+  EXPAND_SELECTED(request, rationale, scheduler_report)
+  EXECUTE_PENDING_BATCH(batch, rationale, scheduler_report)
   RUN_COMPLETE(summary, best_solution, top_k_submissions, journal, memory_ledger)
   RUN_TIMEOUT(summary, best_solution, journal, memory_ledger)
+  RUN_EXHAUSTED(summary, best_solution, journal, memory_ledger)
   RUN_BLOCKED(summary, blocker, journal)
 ```
 
@@ -416,22 +581,102 @@ CodeReviewResult =
   REVIEW_BLOCKED(blocker, review_report)
 ```
 
-These types should eventually move into a reusable ML module.
+`REVIEW_REVISED(candidate)` is a one-shot review/repair policy: the reviewer may
+emit a revised candidate that is validated and then enqueued without another
+review pass. If MLEvolve uses bounded review/fix, replace this union with the
+stdlib `review-revise-loop` route and typed `ReviewLoopResult` instead of
+inventing a second loop.
+
+### 10.4 Blocker Scope
+
+Distinguish node-level blockers from run-level blockers:
+
+```text
+NodeBlocker =
+  NODE_GENERATION_BLOCKED(blocker, node_or_request, report)
+  NODE_REVIEW_BLOCKED(blocker, node, review_report)
+  NODE_EXECUTION_BLOCKED(blocker, node, execution_report)
+
+RunBlocker =
+  RUN_SETUP_BLOCKED(blocker, report)
+  RUN_SANDBOX_UNAVAILABLE(blocker, report)
+  RUN_PROVIDER_UNAVAILABLE(blocker, report)
+  RUN_UNRECOVERABLE(blocker, summary)
+```
+
+A blocked node may leave `SearchLoopStatus` as `ACTIVE`; a run blocker produces
+terminal `BLOCKED`. Missing sandbox resources, invalid task contracts, provider
+transport failure, or exhausted recovery attempts can block the run. Malformed
+candidate code, failed execution, or review rejection should usually block only
+that branch unless scheduler policy says no safe work remains.
+
+### 10.5 Typed State Deltas
+
+Adapters should return typed deltas wherever practical instead of committing
+opaque whole-state mutations:
+
+```text
+SearchStateDelta =
+  ENQUEUE_CANDIDATE(candidate, journal_entry)
+  COMMIT_EXECUTION_RESULT(node, result, metric, journal_entry)
+  MARK_NODE_BLOCKED(blocker, journal_entry)
+  UPDATE_MEMORY(memory_delta, journal_entry)
+  FINALIZE_RUN(summary, submission_bundle, journal_entry)
+```
+
+The adapter may compute the deterministic mechanics. Workflow/runtime authority
+begins only after the structured delta bundle validates and the declared
+state/artifact transition is committed.
+
+### 10.6 Generic Search Contracts
+
+The first MLEvolve workflow may be monomorphic, but reusable search types should
+be introduced early when they do not require runtime closures:
+
+```text
+SearchNode[PayloadT]
+SearchState[NodeT MemoryT]
+SearchProblem[TaskT CandidateT MetricT MemoryT]
+ExpansionRequest[CandidateT MemoryT]
+```
+
+These type parameters are compile-time only. They must specialize before Core,
+Semantic IR, Executable IR, and runtime-visible contracts.
+
+These types should eventually move into reusable search and ML modules.
 
 ## 11. Adapter Boundary Rules
 
-Adapters may own:
+Compute adapters may own deterministic calculation:
 
-- deterministic filesystem setup;
-- benchmark execution;
-- metric parsing from benchmark-owned output;
 - leakage checks;
+- scheduler heuristics;
+- generation-mode selection;
+- memory retrieval queries;
+- metric parsing from benchmark-owned output; and
+- graph/search scoring.
+
+Commit-capable adapters may own deterministic state transitions only when the
+transition is declared and validated:
+
+- run setup;
 - graph snapshot updates;
 - queue writes;
 - journal appends;
-- scheduler heuristics;
-- memory indexing;
+- memory ledger updates;
+- execution-result commits;
 - final submission assembly.
+
+Commit-capable adapters must emit a typed transition bundle describing:
+
+- input state identity and schema version;
+- output state identity and schema version;
+- declared artifacts written;
+- queue, journal, snapshot, and memory mutations;
+- idempotency key;
+- replay behavior on resume;
+- stable error code; and
+- source-map owner.
 
 Adapters may not own:
 
@@ -445,6 +690,8 @@ Adapters may not own:
 - caller-selected output bundle paths.
 
 The adapter contract is valid only when the runtime validates the adapter's structured result before committing state.
+Adapter stdout, logs, markdown reports, and undeclared files are not commit
+authority.
 
 ## 12. Runtime Foundation Dependencies
 
@@ -481,13 +728,16 @@ Acceptance:
 - Make the direct workflow compile and typecheck.
 - Convert adapter outputs to the current expected structured bundle or variant format.
 - Add focused adapter fixture tests.
-- Add a dry-run or smoke path that does not execute arbitrary user code.
+- Add a compile/shared-validation dry-run path.
+- Add a separate fixture smoke path that does not execute arbitrary user code.
 
 Acceptance:
 
 - Compile succeeds.
 - Shared validation succeeds.
-- Dry-run or smoke succeeds with fixture providers/adapters.
+- Dry-run resolves prompt externs, adapter references, contracts, and lowering
+  without requiring provider or command execution.
+- Fixture smoke succeeds with fake providers and fixture-mode adapters.
 
 ### Phase 2: Certified Adapter Hardening
 
@@ -504,8 +754,9 @@ Acceptance:
 
 ### Phase 3: Search/ML Module Split
 
-- Extract ML types into `workflows/library/ml/mlevolve_types.orc`.
-- Extract ML orchestration helpers into `workflows/library/ml/mle_engineering.orc`.
+- Extract ML types into `workflows/library/ml/mlevolve/types.orc`.
+- Extract provider roles, adapter contracts, review, and memory helpers into
+  `workflows/library/ml/mlevolve/`.
 - Keep direct top-level entrypoint small.
 
 Acceptance:
@@ -519,6 +770,7 @@ Acceptance:
 - Extract generic graph-search records and scheduler-facing contracts.
 - Keep numeric graph policy in adapters where appropriate.
 - Introduce ProcRef or compile-time hooks only where current frontend support is proven.
+- Keep generic types compile-time-only and monomorphized before runtime-visible contracts.
 
 Acceptance:
 
@@ -534,6 +786,7 @@ Invariants:
 - Terminal outcomes are typed `SearchLoopStatus` variants.
 - `BLOCKED` is explicit and carries a typed blocker.
 - `TIMED_OUT` is terminal non-success, not hidden loop failure.
+- `EXHAUSTED` is explicit or deliberately normalized through a typed field.
 - Code execution is never performed by provider prompt alone.
 - Search state snapshots and journals are artifacts/state with declared contracts.
 - Queue movement is adapter-owned only when declared and tested.
@@ -546,6 +799,7 @@ Expected failure behavior:
 | Provider emits malformed candidate | Provider/output contract failure or `GENERATION_BLOCKED` if explicitly modeled. |
 | Review blocks candidate | Commit typed blocker and terminal or active status as workflow dictates. |
 | Scheduler cannot select work | Return `RUN_BLOCKED` or `RUN_COMPLETE`, not an empty report. |
+| Step budget exhausted | Return `RUN_EXHAUSTED`, or a documented typed normalization. |
 | Execution fails | Produce execution report and route debug or blocked state through typed scheduler state. |
 | Metric parse fails | Produce validation failure/report and keep candidate out of best solution. |
 | Leakage check fails | Mark candidate invalid/leakage risk and keep evidence. |
@@ -570,6 +824,18 @@ Until that exists, the execution adapter may operate only in fixture or annotati
 
 Provider prompts should not receive credentials, private environment variables, or unrestricted workspace context. Prompt inputs should be typed artifacts and explicit task context.
 
+Minimum real-execution sandbox checks:
+
+- generated code cannot read secrets or environment values outside the allowlist;
+- generated code cannot write outside candidate workspace and output roots;
+- network access is disabled or explicitly policy-controlled;
+- symlink traversal is rejected;
+- timeout kills child process trees;
+- resource limits are enforced;
+- dataset inputs are read-only;
+- invalid or leakage-risk submissions cannot update `best_solution`; and
+- logs redact provider tokens, secrets, and private environment variables.
+
 ## 16. Verification Strategy
 
 Minimum checks:
@@ -581,6 +847,8 @@ Minimum checks:
 - dry-run the top-level workflow;
 - smoke-run a safe fixture task without executing arbitrary code;
 - verify state/artifact lineage for generated plans, code, reviews, execution reports, validation reports, and final summaries.
+- verify effect summaries and source maps expose provider, command, state, and artifact effects.
+- verify typed adapter deltas or transition bundles are validated before commit.
 
 Negative checks:
 
@@ -592,33 +860,63 @@ Negative checks:
 - invalid metric parse does not update best solution;
 - leakage-risk candidate cannot become best solution;
 - timeout returns `TIMED_OUT`;
+- exhausted budget returns `EXHAUSTED` or a documented typed normalization;
 - blocked setup returns typed `BLOCKED`.
+- real execution adapter cannot run without sandbox policy evidence.
 
-## 17. Declarative Acceptance Scenario
+## 17. Declarative Acceptance Scenarios
+
+### 17.1 Compile / Shared-Validation Gate
 
 Initial state:
 
 - a fixture task description under `inputs/`;
 - a fixture dataset manifest under `inputs/`;
-- fake providers that emit deterministic structured candidate/review bundles;
-- adapters configured in fixture/safe mode.
+- provider externs and prompt externs that resolve;
+- registered certified adapter references.
 
 Entrypoint:
 
 ```bash
 python -m orchestrator run workflows/examples/mlevolve_approx.orc \
-  --entry-workflow mlevolve-run \
+  --entry-workflow run-mlevolve-approx \
   --dry-run
 ```
 
 Expected result:
 
 - workflow compiles and validates;
+- module path matches file path;
+- prompt externs resolve;
+- adapter references resolve to registered certified adapters;
+- provider, command, state, and artifact effects are visible;
+- no real provider command or generated-code execution is required.
+
+### 17.2 Fixture Smoke Gate
+
+Initial state:
+
+- the same fixture task and dataset manifest;
+- fake providers that emit deterministic structured candidate/review bundles;
+- adapters configured in fixture/safe mode;
+- execution adapter limited to fixture or annotation-scanning behavior.
+
+Entrypoint:
+
+```bash
+python -m orchestrator run workflows/examples/mlevolve_approx.orc \
+  --entry-workflow run-mlevolve-approx \
+  --provider-externs-file workflows/examples/inputs/mlevolve/providers.fake.json \
+  --prompt-externs-file workflows/examples/inputs/mlevolve/prompts.json
+```
+
+Expected result:
+
 - setup creates typed run state;
-- scheduler emits typed ticks;
+- scheduler emits typed ticks with typed rationale;
 - provider roles emit structured candidate/review results;
-- adapters emit structured command results;
-- final status is `COMPLETED`, `TIMED_OUT`, or typed `BLOCKED`;
+- adapters emit structured command results or typed deltas;
+- final status is `COMPLETED`, `TIMED_OUT`, `EXHAUSTED`, or typed `BLOCKED`;
 - reports are linked as views;
 - state and artifact ledger carry the authoritative result.
 
@@ -633,10 +931,16 @@ Forbidden result:
 ## 18. Success Criteria
 
 - Candidate-4-derived direct workflow compiles from a canonical repo path.
-- At least one safe fixture dry-run or smoke path succeeds.
+- Candidate sketch evidence is durable enough to audit without local `tmp/` paths.
+- Compile/shared-validation dry-run succeeds without claiming runtime outputs.
+- At least one safe fixture smoke path succeeds.
 - Adapter contracts exist for setup, scheduler, execution/validation, queue update, memory, and finalization.
+- Commit-capable adapters return typed transition bundles or typed deltas with idempotency and replay semantics.
 - Provider roles emit structured results validated by runtime contracts.
-- Search status, scheduler tick, generation result, and review result unions are typed and documented.
+- Refined path types, search records, search status, scheduler tick, generation result, review result, blocker scope, and state-delta contracts are typed and documented.
+- Code review uses either the stdlib `review-revise-loop` route or a documented one-shot review/repair policy.
+- Search state, memory context, top-k snapshots, node sets, queues, and execution batches use private typed values where supported rather than pointer/report workarounds.
+- Effect summaries and source maps expose provider, command, state, and artifact effects.
 - Reports, stdout, pointer files, and prompt text remain views.
 - A follow-up module-split plan exists for candidate-2-style reusable library organization.
 - Any remaining reliance on future Workflow Lisp features is explicitly listed as a prerequisite rather than hidden in example syntax.
