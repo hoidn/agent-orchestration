@@ -9,6 +9,8 @@ AT-52: Output tee semantics - output_file receives full stdout while limits appl
 """
 
 import json
+import re
+from hashlib import sha256
 from pathlib import Path
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -71,6 +73,7 @@ class OutputCapture:
     TEXT_LIMIT_BYTES = 8 * 1024  # 8 KiB for text mode
     LINES_LIMIT = 10_000  # 10,000 lines max
     JSON_BUFFER_LIMIT = 1024 * 1024  # 1 MiB for JSON parsing
+    LOG_FILENAME_LIMIT_BYTES = 240
 
     def __init__(self, workspace: Path, logs_dir: Optional[Path] = None):
         """
@@ -83,6 +86,21 @@ class OutputCapture:
         self.workspace = workspace
         self.logs_dir = logs_dir or workspace / "logs"
         self.logs_dir.mkdir(exist_ok=True, parents=True)
+
+    def _log_file(self, step_name: str, suffix: str) -> Path:
+        """Return a deterministic log path whose filename fits common filesystems."""
+        filename = f"{step_name}.{suffix}"
+        if len(filename.encode("utf-8")) <= self.LOG_FILENAME_LIMIT_BYTES:
+            return self.logs_dir / filename
+
+        digest = sha256(step_name.encode("utf-8")).hexdigest()[:16]
+        safe_prefix = re.sub(r"[^A-Za-z0-9_.%-]+", "_", step_name)
+        reserved = len(f"__{digest}.{suffix}".encode("utf-8"))
+        budget = self.LOG_FILENAME_LIMIT_BYTES - reserved
+        prefix = safe_prefix
+        while len(prefix.encode("utf-8")) > budget:
+            prefix = prefix[:-1]
+        return self.logs_dir / f"{prefix}__{digest}.{suffix}"
 
     def capture(
         self,
@@ -111,7 +129,7 @@ class OutputCapture:
         """
         # Handle stderr (always written to logs if non-empty)
         if stderr:
-            stderr_file = self.logs_dir / f"{step_name}.stderr"
+            stderr_file = self._log_file(step_name, "stderr")
             stderr_file.write_bytes(stderr)
 
         # Tee full stdout to output_file if specified (AT-52)
@@ -151,7 +169,7 @@ class OutputCapture:
                 output = output[:-1]
 
             # Write full output to logs
-            stdout_file = self.logs_dir / f"{step_name}.stdout"
+            stdout_file = self._log_file(step_name, "stdout")
             stdout_file.write_bytes(raw_stdout)
 
         return CaptureResult(
@@ -180,7 +198,7 @@ class OutputCapture:
             lines = lines[:self.LINES_LIMIT]
 
             # Write full output to logs
-            stdout_file = self.logs_dir / f"{step_name}.stdout"
+            stdout_file = self._log_file(step_name, "stdout")
             stdout_file.write_bytes(raw_stdout)
 
         return CaptureResult(
@@ -210,7 +228,7 @@ class OutputCapture:
                     truncated_output = truncated_output[:-1]
 
                 # Write full output to logs (AT-52: spill consistency with text mode)
-                stdout_file = self.logs_dir / f"{step_name}.stdout"
+                stdout_file = self._log_file(step_name, "stdout")
                 stdout_file.write_bytes(raw_stdout)
 
                 return CaptureResult(
@@ -255,7 +273,7 @@ class OutputCapture:
                         output = output[:-1]
 
                     # Write full output to logs
-                    stdout_file = self.logs_dir / f"{step_name}.stdout"
+                    stdout_file = self._log_file(step_name, "stdout")
                     stdout_file.write_bytes(raw_stdout)
 
                 return CaptureResult(

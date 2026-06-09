@@ -323,6 +323,33 @@ class TestOutputCapture:
         assert stderr_file.exists()
         assert stderr_file.read_bytes() == stderr
 
+    def test_long_step_name_log_paths_are_bounded(self, capture):
+        """Generated nested step names should not exceed filesystem filename limits."""
+        step_name = (
+            "review_revise_design_docs::review-revise-design-docs__review__"
+            "%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc."
+            "d15c114978f5.d5df4f219296_1__body.REVISE."
+            "review_revise_design_docs::review-revise-design-docs__review__"
+            "%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc."
+            "d15c114978f5.d5df4f219296_1__body__revise__fixed-completed__"
+            "fix_1__revision"
+        )
+        stderr = b"long nested provider stderr"
+
+        capture.capture(
+            stdout=b"",
+            stderr=stderr,
+            step_name=step_name,
+            mode=CaptureMode.TEXT,
+        )
+
+        stderr_files = list(capture.logs_dir.glob("*.stderr"))
+        assert len(stderr_files) == 1
+        stderr_file = stderr_files[0]
+        assert len(stderr_file.name.encode("utf-8")) <= 255
+        assert stderr_file.name.endswith(".stderr")
+        assert stderr_file.read_bytes() == stderr
+
 
 class TestStepExecutor:
     """Test step executor with real command execution."""
