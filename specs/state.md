@@ -24,6 +24,8 @@
   - v1.2+ runtime dataflow fields:
     - `artifact_versions`: `{artifact_name: [{version, value, producer, producer_name?, step_index}, ...]}`
     - `artifact_consumes`: `{consumer_identity: {artifact_name: last_consumed_version}}` with optional `__global__` aggregate entry
+    - `private_artifact_versions`: additive executable-private lineage ledger for compiler-classified lowered-only artifacts; same row shape as `artifact_versions`, plus optional stable catalog metadata such as `catalog_ref`
+    - `private_artifact_consumes`: additive executable-private freshness ledger for compiler-classified lowered-only artifacts; same shape as `artifact_consumes`
   - v1.8 control-flow fields:
     - `transition_count`: integer count of routed top-level step-to-step transfers
     - `step_visits`: `{step_name: visit_count}` for top-level non-skipped step entries
@@ -56,7 +58,7 @@
     - workflow outputs remain `{}` until finalization succeeds
   - v2.5 reusable-call additions:
     - `call_frames` persist nested execution state for inline `call` steps under schema `2.1`.
-    - callee-private `artifact_versions` / `artifact_consumes` remain inside the call-frame-local nested state rather than leaking bare artifact names into the caller-global ledger.
+    - callee-private `artifact_versions` / `artifact_consumes` and additive `private_artifact_versions` / `private_artifact_consumes` remain inside the call-frame-local nested state rather than leaking bare artifact names into the caller-global ledger.
     - caller-visible exported output provenance remains attached to the outer call step result and any published outer-step lineage entries.
 
 - Step status semantics
@@ -119,7 +121,7 @@
 
 - Callee-private lineage
   - Callee-private artifact names must not occupy bare names in the caller-global artifact ledger.
-  - Internal publish/consume state lives inside the call-frame-local state snapshot instead of the caller-global ledgers.
+  - Internal publish/consume state, including additive executable-private ledgers, lives inside the call-frame-local state snapshot instead of the caller-global ledgers.
   - `since_last_consume` freshness inside a call frame is therefore enforced against the callee-private ledgers persisted under that frame.
 
 - Resume boundary
@@ -159,6 +161,25 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
     },
     "__global__": {
       "execution_log": 1
+    }
+  },
+  "private_artifact_versions": {
+    "context_docs": [
+      {
+        "version": 1,
+        "value": ["docs/design/state-layout.md"],
+        "producer": "CollectContext",
+        "step_index": 1,
+        "catalog_ref": "context_docs"
+      }
+    ]
+  },
+  "private_artifact_consumes": {
+    "ReviewImplVsPlan": {
+      "context_docs": 1
+    },
+    "__global__": {
+      "context_docs": 1
     }
   },
   "transition_count": 3,

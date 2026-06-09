@@ -18,6 +18,7 @@ from .executable_ir import (
     ExecutableContract,
     ExecutableNode,
     ExecutableNodeKind,
+    ExecutablePrivateArtifact,
     ExecutableStepConfig,
     ExecutableTransfer,
     ExecutableWorkflow,
@@ -238,8 +239,14 @@ class _BindingContext:
 
 
 class _IRBuilder:
-    def __init__(self, surface: SurfaceWorkflow) -> None:
+    def __init__(
+        self,
+        surface: SurfaceWorkflow,
+        *,
+        private_artifact_ids: tuple[str, ...] = (),
+    ) -> None:
         self.surface = surface
+        self.private_artifact_ids = frozenset(private_artifact_ids)
         self.nodes: Dict[str, ExecutableNode] = {}
         self.body_region: List[str] = []
         self.finalization_region: List[str] = []
@@ -276,6 +283,15 @@ class _IRBuilder:
         finalization_entry_node_id = self.finalization_region[0] if self.finalization_region else None
         self._patch_linear_fallthrough(self.body_region, final_target=finalization_entry_node_id)
         self._patch_linear_fallthrough(self.finalization_region)
+        private_artifacts = _bind_private_artifacts(
+            self.surface.artifacts,
+            _BindingContext(
+                root_targets=root_targets,
+                self_targets=root_targets,
+                parent_targets={},
+            ),
+            private_artifact_ids=self.private_artifact_ids,
+        )
 
         executable = ExecutableWorkflow(
             schema_version=WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION,
@@ -287,13 +303,18 @@ class _IRBuilder:
             finalization_entry_node_id=finalization_entry_node_id,
             nodes=MappingProxyType(dict(self.nodes)),
             artifacts=_bind_contracts(
-                self.surface.artifacts,
+                {
+                    name: contract
+                    for name, contract in self.surface.artifacts.items()
+                    if name not in private_artifacts
+                },
                 _BindingContext(
                     root_targets=root_targets,
                     self_targets=root_targets,
                     parent_targets={},
                 ),
             ),
+            private_artifacts=private_artifacts,
             inputs=MappingProxyType(
                 {
                     name: ExecutableContract(
@@ -1149,6 +1170,50 @@ def _bind_contracts(
     )
 
 
+def _bind_private_artifacts(
+    contracts: Mapping[str, SurfaceContract],
+    context: _BindingContext,
+    *,
+    private_artifact_ids: frozenset[str],
+) -> Mapping[str, ExecutablePrivateArtifact]:
+    if not private_artifact_ids:
+        return MappingProxyType({})
+    unknown_ids = sorted(name for name in private_artifact_ids if name not in contracts)
+    if unknown_ids:
+        raise LoweringError(
+            "Private artifact ids must bind declared workflow artifacts: "
+            + ", ".join(f"`{name}`" for name in unknown_ids)
+        )
+    invalid_ids = sorted(
+        name
+        for name in private_artifact_ids
+        if contracts[name].kind != "collection"
+    )
+    if invalid_ids:
+        raise LoweringError(
+            "Private artifact ids must reference lowered collection artifacts: "
+            + ", ".join(f"`{name}`" for name in invalid_ids)
+        )
+    return MappingProxyType(
+        {
+            name: ExecutablePrivateArtifact(
+                artifact_id=name,
+                contract=ExecutableContract(
+                    name=contract.name,
+                    kind=contract.kind,
+                    value_type=contract.value_type,
+                    definition=contract.definition,
+                    source_address=_bind_surface_ref(contract.from_ref, context),
+                ),
+                origin="workflow_lisp_lowering",
+                prompt_render_mode="json",
+            )
+            for name, contract in contracts.items()
+            if name in private_artifact_ids
+        }
+    )
+
+
 def _bind_literal_or_ref(value: Any, context: _BindingContext) -> Any:
     if isinstance(value, (WorkflowInputReference, StructuredStepReference, SelfOutputReference)):
         return _bind_surface_ref(value, context)
@@ -1231,11 +1296,12 @@ def build_loaded_workflow_bundle(
     surface: SurfaceWorkflow,
     *,
     imports: Mapping[str, LoadedWorkflowBundle],
+    private_artifact_ids: tuple[str, ...] = (),
 ) -> LoadedWorkflowBundle:
     """Lower one validated surface workflow into the shared loaded bundle contract."""
 
     core_workflow_ast = build_core_workflow_ast(surface, imports, surface.provenance)
-    ir, projection = lower_core_workflow_ast(core_workflow_ast)
+    ir, projection = _IRBuilder(surface, private_artifact_ids=private_artifact_ids).build()
     validate_executable_workflow(ir)
     runtime_plan = derive_workflow_runtime_plan(ir, projection)
     semantic_ir = derive_workflow_semantic_ir(

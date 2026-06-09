@@ -48,6 +48,7 @@
       - supports only `type: enum|integer|float|bool|string`
       - forbids `pointer`, `under`, and `must_exist_target`
     - `allowed: string[]` required for enum artifacts
+    - Lowered Workflow Lisp bundles may additionally carry compiler-classified executable-private artifacts that are not part of the public authored YAML compatibility surface. A private executable artifact does not widen ordinary authored YAML syntax and does not reuse the public runtime ledgers as authority.
   - `steps`: ordered list of step objects.
   - `max_transitions: integer` (v1.8+; optional; must be `> 0`)
     - Counts routed transfers between settled top-level steps.
@@ -258,6 +259,7 @@
       - `from`: local `expected_outputs.name`, `output_bundle.fields[*].name`, or scalar-bookkeeping output artifact name produced by the same step
       - requires `persist_artifacts_in_state` to be `true` for that step
       - runtime: on successful step, publication appends a new artifact version record
+      - compiler-classified executable-private artifacts append lineage to `private_artifact_versions`; ordinary authored artifacts continue to use `artifact_versions`
     - `consumes`: list of contracts
       - `artifact`: artifact name from top-level `artifacts`
       - `producers: string[]` (optional producer step-name filter)
@@ -271,6 +273,7 @@
           - `version: "1.2"` / `"1.3"`: materialize the selected value to the canonical pointer file
           - `version: "1.4"`: read-only consume resolution (no pointer-file mutation)
         - `kind: scalar` artifacts never write pointer files and use the typed value directly
+        - compiler-classified executable-private artifacts resolve from `private_artifact_versions`, commit freshness to `private_artifact_consumes`, and expose resolved native values through the same `_resolved_consumes` semantic handoff used by provider prompt composition and consume-bundle materialization
       - v2.10 `provider_session.mode: resume` reserves one consume for runtime `${SESSION_ID}` binding rather than prompt or consume-bundle output
     - `managed_jobs` (optional; v2.13+; provider steps only)
       - step modifier for runtime-owned managed-job interception, audit, recovery, and resume semantics

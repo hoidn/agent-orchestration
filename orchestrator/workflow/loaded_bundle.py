@@ -7,7 +7,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from .core_ast import CoreWorkflowAST
-from .executable_ir import ExecutableWorkflow
+from .executable_ir import ExecutablePrivateArtifact, ExecutableWorkflow
 from .runtime_plan import WorkflowRuntimePlan
 from .semantic_ir import SemanticWorkflowIR
 from .state_projection import WorkflowStateProjection
@@ -126,6 +126,16 @@ def workflow_output_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[s
         for name, contract in bundle.surface.outputs.items()
         if isinstance(name, str) and isinstance(contract.definition, Mapping)
     })
+
+
+def workflow_private_artifacts(
+    workflow_or_bundle: Any,
+) -> Mapping[str, ExecutablePrivateArtifact]:
+    """Return the typed executable-private artifact catalog for one loaded bundle."""
+    if workflow_or_bundle is None:
+        return MappingProxyType({})
+    bundle = _require_bundle(workflow_or_bundle)
+    return MappingProxyType(dict(bundle.ir.private_artifacts))
 
 
 def workflow_provenance(workflow_or_bundle: Any) -> Optional[WorkflowProvenance]:

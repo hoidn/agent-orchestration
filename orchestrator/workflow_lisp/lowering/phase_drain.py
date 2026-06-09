@@ -1431,6 +1431,7 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
         authored_mapping=authored_mapping,
         origin_map=origin_map,
         boundary_projection=lowered_workflow.boundary_projection,
+        private_artifact_ids=lowered_workflow.private_artifact_ids,
     )
 
 

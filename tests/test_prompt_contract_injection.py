@@ -9,6 +9,7 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.prompting import PromptComposer
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -35,6 +36,123 @@ def _enable_v214_loader(monkeypatch) -> None:
 
 def _variant_contract_body_as_yaml(prompt_block: str) -> object:
     return yaml.safe_load("\n".join(prompt_block.splitlines()[2:]))
+
+
+def test_provider_prompt_injection_renders_collection_consumed_value(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [{"artifact": "context_docs"}],
+        },
+        "Review the design docs.\n",
+        resolved_consumes={
+            "root.review": {
+                "context_docs": [
+                    "docs/design/state-layout.md",
+                    "docs/design/runtime-foundation.md",
+                ]
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert "## Consumed Artifacts" in prompt
+    assert '- context_docs: ["docs/design/state-layout.md", "docs/design/runtime-foundation.md"]' in prompt
+    assert "Review the design docs." in prompt
+
+
+def test_prompt_consumes_subset_renders_collection_value(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [
+                {"artifact": "context_docs"},
+                {"artifact": "review_focus"},
+            ],
+            "prompt_consumes": ["context_docs"],
+        },
+        "Review the design docs.\n",
+        resolved_consumes={
+            "root.review": {
+                "context_docs": ["docs/design/state-layout.md"],
+                "review_focus": "runtime lane split",
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert '- context_docs: ["docs/design/state-layout.md"]' in prompt
+    assert "review_focus" not in prompt
+
+
+def test_adjudicated_provider_prompt_injection_renders_collection_consumed_value(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Judge",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [{"artifact": "context_docs"}],
+            "consumes_injection_position": "append",
+        },
+        "Judge the candidate output.\n",
+        resolved_consumes={
+            "root.judge": {
+                "context_docs": ["docs/design/runtime-foundation.md"],
+            }
+        },
+        step_name="Judge",
+        consume_identity="root.judge",
+        uses_qualified_identities=True,
+    )
+
+    assert prompt.startswith("Judge the candidate output.")
+    assert prompt.rstrip().endswith('Read these files before acting.')
+    assert '- context_docs: ["docs/design/runtime-foundation.md"]' in prompt
+
+
+def test_adjudication_consumed_artifacts_for_prompt_keeps_private_collection_values() -> None:
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.workflow_artifacts = {}
+    executor.private_workflow_artifacts = {
+        "context_docs": {
+            "kind": "collection",
+            "type": {"type": "list", "items": "string"},
+        }
+    }
+    executor._uses_qualified_identities = lambda: True
+
+    consumed_artifacts, consumed_relpath_targets = executor._adjudication_consumed_artifacts_for_prompt(
+        {
+            "name": "Judge",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [{"artifact": "context_docs"}],
+        },
+        {
+            "_resolved_consumes": {
+                "root.judge": {
+                    "context_docs": ["docs/design/runtime-foundation.md"],
+                }
+            }
+        },
+        step_name="Judge",
+        consume_identity="root.judge",
+    )
+
+    assert consumed_artifacts == {
+        "context_docs": ["docs/design/runtime-foundation.md"],
+    }
+    assert consumed_relpath_targets == {}
 
 
 def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Path):

@@ -69,6 +69,7 @@ from .loaded_bundle import (
     workflow_context,
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
+    workflow_private_artifacts,
     workflow_provenance,
     workflow_runtime_context_inputs,
     workflow_runtime_input_contracts,
@@ -340,9 +341,15 @@ class _CallFrameStateManager:
         self,
         artifact_versions: Dict[str, List[Dict[str, Any]]],
         artifact_consumes: Dict[str, Dict[str, int]],
+        private_artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
     ) -> None:
         self.state.artifact_versions = artifact_versions
         self.state.artifact_consumes = artifact_consumes
+        if private_artifact_versions is not None:
+            self.state.private_artifact_versions = private_artifact_versions
+        if private_artifact_consumes is not None:
+            self.state.private_artifact_consumes = private_artifact_consumes
         self._persist()
 
     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]) -> None:
@@ -485,6 +492,14 @@ class WorkflowExecutor:
             for name, contract in self.loaded_bundle.surface.artifacts.items()
             if isinstance(name, str)
         }
+        private_artifacts = workflow_private_artifacts(self.loaded_bundle)
+        self.private_workflow_artifacts = {
+            name: _thaw_workflow_value(entry.contract.definition)
+            for name, entry in private_artifacts.items()
+            if isinstance(name, str)
+        }
+        for private_artifact_name in self.private_workflow_artifacts:
+            self.workflow_artifacts.pop(private_artifact_name, None)
         max_transitions = self.loaded_bundle.surface.max_transitions
         self.max_transitions = max_transitions if isinstance(max_transitions, int) else None
         strict_flow = self.loaded_bundle.surface.strict_flow
@@ -533,6 +548,7 @@ class WorkflowExecutor:
         self.dataflow_manager = DataflowManager(
             workspace=workspace,
             artifact_registry=self.workflow_artifacts,
+            private_artifact_registry=self.private_workflow_artifacts,
             workflow_version=self.workflow_version,
             uses_qualified_identities=self._uses_qualified_identities,
             workflow_version_at_least=self._workflow_version_at_least,
@@ -2136,6 +2152,8 @@ class WorkflowExecutor:
         state = run_state.to_dict()
         state.setdefault('artifact_versions', {})
         state.setdefault('artifact_consumes', {})
+        state.setdefault('private_artifact_versions', {})
+        state.setdefault('private_artifact_consumes', {})
         state.setdefault('transition_count', 0)
         state.setdefault('step_visits', {})
         state.setdefault('bound_inputs', {})
@@ -3030,6 +3048,8 @@ class WorkflowExecutor:
         """Persist artifact dataflow fields to state.json."""
         artifact_versions = state.get('artifact_versions', {})
         artifact_consumes = state.get('artifact_consumes', {})
+        private_artifact_versions = state.get('private_artifact_versions', {})
+        private_artifact_consumes = state.get('private_artifact_consumes', {})
 
         if not isinstance(artifact_versions, dict):
             artifact_versions = {}
@@ -3037,8 +3057,19 @@ class WorkflowExecutor:
         if not isinstance(artifact_consumes, dict):
             artifact_consumes = {}
             state['artifact_consumes'] = artifact_consumes
+        if not isinstance(private_artifact_versions, dict):
+            private_artifact_versions = {}
+            state['private_artifact_versions'] = private_artifact_versions
+        if not isinstance(private_artifact_consumes, dict):
+            private_artifact_consumes = {}
+            state['private_artifact_consumes'] = private_artifact_consumes
 
-        self.state_manager.update_dataflow_state(artifact_versions, artifact_consumes)
+        self.state_manager.update_dataflow_state(
+            artifact_versions,
+            artifact_consumes,
+            private_artifact_versions=private_artifact_versions,
+            private_artifact_consumes=private_artifact_consumes,
+        )
 
     def _persist_control_flow_state(self, state: Dict[str, Any]) -> None:
         """Persist cycle-guard counters to state.json."""
@@ -4010,11 +4041,19 @@ class WorkflowExecutor:
 
         artifact_versions = state.get("artifact_versions", {})
         artifact_consumes = state.get("artifact_consumes", {})
+        private_artifact_versions = state.get("private_artifact_versions", {})
+        private_artifact_consumes = state.get("private_artifact_consumes", {})
         self.state_manager.finalize_step_with_dataflow(
             step_name,
             self._to_step_result(finalized, step_name),
             artifact_versions=artifact_versions if isinstance(artifact_versions, dict) else {},
             artifact_consumes=artifact_consumes if isinstance(artifact_consumes, dict) else {},
+            private_artifact_versions=(
+                private_artifact_versions if isinstance(private_artifact_versions, dict) else {}
+            ),
+            private_artifact_consumes=(
+                private_artifact_consumes if isinstance(private_artifact_consumes, dict) else {}
+            ),
             expected_step_id=finalized.get("step_id"),
             expected_visit_count=visit_count if isinstance(visit_count, int) else None,
         )
@@ -6658,7 +6697,7 @@ class WorkflowExecutor:
                 continue
             if allowed_names is not None and key not in allowed_names:
                 continue
-            if isinstance(value, (str, int, float, bool)):
+            if isinstance(value, (str, int, float, bool, list, dict)):
                 injected_values[key] = value
 
         relpath_targets: dict[str, str] = {}
@@ -6668,7 +6707,9 @@ class WorkflowExecutor:
             artifact_name = consume.get("artifact")
             if not isinstance(artifact_name, str) or artifact_name not in injected_values:
                 continue
-            artifact_spec = self.workflow_artifacts.get(artifact_name, {})
+            artifact_spec = self.workflow_artifacts.get(artifact_name)
+            if not isinstance(artifact_spec, dict):
+                artifact_spec = self.private_workflow_artifacts.get(artifact_name, {})
             artifact_kind = "relpath"
             if isinstance(artifact_spec, dict) and isinstance(artifact_spec.get("kind"), str):
                 artifact_kind = artifact_spec["kind"]

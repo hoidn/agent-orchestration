@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Literal, Mapping, Optional
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 
@@ -17,6 +17,7 @@ class DataflowManager:
         *,
         workspace: Path,
         artifact_registry: Mapping[str, Any],
+        private_artifact_registry: Mapping[str, Any] = {},
         workflow_version: Optional[str],
         uses_qualified_identities: Callable[[], bool],
         workflow_version_at_least: Callable[[str], bool],
@@ -29,6 +30,7 @@ class DataflowManager:
     ) -> None:
         self.workspace = workspace
         self.artifact_registry = artifact_registry
+        self.private_artifact_registry = private_artifact_registry
         self.workflow_version = workflow_version
         self.uses_qualified_identities = uses_qualified_identities
         self.workflow_version_at_least = workflow_version_at_least
@@ -38,6 +40,40 @@ class DataflowManager:
         self.substitute_path_template = substitute_path_template
         self.resolve_workspace_path = resolve_workspace_path
         self.current_step_index = current_step_index
+
+    def _artifact_lane(self, artifact_name: str) -> Literal["public", "private"]:
+        if artifact_name in self.private_artifact_registry:
+            return "private"
+        return "public"
+
+    def _artifact_spec(self, artifact_name: str, lane: Literal["public", "private"]) -> Any:
+        if lane == "private":
+            return self.private_artifact_registry.get(artifact_name, {})
+        return self.artifact_registry.get(artifact_name, {})
+
+    def _artifact_versions(self, state: Dict[str, Any], lane: Literal["public", "private"]) -> Dict[str, Any]:
+        key = "private_artifact_versions" if lane == "private" else "artifact_versions"
+        versions = state.setdefault(key, {})
+        if not isinstance(versions, dict):
+            versions = {}
+            state[key] = versions
+        return versions
+
+    def _artifact_consumes(self, state: Dict[str, Any], lane: Literal["public", "private"]) -> Dict[str, Any]:
+        key = "private_artifact_consumes" if lane == "private" else "artifact_consumes"
+        consumes = state.setdefault(key, {})
+        if not isinstance(consumes, dict):
+            consumes = {}
+            state[key] = consumes
+        return consumes
+
+    def _pending_consumes(self, state: Dict[str, Any], lane: Literal["public", "private"]) -> Dict[str, Any]:
+        key = "_pending_private_artifact_consumes" if lane == "private" else "_pending_artifact_consumes"
+        pending = state.setdefault(key, {})
+        if not isinstance(pending, dict):
+            pending = {}
+            state[key] = pending
+        return pending
 
     def record_published_artifacts(
         self,
@@ -76,11 +112,6 @@ class DataflowManager:
                 },
             )
 
-        artifact_versions = state.setdefault("artifact_versions", {})
-        if not isinstance(artifact_versions, dict):
-            artifact_versions = {}
-            state["artifact_versions"] = artifact_versions
-
         producer_identity = runtime_step_id or result.get("step_id") or self.step_id_resolver(step)
         if not self.uses_qualified_identities():
             producer_identity = step_name
@@ -106,13 +137,30 @@ class DataflowManager:
                 )
 
             value = artifacts[output_name]
-            artifact_spec = self.artifact_registry.get(artifact_name, {})
+            lane = self._artifact_lane(artifact_name)
+            artifact_versions = self._artifact_versions(state, lane)
+            artifact_spec = self._artifact_spec(artifact_name, lane)
             artifact_kind = (
                 artifact_spec.get("kind")
                 if isinstance(artifact_spec, dict) and isinstance(artifact_spec.get("kind"), str)
                 else "relpath"
             )
-            if artifact_kind == "relpath":
+            if lane == "private":
+                if isinstance(artifact_spec, dict):
+                    try:
+                        value = validate_contract_value(value, artifact_spec, self.workspace)
+                    except OutputContractError as exc:
+                        return self.contract_violation_result(
+                            "Publish contract failed",
+                            {
+                                "step": step_name,
+                                "artifact": artifact_name,
+                                "reason": "invalid_selected_value",
+                                "from": output_name,
+                                "violations": exc.violations,
+                            },
+                        )
+            elif artifact_kind == "relpath":
                 if not isinstance(value, str):
                     return self.contract_violation_result(
                         "Publish contract failed",
@@ -239,6 +287,8 @@ class DataflowManager:
                 "producer_name": step_name,
                 "step_index": self.current_step_index(),
             }
+            if lane == "private":
+                entry["catalog_ref"] = artifact_name
             debug_payload = result.get("debug")
             if isinstance(debug_payload, dict):
                 call_debug = debug_payload.get("call")
@@ -273,19 +323,6 @@ class DataflowManager:
                 {"step": step_name, "reason": "consumes_not_list"},
             )
 
-        artifact_versions = state.setdefault("artifact_versions", {})
-        if not isinstance(artifact_versions, dict):
-            artifact_versions = {}
-            state["artifact_versions"] = artifact_versions
-
-        artifact_consumes = state.setdefault("artifact_consumes", {})
-        if not isinstance(artifact_consumes, dict):
-            artifact_consumes = {}
-            state["artifact_consumes"] = artifact_consumes
-        pending_consumes = state.setdefault("_pending_artifact_consumes", {})
-        if not isinstance(pending_consumes, dict):
-            pending_consumes = {}
-            state["_pending_artifact_consumes"] = pending_consumes
         resolved_consumes = state.setdefault("_resolved_consumes", {})
         if not isinstance(resolved_consumes, dict):
             resolved_consumes = {}
@@ -295,16 +332,7 @@ class DataflowManager:
         if not self.uses_qualified_identities():
             consumer_identity = step_name
 
-        step_consumes = artifact_consumes.setdefault(consumer_identity, {})
-        if not isinstance(step_consumes, dict):
-            step_consumes = {}
-            artifact_consumes[consumer_identity] = step_consumes
-        global_consumes = artifact_consumes.setdefault("__global__", {})
-        if not isinstance(global_consumes, dict):
-            global_consumes = {}
-            artifact_consumes["__global__"] = global_consumes
         step_resolved_consumes: Dict[str, Any] = {}
-        pending_step_consumes: Dict[str, int] = {}
         resolved_consumes[consumer_identity] = step_resolved_consumes
         materialize_relpath_consume_pointer = self.workflow_version in {"1.2", "1.3"}
         freshness_uses_step_scope = self.workflow_version_at_least("1.4")
@@ -316,6 +344,23 @@ class DataflowManager:
             artifact_name = consume.get("artifact")
             if not isinstance(artifact_name, str):
                 continue
+
+            lane = self._artifact_lane(artifact_name)
+            artifact_versions = self._artifact_versions(state, lane)
+            artifact_consumes = self._artifact_consumes(state, lane)
+            pending_consumes = self._pending_consumes(state, lane)
+            step_consumes = artifact_consumes.setdefault(consumer_identity, {})
+            if not isinstance(step_consumes, dict):
+                step_consumes = {}
+                artifact_consumes[consumer_identity] = step_consumes
+            global_consumes = artifact_consumes.setdefault("__global__", {})
+            if not isinstance(global_consumes, dict):
+                global_consumes = {}
+                artifact_consumes["__global__"] = global_consumes
+            pending_step_consumes = pending_consumes.setdefault(consumer_identity, {})
+            if not isinstance(pending_step_consumes, dict):
+                pending_step_consumes = {}
+                pending_consumes[consumer_identity] = pending_step_consumes
 
             candidates = artifact_versions.get(artifact_name, [])
             if not isinstance(candidates, list):
@@ -378,7 +423,7 @@ class DataflowManager:
                     },
                 )
 
-            artifact_spec = self.artifact_registry.get(artifact_name, {})
+            artifact_spec = self._artifact_spec(artifact_name, lane)
             artifact_kind = "relpath"
             artifact_type = None
             if isinstance(artifact_spec, dict):
@@ -495,7 +540,6 @@ class DataflowManager:
             if write_error is not None:
                 return write_error
 
-        pending_consumes[consumer_identity] = pending_step_consumes
         return None
 
     def finalize_consumes(
@@ -508,9 +552,6 @@ class DataflowManager:
         succeeded: bool,
     ) -> None:
         """Commit or discard pending consume bookkeeping after the step settles."""
-        pending_consumes = state.get("_pending_artifact_consumes", {})
-        if not isinstance(pending_consumes, dict):
-            return
         resolved_consumes = state.get("_resolved_consumes", {})
         if not isinstance(resolved_consumes, dict):
             resolved_consumes = {}
@@ -520,32 +561,38 @@ class DataflowManager:
         if not self.uses_qualified_identities():
             consumer_identity = step_name
 
-        pending_step_consumes = pending_consumes.pop(consumer_identity, None)
         resolved_consumes.pop(consumer_identity, None)
-        if not succeeded or not isinstance(pending_step_consumes, dict) or not pending_step_consumes:
-            return
-
-        artifact_consumes = state.setdefault("artifact_consumes", {})
-        if not isinstance(artifact_consumes, dict):
-            artifact_consumes = {}
-            state["artifact_consumes"] = artifact_consumes
-
-        step_consumes = artifact_consumes.setdefault(consumer_identity, {})
-        if not isinstance(step_consumes, dict):
-            step_consumes = {}
-            artifact_consumes[consumer_identity] = step_consumes
-        global_consumes = artifact_consumes.setdefault("__global__", {})
-        if not isinstance(global_consumes, dict):
-            global_consumes = {}
-            artifact_consumes["__global__"] = global_consumes
-
-        for artifact_name, selected_version in pending_step_consumes.items():
-            if not isinstance(artifact_name, str) or not isinstance(selected_version, int):
+        state_changed = False
+        for lane in ("public", "private"):
+            pending_consumes = state.get(
+                "_pending_private_artifact_consumes" if lane == "private" else "_pending_artifact_consumes",
+                {},
+            )
+            if not isinstance(pending_consumes, dict):
                 continue
-            step_consumes[artifact_name] = selected_version
-            global_consumes[artifact_name] = selected_version
+            pending_step_consumes = pending_consumes.pop(consumer_identity, None)
+            if not succeeded or not isinstance(pending_step_consumes, dict) or not pending_step_consumes:
+                continue
 
-        self.persist_state(state)
+            artifact_consumes = self._artifact_consumes(state, lane)
+            step_consumes = artifact_consumes.setdefault(consumer_identity, {})
+            if not isinstance(step_consumes, dict):
+                step_consumes = {}
+                artifact_consumes[consumer_identity] = step_consumes
+            global_consumes = artifact_consumes.setdefault("__global__", {})
+            if not isinstance(global_consumes, dict):
+                global_consumes = {}
+                artifact_consumes["__global__"] = global_consumes
+
+            for artifact_name, selected_version in pending_step_consumes.items():
+                if not isinstance(artifact_name, str) or not isinstance(selected_version, int):
+                    continue
+                step_consumes[artifact_name] = selected_version
+                global_consumes[artifact_name] = selected_version
+                state_changed = True
+
+        if state_changed:
+            self.persist_state(state)
 
     def write_consume_bundle(
         self,

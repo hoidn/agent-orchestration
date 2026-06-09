@@ -2,6 +2,8 @@ from pathlib import Path
 
 import importlib
 
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -237,6 +239,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
 
     [lowered] = result.lowered_workflows
     assert lowered.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
+    assert lowered.private_artifact_ids == ("context_docs",)
     context_docs_contract = lowered.authored_mapping["inputs"]["context_docs"]
     assert context_docs_contract == {
         "kind": "collection",
@@ -249,6 +252,107 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
     }
     assert "pointer" not in lowered.authored_mapping["artifacts"]["context_docs"]
     assert "pointer" not in lowered.authored_mapping["artifacts"]["review_focus"]
+
+
+def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        DESIGN_DOCS_REVIEW_EXAMPLE,
+        provider_externs={
+            "providers.design-docs.review": "codex",
+            "providers.design-docs.fix": "codex",
+        },
+        prompt_externs={
+            "prompts.design-docs.review": DESIGN_DOCS_REVIEW_PROMPT.relative_to(REPO_ROOT).as_posix(),
+            "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    workflow_name = result.lowered_workflows[0].typed_workflow.definition.name
+    lowered_mapping = result.lowered_workflows[0].authored_mapping
+    bundle = result.validated_bundles[workflow_name]
+    (tmp_path / "workflow.yaml").write_text("version: '2.14'\nsteps: []\n", encoding="utf-8")
+    state_manager = StateManager(workspace=tmp_path, run_id="private-lane-runtime")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    state = {
+        "artifact_versions": {
+            "target_doc": [{
+                "version": 1,
+                "value": "docs/design/target.md",
+                "producer": "root.seed",
+                "producer_name": "Seed",
+                "step_index": 0,
+            }],
+            "review_focus": [{
+                "version": 1,
+                "value": "Review the runtime migration foundation.",
+                "producer": "root.seed",
+                "producer_name": "Seed",
+                "step_index": 0,
+            }],
+            "checks_report": [{
+                "version": 1,
+                "value": "artifacts/work/checks.md",
+                "producer": "root.seed",
+                "producer_name": "Seed",
+                "step_index": 0,
+            }],
+            "review_report_target_path": [{
+                "version": 1,
+                "value": "artifacts/review/review.md",
+                "producer": "root.seed",
+                "producer_name": "Seed",
+                "step_index": 0,
+            }],
+        },
+        "private_artifact_versions": {
+            "context_docs": [{
+                "version": 1,
+                "value": ["state-layout.md"],
+                "producer": "root.collect_context",
+                "producer_name": "CollectContext",
+                "step_index": 0,
+                "catalog_ref": "context_docs",
+            }],
+        },
+    }
+    (tmp_path / "docs" / "design").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "design" / "state-layout.md").write_text("# state layout\n", encoding="utf-8")
+
+    def _walk_steps(steps):
+        for step in steps:
+            yield step
+            if "repeat_until" in step:
+                yield from _walk_steps(step["repeat_until"].get("steps", []))
+            if "match" in step:
+                for case in step["match"].get("cases", {}).values():
+                    yield from _walk_steps(case.get("steps", []))
+            if "for_each" in step:
+                yield from _walk_steps(step["for_each"].get("steps", []))
+
+    review_step = next(
+        step
+        for step in _walk_steps(lowered_mapping["steps"])
+        if step.get("provider") == "codex"
+        and any(consume.get("artifact") == "context_docs" for consume in step.get("consumes", []))
+    )
+
+    error = executor.dataflow_manager.enforce_consumes_contract(
+        review_step,
+        review_step["name"],
+        state,
+        runtime_step_id=executor._step_id(review_step),
+    )
+
+    assert error is None
+    assert "context_docs" not in state["artifact_versions"]
+    assert state["artifact_versions"]["target_doc"][0]["value"] == "docs/design/target.md"
+    assert state["_resolved_consumes"][executor._step_id(review_step)]["context_docs"] == [
+        "docs/design/state-layout.md",
+    ]
 
 
 def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Path) -> None:

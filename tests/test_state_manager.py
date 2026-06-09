@@ -227,6 +227,120 @@ steps:
         }
         assert loaded_state.artifact_versions["implementation_session_id"][0]["value"] == "sess-123"
 
+    def test_private_artifact_versions_persist_across_reload(self, temp_workspace, workflow_file):
+        """Private artifact lineage persists additively beside the public ledger."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_dataflow_state(
+            artifact_versions={},
+            artifact_consumes={},
+            private_artifact_versions={
+                "context_docs": [{
+                    "version": 1,
+                    "value": ["state-layout.md"],
+                    "producer": "root.collect_context",
+                    "producer_name": "CollectContext",
+                    "step_index": 2,
+                    "catalog_ref": "context_docs",
+                }]
+            },
+            private_artifact_consumes={},
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.private_artifact_versions == {
+            "context_docs": [{
+                "version": 1,
+                "value": ["state-layout.md"],
+                "producer": "root.collect_context",
+                "producer_name": "CollectContext",
+                "step_index": 2,
+                "catalog_ref": "context_docs",
+            }]
+        }
+        assert loaded_state.artifact_versions == {}
+
+    def test_private_artifact_consumes_persist_across_reload(self, temp_workspace, workflow_file):
+        """Private consume freshness survives reloads without reusing the public ledger."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_dataflow_state(
+            artifact_versions={},
+            artifact_consumes={},
+            private_artifact_versions={},
+            private_artifact_consumes={
+                "root.review": {"context_docs": 2},
+                "__global__": {"context_docs": 2},
+            },
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.private_artifact_consumes == {
+            "root.review": {"context_docs": 2},
+            "__global__": {"context_docs": 2},
+        }
+        assert loaded_state.artifact_consumes == {}
+
+    def test_call_frame_private_artifact_ledgers_remain_local(self, temp_workspace, workflow_file):
+        """Nested call-frame state keeps private ledgers under the frame snapshot only."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        frame_state = RunState(
+            schema_version=StateManager.SCHEMA_VERSION,
+            run_id=manager.run_id,
+            workflow_file="workflows/library/review_fix_loop.yaml",
+            workflow_checksum="call_frame",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            status="running",
+            context={},
+            bound_inputs={"write_root": "state/review-loop"},
+            private_artifact_versions={
+                "context_docs": [{
+                    "version": 1,
+                    "value": ["state-layout.md"],
+                    "producer": "root.collect_context",
+                    "producer_name": "CollectContext",
+                    "step_index": 0,
+                    "catalog_ref": "context_docs",
+                }]
+            },
+            private_artifact_consumes={
+                "root.review": {"context_docs": 1},
+                "__global__": {"context_docs": 1},
+            },
+        )
+
+        manager.update_call_frame(
+            "root.run_review_loop::visit::1",
+            {
+                "call_frame_id": "root.run_review_loop::visit::1",
+                "call_step_name": "RunReviewLoop",
+                "call_step_id": "root.run_review_loop",
+                "import_alias": "review_loop",
+                "workflow_file": "workflows/library/review_fix_loop.yaml",
+                "status": "running",
+                "body_status": None,
+                "finalization_status": "not_configured",
+                "export_status": "pending",
+                "bound_inputs": {"write_root": "state/review-loop"},
+                "state": frame_state.to_dict(),
+            },
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.private_artifact_versions == {}
+        assert loaded_state.private_artifact_consumes == {}
+        frame = loaded_state.call_frames["root.run_review_loop::visit::1"]["state"]
+        assert frame["private_artifact_versions"]["context_docs"][0]["catalog_ref"] == "context_docs"
+        assert frame["private_artifact_consumes"]["root.review"]["context_docs"] == 1
+
     def test_at4_step_result_recording(self, temp_workspace, workflow_file):
         """AT-4: Record step results in state."""
         manager = StateManager(temp_workspace)

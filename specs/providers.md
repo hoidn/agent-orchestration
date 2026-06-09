@@ -67,6 +67,7 @@
     - Limit scope with `prompt_consumes: [artifact_name, ...]` to inject only selected consumed artifacts.
     - `prompt_consumes: []` suppresses the consumed-artifacts block entirely.
     - Optional `consumes` guidance annotations (`description`, `format_hint`, `example`) are included per injected artifact when present.
+    - Scalar values render directly; list/map consume values render as deterministic JSON text, and collection values render deterministically when prompt injection is enabled. Prompt rendering is a view over resolved consume values, not semantic authority.
     - These annotations are prompt guidance only and do not change runtime consume enforcement semantics.
     - v2.10 resume steps reserve the `session_id_from` consume for runtime `${SESSION_ID}` binding; that consume is excluded from prompt injection and `consume_bundle`.
   - If the step defines `expected_outputs` or `output_bundle` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints) or the required JSON bundle (`path`, `fields[*].json_pointer`, `fields[*].type`, optional constraints).

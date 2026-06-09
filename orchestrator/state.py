@@ -95,6 +95,8 @@ class RunState:
     call_frames: Dict[str, Any] = field(default_factory=dict)
     artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    private_artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    private_artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
     transition_count: int = 0
     step_visits: Dict[str, int] = field(default_factory=dict)
 
@@ -118,6 +120,8 @@ class RunState:
             "call_frames": self.call_frames,
             "artifact_versions": self.artifact_versions,
             "artifact_consumes": self.artifact_consumes,
+            "private_artifact_versions": self.private_artifact_versions,
+            "private_artifact_consumes": self.private_artifact_consumes,
             "transition_count": self.transition_count,
             "step_visits": self.step_visits,
         }
@@ -184,6 +188,8 @@ class RunState:
             call_frames=data.get("call_frames", {}),
             artifact_versions=data.get("artifact_versions", {}),
             artifact_consumes=data.get("artifact_consumes", {}),
+            private_artifact_versions=data.get("private_artifact_versions", {}),
+            private_artifact_consumes=data.get("private_artifact_consumes", {}),
             transition_count=data.get("transition_count", 0),
             step_visits=data.get("step_visits", {}),
         )
@@ -571,6 +577,8 @@ class StateManager:
         self,
         artifact_versions: Dict[str, List[Dict[str, Any]]],
         artifact_consumes: Dict[str, Dict[str, int]],
+        private_artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
     ):
         """Update v1.2 artifact dataflow state."""
         with self._lock:
@@ -579,6 +587,10 @@ class StateManager:
 
             self.state.artifact_versions = artifact_versions
             self.state.artifact_consumes = artifact_consumes
+            if private_artifact_versions is not None:
+                self.state.private_artifact_versions = private_artifact_versions
+            if private_artifact_consumes is not None:
+                self.state.private_artifact_consumes = private_artifact_consumes
             self._write_state()
 
     def finalize_step_with_dataflow(
@@ -588,6 +600,8 @@ class StateManager:
         *,
         artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
         artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+        private_artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        private_artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
         expected_step_id: Optional[str] = None,
         expected_visit_count: Optional[int] = None,
     ):
@@ -601,6 +615,10 @@ class StateManager:
                 self.state.artifact_versions = artifact_versions
             if artifact_consumes is not None:
                 self.state.artifact_consumes = artifact_consumes
+            if private_artifact_versions is not None:
+                self.state.private_artifact_versions = private_artifact_versions
+            if private_artifact_consumes is not None:
+                self.state.private_artifact_consumes = private_artifact_consumes
 
             current_step = self.state.current_step
             if isinstance(current_step, dict) and current_step.get("name") == step_name:

@@ -114,6 +114,16 @@ class ExecutableContract:
 
 
 @dataclass(frozen=True)
+class ExecutablePrivateArtifact:
+    """Compiler-classified private artifact catalog entry."""
+
+    artifact_id: str
+    contract: ExecutableContract
+    origin: str
+    prompt_render_mode: str = "json"
+
+
+@dataclass(frozen=True)
 class StepCommonConfig:
     """Runtime-relevant common step fields carried by executable nodes."""
 
@@ -419,6 +429,7 @@ class ExecutableWorkflow:
     finalization_entry_node_id: Optional[str]
     nodes: Mapping[str, ExecutableNode]
     artifacts: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
+    private_artifacts: Mapping[str, ExecutablePrivateArtifact] = field(default_factory=empty_frozen_mapping)
     inputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
     outputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
 
@@ -476,6 +487,10 @@ def workflow_executable_ir_to_json(ir: ExecutableWorkflow) -> dict[str, Any]:
         "artifacts": {
             name: _json_value(contract)
             for name, contract in sorted(ir.artifacts.items())
+        },
+        "private_artifacts": {
+            name: _json_value(artifact)
+            for name, artifact in sorted(ir.private_artifacts.items())
         },
         "inputs": {
             name: _json_value(contract)
@@ -545,6 +560,18 @@ def validate_executable_workflow(ir: ExecutableWorkflow) -> None:
             "executable_ir_invalid: finalization entry node must resolve inside the finalization region",
             workflow_name=ir.name,
         )
+
+    for key, artifact in ir.private_artifacts.items():
+        if key != artifact.artifact_id:
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: private artifact mapping key `{key}` does not match artifact id `{artifact.artifact_id}`",
+                workflow_name=ir.name,
+            )
+        if key in ir.artifacts:
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: private artifact `{key}` must not appear in the public artifact catalog",
+                workflow_name=ir.name,
+            )
 
     for key, node in ir.nodes.items():
         if key != node.node_id:

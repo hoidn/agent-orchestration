@@ -683,6 +683,82 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
 
+def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    result = build_frontend_bundle(
+        request_cls(
+            source_path=REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc",
+            source_roots=(REPO_ROOT / "workflows" / "examples",),
+            entry_workflow="review-revise-design-docs",
+            provider_externs_path=(
+                REPO_ROOT / "workflows" / "examples" / "inputs" / "review_revise_design_docs" / "providers.json"
+            ),
+            prompt_externs_path=(
+                REPO_ROOT / "workflows" / "examples" / "inputs" / "review_revise_design_docs" / "prompts.json"
+            ),
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+
+    assert executable_ir["private_artifacts"]["context_docs"] == {
+        "artifact_id": "context_docs",
+        "contract": {
+            "definition": {
+                "items": {
+                    "must_exist_target": True,
+                    "type": "relpath",
+                    "under": "docs/design",
+                },
+                "kind": "collection",
+                "type": "list",
+            },
+            "kind": "collection",
+            "name": "context_docs",
+            "source_address": None,
+            "value_type": "list",
+        },
+        "origin": "workflow_lisp_lowering",
+        "prompt_render_mode": "json",
+    }
+
+
+def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    result = build_frontend_bundle(
+        request_cls(
+            source_path=REPO_ROOT / "workflows" / "examples" / "review_revise_design_docs.orc",
+            source_roots=(REPO_ROOT / "workflows" / "examples",),
+            entry_workflow="review-revise-design-docs",
+            provider_externs_path=(
+                REPO_ROOT / "workflows" / "examples" / "inputs" / "review_revise_design_docs" / "providers.json"
+            ),
+            prompt_externs_path=(
+                REPO_ROOT / "workflows" / "examples" / "inputs" / "review_revise_design_docs" / "prompts.json"
+            ),
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+
+    assert result.validated_bundle.ir.private_artifacts["context_docs"].artifact_id == "context_docs"
+    assert executable_ir["private_artifacts"]["context_docs"]["artifact_id"] == "context_docs"
+    assert semantic_ir["workflows"][result.selected_workflow_name]["workflow_name"] == result.selected_workflow_name
+
+
 def test_build_manifest_records_source_map_schema_and_coverage_for_emitted_artifacts(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")

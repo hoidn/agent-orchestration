@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -182,6 +183,9 @@ class PromptComposer:
                 continue
             if isinstance(value, (str, int, float, bool)):
                 consumed_values[key] = value
+                continue
+            if isinstance(value, (list, dict)):
+                consumed_values[key] = json.dumps(value, sort_keys=True)
 
         if not consumed_values:
             return prompt

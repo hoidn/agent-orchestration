@@ -285,6 +285,7 @@ class LoweredWorkflow:
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
     boundary_projection: WorkflowBoundaryProjection
+    private_artifact_ids: tuple[str, ...] = ()
 
 
 def _origin_for_workflow(*args, **kwargs):
@@ -790,6 +791,13 @@ def _lower_one_workflow(
             generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
+        private_artifact_ids=tuple(
+            name
+            for name, definition in context.top_level_artifacts.items()
+            if isinstance(name, str)
+            and isinstance(definition, Mapping)
+            and definition.get("kind") == "collection"
+        ),
     )
 
 
@@ -1697,7 +1705,11 @@ def _validate_one_lowered_workflow(
     if surface is None or loader.errors:
         _raise_remapped_validation_error(lowered_workflow, loader.errors)
     try:
-        return build_loaded_workflow_bundle(surface, imports=imported_bundles)
+        return build_loaded_workflow_bundle(
+            surface,
+            imports=imported_bundles,
+            private_artifact_ids=lowered_workflow.private_artifact_ids,
+        )
     except WorkflowValidationError as exc:
         _raise_remapped_validation_error(lowered_workflow, list(exc.errors))
 
