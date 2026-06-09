@@ -38,39 +38,15 @@ class ProviderRegistry:
         Returns:
             Dictionary of built-in provider templates
         """
-        return {
-            "claude": ProviderTemplate(
-                name="claude",
-                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "claude-opus-4-6"},
-                input_mode=InputMode.ARGV
-            ),
-            "claude_sonnet_summary": ProviderTemplate(
-                name="claude_sonnet_summary",
-                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "claude-sonnet-4-6"},
-                input_mode=InputMode.ARGV
-            ),
-            "claude_haiku_summary": ProviderTemplate(
-                name="claude_haiku_summary",
-                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "haiku"},
-                input_mode=InputMode.ARGV
-            ),
-            "gemini": ProviderTemplate(
-                name="gemini",
-                command=["gemini", "-p", "${PROMPT}"],
-                defaults={},
-                input_mode=InputMode.ARGV
-            ),
-            "codex": ProviderTemplate(
-                name="codex",
+        def codex_provider(name: str, model: str) -> ProviderTemplate:
+            return ProviderTemplate(
+                name=name,
                 command=[
                         "codex", "exec",
                         "--model", "${model}",
                         "--config", "reasoning_effort=${reasoning_effort}",
                         "--dangerously-bypass-approvals-and-sandbox"],
-                defaults={"model": "gpt-5.4", "reasoning_effort": "high"},
+                defaults={"model": model, "reasoning_effort": "high"},
                 input_mode=InputMode.STDIN,
                 session_support=ProviderSessionSupport(
                     metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
@@ -98,6 +74,34 @@ class ProviderRegistry:
                     ],
                 ),
             )
+
+        return {
+            "claude": ProviderTemplate(
+                name="claude",
+                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
+                defaults={"model": "claude-opus-4-6"},
+                input_mode=InputMode.ARGV
+            ),
+            "claude_sonnet_summary": ProviderTemplate(
+                name="claude_sonnet_summary",
+                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
+                defaults={"model": "claude-sonnet-4-6"},
+                input_mode=InputMode.ARGV
+            ),
+            "claude_haiku_summary": ProviderTemplate(
+                name="claude_haiku_summary",
+                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
+                defaults={"model": "haiku"},
+                input_mode=InputMode.ARGV
+            ),
+            "gemini": ProviderTemplate(
+                name="gemini",
+                command=["gemini", "-p", "${PROMPT}"],
+                defaults={},
+                input_mode=InputMode.ARGV
+            ),
+            "codex": codex_provider("codex", "gpt-5.4"),
+            "codex_gpt55": codex_provider("codex_gpt55", "gpt-5.5"),
         }
 
     def register(self, provider: ProviderTemplate) -> None:

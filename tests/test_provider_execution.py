@@ -89,6 +89,24 @@ class TestProviderRegistry:
         assert codex.session_support.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
         assert "${SESSION_ID}" in " ".join(codex.session_support.resume_command or [])
 
+    def test_builtin_codex_gpt55_provider_alias(self):
+        """Test workflow-scoped callers can opt into GPT-5.5 without changing codex default."""
+        registry = ProviderRegistry()
+
+        codex = registry.get("codex")
+        codex_gpt55 = registry.get("codex_gpt55")
+
+        assert codex is not None
+        assert codex_gpt55 is not None
+        assert codex.defaults.get("model") == "gpt-5.4"
+        assert codex_gpt55.name == "codex_gpt55"
+        assert codex_gpt55.input_mode == InputMode.STDIN
+        assert codex_gpt55.defaults.get("model") == "gpt-5.5"
+        assert codex_gpt55.defaults.get("reasoning_effort") == "high"
+        assert "${PROMPT}" not in " ".join(codex_gpt55.command)
+        assert codex_gpt55.session_support is not None
+        assert codex_gpt55.session_support.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+
     def test_register_custom_provider(self):
         """Test registering a custom provider."""
         registry = ProviderRegistry()
