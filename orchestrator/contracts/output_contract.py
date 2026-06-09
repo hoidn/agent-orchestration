@@ -861,7 +861,7 @@ def _validate_relpath_value(
                 context={"under": under},
             )
         if not _is_within(target, under_root):
-            normalized_target = _normalize_basename_under_root(
+            normalized_target = _normalize_relative_under_root(
                 raw_value=raw_value,
                 workspace=workspace,
                 under_root=under_root,
@@ -892,22 +892,21 @@ def _validate_relpath_value(
     return target.relative_to(workspace).as_posix(), None
 
 
-def _normalize_basename_under_root(
+def _normalize_relative_under_root(
     raw_value: str,
     workspace: Path,
     under_root: Path,
     must_exist_target: bool,
 ) -> Path | None:
-    """Normalize bare filenames to under-root paths when contract under-root is present."""
+    """Refine safe under-root-relative values to workspace-relative contract paths."""
     value_path = Path(raw_value)
-    if len(value_path.parts) != 1:
+    if any(part in {"", ".", ".."} for part in value_path.parts):
         return None
 
-    basename = value_path.parts[0]
-    if basename in {"", ".", ".."}:
+    if len(value_path.parts) > 1 and not must_exist_target:
         return None
 
-    candidate = (under_root / basename).resolve()
+    candidate = (under_root / value_path).resolve()
     if not _is_within(candidate, workspace):
         return None
     if not _is_within(candidate, under_root):

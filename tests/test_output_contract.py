@@ -623,3 +623,26 @@ def test_validate_output_bundle_relpath_basename_normalizes_under_root(tmp_path:
 
     artifacts = validate_output_bundle(bundle, workspace=tmp_path)
     assert artifacts == {"code_review_path": "artifacts/review/latest-review.md"}
+
+
+def test_validate_output_bundle_relpath_nested_path_normalizes_under_root_when_target_exists(
+    tmp_path: Path,
+):
+    """Nested under-root-relative values normalize when the required target already exists."""
+    (tmp_path / "artifacts" / "work" / "runs").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "runs" / "report.md").write_text("ok\n")
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text('{"report_path":"runs/report.md"}\n')
+
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{
+            "name": "report_path",
+            "json_pointer": "/report_path",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        }],
+    }
+
+    artifacts = validate_output_bundle(bundle, workspace=tmp_path)
+    assert artifacts == {"report_path": "artifacts/work/runs/report.md"}
