@@ -380,6 +380,7 @@ Commit checkpoint:
 
 ### 9. Parent Drain Candidate
 
+- [x] Assess parent drain readiness and record current blockers in `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`.
 - [ ] Translate `lisp_frontend_design_delta_drain.yaml` into `lisp_frontend_design_delta_drain.orc`.
 - [ ] Use a typed bounded drain loop with an accumulator and explicit exhaustion behavior.
 - [ ] Keep iteration state separate from terminal result state: `DrainIterationStatus` has `CONTINUE`, `DONE`, `BLOCKED`; `DrainTerminalStatus` has `DONE`, `BLOCKED`, `EXHAUSTED`; `DrainResult` carries terminal status plus run-state and summary paths.

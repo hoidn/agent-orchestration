@@ -54,7 +54,7 @@ Baseline evidence checked during inventory:
 | Selector `.orc` candidate | provider-decision candidate complete for first pass; bundle publication/output parity open | `workflows/library/lisp_frontend_design_delta/selector.orc`; `test_design_delta_selector_candidate_compiles_as_provider_decision` |
 | Design-gap architect `.orc` candidate | behavior-preserving draft/validate leaves complete for first pass; review/revise and path parity open | `workflows/library/lisp_frontend_design_delta/design_gap_architect.orc`; `test_design_delta_architect_candidate_compiles_draft_and_validation_leaves` |
 | Work-item `.orc` candidate | terminal/recovery classifier leaves complete for first pass; full orchestration and run-state recording open | `workflows/library/lisp_frontend_design_delta/work_item.orc`; `test_design_delta_work_item_candidate_compiles_terminal_and_recovery_leaves` |
-| Parent drain `.orc` candidate | not started | none |
+| Parent drain `.orc` candidate | blocked before implementation; readiness blockers recorded | `parent_drain_readiness_blockers.md` |
 | Resume/recovery parity | not started | none |
 | Migration parity target manifest | not started | none |
 | `--require-non-regressive` | not started | none |
