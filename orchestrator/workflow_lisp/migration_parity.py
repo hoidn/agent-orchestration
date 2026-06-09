@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import time
@@ -13,8 +14,10 @@ from typing import Any
 
 
 TARGETS_SCHEMA_VERSION = "workflow_lisp_migration_parity_targets.v1"
-REPORT_SCHEMA_VERSION = "workflow_lisp_migration_parity_report.v1"
-INDEX_SCHEMA_VERSION = "workflow_lisp_migration_parity_index.v1"
+REPORT_SCHEMA_VERSION = "workflow_lisp_migration_parity_report.v2"
+INDEX_SCHEMA_VERSION = "workflow_lisp_migration_parity_index.v2"
+GATE_EVALUATION_SCHEMA_VERSION = "workflow_lisp_migration_parity_gate_evaluation.v1"
+TOOL_VERSION = "workflow_lisp_migration_parity.v2"
 COMMAND_ROLES = (
     "compile",
     "dry_run",
@@ -37,6 +40,25 @@ REQUIRED_EVIDENCE_ROLES = (
 )
 BASELINE_FIELDS = ("inputs", "outputs", "terminal_states", "artifacts", "resume_behavior")
 PASSING_ARTIFACT_STATUSES = {"emitted", "validated", "pass"}
+GATE_OWNED_REPORT_FIELDS = frozenset({"primary_surface", "report_valid", "evidence_complete"})
+REQUIRED_REPORT_STRING_FIELDS = (
+    "workflow_family",
+    "candidate",
+    "yaml_primary",
+    "tool_version",
+    "dsl_version",
+    "generated_at",
+    "report_path",
+)
+REQUIRED_REPORT_MAPPING_FIELDS = (
+    "target_identity",
+    "evidence_freshness",
+    "command_logs",
+    "promotion_eligibility",
+    "compile_artifacts",
+    "evidence",
+)
+REQUIRED_REPORT_OBJECT_LIST_FIELDS = ("accepted_differences", "deprecated_yaml_mechanics")
 
 
 @dataclass(frozen=True)
@@ -47,6 +69,9 @@ class EvidenceCommand:
 
 @dataclass(frozen=True)
 class ParityTarget:
+    target_manifest_path: Path
+    target_manifest_sha256: str
+    target_index: int
     workflow_family: str
     candidate: str
     yaml_primary: str
@@ -74,6 +99,19 @@ class CommandOutcome:
     waiver: Mapping[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class ValidatedGateRow:
+    workflow_family: str
+    report: Mapping[str, Any]
+    report_valid: bool
+    evidence_complete: bool
+    non_regressive: bool
+    eligible_for_primary_surface: bool
+    primary_surface: str
+    reasons: tuple[str, ...]
+    target_identity: Mapping[str, Any]
+
+
 def load_parity_targets(path: Path) -> list[ParityTarget]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != TARGETS_SCHEMA_VERSION:
@@ -82,6 +120,7 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
     if not isinstance(raw_targets, list) or not raw_targets:
         raise ValueError("targets must be a non-empty array")
 
+    manifest_sha256 = _sha256_file(path.resolve())
     targets: list[ParityTarget] = []
     seen_families: set[str] = set()
     for index, raw_target in enumerate(raw_targets):
@@ -128,6 +167,9 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
 
         targets.append(
             ParityTarget(
+                target_manifest_path=path.resolve(),
+                target_manifest_sha256=manifest_sha256,
+                target_index=index,
                 workflow_family=workflow_family,
                 candidate=_require_string(raw_target, "candidate"),
                 yaml_primary=_require_string(raw_target, "yaml_primary"),
@@ -215,16 +257,28 @@ def run_parity_target(
         build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
         repo_root=repo_root,
     )
+    generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    target_identity = _build_target_identity(target, repo_root=repo_root)
+    evidence_freshness = _build_evidence_freshness(
+        generated_at=generated_at,
+        compile_artifacts=compile_artifacts,
+        command_logs=command_logs,
+        compile_payload=compile_payload,
+        build_manifest=build_manifest,
+        repo_root=repo_root,
+    )
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "workflow_family": target.workflow_family,
         "candidate": target.candidate,
         "yaml_primary": target.yaml_primary,
-        "compiler_version": "workflow_lisp_migration_parity.v1",
+        "tool_version": TOOL_VERSION,
         "dsl_version": "2.14",
-        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "generated_at": generated_at,
         "generated_by": list(generated_by or ("python", "-m", "orchestrator", "migration-parity")),
         "report_path": _relative_path(resolved_output_root / f"{target.workflow_family}.json", repo_root),
+        "target_identity": target_identity,
+        "evidence_freshness": evidence_freshness,
         "command_logs": command_logs,
         "accepted_differences": [dict(entry) for entry in target.accepted_differences],
         "deprecated_yaml_mechanics": [dict(entry) for entry in target.deprecated_yaml_mechanics],
@@ -353,9 +407,14 @@ def render_parity_markdown(report: Mapping[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_parity_index(reports: Sequence[Mapping[str, Any]]) -> dict[str, object]:
+def render_parity_index(
+    reports: Sequence[ValidatedGateRow],
+) -> dict[str, object]:
     rows = []
-    for report in reports:
+    for gate_row in reports:
+        if not isinstance(gate_row, ValidatedGateRow):
+            raise TypeError("render_parity_index expects ValidatedGateRow inputs")
+        report = gate_row.report
         report_path = Path(str(report["report_path"]))
         rows.append(
             {
@@ -364,9 +423,11 @@ def render_parity_index(reports: Sequence[Mapping[str, Any]]) -> dict[str, objec
                 "yaml_primary": report["yaml_primary"],
                 "json_report": str(report_path),
                 "markdown_report": str(report_path.with_suffix(".md")),
-                "non_regressive": bool(report["non_regressive"]),
+                "report_valid": gate_row.report_valid,
+                "evidence_complete": gate_row.evidence_complete,
+                "non_regressive": gate_row.non_regressive,
                 "promotion_eligibility": dict(_require_report_mapping(report, "promotion_eligibility")),
-                "primary_surface": _primary_surface_for_report(report),
+                "primary_surface": gate_row.primary_surface,
             }
         )
     rows.sort(key=lambda row: str(row["workflow_family"]))
@@ -377,13 +438,129 @@ def render_parity_index(reports: Sequence[Mapping[str, Any]]) -> dict[str, objec
     }
 
 
+def _validate_report_for_gate(
+    report: Mapping[str, Any],
+    *,
+    target: ParityTarget,
+    targets_file: Path,
+    repo_root: Path,
+    today: date,
+    fail_closed_for_stale_evidence: bool = False,
+) -> ValidatedGateRow:
+    if report.get("schema_version") != REPORT_SCHEMA_VERSION:
+        raise ValueError(f"report schema_version must be {REPORT_SCHEMA_VERSION}")
+
+    gate_owned_fields = sorted(GATE_OWNED_REPORT_FIELDS.intersection(report.keys()))
+    if gate_owned_fields:
+        raise ValueError(
+            "report may not publish gate-owned fields: " + ", ".join(gate_owned_fields)
+        )
+
+    _require_report_contract(report)
+
+    target_identity = _require_report_mapping(report, "target_identity")
+    expected_identity = _build_target_identity(
+        target,
+        repo_root=repo_root,
+        targets_file=targets_file,
+    )
+    _require_exact_mapping_match(
+        target_identity,
+        expected_identity,
+        label="target_identity",
+    )
+
+    expected_non_regressive = compute_non_regressive(report, today=today)
+    if bool(report.get("non_regressive")) != expected_non_regressive:
+        raise ValueError("report non_regressive does not match recomputed non_regressive")
+
+    evidence_complete, reasons = _validate_required_evidence_completeness(report)
+    evidence_freshness = _require_report_mapping(report, "evidence_freshness")
+    freshness_complete, freshness_reasons = _validate_evidence_freshness(
+        report,
+        evidence_freshness=evidence_freshness,
+        repo_root=repo_root,
+        fail_closed=fail_closed_for_stale_evidence,
+    )
+    evidence_complete = evidence_complete and freshness_complete
+    reasons.extend(freshness_reasons)
+    promotion = _require_report_mapping(report, "promotion_eligibility")
+    eligible_for_primary_surface = bool(promotion.get("eligible_for_primary_surface"))
+    if not expected_non_regressive:
+        reasons.append("non_regressive=false")
+    if not eligible_for_primary_surface:
+        reasons.append(
+            _string_or_none(promotion.get("blocked_reason")) or "eligible_for_primary_surface=false"
+        )
+    primary_surface = _primary_surface_for_non_regressive_and_eligibility(
+        non_regressive=expected_non_regressive,
+        eligible_for_primary_surface=eligible_for_primary_surface,
+    )
+    return ValidatedGateRow(
+        workflow_family=str(report["workflow_family"]),
+        report=report,
+        report_valid=True,
+        evidence_complete=evidence_complete,
+        non_regressive=expected_non_regressive,
+        eligible_for_primary_surface=eligible_for_primary_surface,
+        primary_surface=primary_surface,
+        reasons=tuple(reasons),
+        target_identity=target_identity,
+    )
+
+
+def render_gate_evaluation(
+    *,
+    gate_rows: Sequence[ValidatedGateRow],
+    gate_mode: str,
+    targets_file: Path,
+    selected_targets: Sequence[str],
+    repo_root: Path,
+) -> dict[str, object]:
+    ordered_rows = sorted(gate_rows, key=lambda row: row.workflow_family)
+    selected_set = set(selected_targets)
+    gated_rows = [
+        row for row in ordered_rows if not selected_set or row.workflow_family in selected_set
+    ]
+    results = [
+        {
+            "workflow_family": row.workflow_family,
+            "report_path": str(row.report["report_path"]),
+            "target_identity": dict(row.target_identity),
+            "report_valid": row.report_valid,
+            "evidence_complete": row.evidence_complete,
+            "non_regressive": row.non_regressive,
+            "eligible_for_primary_surface": row.eligible_for_primary_surface,
+            "primary_surface": _gate_primary_surface_for_row(row),
+            "reasons": list(row.reasons),
+        }
+        for row in ordered_rows
+    ]
+    selected_identity_rows = [
+        dict(row.target_identity)
+        for row in ordered_rows
+        if row.workflow_family in set(selected_targets)
+    ]
+    return {
+        "schema_version": GATE_EVALUATION_SCHEMA_VERSION,
+        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "gate_mode": gate_mode,
+        "targets_file": _relative_or_absolute_path(targets_file, repo_root),
+        "selected_targets": list(selected_targets),
+        "selected_target_identities": selected_identity_rows,
+        "results": results,
+        "overall_pass": all(_gate_row_passes(row, gate_mode=gate_mode) for row in gated_rows),
+    }
+
+
 def write_reports(
     reports: Sequence[Mapping[str, Any]],
     *,
     output_root: Path,
     repo_root: Path,
-    index_reports: Sequence[Mapping[str, Any]] | None = None,
-) -> Path:
+    gate_rows: Sequence[ValidatedGateRow],
+    gate_evaluation: Mapping[str, Any],
+) -> tuple[Path, Path]:
     resolved_output_root = output_root.resolve()
     resolved_output_root.mkdir(parents=True, exist_ok=True)
     for report in reports:
@@ -396,10 +573,15 @@ def write_reports(
 
     index_path = resolved_output_root / "index.json"
     index_path.write_text(
-        json.dumps(render_parity_index(index_reports or reports), indent=2, sort_keys=True) + "\n",
+        json.dumps(render_parity_index(gate_rows), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    return index_path
+    gate_evaluation_path = resolved_output_root / "gate_evaluation.json"
+    gate_evaluation_path.write_text(
+        json.dumps(gate_evaluation, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return index_path, gate_evaluation_path
 
 
 def run_migration_parity(
@@ -410,12 +592,19 @@ def run_migration_parity(
     repo_root: Path,
     today: date | None = None,
     generated_by: Sequence[str] | None = None,
+    gate_mode: str = "advisory",
 ) -> dict[str, object]:
-    targets = load_parity_targets(targets_file)
-    targets_for_index = list(targets)
+    evaluation_date = today or date.today()
+    all_targets = load_parity_targets(targets_file)
+    selected_target_names = (
+        list(selected_targets)
+        if selected_targets
+        else [target.workflow_family for target in all_targets]
+    )
+    targets = list(all_targets)
     if selected_targets:
         selected = set(selected_targets)
-        missing = sorted(selected.difference(target.workflow_family for target in targets))
+        missing = sorted(selected.difference(target.workflow_family for target in all_targets))
         if missing:
             raise ValueError(f"unknown workflow_family selection(s): {', '.join(missing)}")
         targets = [target for target in targets if target.workflow_family in selected]
@@ -425,21 +614,32 @@ def run_migration_parity(
             target,
             output_root=output_root,
             repo_root=repo_root,
-            today=today,
+            today=evaluation_date,
             generated_by=generated_by,
         )
         for target in targets
     ]
-    index_reports = _reports_for_aggregate_index(
-        targets_for_index,
+    gate_rows = _validated_gate_rows_for_targets(
+        all_targets,
         refreshed_reports=reports,
         output_root=output_root,
+        targets_file=targets_file,
+        repo_root=repo_root,
+        today=evaluation_date,
     )
-    index_path = write_reports(
+    gate_evaluation = render_gate_evaluation(
+        gate_rows=gate_rows,
+        gate_mode=gate_mode,
+        targets_file=targets_file,
+        selected_targets=selected_target_names,
+        repo_root=repo_root,
+    )
+    index_path, gate_evaluation_path = write_reports(
         reports,
         output_root=output_root,
         repo_root=repo_root,
-        index_reports=index_reports,
+        gate_rows=gate_rows,
+        gate_evaluation=gate_evaluation,
     )
     non_regressive_targets = sorted(
         report["workflow_family"] for report in reports if bool(report["non_regressive"])
@@ -452,20 +652,26 @@ def run_migration_parity(
         "reports_written": len(reports),
         "non_regressive_targets": non_regressive_targets,
         "regressive_targets": regressive_targets,
+        "gate_mode": gate_mode,
+        "overall_pass": bool(gate_evaluation["overall_pass"]),
         "index_path": _relative_path(index_path, repo_root),
+        "gate_evaluation_path": _relative_path(gate_evaluation_path, repo_root),
     }
 
 
-def _reports_for_aggregate_index(
+def _validated_gate_rows_for_targets(
     targets: Sequence[ParityTarget],
     *,
     refreshed_reports: Sequence[Mapping[str, Any]],
     output_root: Path,
-) -> list[Mapping[str, Any]]:
+    targets_file: Path,
+    repo_root: Path,
+    today: date,
+) -> list[ValidatedGateRow]:
     refreshed_by_family = {
         str(report["workflow_family"]): report for report in refreshed_reports
     }
-    reports: list[Mapping[str, Any]] = []
+    gate_rows: list[ValidatedGateRow] = []
     for target in targets:
         report = refreshed_by_family.get(target.workflow_family)
         if report is None:
@@ -473,8 +679,17 @@ def _reports_for_aggregate_index(
                 output_root / f"{target.workflow_family}.json",
                 workflow_family=target.workflow_family,
             )
-        reports.append(report)
-    return reports
+        gate_rows.append(
+            _validate_report_for_gate(
+                report,
+                target=target,
+                targets_file=targets_file,
+                repo_root=repo_root,
+                today=today,
+                fail_closed_for_stale_evidence=target.workflow_family not in refreshed_by_family,
+            )
+        )
+    return gate_rows
 
 
 def _load_existing_report(path: Path, *, workflow_family: str) -> Mapping[str, Any]:
@@ -493,6 +708,280 @@ def _load_existing_report(path: Path, *, workflow_family: str) -> Mapping[str, A
             f"existing report at `{path}` does not match workflow_family `{workflow_family}`"
         )
     return report
+
+
+def _sha256_file(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _sha256_json_bytes(payload: Any) -> str:
+    return f"sha256:{hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()}"
+
+
+def _build_target_identity(
+    target: ParityTarget,
+    *,
+    repo_root: Path,
+    targets_file: Path | None = None,
+) -> dict[str, object]:
+    candidate_path = repo_root / target.candidate
+    return {
+        "targets_schema_version": TARGETS_SCHEMA_VERSION,
+        "target_manifest_path": _relative_or_absolute_path((targets_file or target.target_manifest_path), repo_root),
+        "target_manifest_sha256": target.target_manifest_sha256,
+        "target_index": target.target_index,
+        "workflow_family": target.workflow_family,
+        "candidate_path": target.candidate,
+        "candidate_sha256": _sha256_file(candidate_path),
+        "yaml_primary_path": target.yaml_primary,
+        "entry_workflow": target.entry_workflow,
+    }
+
+
+def _build_required_artifact_freshness(
+    compile_artifacts: Mapping[str, Any],
+    *,
+    repo_root: Path,
+) -> dict[str, object]:
+    required = _require_report_mapping(compile_artifacts, "required")
+    freshness: dict[str, object] = {}
+    for artifact_name, artifact_value in required.items():
+        artifact = _require_report_mapping(required, artifact_name)
+        artifact_path = _string_or_none(artifact.get("path"))
+        artifact_entry: dict[str, object] = {
+            "status": _status(artifact),
+            "path": artifact_path,
+        }
+        if artifact_path:
+            resolved_path = repo_root / artifact_path
+            if resolved_path.exists():
+                artifact_entry["sha256"] = _sha256_file(resolved_path)
+        freshness[artifact_name] = artifact_entry
+    return freshness
+
+
+def _build_evidence_refs(
+    command_logs: Mapping[str, Any],
+    *,
+    repo_root: Path,
+) -> dict[str, object]:
+    refs: dict[str, object] = {}
+    for role, raw_paths in command_logs.items():
+        paths = _require_report_mapping(command_logs, str(role))
+        role_refs: dict[str, object] = {}
+        for stream in ("stdout", "stderr"):
+            stream_path = _string_or_none(paths.get(stream))
+            if not stream_path:
+                continue
+            resolved_path = repo_root / stream_path
+            role_refs[stream] = {
+                "path": stream_path,
+                "sha256": _sha256_file(resolved_path) if resolved_path.exists() else None,
+            }
+        refs[str(role)] = role_refs
+    return refs
+
+
+def _build_evidence_freshness(
+    *,
+    generated_at: str,
+    compile_artifacts: Mapping[str, Any],
+    command_logs: Mapping[str, Any],
+    compile_payload: Mapping[str, Any] | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    freshness: dict[str, object] = {
+        "generated_at": generated_at,
+        "required_artifacts": _build_required_artifact_freshness(
+            compile_artifacts,
+            repo_root=repo_root,
+        ),
+        "evidence_refs": _build_evidence_refs(command_logs, repo_root=repo_root),
+    }
+    compile_manifest_path = None
+    if isinstance(compile_payload, Mapping) and isinstance(compile_payload.get("build_root"), str):
+        compile_manifest_path = Path(str(compile_payload["build_root"])) / "manifest.json"
+    if compile_manifest_path is not None and compile_manifest_path.exists():
+        freshness["compile_manifest_path"] = _relative_or_absolute_path(
+            compile_manifest_path,
+            repo_root,
+        )
+        freshness["compile_manifest_sha256"] = _sha256_file(compile_manifest_path)
+    checksum = None
+    if isinstance(build_manifest, Mapping):
+        checksum = _string_or_none(build_manifest.get("compiled_workflow_checksum"))
+    if checksum:
+        freshness["compiled_workflow_checksum"] = checksum
+    return freshness
+
+
+def _validate_evidence_freshness(
+    report: Mapping[str, Any],
+    *,
+    evidence_freshness: Mapping[str, Any],
+    repo_root: Path,
+    fail_closed: bool = False,
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    evidence_complete = True
+
+    def mark_incomplete(message: str) -> None:
+        nonlocal evidence_complete
+        if fail_closed:
+            raise ValueError(message)
+        evidence_complete = False
+        reasons.append(message)
+
+    compile_evidence = _require_report_mapping(_require_report_mapping(report, "evidence"), "compile")
+    compile_manifest_path = _string_or_none(compile_evidence.get("manifest_path")) or _string_or_none(
+        evidence_freshness.get("compile_manifest_path")
+    )
+    if compile_manifest_path:
+        if evidence_freshness.get("compile_manifest_path") != compile_manifest_path:
+            raise ValueError("evidence_freshness.compile_manifest_path does not match current compile manifest path")
+        compile_manifest_file = repo_root / compile_manifest_path
+        if not compile_manifest_file.exists():
+            mark_incomplete("missing compile manifest")
+        else:
+            expected_sha = _string_or_none(evidence_freshness.get("compile_manifest_sha256"))
+            if not expected_sha:
+                mark_incomplete("missing compile_manifest_sha256")
+            elif expected_sha != _sha256_file(compile_manifest_file):
+                raise ValueError("evidence_freshness.compile_manifest_sha256 does not match current compile manifest")
+            compile_manifest = json.loads(compile_manifest_file.read_text(encoding="utf-8"))
+            current_checksum = _string_or_none(compile_manifest.get("compiled_workflow_checksum"))
+            if current_checksum:
+                reported_checksum = _string_or_none(evidence_freshness.get("compiled_workflow_checksum"))
+                if not reported_checksum:
+                    mark_incomplete("missing compiled_workflow_checksum")
+                elif reported_checksum != current_checksum:
+                    raise ValueError("evidence_freshness.compiled_workflow_checksum does not match current compile evidence")
+
+    required_artifacts = _require_report_mapping(evidence_freshness, "required_artifacts")
+    current_required_artifacts = _require_report_mapping(_require_report_mapping(report, "compile_artifacts"), "required")
+    for artifact_name, artifact_value in current_required_artifacts.items():
+        artifact = _require_report_mapping(current_required_artifacts, artifact_name)
+        current_path = _string_or_none(artifact.get("path"))
+        current_status = _status(artifact)
+        freshness_artifact = required_artifacts.get(artifact_name)
+        if not isinstance(freshness_artifact, Mapping):
+            mark_incomplete(f"missing freshness row for required artifact `{artifact_name}`")
+            continue
+        if freshness_artifact.get("path") != current_path:
+            raise ValueError(f"required_artifacts.{artifact_name}.path does not match current required artifact path")
+        if freshness_artifact.get("status") != current_status:
+            raise ValueError(f"required_artifacts.{artifact_name}.status does not match current required artifact status")
+        if current_path:
+            current_file = repo_root / current_path
+            if not current_file.exists():
+                mark_incomplete(f"missing required artifact file `{artifact_name}`")
+                continue
+            expected_sha = _string_or_none(freshness_artifact.get("sha256"))
+            if not expected_sha:
+                mark_incomplete(f"missing required artifact digest `{artifact_name}`")
+            elif expected_sha != _sha256_file(current_file):
+                raise ValueError(f"required_artifacts.{artifact_name}.sha256 does not match current artifact")
+
+    evidence_refs = _require_report_mapping(evidence_freshness, "evidence_refs")
+    current_command_logs = _require_report_mapping(report, "command_logs")
+    for role, raw_paths in current_command_logs.items():
+        paths = _require_report_mapping(current_command_logs, str(role))
+        freshness_role = evidence_refs.get(role)
+        if not isinstance(freshness_role, Mapping):
+            mark_incomplete(f"missing evidence freshness refs for `{role}`")
+            continue
+        for stream in ("stdout", "stderr"):
+            current_path = _string_or_none(paths.get(stream))
+            if not current_path:
+                mark_incomplete(f"missing {stream} log path for `{role}`")
+                continue
+            current_file = repo_root / current_path
+            stream_ref = freshness_role.get(stream)
+            if not isinstance(stream_ref, Mapping):
+                mark_incomplete(f"missing freshness ref for `{role}` {stream}")
+                continue
+            if stream_ref.get("path") != current_path:
+                raise ValueError(f"evidence_refs.{role}.{stream}.path does not match current log path")
+            if not current_file.exists():
+                mark_incomplete(f"missing {stream} log for `{role}`")
+                continue
+            expected_sha = _string_or_none(stream_ref.get("sha256"))
+            if not expected_sha:
+                mark_incomplete(f"missing {stream} log digest for `{role}`")
+            elif expected_sha != _sha256_file(current_file):
+                raise ValueError(f"evidence_refs.{role}.{stream}.sha256 does not match current log")
+
+    return evidence_complete, reasons
+
+
+def _validate_required_evidence_completeness(
+    report: Mapping[str, Any],
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    evidence_complete = True
+
+    def mark_incomplete(message: str) -> None:
+        nonlocal evidence_complete
+        evidence_complete = False
+        reasons.append(message)
+
+    evidence = _require_report_mapping(report, "evidence")
+    for role in REQUIRED_EVIDENCE_ROLES:
+        if role not in evidence:
+            mark_incomplete(f"missing required evidence role `{role}`")
+
+    compile_artifacts = _require_report_mapping(report, "compile_artifacts")
+    required_artifacts = _require_report_mapping(compile_artifacts, "required")
+    for artifact_name, artifact_value in required_artifacts.items():
+        artifact = _require_report_mapping(required_artifacts, artifact_name)
+        if _status(artifact) != "pass":
+            mark_incomplete(f"required compile artifact `{artifact_name}` is not passing")
+
+    return evidence_complete, reasons
+
+
+def _require_exact_mapping_match(
+    actual: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    *,
+    label: str,
+) -> None:
+    actual_keys = set(actual.keys())
+    expected_keys = set(expected.keys())
+    extra_keys = sorted(actual_keys - expected_keys)
+    if extra_keys:
+        raise ValueError(f"{label} contains unexpected keys: {', '.join(extra_keys)}")
+    missing_keys = sorted(expected_keys - actual_keys)
+    if missing_keys:
+        raise ValueError(f"{label} is missing keys: {', '.join(missing_keys)}")
+    for key, expected_value in expected.items():
+        actual_value = actual.get(key)
+        if actual_value != expected_value:
+            raise ValueError(f"{label}.{key} does not match current selected target")
+
+
+def _require_report_contract(report: Mapping[str, Any]) -> None:
+    for field_name in REQUIRED_REPORT_STRING_FIELDS:
+        _require_string(report, field_name)
+    _require_non_empty_string_list(report, "generated_by")
+    for field_name in REQUIRED_REPORT_OBJECT_LIST_FIELDS:
+        _require_report_object_list(report, field_name)
+    for field_name in REQUIRED_REPORT_MAPPING_FIELDS:
+        _require_report_mapping(report, field_name)
+    if not isinstance(report.get("non_regressive"), bool):
+        raise ValueError("report field `non_regressive` must be a boolean")
+
+
+def _gate_row_passes(row: ValidatedGateRow, *, gate_mode: str) -> bool:
+    base_pass = row.report_valid and row.evidence_complete and row.non_regressive
+    if gate_mode == "advisory":
+        return True
+    if gate_mode == "require_non_regressive":
+        return base_pass
+    if gate_mode == "require_promotable":
+        return base_pass and row.eligible_for_primary_surface
+    raise ValueError(f"unknown gate mode `{gate_mode}`")
 
 
 def _parse_command_spec(*, workflow_family: str, role: str, raw_value: Any) -> EvidenceCommand:
@@ -682,9 +1171,26 @@ def _artifact_raw_status(
 
 def _primary_surface_for_report(report: Mapping[str, Any]) -> str:
     promotion = _require_report_mapping(report, "promotion_eligibility")
-    if bool(report.get("non_regressive")) and bool(promotion.get("eligible_for_primary_surface")):
+    return _primary_surface_for_non_regressive_and_eligibility(
+        non_regressive=bool(report.get("non_regressive")),
+        eligible_for_primary_surface=bool(promotion.get("eligible_for_primary_surface")),
+    )
+
+
+def _primary_surface_for_non_regressive_and_eligibility(
+    *,
+    non_regressive: bool,
+    eligible_for_primary_surface: bool,
+) -> str:
+    if non_regressive and eligible_for_primary_surface:
         return "orc"
     return "yaml"
+
+
+def _gate_primary_surface_for_row(row: ValidatedGateRow) -> str | None:
+    if not row.report_valid or not row.evidence_complete or not row.non_regressive:
+        return None
+    return row.primary_surface
 
 
 def _waiver_is_valid(

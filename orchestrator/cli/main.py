@@ -476,6 +476,17 @@ def create_parser() -> argparse.ArgumentParser:
         action='append',
         help='Optional workflow_family filter; repeatable'
     )
+    migration_parity_gate_group = migration_parity_parser.add_mutually_exclusive_group()
+    migration_parity_gate_group.add_argument(
+        '--require-non-regressive',
+        action='store_true',
+        help='Exit nonzero unless selected targets have valid complete non-regressive evidence'
+    )
+    migration_parity_gate_group.add_argument(
+        '--require-promotable',
+        action='store_true',
+        help='Exit nonzero unless selected targets are promotable to the primary surface'
+    )
 
     return parser
 

@@ -9,6 +9,7 @@ import pytest
 
 from orchestrator.cli.commands.compile import compile_workflow
 from orchestrator.cli.commands.explain import explain_workflow
+from orchestrator.cli.commands.migration_parity import migration_parity_workflow
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.cli.main import create_parser, main
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -346,6 +347,140 @@ def test_parser_supports_migration_parity_subcommand() -> None:
     assert args.targets_file == "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
     assert args.output_root == "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity"
     assert args.target == ["cycle_guard_demo", "design_plan_impl_stack"]
+
+
+def test_parser_supports_migration_parity_strict_gate_flags() -> None:
+    parser = create_parser()
+
+    non_regressive_args = parser.parse_args(
+        [
+            "migration-parity",
+            "--targets-file",
+            "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+            "--output-root",
+            "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity",
+            "--require-non-regressive",
+        ]
+    )
+    promotable_args = parser.parse_args(
+        [
+            "migration-parity",
+            "--targets-file",
+            "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json",
+            "--output-root",
+            "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity",
+            "--require-promotable",
+        ]
+    )
+
+    assert non_regressive_args.require_non_regressive is True
+    assert non_regressive_args.require_promotable is False
+    assert promotable_args.require_non_regressive is False
+    assert promotable_args.require_promotable is True
+
+
+def test_migration_parity_cli_returns_one_for_require_non_regressive_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_run_migration_parity(**kwargs: object) -> dict[str, object]:
+        return {
+            "targets_processed": 1,
+            "reports_written": 1,
+            "gate_mode": "require_non_regressive",
+            "overall_pass": False,
+            "gate_evaluation_path": "parity/gate_evaluation.json",
+            "index_path": "parity/index.json",
+        }
+
+    monkeypatch.setattr(
+        "orchestrator.cli.commands.migration_parity.run_migration_parity",
+        _fake_run_migration_parity,
+    )
+
+    result = migration_parity_workflow(
+        Namespace(
+            targets_file="parity_targets.json",
+            output_root="parity",
+            target=None,
+            require_non_regressive=True,
+            require_promotable=False,
+        )
+    )
+    captured = capsys.readouterr()
+
+    assert result == 1
+    assert "\"overall_pass\": false" in captured.out
+
+
+def test_migration_parity_cli_returns_one_for_require_promotable_ineligible_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_run_migration_parity(**kwargs: object) -> dict[str, object]:
+        return {
+            "targets_processed": 1,
+            "reports_written": 1,
+            "gate_mode": "require_promotable",
+            "overall_pass": False,
+            "gate_evaluation_path": "parity/gate_evaluation.json",
+            "index_path": "parity/index.json",
+        }
+
+    monkeypatch.setattr(
+        "orchestrator.cli.commands.migration_parity.run_migration_parity",
+        _fake_run_migration_parity,
+    )
+
+    result = migration_parity_workflow(
+        Namespace(
+            targets_file="parity_targets.json",
+            output_root="parity",
+            target=None,
+            require_non_regressive=False,
+            require_promotable=True,
+        )
+    )
+    captured = capsys.readouterr()
+
+    assert result == 1
+    assert "\"gate_mode\": \"require_promotable\"" in captured.out
+
+
+def test_migration_parity_cli_returns_two_for_stale_reused_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    def _fake_run_migration_parity(**kwargs: object) -> dict[str, object]:
+        raise ValueError("target_identity.candidate_sha256 does not match current selected target")
+
+    monkeypatch.setattr(
+        "orchestrator.cli.commands.migration_parity.run_migration_parity",
+        _fake_run_migration_parity,
+    )
+
+    result = migration_parity_workflow(
+        Namespace(
+            targets_file="parity_targets.json",
+            output_root="parity",
+            target=None,
+            require_non_regressive=False,
+            require_promotable=False,
+        )
+    )
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert "candidate_sha256" in captured.err
 
 
 def test_migration_parity_cli_rejects_manifest_override(

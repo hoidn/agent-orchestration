@@ -79,6 +79,29 @@ Migration promotion checklist:
   in provider output contracts unless the provider actually produces that
   artifact; carry them from state or inputs when terminal results need them.
 
+When promotion evidence is evaluated with `python -m orchestrator
+migration-parity`, treat the per-target JSON report as evidence authority only.
+The tool computes `non_regressive`; it does not accept that field from the
+manifest, and strict reuse validation can invalidate stale reports even when
+their embedded evidence still looks superficially complete.
+
+Use strict modes only when you want the command to act as a release gate:
+
+- advisory mode (no extra flag) still writes reports and derived views, but it
+  exits `0` whenever generation and validation succeed;
+- `--require-non-regressive` exits `1` unless each selected target has a valid,
+  complete, current report whose embedded evidence recomputes to
+  `non_regressive=true`;
+- `--require-promotable` exits `1` unless each selected target is both
+  non-regressive and eligible for primary-surface promotion.
+
+`non_regressive` and promotable are intentionally different. A target can be
+non-regressive yet remain `primary_surface=yaml` because the migration design
+still blocks promotion. The machine-readable gate decision lives in
+`gate_evaluation.json`, not in the per-target report payload. Keep
+`primary_surface`, `report_valid`, and `evidence_complete` as derived gate or
+index views rather than authoring or editing them into parity reports.
+
 For the most useful Workflow Lisp review/fix model for targeted design-doc
 reviews, read `workflows/examples/review_revise_design_docs.orc`. It runs a
 bounded stdlib `.orc` review/fix loop over a parameterized target design doc,
