@@ -1,0 +1,4 @@
+{
+  "providers.design-docs.review": "codex_gpt55",
+  "providers.design-docs.fix": "codex_gpt55"
+}
