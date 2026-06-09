@@ -263,6 +263,10 @@ document owns the answer.
 ### [Workflow Lisp Post-Foundation Composition And Stdlib Migration](design/workflow_lisp_post_foundation_composition_stdlib_migration.md)
 **Description:** Follow-up target design after the runtime foundation, focused on nested structured-control composition, typed result translation, generic effectful composition, imported/std `.orc` reuse, `review-revise-loop` stdlib convergence, private executable context bridging, certified adapter/state-transition ownership, typed bundle-publication projection, entrypoint bootstrap/defaults, canonical `resume-or-start` validation, and parent-callable parity promotion.
 **Keywords:** lisp-frontend, post-foundation, stdlib, composition, nested-control, private-context, certified-adapters, backlog-drain, parity
+
+### [Workflow Lisp Core Calculus And Compiler Middle-End](design/workflow_lisp_core_calculus_middle_end.md)
+**Description:** Future-direction compilation architecture that re-founds Workflow Lisp lowering on a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization into the existing validated flat runtime — so effectful composition holds by construction and per-form lowerers are retired through flag-gated, dual-compile-checked migration tranches.
+**Keywords:** lisp-frontend, core-calculus, middle-end, anf, join-points, defunctionalization, composition, lowering
 **Use this when:** Planning the next Workflow Lisp drain after the runtime migration foundation is complete.
 
 ### [Lisp Migrate Key Workflows Execution Plan](plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md)
