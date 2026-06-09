@@ -553,3 +553,52 @@ def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(
         "return__architecture_validation_status" in lowered["outputs"]
         for lowered in lowered_workflows
     )
+
+
+def test_design_delta_work_item_candidate_compiles_terminal_and_recovery_leaves(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.work-item.recovery-classifier": "codex"},
+        prompt_externs={
+            "prompts.work-item.classify-blocked-recovery": (
+                "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
+                "classify_blocked_implementation_recovery.md"
+            ),
+        },
+        command_boundaries={
+            "classify_lisp_frontend_work_item_terminal": ExternalToolBinding(
+                name="classify_lisp_frontend_work_item_terminal",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered_workflows = [
+        workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    ]
+    assert all(lowered["version"] == "2.14" for lowered in lowered_workflows)
+    assert any(
+        "command" in step
+        for lowered in lowered_workflows
+        for step in lowered["steps"]
+    )
+    assert any(
+        step.get("provider") == "codex"
+        for lowered in lowered_workflows
+        for step in lowered["steps"]
+    )
+    assert any("return__terminal_route" in lowered["outputs"] for lowered in lowered_workflows)
+    assert any(
+        "return__blocked_recovery_route" in lowered["outputs"]
+        for lowered in lowered_workflows
+    )

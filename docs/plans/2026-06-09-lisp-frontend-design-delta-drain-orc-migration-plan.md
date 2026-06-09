@@ -352,29 +352,31 @@ Commit checkpoint:
 
 ### 8. Work Item Candidate
 
-- [ ] Translate `lisp_frontend_design_delta_work_item.v214.yaml` into `work_item.orc`.
+- [x] Translate the terminal-classification and blocked-recovery-classification leaves of `lisp_frontend_design_delta_work_item.v214.yaml` into `work_item.orc`.
 - [ ] Replace `ResolveWorkItemInputs` with typed projection logic or a certified adapter.
 - [ ] Call the `.orc` plan and implementation phase candidates.
 - [ ] Model terminal routes as a typed union or enum with structured payloads.
-- [ ] Convert blocked implementation recovery classification to `provider-result`.
+- [x] Convert terminal classification to a visible `command-result` adapter boundary.
+- [x] Convert blocked implementation recovery classification to `provider-result`.
 - [ ] Convert recovery route selection and terminal recording to typed procedures, resource transitions, or certified adapters.
 - [ ] Preserve item summary path and drain status outputs.
 - [ ] Ensure completion is recorded only after plan and implementation approval criteria are met.
+- [x] Record the current composition delta: full work-item orchestration is blocked on `ResolveWorkItemInputs`, implementation-phase composition, and run-state/resource-transition bridges.
 
 Verification:
 
-- [ ] Compile/typecheck `work_item.orc`.
+- [x] Compile/typecheck `work_item.orc` leaf workflows.
 - [ ] Completed backlog item path.
 - [ ] Completed design gap path.
 - [ ] Plan review exhausted path.
 - [ ] Implementation blocked with recoverable route.
 - [ ] Implementation review exhausted path.
 - [ ] Run-state mutation adapter tests.
-- [ ] `git diff --check`
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit work item candidate and focused tests.
+- [x] Commit work item candidate and focused tests.
 
 ### 9. Parent Drain Candidate
 
