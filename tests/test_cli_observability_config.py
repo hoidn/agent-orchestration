@@ -399,6 +399,104 @@ def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_exec
     assert exec_kwargs['stream_output'] is True
 
 
+@patch('orchestrator.cli.commands.resume.build_frontend_bundle', create=True)
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+def test_resume_workflow_reuses_orc_launch_metadata_from_monitor_process(
+    mock_executor,
+    mock_build_frontend_bundle,
+    tmp_path,
+    monkeypatch,
+):
+    run_id = 'run-orc'
+    monkeypatch.chdir(tmp_path)
+
+    workflow_path = tmp_path / 'workflow.orc'
+    workflow_content = '(workflow-lisp (:language "0.1") (:target-dsl "2.14"))\n'
+    workflow_path.write_text(workflow_content, encoding='utf-8')
+    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
+
+    source_root = tmp_path / 'src-root'
+    providers = tmp_path / 'providers.json'
+    prompts = tmp_path / 'prompts.json'
+    imports = tmp_path / 'imports.json'
+    commands = tmp_path / 'commands.json'
+    source_root.mkdir()
+    for path in (providers, prompts, imports, commands):
+        path.write_text('{}\n', encoding='utf-8')
+
+    run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
+    run_dir.mkdir(parents=True)
+    (run_dir / 'state.json').write_text(
+        json.dumps(
+            {
+                'schema_version': StateManager.SCHEMA_VERSION,
+                'run_id': run_id,
+                'workflow_file': str(workflow_path),
+                'workflow_checksum': checksum,
+                'started_at': '2026-02-27T00:00:00+00:00',
+                'updated_at': '2026-02-27T00:00:01+00:00',
+                'status': 'running',
+                'context': {},
+                'steps': {},
+            },
+            indent=2,
+        ),
+        encoding='utf-8',
+    )
+    (run_dir / 'monitor_process.json').write_text(
+        json.dumps(
+            {
+                'schema': 'orchestrator-monitor-process/v1',
+                'pid': 12345,
+                'started_at': '2026-02-27T00:00:00+00:00',
+                'argv': [
+                    'orchestrator',
+                    'run',
+                    str(workflow_path),
+                    '--entry-workflow',
+                    'selected-entry',
+                    '--source-root',
+                    str(source_root),
+                    '--provider-externs-file',
+                    str(providers),
+                    '--prompt-externs-file',
+                    str(prompts),
+                    '--imported-workflow-bundles-file',
+                    str(imports),
+                    '--command-boundaries-file',
+                    str(commands),
+                ],
+            },
+            indent=2,
+        ),
+        encoding='utf-8',
+    )
+
+    mock_build_frontend_bundle.return_value = SimpleNamespace(
+        validated_bundle={
+            'version': '2.14',
+            'name': 'orc-test',
+            'steps': [],
+            'context': {},
+        }
+    )
+    exec_inst = MagicMock()
+    exec_inst.execute.return_value = {'status': 'completed'}
+    mock_executor.return_value = exec_inst
+
+    result = resume_workflow(run_id=run_id)
+
+    assert result == 0
+    request = mock_build_frontend_bundle.call_args.args[0]
+    assert request.source_path == workflow_path
+    assert request.entry_workflow == 'selected-entry'
+    assert request.source_roots == (source_root,)
+    assert request.provider_externs_path == providers
+    assert request.prompt_externs_path == prompts
+    assert request.imported_workflow_bundles_path == imports
+    assert request.command_boundaries_path == commands
+
+
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')
 @patch('orchestrator.cli.commands.resume.WorkflowLoader')
 @patch('orchestrator.cli.commands.resume.StateManager')

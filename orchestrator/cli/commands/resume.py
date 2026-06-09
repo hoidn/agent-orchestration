@@ -19,9 +19,15 @@ from orchestrator.workflow.loaded_bundle import (
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+from orchestrator.monitor.process import (
+    process_start_time_token,
+    read_process_metadata,
+    write_process_metadata,
+)
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
+from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 
 
 logger = logging.getLogger(__name__)
@@ -127,6 +133,73 @@ def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: 
     step_cfg["enabled"] = True
     config["step_summaries"] = step_cfg
     return config
+
+
+def _resolve_cli_path(workspace_dir: Path, raw_path: Optional[str]) -> Optional[Path]:
+    if not isinstance(raw_path, str) or not raw_path:
+        return None
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = workspace_dir / path
+    return path.resolve()
+
+
+def _argv_option_values(argv: tuple[str, ...], flag: str) -> tuple[str, ...]:
+    values: list[str] = []
+    index = 0
+    while index < len(argv):
+        if argv[index] == flag and index + 1 < len(argv):
+            values.append(argv[index + 1])
+            index += 2
+            continue
+        index += 1
+    return tuple(values)
+
+
+def _argv_has_flag(argv: tuple[str, ...], flag: str) -> bool:
+    return any(token == flag for token in argv)
+
+
+def _load_resume_workflow_bundle(
+    *,
+    workflow_path: Path,
+    workspace_dir: Path,
+    run_root: Path,
+):
+    if workflow_path.suffix != ".orc":
+        loader = WorkflowLoader(workspace_dir)
+        return loader.load_bundle(workflow_path)
+
+    metadata = read_process_metadata(run_root)
+    argv = metadata.argv if metadata is not None else ()
+
+    def first_path(flag: str) -> Optional[Path]:
+        values = _argv_option_values(argv, flag)
+        return _resolve_cli_path(workspace_dir, values[-1]) if values else None
+
+    source_roots = tuple(
+        resolved
+        for resolved in (
+            _resolve_cli_path(workspace_dir, raw)
+            for raw in _argv_option_values(argv, "--source-root")
+        )
+        if resolved is not None
+    )
+    entry_values = _argv_option_values(argv, "--entry-workflow")
+    frontend_build = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=workflow_path,
+            source_roots=source_roots,
+            entry_workflow=entry_values[-1] if entry_values else None,
+            provider_externs_path=first_path("--provider-externs-file"),
+            prompt_externs_path=first_path("--prompt-externs-file"),
+            imported_workflow_bundles_path=first_path("--imported-workflow-bundles-file"),
+            command_boundaries_path=first_path("--command-boundaries-file"),
+            emit_debug_yaml=_argv_has_flag(argv, "--emit-debug-yaml"),
+            workspace_root=workspace_dir,
+        )
+    )
+    return frontend_build.validated_bundle
 
 
 def resume_workflow(
@@ -299,9 +372,16 @@ def resume_workflow(
 
     # Load workflow
     workspace_dir = Path.cwd()
-    loader = WorkflowLoader(workspace_dir)
     try:
-        workflow_bundle = loader.load_bundle(workflow_path)
+        workflow_bundle = _load_resume_workflow_bundle(
+            workflow_path=workflow_path,
+            workspace_dir=workspace_dir,
+            run_root=run_root,
+        )
+    except LispFrontendCompileError as e:
+        for diagnostic in e.diagnostics:
+            logger.error(render_diagnostic(diagnostic))
+        return 2
     except WorkflowValidationError as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
         return 2
