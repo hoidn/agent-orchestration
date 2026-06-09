@@ -62,6 +62,7 @@ from .context import (
     _TerminalResult,
 )
 from .effects import _lower_provider_result
+from .generated_paths import allocate_materialized_value_view
 from .origins import LoweringOrigin, _rekey_origin_map
 from .values import _render_existing_output_ref, _resolve_inline_expr_value
 
@@ -1163,7 +1164,12 @@ def _build_phase_prompt_input_prelude(
             span=input_expr.span,
             form_path=input_expr.form_path,
         )
-        context.generated_path_spans[pointer_path] = _origin_from_context_source(context, input_expr)
+        allocate_materialized_value_view(
+            context=context,
+            source_expr=input_expr,
+            path_template=pointer_path,
+            stable_target=f"prompt_inputs/{artifact_name}",
+        )
         publishes.append({"artifact": artifact_name, "from": artifact_name})
 
     step_name = "MaterializeImplementationAttemptPromptInputs"
@@ -1311,7 +1317,12 @@ def _build_phase_stdlib_prompt_input_prelude(
             span=source_expr.span,
             form_path=source_expr.form_path,
         )
-        context.generated_path_spans[pointer_path] = _origin_from_context_source(context, source_expr)
+        allocate_materialized_value_view(
+            context=context,
+            source_expr=source_expr,
+            path_template=pointer_path,
+            stable_target=f"prompt_inputs/{artifact_name}",
+        )
         publishes.append({"artifact": artifact_name, "from": artifact_name})
         artifact_names.append(artifact_name)
 

@@ -67,6 +67,7 @@ from .identity import iteration_step_id, runtime_step_id
 from .loaded_bundle import (
     workflow_bundle,
     workflow_context,
+    workflow_generated_path_allocations,
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
     workflow_private_artifacts,
@@ -74,6 +75,7 @@ from .loaded_bundle import (
     workflow_runtime_context_inputs,
     workflow_runtime_input_contracts,
 )
+from .state_layout import GeneratedPathSemanticRole, render_generated_path_template
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
 from .predicates import (
@@ -1944,6 +1946,20 @@ class WorkflowExecutor:
         """Return deterministic runtime-owned managed write-root bindings for entry workflows."""
         if not isinstance(self.state_manager, StateManager):
             return {}
+        allocations = [
+            allocation
+            for allocation in workflow_generated_path_allocations(self.loaded_bundle)
+            if allocation.semantic_role == GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
+            and isinstance(allocation.generated_input_name, str)
+        ]
+        if allocations:
+            return {
+                allocation.generated_input_name: render_generated_path_template(
+                    allocation,
+                    run_id=self.state_manager.run_id,
+                )
+                for allocation in allocations
+            }
         workflow_root = Path(self.workflow_name) if isinstance(self.workflow_name, str) and self.workflow_name else Path("workflow")
         base = (
             Path(".orchestrate")

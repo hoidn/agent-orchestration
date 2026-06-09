@@ -111,6 +111,17 @@ def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
+def _workflow_generated_path_allocations(bundle):
+    helper = getattr(loaded_bundle_helpers, "workflow_generated_path_allocations")
+    return helper(bundle)
+
+
+def _allocation_field(allocation, field_name: str):
+    if isinstance(allocation, dict):
+        return allocation[field_name]
+    return getattr(allocation, field_name)
+
+
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
@@ -1073,6 +1084,128 @@ def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: 
     )
     assert "__write_root__provider_attempt__attempt__result_bundle" in _workflow_runtime_input_contracts(
         validated["provider_attempt"]
+    )
+
+
+def test_command_result_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["command_checks"]
+    allocation = next(
+        item
+        for item in _workflow_generated_path_allocations(bundle)
+        if _allocation_field(item, "semantic_role") == "command_result_bundle"
+    )
+
+    assert _allocation_field(allocation, "privacy") == "private_generated"
+    assert _allocation_field(allocation, "resume_scope") == "step_visit"
+    assert _allocation_field(allocation, "generated_input_name") == (
+        "__write_root__command_checks__run_checks__result_bundle"
+    )
+    assert _allocation_field(allocation, "concrete_path_template") == (
+        "${inputs.__write_root__command_checks__run_checks__result_bundle}"
+    )
+    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
+    assert "command_checks" in _allocation_field(allocation, "stable_identity")
+    assert "run_checks" in _allocation_field(allocation, "stable_identity")
+
+
+def test_provider_result_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["provider_attempt"]
+    allocation = next(
+        item
+        for item in _workflow_generated_path_allocations(bundle)
+        if _allocation_field(item, "semantic_role") == "provider_result_bundle"
+    )
+
+    assert _allocation_field(allocation, "privacy") == "private_generated"
+    assert _allocation_field(allocation, "resume_scope") == "step_visit"
+    assert _allocation_field(allocation, "generated_input_name") == (
+        "__write_root__provider_attempt__attempt__result_bundle"
+    )
+    assert _allocation_field(allocation, "concrete_path_template") == (
+        "${inputs.__write_root__provider_attempt__attempt__result_bundle}"
+    )
+    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
+    assert "provider_attempt" in _allocation_field(allocation, "stable_identity")
+    assert "attempt" in _allocation_field(allocation, "stable_identity")
+
+
+def test_variant_projection_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        PHASE_STDLIB_FIXTURE,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["produce-one-of-demo"]
+    allocation = next(
+        item
+        for item in _workflow_generated_path_allocations(bundle)
+        if _allocation_field(item, "semantic_role") == "variant_projection_bundle"
+    )
+
+    assert _allocation_field(allocation, "privacy") == "private_generated"
+    assert _allocation_field(allocation, "resume_scope") == "step_visit"
+    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
+    assert "produce-one-of-demo" in _allocation_field(allocation, "stable_identity")
+    assert "select_variant" in _allocation_field(allocation, "stable_identity")
+    assert _allocation_field(allocation, "concrete_path_template").startswith(
+        "${inputs.phase-ctx__state-root}/phases/implementation/"
     )
 
 

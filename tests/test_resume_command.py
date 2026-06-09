@@ -37,6 +37,17 @@ def _workflow_runtime_context_inputs(bundle):
     return helper(bundle)
 
 
+def _workflow_generated_path_allocations(bundle):
+    helper = getattr(loaded_bundle_helpers, "workflow_generated_path_allocations")
+    return helper(bundle)
+
+
+def _allocation_field(allocation, field_name: str):
+    if isinstance(allocation, dict):
+        return allocation[field_name]
+    return getattr(allocation, field_name)
+
+
 def _build_resume_loop_workflow() -> dict:
     return {
         "version": "1.1",
@@ -2096,6 +2107,78 @@ def test_resume_force_restart_rebinds_only_public_inputs_for_managed_orc_inputs(
         "terminal_status": "FAILED_CLOSED_BY_GUARD",
         "guard_cycles": 2,
     }
+
+
+def test_entry_managed_write_root_bindings_are_run_isolated_and_resume_stable(temp_workspace) -> None:
+    bundle = compile_stage3_module(
+        Path(__file__).resolve().parent.parent / "workflows" / "examples" / "cycle_guard_demo.orc",
+        command_boundaries={
+            "emit_cycle_guard_summary": ExternalToolBinding(
+                name="emit_cycle_guard_summary",
+                stable_command=("python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).validated_bundles["cycle-guard-demo"]
+    managed_input_name = workflow_managed_write_root_inputs(bundle)[0]
+    allocation = next(
+        item
+        for item in bundle.provenance.generated_path_allocations
+        if _allocation_field(item, "semantic_role") == "entrypoint_managed_write_root"
+        and _allocation_field(item, "generated_input_name") == managed_input_name
+    )
+
+    first_executor = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        StateManager(workspace=temp_workspace, run_id="allocator-resume-run"),
+    )
+    second_executor = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        StateManager(workspace=temp_workspace, run_id="allocator-resume-run"),
+    )
+
+    assert _allocation_field(allocation, "privacy") == "private_generated"
+    assert _allocation_field(allocation, "resume_scope") == "run"
+    assert first_executor._entry_managed_write_root_bindings() == second_executor._entry_managed_write_root_bindings()
+
+
+def test_entry_managed_write_root_paths_do_not_collide_across_runs(temp_workspace) -> None:
+    bundle = compile_stage3_module(
+        Path(__file__).resolve().parent.parent / "workflows" / "examples" / "cycle_guard_demo.orc",
+        command_boundaries={
+            "emit_cycle_guard_summary": ExternalToolBinding(
+                name="emit_cycle_guard_summary",
+                stable_command=("python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).validated_bundles["cycle-guard-demo"]
+    managed_input_name = workflow_managed_write_root_inputs(bundle)[0]
+    allocation = next(
+        item
+        for item in bundle.provenance.generated_path_allocations
+        if _allocation_field(item, "semantic_role") == "entrypoint_managed_write_root"
+        and _allocation_field(item, "generated_input_name") == managed_input_name
+    )
+
+    first_bindings = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        StateManager(workspace=temp_workspace, run_id="allocator-run-one"),
+    )._entry_managed_write_root_bindings()
+    second_bindings = WorkflowExecutor(
+        bundle,
+        temp_workspace,
+        StateManager(workspace=temp_workspace, run_id="allocator-run-two"),
+    )._entry_managed_write_root_bindings()
+
+    assert _allocation_field(allocation, "privacy") == "private_generated"
+    assert _allocation_field(allocation, "stable_identity")
+    assert first_bindings[managed_input_name] != second_bindings[managed_input_name]
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')

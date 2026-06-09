@@ -17,6 +17,7 @@ from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
@@ -1067,6 +1068,21 @@ def _serialize_workflow_boundary_projection(
     for compiled_result in compile_result.compiled_results_by_name.values():
         for lowered in compiled_result.lowered_workflows:
             projection = lowered.boundary_projection
+            allocation_by_input_name: dict[str, object] = {}
+            for allocation in lowered.generated_path_allocations:
+                if not isinstance(allocation.generated_input_name, str):
+                    continue
+                current = allocation_by_input_name.get(allocation.generated_input_name)
+                if current is None:
+                    allocation_by_input_name[allocation.generated_input_name] = allocation
+                    continue
+                if (
+                    getattr(current, "semantic_role", None)
+                    == GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
+                    and allocation.semantic_role
+                    != GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
+                ):
+                    allocation_by_input_name[allocation.generated_input_name] = allocation
             workflows.append(
                 {
                     "workflow_name": projection.workflow_name,
@@ -1096,11 +1112,34 @@ def _serialize_workflow_boundary_projection(
                         {
                             "generated_name": field.generated_name,
                             "reason": field.reason,
+                            "allocation_id": (
+                                allocation_by_input_name[field.generated_name].allocation_id
+                                if field.generated_name in allocation_by_input_name
+                                else None
+                            ),
+                            "semantic_role": (
+                                allocation_by_input_name[field.generated_name].semantic_role.value
+                                if field.generated_name in allocation_by_input_name
+                                else None
+                            ),
                         }
                         for field in sorted(
                             projection.generated_internal_inputs,
                             key=lambda field: field.generated_name,
                         )
+                    ],
+                    "generated_path_allocations": [
+                        {
+                            "allocation_id": allocation.allocation_id,
+                            "semantic_role": allocation.semantic_role.value,
+                            "privacy": allocation.privacy.value,
+                            "resume_scope": allocation.resume_scope.value,
+                            "stable_identity": allocation.stable_identity,
+                            "concrete_path_template": allocation.concrete_path_template,
+                            "generated_input_name": allocation.generated_input_name,
+                            "path_safety_policy": allocation.path_safety_policy,
+                        }
+                        for allocation in lowered.generated_path_allocations
                     ],
                 }
             )

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
+
 from ..contracts import derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
@@ -28,6 +30,7 @@ from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, Un
 from ..typecheck import TypedExpr
 from . import core as lowering_core
 from .context import _LoweringContext, _TerminalResult
+from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
 
 
@@ -749,7 +752,6 @@ def _lower_union_variant_expr(
             output_kind="step",
             hidden_inputs={},
         )
-    hidden_input_name = f"__write_root__{step_id}__result_bundle"
     bundle_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -757,8 +759,15 @@ def _lower_union_variant_expr(
         span=union_expr.span,
         form_path=union_expr.form_path,
     )
+    allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=union_expr,
+        step_name=step_name,
+        step_id=step_id,
+        semantic_role=GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+    )
     authored_contract = dict(bundle_contract.payload)
-    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
+    authored_contract["path"] = allocation.concrete_path_template
     values: list[dict[str, Any]] = []
     values.append(
         {
@@ -792,7 +801,6 @@ def _lower_union_variant_expr(
             }
         )
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=union_expr)
-    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, union_expr)
     step = {
         **_materialize_values_step(step_name=step_name, step_id=step_id, values=values),
         bundle_contract.contract_kind: authored_contract,
@@ -812,5 +820,5 @@ def _lower_union_variant_expr(
         step_id=step_id,
         output_refs=output_refs,
         output_kind="step",
-        hidden_inputs={hidden_input_name: _origin_from_context_source(context, union_expr)},
+        hidden_inputs={allocation.generated_input_name: _origin_from_context_source(context, union_expr)},
     )

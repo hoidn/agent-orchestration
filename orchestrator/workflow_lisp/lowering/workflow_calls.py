@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
+from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
 from ..contracts import derive_workflow_boundary_fields
@@ -15,6 +16,7 @@ from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, WorkflowRefTypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
+from .generated_paths import allocate_compatibility_binding_bundle, allocate_reusable_call_write_root
 from .values import (
     _flatten_boundary_leaf_paths,
     _record_expr_value_at_path,
@@ -234,12 +236,25 @@ def _managed_write_root_requirements_for_callable(
 
 def _managed_write_root_bindings(
     *,
+    context: Any | None = None,
+    source_expr: Any | None = None,
     caller_workflow_name: str,
     call_step_name: str,
     callee_name: str,
     managed_inputs: tuple[str, ...],
     iteration_scope: str | None = None,
 ) -> dict[str, str]:
+    if context is not None and source_expr is not None:
+        return {
+            managed_input: allocate_reusable_call_write_root(
+                context=context,
+                source_expr=source_expr,
+                call_step_name=call_step_name,
+                callee_name=callee_name,
+                managed_input_name=managed_input,
+            ).concrete_path_template
+            for managed_input in sorted(managed_inputs)
+        }
     base_segments = [
         ".orchestrate/workflow_lisp/calls",
         caller_workflow_name,
@@ -267,6 +282,8 @@ def _managed_write_root_binding_step(
         return [], {}
 
     bindings = _managed_write_root_bindings(
+        context=context,
+        source_expr=source_expr,
         caller_workflow_name=context.workflow_name,
         call_step_name=call_step_name,
         callee_name=callee_name,
@@ -278,16 +295,13 @@ def _managed_write_root_binding_step(
 
     prepare_step_name = f"{call_step_name}__managed_write_roots"
     prepare_step_id = lowering_core._normalize_generated_step_id(prepare_step_name)
-    bundle_path = "/".join(
-        (
-            ".orchestrate/workflow_lisp/call_bindings",
-            context.workflow_name,
-            call_step_name,
-            context.iteration_scope,
-            callee_name,
-            "__managed_write_roots.json",
-        )
+    bundle_allocation = allocate_compatibility_binding_bundle(
+        context=context,
+        source_expr=source_expr,
+        call_step_name=call_step_name,
+        callee_name=callee_name,
     )
+    bundle_path = bundle_allocation.concrete_path_template
     command = [
         "python",
         "-c",

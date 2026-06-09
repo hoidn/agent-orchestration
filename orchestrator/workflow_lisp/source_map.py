@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from orchestrator.exceptions import ValidationSubjectRef
 from orchestrator.workflow.core_ast import CoreForEach, CoreIf, CoreMatch, CoreRepeatUntil, CoreWorkflowAST
 from orchestrator.workflow.executable_ir import ExecutableNodeBase
+from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourcePosition, SourceSpan
@@ -107,6 +108,21 @@ class CoreNodeLineage:
 
 
 @dataclass(frozen=True)
+class GeneratedPathAllocationLineage:
+    """Persisted allocator metadata tied back to one generated authored path."""
+
+    allocation_id: str
+    semantic_role: str
+    privacy: str
+    resume_scope: str
+    stable_identity: str
+    concrete_path_template: str
+    generated_input_name: str | None
+    path_safety_policy: str
+    origin_key: str
+
+
+@dataclass(frozen=True)
 class WorkflowSourceMap:
     """Per-workflow lineage sections nested under the top-level document."""
 
@@ -119,6 +135,7 @@ class WorkflowSourceMap:
     generated_outputs: Mapping[str, SourceMapEntry]
     generated_paths: Mapping[str, SourceMapEntry]
     generated_internal_inputs: Mapping[str, SourceMapEntry]
+    generated_path_allocations: tuple[GeneratedPathAllocationLineage, ...]
     generated_semantic_effects: tuple[GeneratedSemanticEffectLineage, ...]
     core_nodes: tuple[CoreNodeLineage, ...]
     command_boundaries: tuple[CommandBoundaryLineage, ...]
@@ -179,6 +196,11 @@ def build_source_map_document(
                 workflow_name=workflow_name,
                 entity_kind="generated_internal_input",
             )
+            generated_path_allocations = _generated_path_allocations_for_workflow(
+                lowered=lowered,
+                generated_paths=generated_paths,
+                workflow_origin=workflow_origin,
+            )
             command_boundaries = _command_boundaries_for_workflow(
                 lowered=lowered,
                 step_ids=step_ids,
@@ -221,6 +243,7 @@ def build_source_map_document(
                 generated_outputs=generated_outputs,
                 generated_paths=generated_paths,
                 generated_internal_inputs=generated_internal_inputs,
+                generated_path_allocations=generated_path_allocations,
                 generated_semantic_effects=generated_semantic_effects,
                 core_nodes=core_nodes,
                 command_boundaries=command_boundaries,
@@ -614,6 +637,32 @@ def _command_boundaries_for_workflow(
         )
     command_boundaries.sort(key=lambda entry: (entry.step_id, entry.command_name))
     return tuple(command_boundaries)
+
+
+def _generated_path_allocations_for_workflow(
+    *,
+    lowered: "LoweredWorkflow",
+    generated_paths: Mapping[str, SourceMapEntry],
+    workflow_origin: SourceMapEntry,
+) -> tuple[GeneratedPathAllocationLineage, ...]:
+    entries: list[GeneratedPathAllocationLineage] = []
+    for allocation in lowered.generated_path_allocations:
+        generated_path_entry = generated_paths.get(allocation.concrete_path_template)
+        origin_key = generated_path_entry.origin_key if generated_path_entry is not None else workflow_origin.origin_key
+        entries.append(
+            GeneratedPathAllocationLineage(
+                allocation_id=allocation.allocation_id,
+                semantic_role=allocation.semantic_role.value,
+                privacy=allocation.privacy.value,
+                resume_scope=allocation.resume_scope.value,
+                stable_identity=allocation.stable_identity,
+                concrete_path_template=allocation.concrete_path_template,
+                generated_input_name=allocation.generated_input_name,
+                path_safety_policy=allocation.path_safety_policy,
+                origin_key=origin_key,
+            )
+        )
+    return tuple(entries)
 
 
 def _generated_semantic_effects_for_workflow(

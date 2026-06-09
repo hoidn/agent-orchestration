@@ -10,6 +10,11 @@ from .core_ast import CoreWorkflowAST
 from .executable_ir import ExecutablePrivateArtifact, ExecutableWorkflow
 from .runtime_plan import WorkflowRuntimePlan
 from .semantic_ir import SemanticWorkflowIR
+from .state_layout import (
+    GeneratedPathAllocation,
+    GeneratedPathSemanticRole,
+    derive_entrypoint_managed_write_root_allocations,
+)
 from .state_projection import WorkflowStateProjection
 from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProvenance
 
@@ -187,6 +192,22 @@ def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ..
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is None:
         return ()
+    allocation_inputs = tuple(
+        allocation.generated_input_name
+        for allocation in bundle.provenance.generated_path_allocations
+        if allocation.semantic_role
+        in {
+            GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
+            GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
+            GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+            GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT,
+            GeneratedPathSemanticRole.GENERATED_INTERNAL_INPUT_BINDING,
+        }
+        and isinstance(allocation.generated_input_name, str)
+        and allocation.generated_input_name
+    )
+    if allocation_inputs:
+        return tuple(sorted(set(allocation_inputs)))
     if bundle.provenance.managed_write_root_inputs:
         return bundle.provenance.managed_write_root_inputs
     return tuple(
@@ -207,3 +228,13 @@ def workflow_runtime_context_inputs(workflow_or_bundle: Any) -> tuple[str, ...]:
         for name in bundle.provenance.runtime_context_inputs
         if isinstance(name, str)
     )
+
+
+def workflow_generated_path_allocations(workflow_or_bundle: Any) -> tuple[GeneratedPathAllocation, ...]:
+    """Return typed generated-path allocation metadata for one loaded workflow."""
+
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is None:
+        return ()
+    recorded = tuple(bundle.provenance.generated_path_allocations)
+    return recorded + derive_entrypoint_managed_write_root_allocations(recorded)

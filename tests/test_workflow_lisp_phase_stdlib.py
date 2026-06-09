@@ -51,6 +51,7 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -75,6 +76,17 @@ INVALID_UNCERTIFIED_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_unc
 
 def _build_syntax_module(path: Path):
     return build_syntax_module(read_sexpr_file(path))
+
+
+def _workflow_generated_path_allocations(bundle):
+    helper = getattr(loaded_bundle_helpers, "workflow_generated_path_allocations")
+    return helper(bundle)
+
+
+def _allocation_field(allocation, field_name: str):
+    if isinstance(allocation, dict):
+        return allocation[field_name]
+    return getattr(allocation, field_name)
 
 
 def _compile_definition_module(path: Path):
@@ -1582,6 +1594,57 @@ def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path:
     assert hidden_input.startswith("__write_root__")
     assert hidden_input in authored["inputs"]
     assert generated_inputs[hidden_input] == "managed_write_root"
+
+
+def test_resume_or_start_workflow_call_write_root_allocation_uses_call_frame_identity(tmp_path: Path) -> None:
+    result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+
+    bundle = result.validated_bundles["resume-plan-gate"]
+    allocation = next(
+        item
+        for item in _workflow_generated_path_allocations(bundle)
+        if _allocation_field(item, "semantic_role") == "reusable_call_write_root"
+    )
+
+    assert _allocation_field(allocation, "privacy") == "compatibility_view"
+    assert _allocation_field(allocation, "resume_scope") == "call_frame"
+    assert _allocation_field(allocation, "generated_input_name") == (
+        "__write_root__plan_run__resolve_plan_gate__result_bundle"
+    )
+    assert _allocation_field(allocation, "concrete_path_template").startswith(
+        ".orchestrate/workflow_lisp/calls/"
+    )
+    assert _allocation_field(allocation, "path_safety_policy") == "workspace_relative"
+    assert "resume-plan-gate" in _allocation_field(allocation, "stable_identity")
+    assert "plan-run" in _allocation_field(allocation, "stable_identity")
+    assert "resolve_plan_gate" in _allocation_field(allocation, "stable_identity")
+
+
+def test_run_provider_phase_generated_bundle_paths_use_allocator_metadata(tmp_path: Path) -> None:
+    result = _compile(VALID_RUN_PROVIDER_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+
+    bundle = result.validated_bundles["run-provider-phase-demo"]
+    provider_bundle = next(
+        item
+        for item in _workflow_generated_path_allocations(bundle)
+        if _allocation_field(item, "semantic_role") == "provider_result_bundle"
+    )
+    materialized_views = [
+        item
+        for item in _workflow_generated_path_allocations(bundle)
+        if _allocation_field(item, "semantic_role") == "materialized_value_view"
+    ]
+
+    assert _allocation_field(provider_bundle, "privacy") == "private_generated"
+    assert _allocation_field(provider_bundle, "resume_scope") == "step_visit"
+    assert _allocation_field(provider_bundle, "concrete_path_template").startswith(
+        "${inputs.phase-ctx__state-root}/phases/implementation/"
+    )
+    assert materialized_views
+    assert all(
+        _allocation_field(item, "path_safety_policy") == "workspace_relative"
+        for item in materialized_views
+    )
 
 
 def test_review_revise_loop_generated_review_workflow_normalizes_union_outputs(tmp_path: Path) -> None:

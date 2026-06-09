@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
+
 from ..expressions import CommandResultExpr, ProviderResultExpr
 from ..type_env import TypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
+from .generated_paths import allocate_generated_result_bundle
 
 
 def _lower_command_result(
@@ -31,7 +34,6 @@ def _lower_command_result(
         )
     step_name = f"{context.step_name_prefix}__{expr.step_name}"
     step_id = lowering_core._normalize_generated_step_id(step_name)
-    hidden_input_name = f"__write_root__{step_id}__result_bundle"
     bundle_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -39,12 +41,16 @@ def _lower_command_result(
         span=expr.span,
         form_path=expr.form_path,
     )
-    authored_contract = dict(bundle_contract.payload)
-    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-    lowering_core._record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-    context.generated_path_spans[authored_contract["path"]] = lowering_core._origin_from_context_source(
-        context, expr
+    allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=expr,
+        step_name=step_name,
+        step_id=step_id,
+        semantic_role=GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
     )
+    authored_contract = dict(bundle_contract.payload)
+    authored_contract["path"] = allocation.concrete_path_template
+    lowering_core._record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
         "id": step_id,
@@ -62,7 +68,9 @@ def _lower_command_result(
         step_id=step_id,
         output_refs=lowering_core._record_output_refs(step_name, typed_expr.type_ref),
         output_kind="step",
-        hidden_inputs={hidden_input_name: lowering_core._origin_from_context_source(context, expr)},
+        hidden_inputs={
+            allocation.generated_input_name: lowering_core._origin_from_context_source(context, expr)
+        },
     )
 
 
@@ -78,7 +86,6 @@ def _lower_provider_result(
 
     provider_step_name = step_name or f"{context.step_name_prefix}__result"
     provider_step_id = lowering_core._normalize_generated_step_id(provider_step_name)
-    hidden_input_name = f"__write_root__{provider_step_id}__result_bundle"
     provider_binding = context.extern_environment.bindings_by_name.get(expr.provider.name)
     prompt_binding = context.extern_environment.bindings_by_name.get(expr.prompt.name)
     if not isinstance(provider_binding, lowering_core.ProviderExtern) or not isinstance(
@@ -100,6 +107,7 @@ def _lower_provider_result(
     authored_contract = dict(bundle_contract.payload)
     hidden_inputs: dict[str, Any] = {}
     generated_steps: list[dict[str, Any]] = []
+    allocation = None
     provider_step: dict[str, Any] = {
         "name": provider_step_name,
         "id": provider_step_id,
@@ -119,10 +127,25 @@ def _lower_provider_result(
             if lowering_core._uses_legacy_phase_prompt_input_prelude(expr):
                 use_active_phase_bundle = True
         if use_active_phase_bundle:
-            authored_contract["path"] = lowering_core._template_for_ref(context.phase_scope.bundle_path_ref)
+            allocation = allocate_generated_result_bundle(
+                context=context,
+                source_expr=expr,
+                step_name=provider_step_name,
+                step_id=provider_step_id,
+                semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
+                path_template=lowering_core._template_for_ref(context.phase_scope.bundle_path_ref),
+            )
+            authored_contract["path"] = allocation.concrete_path_template
         else:
-            authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-            hidden_inputs[hidden_input_name] = lowering_core._origin_from_context_source(context, expr)
+            allocation = allocate_generated_result_bundle(
+                context=context,
+                source_expr=expr,
+                step_name=provider_step_name,
+                step_id=provider_step_id,
+                semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
+            )
+            authored_contract["path"] = allocation.concrete_path_template
+            hidden_inputs[allocation.generated_input_name] = lowering_core._origin_from_context_source(context, expr)
         if lowering_core._uses_legacy_phase_prompt_input_prelude(expr):
             generated_steps.extend(
                 lowering_core._build_phase_prompt_input_prelude(
@@ -159,16 +182,20 @@ def _lower_provider_result(
             if prompt_consumes:
                 provider_step["prompt_consumes"] = prompt_consumes
     else:
-        authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-        hidden_inputs[hidden_input_name] = lowering_core._origin_from_context_source(context, expr)
+        allocation = allocate_generated_result_bundle(
+            context=context,
+            source_expr=expr,
+            step_name=provider_step_name,
+            step_id=provider_step_id,
+            semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
+        )
+        authored_contract["path"] = allocation.concrete_path_template
+        hidden_inputs[allocation.generated_input_name] = lowering_core._origin_from_context_source(context, expr)
     lowering_core._record_step_origin(
         context,
         step_name=provider_step_name,
         step_id=provider_step_id,
         source=expr,
-    )
-    context.generated_path_spans[authored_contract["path"]] = lowering_core._origin_from_context_source(
-        context, expr
     )
     generated_steps.append(provider_step)
     return generated_steps, _TerminalResult(

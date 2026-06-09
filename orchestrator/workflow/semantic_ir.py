@@ -464,6 +464,24 @@ def derive_workflow_semantic_ir(
             presentation_key=checkpoint.presentation_key,
             details=MappingProxyType({"checkpoint_kind": checkpoint.checkpoint_kind}),
         )
+    for allocation in provenance.generated_path_allocations:
+        layout_id = _state_layout_id(workflow_name, allocation.semantic_role.value, allocation.allocation_id)
+        state_layout[layout_id] = SemanticStateLayoutEntry(
+            layout_id=layout_id,
+            workflow_name=workflow_name,
+            layout_kind=allocation.semantic_role.value,
+            details=MappingProxyType(
+                {
+                    "allocation_id": allocation.allocation_id,
+                    "privacy": allocation.privacy.value,
+                    "resume_scope": allocation.resume_scope.value,
+                    "stable_identity": allocation.stable_identity,
+                    "concrete_path_template": allocation.concrete_path_template,
+                    "generated_input_name": allocation.generated_input_name,
+                    "path_safety_policy": allocation.path_safety_policy,
+                }
+            ),
+        )
     for input_name in provenance.managed_write_root_inputs:
         state_layout[_state_layout_id(workflow_name, "managed_write_root_input", input_name)] = SemanticStateLayoutEntry(
             layout_id=_state_layout_id(workflow_name, "managed_write_root_input", input_name),

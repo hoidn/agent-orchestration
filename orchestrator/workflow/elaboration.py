@@ -42,6 +42,7 @@ from .surface_ast import (
     freeze_mapping,
     freeze_value,
 )
+from .state_layout import GeneratedPathAllocation
 
 
 class SurfaceWorkflowValidationBackend(Protocol):
@@ -85,6 +86,7 @@ def elaborate_surface_workflow(
     *,
     workflow_path: Any,
     imported_bundles: Mapping[str, Any],
+    generated_path_allocations: tuple[GeneratedPathAllocation, ...] = (),
     managed_write_root_inputs: tuple[str, ...] = (),
     runtime_context_inputs: tuple[str, ...] = (),
     validation_backend: SurfaceWorkflowValidationBackend | None = None,
@@ -175,6 +177,7 @@ def elaborate_surface_workflow(
                 alias=alias,
                 workflow_path=bundle.provenance.workflow_path,
                 source_root=bundle.provenance.source_root,
+                generated_path_allocations=bundle.provenance.generated_path_allocations,
                 managed_write_root_inputs=bundle.provenance.managed_write_root_inputs,
                 runtime_context_inputs=bundle.provenance.runtime_context_inputs,
                 workflow_name=bundle.surface.name,
@@ -186,6 +189,7 @@ def elaborate_surface_workflow(
     provenance = WorkflowProvenance(
         workflow_path=workflow_path,
         source_root=workflow_path.parent,
+        generated_path_allocations=tuple(generated_path_allocations),
         managed_write_root_inputs=managed_inputs,
         runtime_context_inputs=runtime_inputs,
         imported_aliases=tuple(imported_bundles.keys()),

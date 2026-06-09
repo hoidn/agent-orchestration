@@ -11,6 +11,7 @@ from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.references import StructuredStepReference
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow.surface_ast import SurfaceStep
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
@@ -61,6 +62,7 @@ from .context import (
     _TerminalResult,
 )
 from .effects import _lower_provider_result
+from .generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view
 from .phase_drain import _selected_item_summary_pointer_path
 from .phase_flow import _build_match_projection_anchor_step
 from .origins import LoweringOrigin, _rekey_origin_map
@@ -199,7 +201,6 @@ def _phase_stdlib_lower_resource_transition_impl(
     binding = context.command_boundary_environment.bindings_by_name["apply_resource_transition"]
     step_name = context.step_name_prefix
     step_id = _normalize_generated_step_id(step_name)
-    hidden_input_name = f"__write_root__{step_id}__result_bundle"
     bundle_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -207,10 +208,16 @@ def _phase_stdlib_lower_resource_transition_impl(
         span=expr.span,
         form_path=expr.form_path,
     )
+    allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=expr,
+        step_name=step_name,
+        step_id=step_id,
+        semantic_role=GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
+    )
     authored_contract = dict(bundle_contract.payload)
-    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
+    authored_contract["path"] = allocation.concrete_path_template
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, expr)
     payload = _resource_transition_payload(expr, context=context, local_values=local_values)
     step = {
         "name": step_name,
@@ -226,7 +233,7 @@ def _phase_stdlib_lower_resource_transition_impl(
         step_id=step_id,
         output_refs=_record_output_refs(step_name, typed_expr.type_ref),
         output_kind="step",
-        hidden_inputs={hidden_input_name: _origin_from_context_source(context, expr)},
+        hidden_inputs={allocation.generated_input_name: _origin_from_context_source(context, expr)},
     )
 
 
@@ -313,7 +320,12 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
         **summary_contract,
         "pointer": summary_pointer_path,
     }
-    context.generated_path_spans[summary_pointer_path] = _origin_from_context_source(context, expr)
+    allocate_materialized_value_view(
+        context=context,
+        source_expr=expr,
+        path_template=summary_pointer_path,
+        stable_target="selected_item_summary",
+    )
     selected_active_value = selected_value.get("is-active")
     placeholder_blocker_value = blocker_contract["allowed"][0]
     result_output_definitions = {

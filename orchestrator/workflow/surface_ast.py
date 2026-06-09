@@ -8,6 +8,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+from .state_layout import GeneratedPathAllocation
+
 
 def empty_frozen_mapping() -> Mapping[str, Any]:
     """Return an immutable empty mapping."""
@@ -119,6 +121,7 @@ class WorkflowProvenance:
 
     workflow_path: Path
     source_root: Path
+    generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     managed_write_root_inputs: tuple[str, ...] = ()
     runtime_context_inputs: tuple[str, ...] = ()
     imported_aliases: tuple[str, ...] = ()
@@ -137,6 +140,7 @@ class ImportedWorkflowMetadata:
     alias: str
     workflow_path: Path
     source_root: Path
+    generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     managed_write_root_inputs: tuple[str, ...] = ()
     runtime_context_inputs: tuple[str, ...] = ()
     workflow_name: Optional[str] = None

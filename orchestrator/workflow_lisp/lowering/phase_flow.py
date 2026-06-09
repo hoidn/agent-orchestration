@@ -11,6 +11,7 @@ from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.references import StructuredStepReference
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow.surface_ast import SurfaceStep
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
@@ -61,6 +62,7 @@ from .context import (
     _TerminalResult,
 )
 from .effects import _lower_provider_result
+from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _rekey_origin_map
 from .phase_scope import (
     _build_phase_stdlib_prompt_input_prelude,
@@ -301,9 +303,16 @@ def _phase_stdlib_lower_run_provider_phase_impl(
         form_path=expr.form_path,
     )
     authored_contract = dict(bundle_contract.payload)
-    authored_contract["path"] = context.phase_scope.bundle_path_ref
+    allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=expr,
+        step_name=step_name,
+        step_id=step_id,
+        semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
+        path_template=context.phase_scope.bundle_path_ref,
+    )
+    authored_contract["path"] = allocation.concrete_path_template
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, expr)
     generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
         (
             ("inputs", expr.inputs_expr),
@@ -391,8 +400,16 @@ def _phase_stdlib_lower_produce_one_of_impl(
         form_path=expr.form_path,
     )
     select_payload = dict(select_contract.payload)
-    select_payload["path"] = context.phase_scope.bundle_path_ref
-    context.generated_path_spans[select_payload["path"]] = _origin_from_context_source(context, expr)
+    allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=expr,
+        step_name=select_step_name,
+        step_id=select_step_id,
+        semantic_role=GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+        path_template=context.phase_scope.bundle_path_ref,
+        stable_target="select_variant",
+    )
+    select_payload["path"] = allocation.concrete_path_template
     select_payload["evidence"] = {
         "mode": "snapshot_diff",
         "snapshot": {
@@ -688,7 +705,15 @@ def _phase_stdlib_lower_resume_or_start_impl(
             span=expr.resume_from_expr.span,
             form_path=expr.resume_from_expr.form_path,
         )
-    validator_hidden_input = f"__write_root__{validator_step_id}__result_bundle"
+    validator_allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=expr,
+        step_name=validator_step_name,
+        step_id=validator_step_id,
+        semantic_role=GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+        stable_target="resume_validation",
+    )
+    validator_hidden_input = validator_allocation.generated_input_name
     public_input_templates = {
         name: f"${{inputs.{name}}}"
         for name in validation_spec.public_input_hash_basis
@@ -747,7 +772,7 @@ def _phase_stdlib_lower_resume_or_start_impl(
         "id": validator_step_id,
         "command": [*validator_binding.stable_command, validator_payload],
         "variant_output": {
-            "path": f"${{inputs.{validator_hidden_input}}}",
+            "path": validator_allocation.concrete_path_template,
             "discriminant": {
                 "name": "variant",
                 "json_pointer": "/variant",
@@ -774,7 +799,6 @@ def _phase_stdlib_lower_resume_or_start_impl(
             },
         },
     }
-    context.generated_path_spans[validator_step["variant_output"]["path"]] = _origin_from_context_source(context, expr)
     fresh_case_variants = ("START", "STALE", "MISSING_ARTIFACT", "FAILED_PRIOR_STATE")
 
     def _build_fresh_case(variant_name: str) -> tuple[list[dict[str, Any]], _TerminalResult, str]:
@@ -801,7 +825,15 @@ def _phase_stdlib_lower_resume_or_start_impl(
             start_terminal=case_terminal,
             context=case_context,
         )
-        case_writer_hidden_input = f"__write_root__{case_writer_step_id}__result_bundle"
+        case_writer_allocation = allocate_generated_result_bundle(
+            context=context,
+            source_expr=expr,
+            step_name=case_writer_step_name,
+            step_id=case_writer_step_id,
+            semantic_role=GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
+            stable_target="reusable_state_write",
+        )
+        case_writer_hidden_input = case_writer_allocation.generated_input_name
         case_writer_payload = json.dumps(
             {
                 "bundle_path": _template_for_ref(case_bundle_ref),
@@ -840,7 +872,7 @@ def _phase_stdlib_lower_resume_or_start_impl(
             "id": case_writer_step_id,
             "command": [*writer_binding.stable_command, case_writer_payload],
             "output_bundle": {
-                "path": f"${{inputs.{case_writer_hidden_input}}}",
+                "path": case_writer_allocation.concrete_path_template,
                 "fields": [
                     {
                         "name": "status",
@@ -865,7 +897,6 @@ def _phase_stdlib_lower_resume_or_start_impl(
                 ],
             },
         }
-        context.generated_path_spans[f"${{inputs.{case_writer_hidden_input}}}"] = _origin_from_context_source(context, expr)
         return [*case_steps, case_writer_step], case_terminal, case_writer_hidden_input
 
     fresh_case_data = {
@@ -878,7 +909,15 @@ def _phase_stdlib_lower_resume_or_start_impl(
         span=expr.span,
         form_path=expr.form_path,
     )
-    loader_hidden_input = f"__write_root__{reuse_loader_step_id}__result_bundle"
+    loader_allocation = allocate_generated_result_bundle(
+        context=context,
+        source_expr=expr,
+        step_name=reuse_loader_step_name,
+        step_id=reuse_loader_step_id,
+        semantic_role=GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
+        stable_target="reusable_state_load",
+    )
+    loader_hidden_input = loader_allocation.generated_input_name
     loader_payload = json.dumps(
         {
             "bundle_path": "${root.steps."
@@ -900,10 +939,9 @@ def _phase_stdlib_lower_resume_or_start_impl(
         "command": [*loader_binding.stable_command, loader_payload],
         loader_contract.contract_kind: {
             **dict(loader_contract.payload),
-            "path": f"${{inputs.{loader_hidden_input}}}",
+            "path": loader_allocation.concrete_path_template,
         },
     }
-    context.generated_path_spans[f"${{inputs.{loader_hidden_input}}}"] = _origin_from_context_source(context, expr)
     resume_output_contracts = {
         field.generated_name.removeprefix("return__"): dict(field.contract_definition)
         for field in derive_workflow_boundary_fields(

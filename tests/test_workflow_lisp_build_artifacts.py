@@ -130,6 +130,24 @@ def _structured_results_request(tmp_path: Path):
     )
 
 
+def _resume_entry_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    fixture_root = FIXTURES / "modules" / "valid" / "callables"
+    fixture = fixture_root / "neurips" / "helper.orc"
+    return request_cls(
+        source_path=fixture,
+        source_roots=(fixture_root,),
+        entry_workflow="provider-attempt",
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=CLI_FIXTURES / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
 def _write_workflow_param_default_module(tmp_path: Path) -> Path:
     package_dir = tmp_path / "defaults_pkg"
     package_dir.mkdir(parents=True, exist_ok=True)
@@ -244,6 +262,24 @@ def _workflow_runtime_context_inputs(bundle):
         lambda _: (),
     )
     return helper(bundle)
+
+
+def _workflow_payload_by_suffix(payload: dict[str, object], workflow_suffix: str) -> dict[str, object]:
+    workflows = payload["workflows"]
+    assert isinstance(workflows, list)
+    return next(
+        workflow
+        for workflow in workflows
+        if isinstance(workflow, dict) and str(workflow.get("workflow_name", "")).endswith(f"::{workflow_suffix}")
+    )
+
+
+def _allocation_payload_by_role(payload: list[dict[str, object]], semantic_role: str) -> dict[str, object]:
+    return next(
+        allocation
+        for allocation in payload
+        if isinstance(allocation, dict) and allocation.get("semantic_role") == semantic_role
+    )
 
 
 def _compile_resume_fixture(tmp_path: Path):
@@ -1092,6 +1128,108 @@ def test_resume_or_start_generated_internal_inputs_keep_reusable_state_paths_run
     assert writer_hidden_input in runtime_inputs
     assert writer_hidden_input not in public_inputs
     assert writer_step["output_bundle"]["path"] in lowered.origin_map.generated_path_spans
+
+
+def test_workflow_boundary_projection_emits_generated_path_allocations(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    projection = json.loads(result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8"))
+    workflow_projection = _workflow_payload_by_suffix(projection, "provider_attempt")
+    allocations = workflow_projection["generated_path_allocations"]
+    provider_bundle = _allocation_payload_by_role(allocations, "provider_result_bundle")
+    generated_inputs = {
+        entry["generated_name"]: entry
+        for entry in workflow_projection["generated_internal_inputs"]
+    }
+
+    assert provider_bundle["privacy"] == "private_generated"
+    assert provider_bundle["resume_scope"] == "step_visit"
+    assert provider_bundle["generated_input_name"].startswith("__write_root__")
+    assert provider_bundle["generated_input_name"].endswith("__result_bundle")
+    assert generated_inputs[provider_bundle["generated_input_name"]]["allocation_id"] == provider_bundle["allocation_id"]
+
+
+def test_source_map_emits_generated_path_allocations(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    workflow_name = next(name for name in source_map["workflows"] if name.endswith("::provider_attempt"))
+    workflow = source_map["workflows"][workflow_name]
+    provider_bundle = _allocation_payload_by_role(
+        workflow["generated_path_allocations"],
+        "provider_result_bundle",
+    )
+    generated_path = workflow["generated_paths"][provider_bundle["concrete_path_template"]]
+
+    assert provider_bundle["privacy"] == "private_generated"
+    assert provider_bundle["generated_input_name"].startswith("__write_root__")
+    assert provider_bundle["generated_input_name"].endswith("__result_bundle")
+    assert provider_bundle["origin_key"] == generated_path["origin_key"]
+
+
+def test_semantic_ir_emits_generated_path_allocations(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    provider_layout = next(
+        entry
+        for entry in semantic_ir["state_layout"].values()
+        if entry["workflow_name"].endswith("::orchestrate")
+        and entry["layout_kind"] == "reusable_call_write_root"
+    )
+
+    assert provider_layout["details"]["privacy"] == "compatibility_view"
+    assert provider_layout["details"]["resume_scope"] == "call_frame"
+    assert provider_layout["details"]["generated_input_name"].startswith("__write_root__")
+    assert provider_layout["details"]["generated_input_name"].endswith("__result_bundle")
+    assert provider_layout["details"]["allocation_id"]
+
+
+def test_build_artifacts_emit_entrypoint_managed_write_root_allocations(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_resume_entry_request(tmp_path))
+    projection = json.loads(result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8"))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+
+    workflow_name = "neurips/helper::provider-attempt"
+    workflow_projection = next(
+        workflow
+        for workflow in projection["workflows"]
+        if workflow["workflow_name"] == workflow_name
+    )
+    entrypoint_projection = _allocation_payload_by_role(
+        workflow_projection["generated_path_allocations"],
+        "entrypoint_managed_write_root",
+    )
+    source_map_workflow = source_map["workflows"][workflow_name]
+    entrypoint_source_map = _allocation_payload_by_role(
+        source_map_workflow["generated_path_allocations"],
+        "entrypoint_managed_write_root",
+    )
+    entrypoint_layout = next(
+        entry
+        for entry in semantic_ir["state_layout"].values()
+        if entry["workflow_name"] == workflow_name
+        and entry["layout_kind"] == "entrypoint_managed_write_root"
+    )
+
+    assert entrypoint_projection["privacy"] == "private_generated"
+    assert entrypoint_projection["resume_scope"] == "run"
+    assert entrypoint_projection["generated_input_name"].startswith("__write_root__")
+    assert "${runtime.run_id}" in entrypoint_projection["concrete_path_template"]
+    assert entrypoint_source_map["allocation_id"] == entrypoint_projection["allocation_id"]
+    assert entrypoint_layout["details"]["allocation_id"] == entrypoint_projection["allocation_id"]
 
 
 def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(

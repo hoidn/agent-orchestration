@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from ..contracts import WorkflowBoundaryProjection
 from ..phase import PhaseScope
@@ -69,6 +70,7 @@ class _LoweringContext:
     internal_generated_input_contracts: dict[str, dict[str, Any]]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: dict[str, LoweringOrigin]
+    generated_path_allocations: list[GeneratedPathAllocation]
     generated_semantic_effects: list[GeneratedSemanticEffectBinding]
     top_level_artifacts: dict[str, Any]
     inline_call_counters: dict[str, int]

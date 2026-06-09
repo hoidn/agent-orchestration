@@ -103,6 +103,11 @@ def _write_parametric_source_map_module(path: Path) -> Path:
     return path
 
 
+def _source_map_payload(document) -> dict[str, object]:
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    return build_module._json_data(document)
+
+
 def _walk_steps(raw_steps: object) -> tuple[dict[str, object], ...]:
     if not isinstance(raw_steps, list):
         return ()
@@ -293,3 +298,79 @@ def test_source_map_validator_preserves_macro_origin_ownership_for_unmapped_exec
     assert payload["code"] == "source_map_executable_node_unmapped"
     assert payload["validation_pass"] == "source_map"
     assert payload["authority_layer"] == "frontend"
+
+
+def test_generated_path_allocations_map_to_frontend_origins(tmp_path: Path) -> None:
+    _, document, workflow_name = _build_source_map_document(
+        VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE,
+        tmp_path=tmp_path,
+        selected_name="orchestrate",
+    )
+    payload = _source_map_payload(document)
+    workflow = payload["workflows"][workflow_name]
+    allocations = workflow["generated_path_allocations"]
+    allocation = next(
+        item for item in allocations if item["semantic_role"] == "materialized_value_view"
+    )
+
+    assert allocation["origin_key"] == workflow["generated_paths"][allocation["concrete_path_template"]]["origin_key"]
+    assert allocation["path_safety_policy"] == "workspace_relative"
+
+
+def test_formatting_only_source_changes_preserve_allocation_identity(tmp_path: Path) -> None:
+    original_path = tmp_path / "alloc" / "formatting_original.orc"
+    formatted_path = tmp_path / "alloc" / "formatting_formatted.orc"
+    original_source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defmodule alloc/formatting)",
+            "  (export command-checks)",
+            "  (defpath WorkReport",
+            '    :kind relpath',
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ChecksResult",
+            "    (status String)",
+            "    (report WorkReport))",
+            "  (defworkflow command-checks",
+            "    ((report_path WorkReport))",
+            "    -> ChecksResult",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" report_path)',
+            "      :returns ChecksResult)))",
+            "",
+        ]
+    )
+    formatted_source = original_source.replace(
+        "    (command-result run_checks\n",
+        "    \n    (command-result run_checks\n",
+        1,
+    )
+    original_path.parent.mkdir(parents=True, exist_ok=True)
+    original_path.write_text(original_source, encoding="utf-8")
+    formatted_path.write_text(formatted_source, encoding="utf-8")
+
+    _, original_document, original_workflow_name = _build_source_map_document(
+        original_path,
+        tmp_path=tmp_path,
+        selected_name="command-checks",
+    )
+    _, formatted_document, formatted_workflow_name = _build_source_map_document(
+        formatted_path,
+        tmp_path=tmp_path,
+        selected_name="command-checks",
+    )
+    original_payload = _source_map_payload(original_document)
+    formatted_payload = _source_map_payload(formatted_document)
+    original_allocations = original_payload["workflows"][original_workflow_name]["generated_path_allocations"]
+    formatted_allocations = formatted_payload["workflows"][formatted_workflow_name]["generated_path_allocations"]
+
+    assert {
+        (allocation["semantic_role"], allocation["stable_identity"])
+        for allocation in original_allocations
+    } == {
+        (allocation["semantic_role"], allocation["stable_identity"])
+        for allocation in formatted_allocations
+    }

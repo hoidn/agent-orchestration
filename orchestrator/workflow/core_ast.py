@@ -23,6 +23,7 @@ from .surface_ast import (
     WorkflowProvenance,
     empty_frozen_mapping,
 )
+from .state_layout import GeneratedPathAllocation
 
 
 CORE_WORKFLOW_AST_SCHEMA_VERSION = "core_workflow_ast.v1"
@@ -33,6 +34,7 @@ class CoreWorkflowImport:
     alias: str
     workflow_path: Path
     source_root: Path
+    generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     managed_write_root_inputs: tuple[str, ...] = ()
     runtime_context_inputs: tuple[str, ...] = ()
     workflow_name: str | None = None
@@ -387,6 +389,7 @@ def _import_from_surface(
         alias=alias,
         workflow_path=metadata.workflow_path,
         source_root=metadata.source_root,
+        generated_path_allocations=metadata.generated_path_allocations,
         managed_write_root_inputs=metadata.managed_write_root_inputs,
         runtime_context_inputs=metadata.runtime_context_inputs,
         workflow_name=workflow_name,
@@ -733,6 +736,7 @@ def _surface_workflow_from_core_ast(core_workflow_ast: CoreWorkflowAST) -> Surfa
                     alias=metadata.alias,
                     workflow_path=metadata.workflow_path,
                     source_root=metadata.source_root,
+                    generated_path_allocations=metadata.generated_path_allocations,
                     managed_write_root_inputs=metadata.managed_write_root_inputs,
                     runtime_context_inputs=metadata.runtime_context_inputs,
                     workflow_name=metadata.workflow_name,
@@ -935,10 +939,29 @@ def _import_to_json(metadata: CoreWorkflowImport) -> dict[str, Any]:
         "alias": metadata.alias,
         "workflow_path": str(metadata.workflow_path),
         "source_root": str(metadata.source_root),
+        "generated_path_allocations": [
+            _generated_path_allocation_to_json(allocation)
+            for allocation in metadata.generated_path_allocations
+        ],
         "managed_write_root_inputs": list(metadata.managed_write_root_inputs),
         "runtime_context_inputs": list(metadata.runtime_context_inputs),
         "workflow_name": metadata.workflow_name,
         "output_names": list(metadata.output_names),
+    }
+
+
+def _generated_path_allocation_to_json(allocation: GeneratedPathAllocation) -> dict[str, Any]:
+    return {
+        "allocation_id": allocation.allocation_id,
+        "workflow_name": allocation.workflow_name,
+        "semantic_role": allocation.semantic_role.value,
+        "privacy": allocation.privacy.value,
+        "resume_scope": allocation.resume_scope.value,
+        "stable_identity": allocation.stable_identity,
+        "concrete_path_template": allocation.concrete_path_template,
+        "generated_input_name": allocation.generated_input_name,
+        "path_safety_policy": allocation.path_safety_policy,
+        "projection_hints": _json_data(allocation.projection_hints),
     }
 
 

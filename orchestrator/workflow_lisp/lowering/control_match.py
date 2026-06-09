@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
+
 from ..contracts import derive_structured_result_contract, derive_workflow_boundary_fields
 from ..expressions import FieldAccessExpr, MatchExpr, NameExpr
 from ..spans import SourceSpan
 from ..type_env import TypeRef, UnionTypeRef
 from . import core as lowering_core
 from .context import _copy_context_with_step_prefix, _LoweringContext, _TerminalResult
+from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _record_step_origin
 from .values import (
     _build_output_step_local_value,
@@ -189,8 +192,15 @@ def _control_lower_match_expr_impl(
     )
     cases: dict[str, Any] = {}
     hidden_inputs: dict[str, LoweringOrigin] = {}
-    shared_union_bundle_input = (
-        f"__write_root__{match_step_id}__result_bundle"
+    shared_union_bundle_allocation = (
+        allocate_generated_result_bundle(
+            context=context,
+            source_expr=match_expr,
+            step_name=match_step_name,
+            step_id=match_step_id,
+            semantic_role=GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+            stable_target="match_union_projection",
+        )
         if isinstance(result_type, UnionTypeRef)
         and not context.is_generated_private_workflow
         else None
@@ -208,14 +218,15 @@ def _control_lower_match_expr_impl(
                 binding_terminal=binding_terminal,
             ),
         )
-        if isinstance(result_type, UnionTypeRef) and shared_union_bundle_input is not None:
+        if isinstance(result_type, UnionTypeRef) and shared_union_bundle_allocation is not None:
             case_steps, case_terminal = _normalize_union_match_case_terminal(
                 case_name=case_name,
                 case_steps=case_steps,
                 case_terminal=case_terminal,
                 result_type=result_type,
                 variant_name=arm.variant_name,
-                shared_bundle_input_name=shared_union_bundle_input,
+                shared_bundle_input_name=shared_union_bundle_allocation.generated_input_name,
+                shared_bundle_path=shared_union_bundle_allocation.concrete_path_template,
                 context=context,
                 span=arm.body.span,
                 form_path=arm.body.form_path,
@@ -276,6 +287,7 @@ def _normalize_union_match_case_terminal(
     result_type: UnionTypeRef,
     variant_name: str,
     shared_bundle_input_name: str,
+    shared_bundle_path: str,
     context: _LoweringContext,
     span: SourceSpan,
     form_path: tuple[str, ...],
@@ -292,8 +304,8 @@ def _normalize_union_match_case_terminal(
         form_path=form_path,
     )
     authored_contract = dict(bundle_contract.payload)
-    authored_contract["path"] = f"${{inputs.{shared_bundle_input_name}}}"
-    context.generated_path_spans[authored_contract["path"]] = LoweringOrigin(span=span, form_path=form_path)
+    authored_contract["path"] = shared_bundle_path
+    context.generated_path_spans.setdefault(authored_contract["path"], LoweringOrigin(span=span, form_path=form_path))
     values = [
         {
             "name": "variant",

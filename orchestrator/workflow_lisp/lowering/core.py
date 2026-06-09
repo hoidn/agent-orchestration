@@ -43,6 +43,10 @@ from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.references import StructuredStepReference
+from orchestrator.workflow.state_layout import (
+    GeneratedPathAllocation,
+    derive_entrypoint_managed_write_root_allocations,
+)
 from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
@@ -91,6 +95,7 @@ from ..expressions import (
     WorkflowRefLiteralExpr,
     WithPhaseExpr,
 )
+from .generated_paths import allocation_reason
 from ..loops import (
     LOOP_STATUS_ALLOWED,
     LOOP_STATUS_OUTPUT_NAME,
@@ -285,6 +290,7 @@ class LoweredWorkflow:
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
     boundary_projection: WorkflowBoundaryProjection
+    generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     private_artifact_ids: tuple[str, ...] = ()
 
 
@@ -585,6 +591,7 @@ def _lower_one_workflow(
         internal_generated_input_contracts={},
         generated_output_spans=origin_outputs,
         generated_path_spans={},
+        generated_path_allocations=[],
         generated_semantic_effects=[],
         top_level_artifacts={},
         inline_call_counters={},
@@ -630,13 +637,11 @@ def _lower_one_workflow(
         }
         context.generated_input_spans[hidden_input_name] = origin
         context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
-    for path_template, origin in context.generated_path_spans.items():
-        if not isinstance(path_template, str):
+    for allocation in context.generated_path_allocations:
+        hidden_input_name = allocation.generated_input_name
+        reason = allocation_reason(allocation)
+        if not isinstance(hidden_input_name, str) or reason is None:
             continue
-        match = re.fullmatch(r"\$\{inputs\.(__write_root__[^}]+)\}", path_template)
-        if match is None:
-            continue
-        hidden_input_name = match.group(1)
         authored_inputs.setdefault(
             hidden_input_name,
             {
@@ -644,10 +649,30 @@ def _lower_one_workflow(
                 "type": "relpath",
             },
         )
-        context.generated_input_spans.setdefault(hidden_input_name, origin)
-        context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
+        origin = context.generated_path_spans.get(allocation.concrete_path_template)
+        if origin is not None:
+            context.generated_input_spans.setdefault(hidden_input_name, origin)
+        context.internal_generated_input_reasons.setdefault(hidden_input_name, reason)
     for hidden_input_name, contract_definition in context.internal_generated_input_contracts.items():
         authored_inputs[hidden_input_name] = dict(contract_definition)
+
+    base_allocations = tuple(context.generated_path_allocations)
+    for derived_allocation in derive_entrypoint_managed_write_root_allocations(base_allocations):
+        source_allocation_id = derived_allocation.projection_hints.get("source_allocation_id")
+        source_origin = next(
+            (
+                context.generated_path_spans.get(allocation.concrete_path_template)
+                for allocation in base_allocations
+                if allocation.allocation_id == source_allocation_id
+            ),
+            None,
+        )
+        context.generated_path_allocations.append(derived_allocation)
+        if source_origin is not None:
+            context.generated_path_spans.setdefault(
+                derived_allocation.concrete_path_template,
+                source_origin,
+            )
 
     authored_input_spans = {
         name: origin
@@ -791,6 +816,7 @@ def _lower_one_workflow(
             generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
+        generated_path_allocations=tuple(context.generated_path_allocations),
         private_artifact_ids=tuple(
             name
             for name, definition in context.top_level_artifacts.items()
@@ -1689,6 +1715,7 @@ def _validate_one_lowered_workflow(
         workflow,
         workflow_path=loader._current_workflow_path,
         imported_bundles=imported_bundles,
+        generated_path_allocations=lowered_workflow.generated_path_allocations,
         managed_write_root_inputs=tuple(
             item.generated_name
             for item in lowered_workflow.boundary_projection.generated_internal_inputs

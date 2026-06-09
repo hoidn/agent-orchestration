@@ -548,6 +548,7 @@ def _lower_procedure_call_expr(
         internal_generated_input_contracts=context.internal_generated_input_contracts,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
+        generated_path_allocations=context.generated_path_allocations,
         generated_semantic_effects=context.generated_semantic_effects,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
