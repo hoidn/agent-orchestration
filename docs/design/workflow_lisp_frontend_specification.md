@@ -303,6 +303,18 @@ The following component docs define the missing implementation contracts:
     Optional, explicitly non-authoritative projection from Core AST or Semantic
     IR.
 
+15. [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md)
+    Accepted migration-foundation delta for runtime-owned command/provider
+    structured-output targets, private frontend-lowered typed value transport,
+    strict migration-parity gates, prompt extern source semantics, and the
+    first `StateLayout` / `PathAllocator` boundary.
+
+16. [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md)
+    Active follow-up target after the runtime foundation, covering generic
+    effectful composition hardening, imported/std `.orc` reuse, stdlib
+    review/revise convergence, entrypoint bootstrap/defaults, canonical
+    `resume-or-start` validation, and staged adapter-lint inventory.
+
 ### Implementation Gate
 
 Runtime-integrated implementation may begin only after the component contracts
@@ -319,6 +331,21 @@ above answer:
 If a high-level frontend form cannot lower into these contracts, it is not
 implementation-ready. It should remain a design sketch or be backed by a
 clearly marked legacy adapter.
+
+Accepted migration deltas since the original baseline:
+
+- The runtime migration foundation is the accepted lower-level authority
+  boundary for `.orc` promotion work. It completed five foundation tranches:
+  command structured-output conformance, frontend-lowered typed value
+  transport, provider structured-output target binding, strict migration
+  promotion gates, and `StateLayout` / `PathAllocator` ownership. It also
+  records prompt extern source semantics and the `resume-or-start` proof
+  alignment discovered during foundation verification.
+- The post-foundation composition/stdlib migration design is the current
+  follow-up target. It starts from the completed foundation and should treat
+  existing stdlib review/revise, ProcRef specialization, loop exhaustion,
+  structural constraints, and imported generic-loop evidence as inventory to
+  verify and harden, not as work to rebuild from zero.
 
 Current review/revise stdlib status:
 
@@ -1483,6 +1510,26 @@ This follows the v2.14 pointer-authority model: artifact values are
 authoritative, pointer files are optional materialized representations, and
 published artifacts store values rather than pointer-file paths.
 
+### 17.1 Private Frontend-Lowered Value Lane
+
+The runtime migration foundation adds a private executable value-transport lane
+for lowered Workflow Lisp values that are richer than the public authored-YAML
+boundary. The frontend may lower scalar, relpath, list, map, record-like,
+tagged, and nested relpath-containing values into validated executable
+contracts without making those shapes ordinary public YAML artifacts.
+
+When such values must cross materialization, publish, consume, prompt
+rendering, or reusable-call boundaries:
+
+- normalized typed values remain semantic authority;
+- scalar/list/map materialized files are value views, not pointer authority;
+- collection or record-like private artifacts use executable-private catalog
+  identities plus additive state ledgers, not the public `artifact_versions`
+  shape;
+- prompt consume rendering is a deterministic view over resolved values;
+- public authored YAML compatibility restrictions remain in force unless
+  `specs/dsl.md` deliberately widens them.
+
 For review/revise loops, review-provider output is decision evidence, not
 carried-artifact identity authority. Consumed evidence such as checks reports,
 progress reports, or prior execution reports must be carried by inputs or loop
@@ -1622,6 +1669,23 @@ state/
 The exact layout is not language syntax. It is produced by the lowering/runtime
 state strategy.
 
+Post-foundation implementations use the `StateLayout` / `PathAllocator`
+boundary from the runtime migration foundation:
+
+- `StateLayout` owns semantic allocation requests;
+- `PathAllocator` owns concrete path names for those requests;
+- source spans are provenance, not stable identity;
+- stable identity comes from semantic ownership such as workflow/module,
+  generated role, authored target, call-frame identity, loop/iteration scope,
+  and lowering schema version;
+- generated command/provider result bundles, variant projection bundles,
+  materialized value views, reusable-call write roots, entrypoint managed write
+  roots, source-map entries, and Semantic IR layout projections must share one
+  allocation/provenance boundary;
+- promotion-relevant private generated paths are run-isolated by default, while
+  preserved non-isolated shapes are compatibility/public surfaces and not
+  promotion evidence.
+
 ## 21. Phase Context
 
 ```lisp
@@ -1665,6 +1729,8 @@ It is a macro over context construction and scoped naming, not a runtime gate.
 Meaning:
 
 - inject typed output contract into provider prompt
+- resolve declared structured-output target through runtime path-safety logic
+- expose the target through the runtime-owned structured-output binding
 - provider must produce structured canonical bundle
 - validate bundle
 - validate referenced artifacts
@@ -1719,6 +1785,35 @@ Example canonical bundle:
 The markdown report may say the same thing, but the JSON bundle is
 authoritative.
 
+### 22.2 Provider Structured-Output Target Binding
+
+For provider steps with `output_bundle.path` or `variant_output.path`, prompt
+text is not the only authority for the write location. The runtime resolves the
+declared target before provider invocation, exposes that target through
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` or an accepted provider-equivalent reserved
+binding, and validates only the declared target after provider execution.
+
+Provider templates, provider sessions, managed-job wrappers, or authored
+parameters must not redirect the structured-output target. A provider that
+writes a valid-looking bundle to a sibling path fails with a missing/invalid
+declared bundle; the runtime must not copy wrong-path bundles into place as
+recovery.
+
+### 22.3 Prompt Extern Source Semantics
+
+Workflow Lisp prompt extern manifests distinguish workflow-source assets from
+workspace prompt inputs:
+
+- string prompt extern entries are backward-compatible shorthand for
+  `asset_file`;
+- explicit `{ "asset_file": "..." }` entries are workflow-source-relative and
+  may not escape the workflow source tree;
+- explicit `{ "input_file": "..." }` entries are workspace-relative and are
+  used for workspace-owned or runtime-generated prompt material.
+
+The frontend lowers these source kinds onto the existing provider prompt source
+fields. It does not invent a new runtime prompt transport.
+
 ## 23. Command Result
 
 ```lisp
@@ -1732,10 +1827,20 @@ authoritative.
 Meaning:
 
 - run command
+- resolve declared bundle target through runtime path-safety logic
+- set runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` after authored env merge
+- create or validate the bundle parent before launch
 - validate structured output bundle
 - expose typed result
 
 For commands, no prompt contract is injected.
+
+The runtime-owned command bundle target wins over any authored
+`env.ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. Exit `0` plus a missing or invalid
+declared bundle is an output-contract failure, and stdout JSON does not satisfy
+a declared `output_bundle.path`. Command-produced `variant_output.path` uses the
+same target-binding rule only after the normative DSL/IO clarification required
+by the runtime migration foundation.
 
 ## 24. Produced Outcome
 
@@ -2420,6 +2525,12 @@ SemanticWorkflowIR(
     source_map: SourceMap,
 )
 ```
+
+`state_layout` records projections derived from `StateLayout` /
+`PathAllocator` allocation metadata. The allocator returns neutral allocation
+records; runtime binding, workflow-boundary projection, source maps, and
+Semantic IR each consume those records rather than synthesizing generated paths
+independently.
 
 Semantic step examples:
 
@@ -3175,6 +3286,22 @@ lower
 execute
 ```
 
+### 78.1 Migration Parity Gates
+
+Replacing a YAML primary with a `.orc` candidate requires machine-readable
+migration evidence, not compile/dry-run success alone. The runtime migration
+foundation defines two strict gate modes:
+
+- `--require-non-regressive`: selected targets must have schema-valid, fresh,
+  complete evidence and tooling-computed `non_regressive=true`;
+- `--require-promotable`: selected targets must also be eligible for primary
+  surface selection.
+
+`primary_surface` is a gate-derived view or gate-evaluation output, not an
+authored manifest field and not a per-target report authority field. A
+non-regressive but ineligible candidate may pass evidence checks and still must
+not replace the YAML primary.
+
 ## 79. Explain Expansion
 
 ```bash
@@ -3189,6 +3316,11 @@ Shows:
 - core AST nodes
 - semantic IR nodes
 - source-map trace
+
+`orchestrate explain` is useful only when source maps, Semantic IR layout,
+effect summaries, and generated-path allocation metadata are stable enough to
+explain. It is not a prerequisite for stdlib migration and must not be treated
+as semantic authority.
 
 ## 80. Emit Debug YAML
 
@@ -3753,6 +3885,41 @@ Promotion of YAML primaries remains separate from implementation of frontend
 capability. A `.orc` candidate must have machine-computed non-regressive parity
 evidence before replacing a YAML primary, even if the candidate compiles,
 validates, and dry-runs.
+
+## 105.1 Runtime Migration Foundation Delta
+
+Before promotion-grade post-foundation work, the runtime migration foundation
+must be complete:
+
+- command structured-output conformance;
+- frontend-lowered typed value transport;
+- provider structured-output target binding;
+- strict migration promotion gates;
+- `StateLayout` / `PathAllocator` ownership for generated private paths;
+- prompt extern source semantics;
+- canonical `resume-or-start` proof alignment for compatibility paths that
+  traverse reusable-state recovery.
+
+The foundation is a prerequisite for using generic provider-heavy `.orc`
+workflows as promotion evidence.
+
+## 105.2 Post-Foundation Composition And Stdlib Migration
+
+The current follow-up target proceeds as:
+
+1. inventory the implemented composition and stdlib route;
+2. harden generic effectful composition;
+3. harden imported/std `.orc` reuse;
+4. prove `review-revise-loop` through the ordinary stdlib route with no
+   promoted compiler-name special case;
+5. add entrypoint bootstrap/defaults so wrappers match YAML public boundaries;
+6. keep canonical `resume-or-start` validation typed and parity-testable;
+7. inventory adapter lint debt before strict enforcement;
+8. use `--require-non-regressive` for evidence and `--require-promotable` for
+   any primary-surface decision.
+
+This tranche should verify and generalize implemented pieces rather than
+rebuild them from zero.
 
 ## Part XIX. Open Design Decisions
 
