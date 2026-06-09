@@ -115,25 +115,25 @@ Command adapters that remain must have a stable script path, typed inputs/output
 
 ### 1. Baseline Inventory And Migration Record
 
-- [ ] Create a migration inventory artifact under `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/` or a new clearly named migration directory.
-- [ ] List every workflow in the YAML family and every imported prompt/script it uses.
-- [ ] List every command helper and classify it using the adapter rules above.
-- [ ] List every provider step, prompt asset, structured output contract, and expected artifact.
-- [ ] List every manual pointer/materialization behavior that must become typed authority, a value view, or a certified adapter.
-- [ ] List every loop and recovery route, including normal selection, prerequisite selection, design-gap drafting, blocked recovery, recovered-gap retry, and drain summary.
-- [ ] Record current YAML baseline commands and representative run evidence, including the recent completed drain against `docs/design/workflow_lisp_runtime_migration_foundation.md`.
-- [ ] Add a migration record skeleton for this workflow family with status `inventory`.
+- [x] Create a migration inventory artifact under `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/` or a new clearly named migration directory.
+- [x] List every workflow in the YAML family and every imported prompt/script it uses.
+- [x] List every command helper and classify it using the adapter rules above.
+- [x] List every provider step, prompt asset, structured output contract, and expected artifact.
+- [x] List every manual pointer/materialization behavior that must become typed authority, a value view, or a certified adapter.
+- [x] List every loop and recovery route, including normal selection, prerequisite selection, design-gap drafting, blocked recovery, recovered-gap retry, and drain summary.
+- [x] Record current YAML baseline commands and representative run evidence, including the recent completed drain against `docs/design/workflow_lisp_runtime_migration_foundation.md`.
+- [x] Add a migration record skeleton for this workflow family with status `inventory`.
 
 Verification:
 
-- [ ] `python -m json.tool state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json`
-- [ ] `python -m json.tool artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json`
-- [ ] `rg -n "command:|provider:|output_bundle:|variant_output:|repeat_until|requires_variant|call:" workflows/examples/lisp_frontend_design_delta_drain.yaml workflows/library/lisp_frontend_design_delta_*.v214.yaml`
-- [ ] `git diff --check`
+- [x] `python -m json.tool state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json`
+- [x] `python -m json.tool artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json`
+- [x] `rg -n "command:|provider:|output_bundle:|variant_output:|repeat_until|requires_variant|call:" workflows/examples/lisp_frontend_design_delta_drain.yaml workflows/library/lisp_frontend_design_delta_*.v214.yaml`
+- [x] `git diff --check`
 
 Commit checkpoint:
 
-- [ ] Commit inventory and migration record only.
+- [x] Commit inventory and migration record only.
 
 ### 2. Feasibility Probe For .orc Imports, Calls, And Existing Stdlib Forms
 
