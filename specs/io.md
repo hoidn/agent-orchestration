@@ -16,8 +16,8 @@
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
   - Command structured-bundle environment:
-    - For command steps with `output_bundle.path`, the runtime resolves the
-      workspace-relative bundle path before launch and sets
+    - For command steps with `output_bundle.path` or `variant_output.path`, the
+      runtime resolves the workspace-relative bundle path before launch and sets
       `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` to that target.
     - The runtime-owned value wins over any caller-provided environment value
       for the same name.
@@ -28,9 +28,8 @@
     - If the command exits `0` but the bundle is missing or invalid, the step
       fails as an output-contract failure. If the command exits non-zero, the
       command failure remains primary.
-    - Future command-produced structured bundle surfaces with explicit paths
-      must use the same environment and validation contract unless their
-      normative spec says otherwise.
+    - `variant_output.path` adds tagged-union validation and projection on top
+      of this same runtime-owned explicit-path bundle contract.
   - Provider structured-bundle environment:
     - For provider steps with `output_bundle.path` or `variant_output.path`, the
       runtime resolves the workspace-relative bundle path before invocation and

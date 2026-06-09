@@ -1,7 +1,8 @@
 """Integration tests for expected_outputs enforcement in workflow execution."""
 
-from types import SimpleNamespace
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -16,6 +17,22 @@ def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
     workflow_file.write_text(yaml.dump(workflow))
     return workflow_file
+
+
+def _enable_v214_loader(monkeypatch) -> None:
+    version_order = list(WorkflowLoader.VERSION_ORDER)
+    if "2.14" not in version_order:
+        version_order.append("2.14")
+    monkeypatch.setattr(
+        WorkflowLoader,
+        "SUPPORTED_VERSIONS",
+        WorkflowLoader.SUPPORTED_VERSIONS | {"2.14"},
+    )
+    monkeypatch.setattr(
+        WorkflowLoader,
+        "VERSION_ORDER",
+        version_order,
+    )
 
 
 def test_command_step_fails_when_expected_output_missing(tmp_path: Path):
@@ -727,6 +744,155 @@ def test_command_step_persists_artifacts_from_output_bundle(tmp_path: Path):
     }
 
 
+def test_command_output_bundle_runtime_env_overrides_authored_env(tmp_path: Path):
+    """Command output bundles should ignore authored bundle-path env overrides."""
+    workflow = {
+        "version": "1.3",
+        "name": "bundle-command-env-override",
+        "steps": [{
+            "name": "AssessExecutionCompletion",
+            "env": {
+                "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "artifacts/work/wrong/summary.json",
+            },
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p docs/plans && "
+                "printf '# plan\\n' > docs/plans/plan-a.md && "
+                "printf '{\"plan_path\":\"docs/plans/plan-a.md\",\"failed_count\":0}\\n' > "
+                "\"$ORCHESTRATOR_OUTPUT_BUNDLE_PATH\"",
+            ],
+            "output_bundle": {
+                "path": "artifacts/work/summary.json",
+                "fields": [
+                    {
+                        "name": "plan_path",
+                        "json_pointer": "/plan_path",
+                        "type": "relpath",
+                        "under": "docs/plans",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "failed_count",
+                        "json_pointer": "/failed_count",
+                        "type": "integer",
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+    result = state["steps"]["AssessExecutionCompletion"]
+
+    assert result["exit_code"] == 0
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {
+        "plan_path": "docs/plans/plan-a.md",
+        "failed_count": 0,
+    }
+    assert (tmp_path / "artifacts" / "work" / "summary.json").exists()
+    assert not (tmp_path / "artifacts" / "work" / "wrong" / "summary.json").exists()
+
+
+def test_command_output_bundle_parent_is_created_before_launch(tmp_path: Path):
+    """Runtime should prepare output_bundle parents before launching the command."""
+    workflow = {
+        "version": "1.3",
+        "name": "bundle-command-parent-ready",
+        "steps": [{
+            "name": "AssessExecutionCompletion",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p docs/plans && "
+                "printf '# plan\\n' > docs/plans/plan-a.md && "
+                "printf '{\"plan_path\":\"docs/plans/plan-a.md\",\"failed_count\":0}\\n' > "
+                "\"$ORCHESTRATOR_OUTPUT_BUNDLE_PATH\"",
+            ],
+            "output_bundle": {
+                "path": "artifacts/work/generated/summary.json",
+                "fields": [
+                    {
+                        "name": "plan_path",
+                        "json_pointer": "/plan_path",
+                        "type": "relpath",
+                        "under": "docs/plans",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "failed_count",
+                        "json_pointer": "/failed_count",
+                        "type": "integer",
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+    result = state["steps"]["AssessExecutionCompletion"]
+
+    assert result["exit_code"] == 0
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {
+        "plan_path": "docs/plans/plan-a.md",
+        "failed_count": 0,
+    }
+    assert (tmp_path / "artifacts" / "work" / "generated" / "summary.json").exists()
+
+
+def test_command_output_bundle_stdout_json_does_not_satisfy_missing_bundle(tmp_path: Path):
+    """Valid stdout JSON does not satisfy an explicit output_bundle contract."""
+    workflow = {
+        "version": "1.3",
+        "name": "bundle-command-stdout-not-authority",
+        "steps": [{
+            "name": "AssessExecutionCompletion",
+            "command": [
+                "bash",
+                "-lc",
+                "printf '{\"status\":\"COMPLETE\"}\\n'",
+            ],
+            "output_capture": "json",
+            "output_bundle": {
+                "path": "artifacts/work/summary.json",
+                "fields": [{
+                    "name": "status",
+                    "json_pointer": "/status",
+                    "type": "enum",
+                    "allowed": ["COMPLETE", "INCOMPLETE", "BLOCKED"],
+                }],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute(on_error="continue")
+    result = state["steps"]["AssessExecutionCompletion"]
+
+    assert result["exit_code"] == 2
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "contract_violation"
+
+
 def test_repeat_until_output_bundle_path_resolves_loop_index(tmp_path: Path):
     """repeat_until body output_bundle paths can use loop variables."""
     workflow = {
@@ -928,3 +1094,178 @@ def test_nonzero_exit_skips_output_bundle_validation(tmp_path: Path):
     assert result["status"] == "failed"
     assert "artifacts" not in result
     assert result.get("error", {}).get("type") != "contract_violation"
+
+
+def test_command_variant_output_receives_runtime_bundle_env(tmp_path: Path, monkeypatch) -> None:
+    """Command variant outputs should ignore authored bundle-path env overrides."""
+    _enable_v214_loader(monkeypatch)
+    workflow = {
+        "version": "2.14",
+        "name": "command-variant-output-env",
+        "steps": [{
+            "name": "Review",
+            "env": {
+                "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": "state/wrong/review.json",
+            },
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p docs/backlog && "
+                "printf '# Item\\n' > docs/backlog/item.md && "
+                "printf '{\"variant\":\"APPROVE\",\"item_path\":\"docs/backlog/item.md\"}\\n' > "
+                "\"$ORCHESTRATOR_OUTPUT_BUNDLE_PATH\"",
+            ],
+            "variant_output": {
+                "path": "state/review.json",
+                "discriminant": {
+                    "name": "variant",
+                    "json_pointer": "/variant",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+                "variants": {
+                    "APPROVE": {
+                        "fields": [
+                            {
+                                "name": "item_path",
+                                "json_pointer": "/item_path",
+                                "type": "relpath",
+                                "under": "docs/backlog",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "REVISE": {"fields": []},
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+    result = state["steps"]["Review"]
+
+    assert result["exit_code"] == 0
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {
+        "variant": "APPROVE",
+        "item_path": "docs/backlog/item.md",
+    }
+    assert (tmp_path / "state" / "review.json").exists()
+    assert not (tmp_path / "state" / "wrong" / "review.json").exists()
+    assert json.loads((tmp_path / "state" / "review.json").read_text(encoding="utf-8")) == {
+        "variant": "APPROVE",
+        "item_path": "docs/backlog/item.md",
+    }
+
+
+def test_command_variant_output_parent_is_created_before_launch(tmp_path: Path, monkeypatch) -> None:
+    """Runtime should prepare variant_output parents before launching the command."""
+    _enable_v214_loader(monkeypatch)
+    workflow = {
+        "version": "2.14",
+        "name": "command-variant-output-parent-ready",
+        "steps": [{
+            "name": "Review",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p docs/backlog && "
+                "printf '# Item\\n' > docs/backlog/item.md && "
+                "printf '{\"variant\":\"APPROVE\",\"item_path\":\"docs/backlog/item.md\"}\\n' > "
+                "\"$ORCHESTRATOR_OUTPUT_BUNDLE_PATH\"",
+            ],
+            "variant_output": {
+                "path": "state/generated/review/result.json",
+                "discriminant": {
+                    "name": "variant",
+                    "json_pointer": "/variant",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+                "variants": {
+                    "APPROVE": {
+                        "fields": [
+                            {
+                                "name": "item_path",
+                                "json_pointer": "/item_path",
+                                "type": "relpath",
+                                "under": "docs/backlog",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "REVISE": {"fields": []},
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+    result = state["steps"]["Review"]
+
+    assert result["exit_code"] == 0
+    assert result["status"] == "completed"
+    assert result["artifacts"] == {
+        "variant": "APPROVE",
+        "item_path": "docs/backlog/item.md",
+    }
+    assert (tmp_path / "state" / "generated" / "review" / "result.json").exists()
+
+
+def test_command_variant_output_stdout_json_does_not_satisfy_missing_bundle(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Valid stdout JSON does not satisfy an explicit variant_output contract."""
+    _enable_v214_loader(monkeypatch)
+    workflow = {
+        "version": "2.14",
+        "name": "command-variant-output-stdout-not-authority",
+        "steps": [{
+            "name": "Review",
+            "command": [
+                "bash",
+                "-lc",
+                "printf '{\"variant\":\"REVISE\"}\\n'",
+            ],
+            "output_capture": "json",
+            "variant_output": {
+                "path": "state/review.json",
+                "discriminant": {
+                    "name": "variant",
+                    "json_pointer": "/variant",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+                "variants": {
+                    "APPROVE": {"fields": []},
+                    "REVISE": {"fields": []},
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute(on_error="continue")
+    result = state["steps"]["Review"]
+
+    assert result["exit_code"] == 2
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "contract_violation"

@@ -223,7 +223,8 @@
       - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
       - `shared_fields` is optional and defaults to `[]`. Shared fields are always present after bundle validation, are exposed without variant proof, and must not duplicate artifact names or JSON pointers already used by the discriminant or any variant field.
       - Each variant declares required `fields` and optional `forbidden` JSON pointers. Runtime validation selects exactly one variant, enforces that variant's fields, rejects forbidden fields, and exposes the discriminant, any shared fields, and the selected-variant fields as `steps.<Step>.artifacts`.
-      - Provider and adjudicated-provider steps inject the variant contract into the prompt unless `inject_output_contract: false`, and receive the resolved `path` as runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`; command steps validate the bundle after success without prompt injection.
+      - For command steps, the runtime ensures command steps receive the resolved `path` as runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, prepares the bundle parent before launch, and still treats the declared bundle file as authority rather than stdout during post-success validation.
+      - Provider and adjudicated-provider steps inject the variant contract into the prompt unless `inject_output_contract: false`, and receive the resolved `path` as runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
       - Variant-only fields require proof before downstream use. v2.14 supports proof through a `match` over the same discriminant artifact or through step-level `requires_variant`.
     - `consume_bundle` (optional; v1.3+): materialize resolved consumes into one JSON file.
       - `path: string` (required output JSON path under WORKSPACE)

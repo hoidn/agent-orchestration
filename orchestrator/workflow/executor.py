@@ -3380,6 +3380,39 @@ class WorkflowExecutor:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         return output_file
 
+    def _prepare_runtime_output_bundle_parent(
+        self,
+        resolved_output_bundle: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve and prepare the parent for one explicit structured-output bundle."""
+        bundle_path_value = (
+            resolved_output_bundle.get('path')
+            if isinstance(resolved_output_bundle, dict)
+            else None
+        )
+        if not isinstance(bundle_path_value, str):
+            return None
+
+        bundle_path = self._resolve_workspace_path(bundle_path_value)
+        if bundle_path is None:
+            return self._contract_violation_result(
+                "Structured output bundle path escapes the workspace",
+                {"path": bundle_path_value},
+            )
+
+        try:
+            bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return self._contract_violation_result(
+                "Failed to prepare structured output bundle parent",
+                {
+                    "path": bundle_path_value,
+                    "error": str(exc),
+                },
+            )
+
+        return None
+
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """
         Write prompt to audit log with secrets masking.
@@ -4241,21 +4274,23 @@ class WorkflowExecutor:
                     )
 
             # For structured command contracts, expose the resolved bundle path
-            # to the command adapter via a reserved env var.
+            # to the command adapter via a reserved env var and ensure the
+            # runtime-owned bundle parent exists before launch.
             command_env = step.get('env')
             _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
                 step,
                 state,
                 context=context,
             )
-            if path_error is None and isinstance(resolved_output_bundle, dict):
-                bundle_path = resolved_output_bundle.get("path")
-                if isinstance(bundle_path, str):
-                    env_map: dict[str, str] = {}
-                    if isinstance(command_env, dict):
-                        env_map.update(command_env)
-                    env_map.setdefault("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", bundle_path)
-                    command_env = env_map
+            if path_error is not None:
+                return path_error
+            bundle_path_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
+            if bundle_path_error is not None:
+                return bundle_path_error
+            command_env = self._env_with_runtime_output_bundle_path(
+                command_env,
+                resolved_output_bundle,
+            )
 
             # Convert output_capture string to CaptureMode enum
             from ..exec.output_capture import CaptureMode
@@ -6882,13 +6917,12 @@ class WorkflowExecutor:
 
         return resolved_expected_outputs, resolved_output_bundle, None
 
-    def _provider_env_with_runtime_output_bundle_path(
+    def _env_with_runtime_output_bundle_path(
         self,
-        step: Dict[str, Any],
+        authored_env: Any,
         resolved_output_bundle: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, str]]:
-        """Return provider env with runtime-owned structured bundle path binding."""
-        authored_env = step.get('env')
+        """Return env with runtime-owned structured bundle path binding."""
         bundle_path = (
             resolved_output_bundle.get('path')
             if isinstance(resolved_output_bundle, dict)
@@ -6902,6 +6936,14 @@ class WorkflowExecutor:
             env_map.update(authored_env)
         env_map['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'] = bundle_path
         return env_map
+
+    def _provider_env_with_runtime_output_bundle_path(
+        self,
+        step: Dict[str, Any],
+        resolved_output_bundle: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, str]]:
+        """Return provider env with runtime-owned structured bundle path binding."""
+        return self._env_with_runtime_output_bundle_path(step.get('env'), resolved_output_bundle)
 
     def _apply_expected_outputs_contract(
         self,
