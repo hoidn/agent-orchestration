@@ -256,9 +256,14 @@ document owns the answer.
 **Use this when:** Planning or reviewing the system changes required before key YAML workflows can be replaced by `.orc` equivalents.
 
 ### [Workflow Lisp Runtime Migration Foundation](design/workflow_lisp_runtime_migration_foundation.md)
-**Description:** Target design for the runtime and migration foundation beneath Workflow Lisp promotion, covering command structured-output authority, machine-readable migration promotion gates, and centralized generated state/path allocation.
-**Keywords:** lisp-frontend, migration, parity, command-output, statelayout, pathallocator, promotion-gate
-**Use this when:** Planning the next promotion-foundation tranche after `.orc` compilation works but command bundle authority, computed promotion gating, or generated path ownership still need hardening.
+**Description:** Completed foundation target for Workflow Lisp promotion, covering command/provider structured-output authority, private lowered value transport, strict migration promotion gates, prompt extern source semantics, and generated state/path allocation.
+**Keywords:** lisp-frontend, migration, parity, command-output, provider-output, private-values, statelayout, pathallocator, promotion-gate
+**Use this when:** Auditing or extending the implemented runtime foundation beneath `.orc` promotion, especially structured-output binding, private value transport, strict parity gates, prompt externs, or generated path ownership.
+
+### [Workflow Lisp Post-Foundation Composition And Stdlib Migration](design/workflow_lisp_post_foundation_composition_stdlib_migration.md)
+**Description:** Follow-up target design after the runtime foundation, focused on generic effectful composition, imported/std `.orc` reuse, `review-revise-loop` stdlib convergence, entrypoint bootstrap/defaults, canonical `resume-or-start` validation, and parity promotion.
+**Keywords:** lisp-frontend, post-foundation, stdlib, composition, imported-orc, review-revise-loop, parity
+**Use this when:** Planning the next Workflow Lisp drain after the runtime migration foundation is complete.
 
 ### [Lisp Migrate Key Workflows Execution Plan](plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md)
 **Description:** Approved execution-ready plan for the first migration tranche converting `cycle_guard_demo` and the `design_plan_impl_review_stack_v2_call` family to additive Workflow Lisp `.orc` surfaces with compile/dry-run/parity evidence.

@@ -9,7 +9,11 @@ Lifecycle note: this document remains the parent language contract for Workflow
 Lisp. The initial autonomous drain against this design is complete, but
 follow-on language extensions may be tracked as scoped design deltas. Current
 accepted deltas include
-[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
+[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md)
+and the completed
+[Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md).
+The current follow-up target is
+[Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
