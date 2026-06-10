@@ -18,6 +18,9 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
@@ -242,6 +245,52 @@ def _entrypoint_validated_bundle(result, *, entry_workflow: str):
         if workflow_name == entry_workflow or workflow_name.endswith(f"::{entry_workflow}"):
             return bundle
     raise AssertionError(f"validated bundle not found for entry workflow: {entry_workflow}")
+
+
+def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "implementation_phase.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={
+            "providers.implementation.execute": "fake-execute",
+            "providers.implementation.review": "fake-review",
+            "providers.implementation.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+            ),
+            "prompts.implementation.review": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+            ),
+            "prompts.implementation.fix": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+            ),
+        },
+        command_boundaries={
+            "run_neurips_backlog_checks": ExternalToolBinding(
+                name="run_neurips_backlog_checks",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/run_neurips_backlog_checks.py",
+                ),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase"
+    ]
+    return result, bundle
 
 
 def _build_parametric_frontend_bundle(tmp_path: Path) -> object:
@@ -1174,6 +1223,18 @@ def test_semantic_ir_records_generated_paths_inside_nested_branch_scopes(tmp_pat
 
     assert any(
         effect.effect_kind in {"provider_call", "workflow_call"}
+        for effect in bundle.semantic_ir.effects.values()
+    )
+
+
+def test_semantic_ir_records_design_delta_implementation_phase_lineage(tmp_path: Path) -> None:
+    _result, bundle = _compile_design_delta_implementation_phase_entrypoint(tmp_path)
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+
+    assert workflow.authored_statement_ids
+    assert workflow.executable_bridge.node_ids
+    assert any(
+        effect.effect_kind in {"provider_call", "workflow_call", "command_boundary"}
         for effect in bundle.semantic_ir.effects.values()
     )
 

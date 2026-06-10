@@ -26,6 +26,9 @@ WORKFLOW_LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 NESTED_IMPLEMENTATION_PHASE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
 )
+PARENT_CALL_IMPLEMENTATION_PHASE_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_parent_calls_implementation_phase.orc"
+)
 NESTED_SAME_FILE_CALL_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_same_file_call_local_record.orc"
 )
@@ -62,6 +65,211 @@ def _walk_lowered_steps(steps: list[dict[str, object]]):
         repeat_until = step.get("repeat_until")
         if isinstance(repeat_until, dict):
             yield from _walk_lowered_steps(repeat_until.get("steps", []))
+
+
+def _state_contains_artifact_value(state: object, artifact_name: str, expected_value: str) -> bool:
+    if isinstance(state, dict):
+        artifacts = state.get("artifacts")
+        if isinstance(artifacts, dict) and artifacts.get(artifact_name) == expected_value:
+            return True
+        return any(
+            _state_contains_artifact_value(value, artifact_name, expected_value)
+            for value in state.values()
+        )
+    if isinstance(state, list):
+        return any(_state_contains_artifact_value(value, artifact_name, expected_value) for value in state)
+    return False
+
+
+def _design_delta_provider_externs() -> dict[str, str]:
+    return {
+        "providers.implementation.execute": "fake-execute",
+        "providers.implementation.review": "fake-review",
+        "providers.implementation.fix": "fake-fix",
+    }
+
+
+def _design_delta_prompt_externs() -> dict[str, str]:
+    return {
+        "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
+        "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
+        "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
+    }
+
+
+def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
+    return {
+        "run_neurips_backlog_checks": ExternalToolBinding(
+            name="run_neurips_backlog_checks",
+            stable_command=(
+                "python",
+                "workflows/library/scripts/run_neurips_backlog_checks.py",
+            ),
+        ),
+        "validate_review_findings_v1": ExternalToolBinding(
+            name="validate_review_findings_v1",
+            stable_command=(
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ),
+        ),
+    }
+
+
+def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "lisp_frontend_design_delta"
+        / "implementation_phase.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs=_design_delta_provider_externs(),
+        prompt_externs=_design_delta_prompt_externs(),
+        command_boundaries=_design_delta_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return result, lowered_by_name
+
+
+def _copy_design_delta_runtime_modules(tmp_path: Path) -> Path:
+    module_dir = tmp_path / "lisp_frontend_design_delta"
+    module_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("implementation_phase.orc", "types.orc"):
+        source = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / name
+        _write_module(module_dir / name, source.read_text(encoding="utf-8"))
+    return module_dir / "implementation_phase.orc"
+
+
+def _compile_design_delta_implementation_phase_runtime_entrypoint(tmp_path: Path):
+    module_path = _copy_design_delta_runtime_modules(tmp_path)
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_provider_externs(),
+        prompt_externs=_design_delta_prompt_externs(),
+        command_boundaries=_design_delta_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return module_path, result
+
+
+def _compile_design_delta_parent_call_entrypoint(tmp_path: Path):
+    module_path = _write_entrypoint_fixture_to_tmp(
+        PARENT_CALL_IMPLEMENTATION_PHASE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(REPO_ROOT / "workflows" / "library", tmp_path),
+        provider_externs=_design_delta_provider_externs(),
+        prompt_externs=_design_delta_prompt_externs(),
+        command_boundaries=_design_delta_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
+
+
+def _compile_design_delta_parent_call_runtime_entrypoint(tmp_path: Path):
+    _copy_design_delta_runtime_modules(tmp_path)
+    module_path = _write_entrypoint_fixture_to_tmp(
+        PARENT_CALL_IMPLEMENTATION_PHASE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_provider_externs(),
+        prompt_externs=_design_delta_prompt_externs(),
+        command_boundaries=_design_delta_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return module_path, result
+
+
+def _compile_design_delta_parent_contract_probe_entrypoint(tmp_path: Path):
+    _copy_design_delta_runtime_modules(tmp_path)
+    module_path = _write_module(
+        tmp_path / "design_delta_parent_contract_probe.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule design_delta_parent_contract_probe)",
+                "  (import lisp_frontend_design_delta/implementation_phase :only (implementation-phase))",
+                "  (import lisp_frontend_design_delta/types :only",
+                "    (ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkPath ArtifactWorkTargetPath",
+                "      BaselineDesignDoc CheckCommandsPath ImplementationPhaseResult PlanDoc TargetDesignDoc))",
+                "  (export probe)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defworkflow probe",
+                "    ((phase-ctx PhaseCtx)",
+                "     (target_design TargetDesignDoc)",
+                "     (baseline_design BaselineDesignDoc)",
+                "     (plan_path PlanDoc)",
+                "     (check_commands_path CheckCommandsPath)",
+                "     (execution_report_target_path ArtifactWorkTargetPath)",
+                "     (progress_report_target_path ArtifactWorkTargetPath)",
+                "     (checks_report_target_path ArtifactChecksTargetPath)",
+                "     (implementation_review_report_target_path ArtifactReviewTargetPath))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((phase-result",
+                "             (call implementation-phase",
+                "               :phase-ctx phase-ctx",
+                "               :target_design target_design",
+                "               :baseline_design baseline_design",
+                "               :plan_path plan_path",
+                "               :check_commands_path check_commands_path",
+                "               :execution_report_target_path execution_report_target_path",
+                "               :progress_report_target_path progress_report_target_path",
+                "               :checks_report_target_path checks_report_target_path",
+                "               :implementation_review_report_target_path",
+                "                 implementation_review_report_target_path)))",
+                "      (record ImplementationPhaseResult",
+                "        :implementation-state phase-result.implementation-state",
+                "        :implementation-review-decision phase-result.implementation-review-decision",
+                "        :execution-report phase-result.execution-report",
+                "        :progress-report phase-result.progress-report",
+                "        :checks-report phase-result.checks-report",
+                "        :implementation-review-report phase-result.implementation-review-report))))",
+            ]
+        )
+        + "\n",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_provider_externs(),
+        prompt_externs=_design_delta_prompt_externs(),
+        command_boundaries=_design_delta_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return module_path, result
 
 
 def _compile_nested_entrypoint_fixture(
@@ -140,6 +348,53 @@ def _write_nested_runtime_run_checks_script(tmp_path: Path) -> None:
     )
 
 
+def _write_design_delta_runtime_prompt_assets(module_root: Path) -> None:
+    for relpath in _design_delta_prompt_externs().values():
+        target = Path(relpath)
+        if target.is_absolute():
+            continue
+        target = module_root / target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+
+def _write_design_delta_runtime_run_checks_script(tmp_path: Path) -> None:
+    target = tmp_path / "workflows" / "library" / "scripts" / "run_neurips_backlog_checks.py"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "argv = sys.argv[1:]",
+                "report_path = Path(argv[argv.index('--report-path') + 1])",
+                "report_path.parent.mkdir(parents=True, exist_ok=True)",
+                'report_path.write_text("# checks\\n", encoding="utf-8")',
+                'bundle_path = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])',
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                'bundle_path.write_text(json.dumps({"checks_report": report_path.as_posix()}) + "\\n", encoding="utf-8")',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_design_delta_runtime_inputs(tmp_path: Path) -> None:
+    for relpath, contents in {
+        "docs/design/target.md": "# target\n",
+        "docs/design/baseline.md": "# baseline\n",
+        "docs/plans/plan.md": "# plan\n",
+        "state/check_commands.json": json.dumps(["python -m pytest -q"]) + "\n",
+    }.items():
+        target = tmp_path / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents, encoding="utf-8")
+
+
 def _nested_runtime_bound_inputs() -> dict[str, str]:
     return {
         "phase-ctx__run__run-id": "nested-smoke",
@@ -154,6 +409,27 @@ def _nested_runtime_bound_inputs() -> dict[str, str]:
         "execution_report_target": "artifacts/work/execution_report.md",
         "progress_report_target": "artifacts/work/progress_report.md",
         "review_report_target": "artifacts/work/implementation_review_report.md",
+    }
+
+
+def _design_delta_runtime_bound_inputs(*, attempt_variant: str) -> dict[str, str]:
+    return {
+        "phase-ctx__run__run-id": "design-delta-smoke",
+        "phase-ctx__run__state-root": "state/run",
+        "phase-ctx__run__artifact-root": "artifacts/run",
+        "phase-ctx__phase-name": "implementation",
+        "phase-ctx__state-root": "state/implementation",
+        "phase-ctx__artifact-root": "artifacts/implementation",
+        "target_design": "docs/design/target.md",
+        "baseline_design": "docs/design/baseline.md",
+        "plan_path": "docs/plans/plan.md",
+        "check_commands_path": "state/check_commands.json",
+        "execution_report_target_path": "artifacts/work/execution_report.md",
+        "progress_report_target_path": "artifacts/work/progress_report.md",
+        "checks_report_target_path": "artifacts/checks/checks_report.md",
+        "implementation_review_report_target_path": (
+            "artifacts/review/implementation_review_report.md"
+        ),
     }
 
 
@@ -185,6 +461,150 @@ def _rewrite_managed_write_root_bindings_for_smoke(
             f".orchestrate/test-smoke/{hashlib.sha1(value.encode('utf-8')).hexdigest()[:16]}.json"
         )
     return rewritten
+
+
+def _execute_compiled_design_delta_bundle(
+    tmp_path: Path,
+    *,
+    bundle,
+    workflow_path: Path,
+    module_root: Path,
+    attempt_variant: str,
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    _write_design_delta_runtime_prompt_assets(module_root)
+    _write_design_delta_runtime_run_checks_script(tmp_path)
+    _write_design_delta_runtime_inputs(tmp_path)
+
+    provider_calls: list[str] = []
+    provider_contexts: list[tuple[str, dict[str, str]]] = []
+    review_index = 0
+
+    def _prepare_invocation(
+        _self,
+        provider_name=None,
+        params=None,
+        context=None,
+        prompt_content=None,
+        env=None,
+        **_kwargs,
+    ):
+        provider_contexts.append((provider_name, dict(context or {})))
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=prompt_content or "",
+                env=env or {},
+                provider_name=provider_name,
+            ),
+            None,
+        )
+
+    def _execute_provider(_self, invocation, **_kwargs):
+        provider_calls.append(invocation.provider_name)
+        bundle_path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if invocation.provider_name == "fake-execute":
+            if attempt_variant == "COMPLETED":
+                execution_report = tmp_path / "artifacts" / "work" / "execution_report.md"
+                execution_report.parent.mkdir(parents=True, exist_ok=True)
+                execution_report.write_text("# execution report\n", encoding="utf-8")
+                bundle_payload = {
+                    "variant": "COMPLETED",
+                    "implementation_state": "COMPLETED",
+                    "execution_report": "artifacts/work/execution_report.md",
+                }
+            else:
+                progress_report = tmp_path / "artifacts" / "work" / "progress_report.md"
+                progress_report.parent.mkdir(parents=True, exist_ok=True)
+                progress_report.write_text("# blocked progress\n", encoding="utf-8")
+                bundle_payload = {
+                    "variant": "BLOCKED",
+                    "implementation_state": "BLOCKED",
+                    "implementation_review_decision": "NOT_APPLICABLE",
+                    "progress_report": "artifacts/work/progress_report.md",
+                    "blocker_class": "external_dependency_outside_authority",
+                }
+            bundle_path.write_text(json.dumps(bundle_payload) + "\n", encoding="utf-8")
+            return _success_provider_result()
+
+        if invocation.provider_name == "fake-review":
+            nonlocal review_index
+            review_variant = review_sequence[min(review_index, len(review_sequence) - 1)]
+            review_report = tmp_path / "artifacts" / "review" / "implementation_review_report.md"
+            review_report.parent.mkdir(parents=True, exist_ok=True)
+            review_report.write_text(f"# review report {review_index}\n", encoding="utf-8")
+            findings_path = tmp_path / "artifacts" / "work" / "findings.json"
+            findings_path.parent.mkdir(parents=True, exist_ok=True)
+            findings_path.write_text(
+                json.dumps({"schema_version": "ReviewFindings.v1", "items": []}) + "\n",
+                encoding="utf-8",
+            )
+            review_index += 1
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "variant": review_variant,
+                        "review_report": "artifacts/review/implementation_review_report.md",
+                        "findings": {
+                            "schema_version": "ReviewFindings.v1",
+                            "items_path": "artifacts/work/findings.json",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+
+        if invocation.provider_name == "fake-fix":
+            fixed_report = tmp_path / "artifacts" / "work" / "execution_report_fixed.md"
+            fixed_report.parent.mkdir(parents=True, exist_ok=True)
+            fixed_report.write_text("# fixed execution report\n", encoding="utf-8")
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "execution_report": "artifacts/work/execution_report_fixed.md",
+                        "checks_report": "artifacts/checks/checks_report.md",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+
+        raise AssertionError(f"unexpected provider call: {invocation.provider_name}")
+
+    original_resolve_bound_inputs = CallExecutor.resolve_bound_inputs
+
+    def _resolve_bound_inputs(self, step, imported_workflow, state, **kwargs):
+        bound_inputs, error = original_resolve_bound_inputs(
+            self,
+            step,
+            imported_workflow,
+            state,
+            **kwargs,
+        )
+        if error is not None or bound_inputs is None:
+            return bound_inputs, error
+        return _rewrite_managed_write_root_bindings_for_smoke(bound_inputs), None
+
+    state_manager = StateManager(workspace=tmp_path, run_id=f"design-delta-{attempt_variant.lower()}")
+    state_manager.initialize(
+        workflow_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_design_delta_runtime_bound_inputs(attempt_variant=attempt_variant),
+    )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute_provider
+    ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    return tmp_path, state, provider_calls, provider_contexts
 
 
 def _execute_nested_implementation_phase_route(
@@ -297,6 +717,46 @@ def _execute_nested_implementation_phase_route(
         )
 
     return tmp_path, state, provider_calls
+
+
+def _execute_design_delta_implementation_phase_route(
+    tmp_path: Path,
+    *,
+    attempt_variant: str,
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    workflow_path, result = _compile_design_delta_implementation_phase_runtime_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase"
+    ]
+    return _execute_compiled_design_delta_bundle(
+        tmp_path,
+        bundle=bundle,
+        workflow_path=workflow_path,
+        module_root=workflow_path.parent,
+        attempt_variant=attempt_variant,
+        review_sequence=review_sequence,
+    )
+
+
+def _execute_design_delta_parent_call_route(
+    tmp_path: Path,
+    *,
+    attempt_variant: str,
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    workflow_path, result = _compile_design_delta_parent_call_runtime_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "design_delta_parent_calls_implementation_phase::run-implementation-phase"
+    ]
+    return _execute_compiled_design_delta_bundle(
+        tmp_path,
+        bundle=bundle,
+        workflow_path=workflow_path,
+        module_root=tmp_path / "lisp_frontend_design_delta",
+        attempt_variant=attempt_variant,
+        review_sequence=review_sequence,
+    )
 
 
 def _build_module():
@@ -757,61 +1217,15 @@ def test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop(tmp_
 def test_design_delta_implementation_phase_candidate_compiles_with_variant_and_review_loop(
     tmp_path: Path,
 ) -> None:
-    result = compile_stage3_entrypoint(
-        REPO_ROOT
-        / "workflows"
-        / "library"
-        / "lisp_frontend_design_delta"
-        / "implementation_phase.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
-        provider_externs={
-            "providers.implementation.execute": "codex",
-            "providers.implementation.review": "codex",
-            "providers.implementation.fix": "codex",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": (
-                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/"
-                "implement_plan.md"
-            ),
-            "prompts.implementation.review": (
-                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/"
-                "review_implementation.md"
-            ),
-            "prompts.implementation.fix": (
-                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/"
-                "fix_implementation.md"
-            ),
-        },
-        command_boundaries={
-            "run_neurips_backlog_checks": ExternalToolBinding(
-                name="run_neurips_backlog_checks",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/run_neurips_backlog_checks.py",
-                ),
-            ),
-            "validate_review_findings_v1": ExternalToolBinding(
-                name="validate_review_findings_v1",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-                ),
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
+    result, lowered_by_name = _compile_design_delta_implementation_phase_entrypoint(tmp_path)
     assert "lisp_frontend_design_delta/types" in result.compiled_results_by_name
     assert result.entry_result.validated_bundles
-    lowered_workflows = [
-        workflow.authored_mapping
-        for compiled in result.compiled_results_by_name.values()
-        for workflow in compiled.lowered_workflows
-    ]
+    lowered_workflows = list(lowered_by_name.values())
     assert all(lowered["version"] == "2.14" for lowered in lowered_workflows)
+    assert "lisp_frontend_design_delta/implementation_phase::implementation-phase" in result.entry_result.validated_bundles
+    assert "lisp_frontend_design_delta/implementation_phase::implementation-phase" in lowered_by_name
+    assert not any(name.endswith("::execute-implementation-attempt") for name in lowered_by_name)
+    assert not any(name.endswith("::review-completed-implementation") for name in lowered_by_name)
 
     def _walk_steps(steps):
         for step in steps:
@@ -827,11 +1241,19 @@ def test_design_delta_implementation_phase_candidate_compiles_with_variant_and_r
         for lowered in lowered_workflows
         for step in _walk_steps(lowered["steps"])
     ]
-    assert any(step.get("provider") == "codex" for step in all_steps)
-    assert any("variant_output" in step for step in all_steps)
+    assert any(step.get("provider") == "fake-execute" for step in all_steps)
+    assert any(step.get("command", [])[:2] == ["python", "workflows/library/scripts/run_neurips_backlog_checks.py"] for step in all_steps)
     assert any("repeat_until" in step for step in all_steps)
-    assert any("command" in step for step in all_steps)
-    assert any("return__variant" in lowered["outputs"] for lowered in lowered_workflows)
+    assert any("match" in step for step in all_steps)
+    lowered = lowered_by_name["lisp_frontend_design_delta/implementation_phase::implementation-phase"]
+    assert "return__implementation-state" in lowered["outputs"]
+    assert "return__implementation-review-decision" in lowered["outputs"]
+    types_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "types.orc"
+    ).read_text(encoding="utf-8")
+    export_block = re.search(r"\(export(?P<body>.*?)\)\n\n", types_source, re.DOTALL)
+    assert export_block is not None
+    assert "ImplementationReviewSubject" not in export_block.group("body")
 
 
 def test_design_delta_selector_candidate_compiles_as_provider_decision(
@@ -1120,6 +1542,146 @@ def test_design_delta_migration_nested_implementation_phase_smokes_completed_and
     }
     assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
     assert not (blocked_workspace / "artifacts" / "review" / "review_report.md").exists()
+
+
+def test_design_delta_implementation_phase_candidate_smokes_completed_and_blocked_routes(
+    tmp_path: Path,
+) -> None:
+    completed_workspace, completed_state, completed_provider_calls, _completed_provider_contexts = (
+        _execute_design_delta_implementation_phase_route(tmp_path / "completed", attempt_variant="COMPLETED")
+    )
+    revised_workspace, revised_state, revised_provider_calls, revised_provider_contexts = (
+        _execute_design_delta_implementation_phase_route(
+        tmp_path / "revised",
+        attempt_variant="COMPLETED",
+        review_sequence=("REVISE", "APPROVE"),
+    ))
+    blocked_workspace, blocked_state, blocked_provider_calls, _blocked_provider_contexts = (
+        _execute_design_delta_implementation_phase_route(
+        tmp_path / "blocked",
+        attempt_variant="BLOCKED",
+    ))
+
+    assert completed_state["status"] == "completed"
+    assert completed_provider_calls == ["fake-execute", "fake-review"]
+    assert completed_state["workflow_outputs"] == {
+        "return__implementation-state": "COMPLETED",
+        "return__implementation-review-decision": "APPROVE",
+        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__progress-report": "artifacts/work/progress_report.md",
+        "return__checks-report": "artifacts/checks/checks_report.md",
+        "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
+    }
+    assert (completed_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
+    assert (completed_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
+    assert not (completed_workspace / "artifacts" / "work" / "progress_report.md").exists()
+
+    assert revised_state["status"] == "completed"
+    assert revised_provider_calls == ["fake-execute", "fake-review", "fake-fix", "fake-review"]
+    assert revised_state["workflow_outputs"] == {
+        "return__implementation-state": "COMPLETED",
+        "return__implementation-review-decision": "APPROVE",
+        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__progress-report": "artifacts/work/progress_report.md",
+        "return__checks-report": "artifacts/checks/checks_report.md",
+        "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
+    }
+    assert _state_contains_artifact_value(
+        revised_state,
+        "state__completed__execution_report",
+        "artifacts/work/execution_report_fixed.md",
+    )
+    assert (revised_workspace / "artifacts" / "work" / "execution_report_fixed.md").is_file()
+    assert (revised_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
+    assert (revised_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
+    assert not (revised_workspace / "artifacts" / "work" / "progress_report.md").exists()
+
+    assert blocked_state["status"] == "completed"
+    assert blocked_provider_calls == ["fake-execute"]
+    assert blocked_state["workflow_outputs"] == {
+        "return__implementation-state": "BLOCKED",
+        "return__implementation-review-decision": "NOT_APPLICABLE",
+        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__progress-report": "artifacts/work/progress_report.md",
+        "return__checks-report": "artifacts/checks/checks_report.md",
+        "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
+    }
+    assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
+    assert not (blocked_workspace / "artifacts" / "work" / "execution_report.md").exists()
+    assert not (blocked_workspace / "artifacts" / "checks" / "checks_report.md").exists()
+    assert not (
+        blocked_workspace / "artifacts" / "review" / "implementation_review_report.md"
+    ).exists()
+
+
+def test_design_delta_parent_call_implementation_phase_smokes_completed_and_blocked_routes(
+    tmp_path: Path,
+) -> None:
+    completed_workspace, completed_state, completed_provider_calls, _completed_provider_contexts = (
+        _execute_design_delta_parent_call_route(tmp_path / "completed", attempt_variant="COMPLETED")
+    )
+    revised_workspace, revised_state, revised_provider_calls, revised_provider_contexts = (
+        _execute_design_delta_parent_call_route(
+        tmp_path / "revised",
+        attempt_variant="COMPLETED",
+        review_sequence=("REVISE", "APPROVE"),
+    ))
+    blocked_workspace, blocked_state, blocked_provider_calls, _blocked_provider_contexts = (
+        _execute_design_delta_parent_call_route(
+        tmp_path / "blocked",
+        attempt_variant="BLOCKED",
+    ))
+
+    assert completed_state["status"] == "completed"
+    assert completed_provider_calls == ["fake-execute", "fake-review"]
+    assert completed_state["workflow_outputs"] == {
+        "return__implementation-state": "COMPLETED",
+        "return__implementation-review-decision": "APPROVE",
+        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__progress-report": "artifacts/work/progress_report.md",
+        "return__checks-report": "artifacts/checks/checks_report.md",
+        "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
+    }
+    assert (completed_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
+    assert (completed_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
+    assert not (completed_workspace / "artifacts" / "work" / "progress_report.md").exists()
+
+    assert revised_state["status"] == "completed"
+    assert revised_provider_calls == ["fake-execute", "fake-review", "fake-fix", "fake-review"]
+    assert revised_state["workflow_outputs"] == {
+        "return__implementation-state": "COMPLETED",
+        "return__implementation-review-decision": "APPROVE",
+        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__progress-report": "artifacts/work/progress_report.md",
+        "return__checks-report": "artifacts/checks/checks_report.md",
+        "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
+    }
+    assert _state_contains_artifact_value(
+        revised_state,
+        "state__completed__execution_report",
+        "artifacts/work/execution_report_fixed.md",
+    )
+    assert (revised_workspace / "artifacts" / "work" / "execution_report_fixed.md").is_file()
+    assert (revised_workspace / "artifacts" / "checks" / "checks_report.md").is_file()
+    assert (revised_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
+    assert not (revised_workspace / "artifacts" / "work" / "progress_report.md").exists()
+
+    assert blocked_state["status"] == "completed"
+    assert blocked_provider_calls == ["fake-execute"]
+    assert blocked_state["workflow_outputs"] == {
+        "return__implementation-state": "BLOCKED",
+        "return__implementation-review-decision": "NOT_APPLICABLE",
+        "return__execution-report": "artifacts/work/execution_report.md",
+        "return__progress-report": "artifacts/work/progress_report.md",
+        "return__checks-report": "artifacts/checks/checks_report.md",
+        "return__implementation-review-report": "artifacts/review/implementation_review_report.md",
+    }
+    assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
+    assert not (blocked_workspace / "artifacts" / "work" / "execution_report.md").exists()
+    assert not (blocked_workspace / "artifacts" / "checks" / "checks_report.md").exists()
+    assert not (
+        blocked_workspace / "artifacts" / "review" / "implementation_review_report.md"
+    ).exists()
 
 
 def test_design_delta_migration_nested_same_file_call_with_local_record_compiles(

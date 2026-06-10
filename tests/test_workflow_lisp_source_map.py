@@ -15,6 +15,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_RESOURCE_TRANSITION_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
@@ -132,6 +133,61 @@ def _build_entrypoint_source_map_document(
         display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
     )
     return source_map_module, document, workflow_name
+
+
+def _build_design_delta_implementation_phase_source_map_document(
+    tmp_path: Path,
+):
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "implementation_phase.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={
+            "providers.implementation.execute": "fake-execute",
+            "providers.implementation.review": "fake-review",
+            "providers.implementation.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+            ),
+            "prompts.implementation.review": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+            ),
+            "prompts.implementation.fix": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+            ),
+        },
+        command_boundaries={
+            "run_neurips_backlog_checks": ExternalToolBinding(
+                name="run_neurips_backlog_checks",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/run_neurips_backlog_checks.py",
+                ),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    workflow_name = "lisp_frontend_design_delta/implementation_phase::implementation-phase"
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name=result.compiled_results_by_name,
+            validated_bundles_by_name=result.validated_bundles_by_name,
+        ),
+        selected_name=workflow_name,
+        display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+    return document, workflow_name
 
 
 def _write_parametric_source_map_module(path: Path) -> Path:
@@ -468,6 +524,15 @@ def test_source_map_records_generated_paths_inside_nested_branch_scopes(tmp_path
     )
     workflow = document.workflows[workflow_name]
 
+    assert workflow.generated_paths
+
+
+def test_source_map_records_design_delta_implementation_phase_lineage(tmp_path: Path) -> None:
+    document, workflow_name = _build_design_delta_implementation_phase_source_map_document(tmp_path)
+    workflow = document.workflows[workflow_name]
+
+    assert workflow.step_ids
+    assert workflow.executable_nodes
     assert workflow.generated_paths
 
 

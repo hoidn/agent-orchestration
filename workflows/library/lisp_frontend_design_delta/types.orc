@@ -2,12 +2,15 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/types)
-  (import std/phase :only (BlockerClass ReviewDecision ReviewFindings))
+  (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewReportPath))
   (export
     ArchitectureValidationResult
     ArtifactChecksPath
+    ArtifactChecksTargetPath
     ArtifactReviewPath
+    ArtifactReviewTargetPath
     ArtifactWorkPath
+    ArtifactWorkTargetPath
     BaselineDesignDoc
     BlockedRecoveryDecision
     BlockedRecoveryReason
@@ -159,6 +162,11 @@
     :under "artifacts/work"
     :must-exist true)
 
+  (defpath ArtifactWorkTargetPath
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist false)
+
   (defpath ArtifactReviewPath
     :kind relpath
     :under "artifacts/review"
@@ -168,6 +176,16 @@
     :kind relpath
     :under "artifacts/checks"
     :must-exist true)
+
+  (defpath ArtifactChecksTargetPath
+    :kind relpath
+    :under "artifacts/checks"
+    :must-exist false)
+
+  (defpath ArtifactReviewTargetPath
+    :kind relpath
+    :under "artifacts/review"
+    :must-exist false)
 
   (defpath WorkReport
     :kind relpath
@@ -271,10 +289,10 @@
   (defrecord ImplementationPhaseResult
     (implementation-state String)
     (implementation-review-decision String)
-    (execution-report ArtifactWorkPath)
-    (progress-report ArtifactWorkPath)
-    (checks-report ArtifactChecksPath)
-    (implementation-review-report ArtifactReviewPath))
+    (execution-report ArtifactWorkTargetPath)
+    (progress-report ArtifactWorkTargetPath)
+    (checks-report ArtifactChecksTargetPath)
+    (implementation-review-report ArtifactReviewTargetPath))
 
   (defunion DrainResult
     (DONE
