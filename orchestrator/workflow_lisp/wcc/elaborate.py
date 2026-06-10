@@ -10,9 +10,15 @@ from ..expressions import (
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
+    ContinueExpr,
+    DoneExpr,
     FieldAccessExpr,
+    GeneratedRelpathSeedExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
+    LoopRecurExpr,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
@@ -22,8 +28,10 @@ from ..expressions import (
     UnionVariantExpr,
     WithPhaseExpr,
 )
-from ..type_env import FrontendTypeEnvironment, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef
+from ..type_env import FrontendTypeEnvironment, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef
 from ..typecheck_context import TypedExpr
+from ..loops import LoopControlTypeRef
+from ..loop_state import carrier_metadata_for_expr
 from ..workflows import TypedWorkflowDef
 from .model import (
     WccBody,
@@ -39,10 +47,14 @@ from .model import (
     WccJump,
     WccLet,
     WccLiteralAtom,
+    WccLoopContinue,
+    WccLoopDone,
     WccNameAtom,
+    WccOpaqueFrontendValue,
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPerform,
+    WccRecJoin,
     WccRecordAtom,
     WccValue,
 )
@@ -188,6 +200,84 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+    if isinstance(expr, LoopRecurExpr):
+        return _elaborate_loop_recur_to_body(
+            expr,
+            scope=scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+    if isinstance(expr, ContinueExpr):
+        prefix, state_value = _elaborate_expr_to_value(
+            expr.state_expr,
+            scope=scope.child_scope("loop-continue", authored_binding_name="state"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        continue_node = WccLoopContinue(
+            metadata=scope.body_metadata(
+                role="loop:continue",
+                type_ref=_infer_expr_type(
+                    expr.state_expr,
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                ),
+                source_span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+                effect_summary=effect_summary,
+                phase_scope=active_phase_scope,
+            ),
+            target_name="__wcc_current_loop__",
+            state_args=(state_value,),
+        )
+        return _wrap_prefix_lets(prefix, continue_node)
+    if isinstance(expr, DoneExpr):
+        prefix, result_value = _elaborate_expr_to_value(
+            expr.result_expr,
+            scope=scope.child_scope("loop-done", authored_binding_name="result"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        done_node = WccLoopDone(
+            metadata=scope.body_metadata(
+                role="loop:done",
+                type_ref=_infer_expr_type(
+                    expr.result_expr,
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                ),
+                source_span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+                effect_summary=effect_summary,
+                phase_scope=active_phase_scope,
+            ),
+            result=result_value,
+        )
+        return _wrap_prefix_lets(prefix, done_node)
     if isinstance(expr, (ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr)):
         return _elaborate_effect_expr_to_body(
             expr,
@@ -404,6 +494,131 @@ def _elaborate_let_star(
     return build(0, dict(value_env), scope, dict(compile_time_bindings))
 
 
+def _elaborate_loop_recur_to_body(
+    expr: LoopRecurExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> WccBody:
+    state_type = _infer_expr_type(
+        expr.initial_state_expr,
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+    )
+    result_type = _infer_expr_type(
+        expr,
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+    )
+    loop_scope = scope.child_scope("rec-join", authored_binding_name=expr.binding_name)
+    loop_name = f"__wcc_loop_{expr.binding_name}_{loop_scope.scope_id.rsplit(':', 1)[-1]}"
+    state_prefix, initial_state = _elaborate_expr_to_value(
+        expr.initial_state_expr,
+        scope=loop_scope.child_scope("loop-state", authored_binding_name=expr.binding_name),
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    budget_prefix, budget = _elaborate_expr_to_value(
+        expr.max_iterations_expr,
+        scope=loop_scope.child_scope("loop-budget", authored_binding_name=expr.binding_name),
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    loop_env = dict(value_env)
+    loop_env[expr.binding_name] = state_type
+    body = _retarget_loop_continue(
+        _elaborate_expr_to_body(
+            expr.body_expr,
+            scope=loop_scope.child_scope("loop-body", authored_binding_name=expr.binding_name),
+            type_env=type_env,
+            value_env=loop_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        ),
+        loop_name=loop_name,
+    )
+    exhaustion = None
+    if expr.on_exhausted_result_expr is not None:
+        exhaustion = _elaborate_expr_to_body(
+            expr.on_exhausted_result_expr,
+            scope=loop_scope.child_scope("loop-exhaustion", authored_binding_name=expr.binding_name),
+            type_env=type_env,
+            value_env=loop_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+    rec_join = WccRecJoin(
+        metadata=loop_scope.body_metadata(
+            role=f"rec-join:{expr.binding_name}",
+            type_ref=result_type,
+            source_span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            effect_summary=effect_summary,
+            phase_scope=active_phase_scope,
+        ),
+        loop_name=loop_name,
+        params=(WccJoinParam(name=expr.binding_name, type_ref=state_type),),
+        budget=budget,
+        body=body,
+        exhaustion=exhaustion,
+        initial_state=initial_state,
+    )
+    return _wrap_prefix_lets((*state_prefix, *budget_prefix), rec_join)
+
+
+def _retarget_loop_continue(body: WccBody, *, loop_name: str) -> WccBody:
+    if isinstance(body, WccLoopContinue):
+        return replace(body, target_name=loop_name)
+    if isinstance(body, WccLet):
+        return replace(body, body=_retarget_loop_continue(body.body, loop_name=loop_name))
+    if isinstance(body, WccCase):
+        return replace(
+            body,
+            arms=tuple(
+                WccCaseArm(
+                    variant_name=arm.variant_name,
+                    binding_name=arm.binding_name,
+                    binding_type_ref=arm.binding_type_ref,
+                    body=_retarget_loop_continue(arm.body, loop_name=loop_name),
+                )
+                for arm in body.arms
+            ),
+        )
+    return body
+
+
 def _is_linear_value_body(body: WccBody) -> bool:
     current = body
     while isinstance(current, WccLet):
@@ -511,6 +726,26 @@ def _elaborate_expr_to_value(
                     expansion_stack=expr.expansion_stack,
                 ),
                 target_name=expr.target_name,
+            ),
+        )
+    if isinstance(expr, (LoopStateSeedExpr, LoopStateUpdateExpr, GeneratedRelpathSeedExpr)):
+        return (
+            (),
+            WccOpaqueFrontendValue(
+                metadata=scope.atom_metadata(
+                    role=f"opaque:{type(expr).__name__}",
+                    type_ref=_infer_expr_type(
+                        expr,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                expr=expr,
             ),
         )
     if isinstance(expr, FieldAccessExpr):
@@ -1496,6 +1731,26 @@ def _infer_expr_type(
         return value_env[expr.name]
     if isinstance(expr, PhaseTargetExpr):
         return PrimitiveTypeRef(name="String")
+    if isinstance(expr, GeneratedRelpathSeedExpr):
+        return expr.target_type_ref
+    if isinstance(expr, LoopStateSeedExpr):
+        metadata = carrier_metadata_for_expr(expr)
+        if metadata is None:
+            raise TypeError("loop-state seed metadata was unavailable during WCC inference")
+        return type_env.resolve_type(
+            metadata.generated_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, LoopStateUpdateExpr):
+        return _infer_expr_type(
+            expr.base_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
     if isinstance(expr, FieldAccessExpr):
         current: TypeRef = value_env[expr.base.name]
         for field_name in expr.fields:
@@ -1513,6 +1768,52 @@ def _infer_expr_type(
         return _require_record_type(expr, type_env=type_env)
     if isinstance(expr, UnionVariantExpr):
         return _require_union_type(expr, type_env=type_env)
+    if isinstance(expr, ContinueExpr):
+        state_type = _infer_expr_type(
+            expr.state_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        return LoopControlTypeRef(state_type_ref=state_type, result_type_ref=None)
+    if isinstance(expr, DoneExpr):
+        result_type = _infer_expr_type(
+            expr.result_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        return LoopControlTypeRef(state_type_ref=result_type, result_type_ref=result_type)
+    if isinstance(expr, LoopRecurExpr):
+        state_type = _infer_expr_type(
+            expr.initial_state_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        loop_env = dict(value_env)
+        loop_env[expr.binding_name] = state_type
+        body_type = _infer_expr_type(
+            expr.body_expr,
+            type_env=type_env,
+            value_env=loop_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        if isinstance(body_type, LoopControlTypeRef) and body_type.result_type_ref is not None:
+            return body_type.result_type_ref
+        if expr.on_exhausted_result_expr is not None:
+            return _infer_expr_type(
+                expr.on_exhausted_result_expr,
+                type_env=type_env,
+                value_env=loop_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+        raise TypeError("loop/recur body must expose a done result type")
     if isinstance(expr, LetStarExpr):
         local_env = dict(value_env)
         for binding_name, binding_expr in expr.bindings:
@@ -1574,6 +1875,9 @@ def _infer_expr_type(
     if isinstance(expr, CallExpr):
         return workflow_return_types[expr.callee_name]
     if isinstance(expr, ProcedureCallExpr):
+        proc_ref_type = value_env.get(expr.callee_name)
+        if isinstance(proc_ref_type, ProcRefTypeRef):
+            return proc_ref_type.return_type_ref
         return procedure_return_types[expr.callee_name]
     if isinstance(expr, BindProcExpr):
         return value_env.get(expr.base_expr.target_name, PrimitiveTypeRef(name="String"))

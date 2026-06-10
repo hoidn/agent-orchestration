@@ -4,6 +4,7 @@ from .model import (
     WCC_M1_ROUTE_SCHEMA_VERSION,
     WCC_M2_ROUTE_SCHEMA_VERSION,
     WCC_M3_ROUTE_SCHEMA_VERSION,
+    WCC_M4_ROUTE_SCHEMA_VERSION,
     WccAtom,
     WccBindingValue,
     WccBody,
@@ -19,16 +20,21 @@ from .model import (
     WccJump,
     WccLet,
     WccLiteralAtom,
+    WccLoopContinue,
+    WccLoopDone,
+    WccLoopRole,
     WccNameAtom,
     WccNodeMetadata,
+    WccOpaqueFrontendValue,
     WccPhaseTargetAtom,
     WccPhaseScope,
     WccPerform,
     WccProgram,
+    WccRecJoin,
     WccRecordAtom,
     WccValue,
 )
-from .analysis import WccArmScope, WccJoinSite, WccScopeAnalysis, analyze_wcc_body
+from .analysis import WccArmScope, WccJoinSite, WccLoopSite, WccScopeAnalysis, analyze_wcc_body
 from .anf import normalize_wcc_body_to_anf
 from .elaborate import elaborate_typed_workflow, elaborate_typed_workflow_body
 from .route import (
@@ -38,6 +44,7 @@ from .route import (
     validate_wcc_m1_route_supported,
     validate_wcc_m2_route_supported,
     validate_wcc_m3_route_supported,
+    validate_wcc_m4_route_supported,
 )
 
 __all__ = [
@@ -46,6 +53,7 @@ __all__ = [
     "WCC_M3_ROUTE_SCHEMA_VERSION",
     "WCC_M1_ROUTE_SCHEMA_VERSION",
     "WCC_M2_ROUTE_SCHEMA_VERSION",
+    "WCC_M4_ROUTE_SCHEMA_VERSION",
     "WccAtom",
     "WccBindingValue",
     "WccBody",
@@ -61,16 +69,22 @@ __all__ = [
     "WccJump",
     "WccLet",
     "WccLiteralAtom",
+    "WccLoopContinue",
+    "WccLoopDone",
+    "WccLoopRole",
     "WccNameAtom",
     "WccNodeMetadata",
+    "WccOpaqueFrontendValue",
     "WccPhaseTargetAtom",
     "WccPhaseScope",
     "WccPerform",
     "WccProgram",
+    "WccRecJoin",
     "WccRecordAtom",
     "WccValue",
     "WccArmScope",
     "WccJoinSite",
+    "WccLoopSite",
     "WccScopeAnalysis",
     "analyze_wcc_body",
     "normalize_wcc_body_to_anf",
@@ -80,4 +94,5 @@ __all__ = [
     "validate_wcc_m1_route_supported",
     "validate_wcc_m2_route_supported",
     "validate_wcc_m3_route_supported",
+    "validate_wcc_m4_route_supported",
 ]

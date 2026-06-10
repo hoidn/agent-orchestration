@@ -283,6 +283,75 @@ def _same_file_wcc_m3_source_map_payload(
     return _thaw_source_map_value(source_map)
 
 
+def _route_neutral_wcc_m4_source_map_payload(tmp_path: Path) -> dict[str, object]:
+    fixture_path = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
+    module_text = fixture_path.read_text(encoding="utf-8").replace(
+        '  (:target-dsl "2.14")\n',
+        '  (:target-dsl "2.14")\n'
+        "  (defmodule route_neutral_loop)\n"
+        "  (export loop-recur-on-exhausted-union)\n",
+        1,
+    )
+    module_path = tmp_path / "route_neutral_loop.orc"
+    module_path.write_text(module_text, encoding="utf-8")
+    graph = resolve_module_graph(module_path, source_roots=(tmp_path,))
+    compile_result = workflow_lisp_compiler._compile_stage3_graph(
+        graph,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        },
+        imported_workflow_bundles=None,
+        command_boundaries=None,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=workflow_lisp_compiler.normalize_lowering_route("wcc_m4"),
+    )
+    source_map = build_source_map_document(
+        compile_result,
+        selected_name="route_neutral_loop::loop-recur-on-exhausted-union",
+        display_name_resolver=lambda workflow_name: workflow_name.split("::")[-1],
+    )
+    return _thaw_source_map_value(source_map)
+
+
+def _wcc_m4_full_fixture_source_map_payload(tmp_path: Path) -> dict[str, object]:
+    fixture_path = FIXTURES / "characterization" / "sources" / "wcc_m4_implementation_phase_full_fixture.orc"
+    compile_result = compile_stage3_entrypoint(
+        fixture_path,
+        source_roots=(fixture_path.parent,),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    source_map = build_source_map_document(
+        compile_result,
+        selected_name="wcc_m4_implementation_phase_full_fixture::run",
+        display_name_resolver=lambda workflow_name: workflow_name.split("::")[-1],
+    )
+    return _thaw_source_map_value(source_map)
+
+
 def _workflow_public_input_contracts(bundle):
     helper = getattr(
         loaded_bundle_helpers,
@@ -1619,6 +1688,46 @@ def test_same_file_wcc_m3_source_map_keeps_route_names_out_and_preserves_match_j
     assert any(node["kind"] == "match_join" for node in workflow["executable_nodes"])
     assert workflow["validation_subjects"]
     assert workflow["core_nodes"]
+
+
+def test_wcc_m4_source_map_keeps_route_names_out_and_preserves_repeat_until_lineage(
+    tmp_path: Path,
+) -> None:
+    source_map = _route_neutral_wcc_m4_source_map_payload(tmp_path)
+    source_map_text = json.dumps(source_map, sort_keys=True).replace(str(tmp_path), "")
+    workflow = source_map["workflows"]["route_neutral_loop::loop-recur-on-exhausted-union"]
+
+    assert "wcc_m4" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
+    assert "Wcc" not in source_map_text
+    assert any(node["step_kind"] == "repeat_until" for node in workflow["core_nodes"])
+    assert any(node["kind"] == "repeat_until_frame" for node in workflow["executable_nodes"])
+    assert {"return__variant", "return__reason", "return__report"}.issubset(workflow["generated_outputs"])
+    assert workflow["generated_outputs"]["return__reason"]["generated_name_origin"] == "return__reason"
+    assert workflow["validation_subjects"]
+
+
+def test_wcc_m4_full_fixture_source_map_records_review_loop_and_command_lineage(
+    tmp_path: Path,
+) -> None:
+    source_map = _wcc_m4_full_fixture_source_map_payload(tmp_path)
+    source_map_text = json.dumps(source_map, sort_keys=True)
+    workflow = source_map["workflows"]["wcc_m4_implementation_phase_full_fixture::run"]
+
+    command_names = {boundary["command_name"] for boundary in workflow["command_boundaries"]}
+    assert {"run_checks", "validate_review_findings_v1"}.issubset(command_names)
+    assert any(node["step_kind"] == "repeat_until" for node in workflow["core_nodes"])
+    assert any(node["kind"] == "repeat_until_frame" for node in workflow["executable_nodes"])
+    assert {"return__variant", "return__review_report", "return__findings__items_path"}.issubset(
+        workflow["generated_outputs"]
+    )
+    assert any(
+        allocation["semantic_role"] == "command_result_bundle" and "run_checks" in allocation["stable_identity"]
+        for allocation in workflow["generated_path_allocations"]
+    )
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

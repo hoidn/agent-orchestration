@@ -389,6 +389,7 @@ class RepeatUntilFrameNode(ExecutableNodeBase):
 
     body_node_ids: tuple[str, ...] = ()
     body_entry_node_id: Optional[str] = None
+    bound_when_predicate: Any = None
     condition: Any = None
     max_iterations: Optional[int] = None
     output_contracts: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)

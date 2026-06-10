@@ -351,7 +351,11 @@ class FrontendTypeEnvironment:
                 if isinstance(record_type, RecordTypeRef):
                     resolved = record_type.field_types.get(field_name)
                 else:
-                    union_type = self._type_refs.get(record_type.union_name)
+                    union_type = _lookup_type_ref(
+                        self._type_refs,
+                        record_type.union_name,
+                        import_scope=self._import_scope,
+                    )
                     resolved = (
                         union_type.variant_field_types.get(record_type.variant_name, {}).get(field_name)
                         if isinstance(union_type, UnionTypeRef)
@@ -402,7 +406,11 @@ class FrontendTypeEnvironment:
         variant_type: VariantCaseTypeRef,
         field_name: str,
     ) -> bool:
-        union_type = self._type_refs.get(variant_type.union_name)
+        union_type = _lookup_type_ref(
+            self._type_refs,
+            variant_type.union_name,
+            import_scope=self._import_scope,
+        )
         if not isinstance(union_type, UnionTypeRef):
             return False
         for variant in union_type.definition.variants:
@@ -762,6 +770,36 @@ def render_type_ref(type_ref: TypeRef) -> str:
     if isinstance(type_ref, TypeParamRef):
         return type_ref.name
     raise TypeError(f"unsupported type ref: {type(type_ref)!r}")
+
+
+def _render_named_type_ref(name: str) -> str:
+    if "::" in name:
+        module_name, member_name = name.split("::", 1)
+        return f"{module_name}/{member_name}"
+    return name
+
+
+def _lookup_type_ref(
+    type_refs: dict[str, TypeRef],
+    name: str,
+    *,
+    import_scope: "ModuleImportScope | None" = None,
+) -> TypeRef | None:
+    direct = type_refs.get(name)
+    if direct is not None:
+        return direct
+    if import_scope is not None:
+        binding = import_scope.unqualified_type_bindings.get(name) or import_scope.type_bindings.get(name)
+        if binding is not None:
+            resolved = type_refs.get(binding.canonical_name)
+            if resolved is not None:
+                return resolved
+    if "::" in name:
+        return type_refs.get(_render_named_type_ref(name))
+    if "/" in name:
+        module_name, member_name = name.rsplit("/", 1)
+        return type_refs.get(f"{module_name}::{member_name}")
+    return None
 
 
 def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:

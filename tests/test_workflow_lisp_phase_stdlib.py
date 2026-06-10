@@ -1023,7 +1023,7 @@ def test_typecheck_rejects_review_findings_json_path_substitution(tmp_path: Path
     _assert_diagnostic_code(excinfo, "type_mismatch")
 
 
-def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tmp_path: Path) -> None:
+def test_typecheck_accepts_review_revise_loop_name_as_stdlib_macro_argument(tmp_path: Path) -> None:
     path = _rewrite_fixture(
         VALID_REVIEW_LOOP_FIXTURE,
         replacements=(("review-revise-loop implementation-review", "review-revise-loop wrong-loop"),),
@@ -1031,10 +1031,7 @@ def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tm
         filename="phase_stdlib_review_loop.orc",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(path)
-
-    _assert_diagnostic_code(excinfo, "phase_scope_name_mismatch")
+    _typecheck_fixture(path)
 
 
 def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface(tmp_path: Path) -> None:
@@ -1042,8 +1039,8 @@ def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface
         VALID_REVIEW_LOOP_FIXTURE,
         replacements=(
             (
-                "  (import std/phase :only (ReviewFindings review-revise-loop))\n",
-                "  (import std/phase :only (ReviewFindings))\n",
+                "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop))\n",
+                "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult))\n",
             ),
         ),
         tmp_path=tmp_path,
@@ -1676,7 +1673,7 @@ def test_review_revise_loop_generated_review_workflow_normalizes_union_outputs(t
     assert normalization_step["match"]["ref"].endswith("__loop.artifacts.result__variant")
 
 
-def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path: Path) -> None:
+def test_review_revise_loop_repeat_body_parent_scoped_materialize_refs_target_loop_state(tmp_path: Path) -> None:
     result = _compile(
         VALID_REVIEW_LOOP_FIXTURE,
         tmp_path=tmp_path,
@@ -1690,7 +1687,7 @@ def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path:
     )
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
 
-    scoped_materialize_refs: list[tuple[str, str, str]] = []
+    parent_scoped_materialize_refs: list[tuple[str, str, str]] = []
     for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"]):
         materialize = step.get("materialize_artifacts")
         if not isinstance(materialize, dict):
@@ -1700,10 +1697,11 @@ def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path:
                 continue
             source = value.get("source")
             ref = source.get("ref") if isinstance(source, dict) else None
-            if isinstance(ref, str) and ref.startswith(("self.steps.", "parent.steps.")):
-                scoped_materialize_refs.append((step.get("name", "<unnamed>"), value.get("name", "<unnamed>"), ref))
+            if isinstance(ref, str) and ref.startswith("parent.steps."):
+                parent_scoped_materialize_refs.append((step.get("name", "<unnamed>"), value.get("name", "<unnamed>"), ref))
 
-    assert scoped_materialize_refs == []
+    assert parent_scoped_materialize_refs
+    assert all("__body__state.artifacts.state__" in ref for _, _, ref in parent_scoped_materialize_refs)
 
 
 def test_lowering_resume_or_start_registers_generated_loader_binding(tmp_path: Path) -> None:

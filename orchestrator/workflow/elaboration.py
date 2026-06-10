@@ -366,6 +366,7 @@ def _elaborate_step(
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
             common=common,
+            when_predicate=when_predicate,
             repeat_until=repeat_until,
         )
 

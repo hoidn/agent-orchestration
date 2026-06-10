@@ -542,6 +542,7 @@ class _IRBuilder:
             ),
             body_node_ids=tuple(body_node_ids),
             body_entry_node_id=body_node_ids[0] if body_node_ids else None,
+            bound_when_predicate=_bind_predicate(step.when_predicate, context),
             condition=_bind_predicate(step.repeat_until.condition, body_context),
             max_iterations=step.repeat_until.max_iterations,
             output_contracts=_bind_contracts(step.repeat_until.outputs, body_context),

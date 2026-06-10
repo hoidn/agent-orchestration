@@ -2246,7 +2246,7 @@
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:entrypoint_managed_write_root:0bd378db5d721e63",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__review_decision__review_1__result__result_bundle.json",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase__0a5bb3c140b8f48d.json",
           "generated_input_name": "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__review_decision__review_1__result__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
@@ -2256,7 +2256,7 @@
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:entrypoint_managed_write_root:de3822e1dc890103",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle.json",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase__861210b2f014d3b1.json",
           "generated_input_name": "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
@@ -2266,7 +2266,7 @@
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:entrypoint_managed_write_root:d889efcdc8c528f5",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle.json",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase__404ad2e7600abad9.json",
           "generated_input_name": "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
@@ -2276,7 +2276,7 @@
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:entrypoint_managed_write_root:b861941807fd2059",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__revise__fixed_completed__fix_1__result__result_bundle.json",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase__c000635bb55e0e04.json",
           "generated_input_name": "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__revise__fixed_completed__fix_1__result__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
@@ -2286,7 +2286,7 @@
         },
         {
           "allocation_id": "alloc:phase_stdlib_review_loop_review-revise-loop-demo:entrypoint_managed_write_root:109ae8b6eab88922",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle.json",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/phase_stdlib_review_loop_review-revise-loop-demo/__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase__e3d4cf851bac2409.json",
           "generated_input_name": "__write_root__phase_stdlib_review_loop_review_revise_loop_demo___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_b2a36fc5ffed_5b9489debfb6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",

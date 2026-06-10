@@ -1,0 +1,1308 @@
+{
+  "case_id": "wcc_m4_loop_under_case",
+  "compiled_module_names": [
+    "wcc_m4_loop_under_case"
+  ],
+  "diagnostics": [
+    {
+      "code": "variant_output_without_variant_specific_fields",
+      "diagnostic_kind": "required_lint",
+      "form_path": [
+        "workflow-lisp",
+        "defworkflow",
+        "run"
+      ],
+      "message": "union `LoopResult` lowers without variant-specific fields; prefer a record plus enum",
+      "notes": [],
+      "phase": "typecheck",
+      "severity": "warn",
+      "span": {
+        "end": {
+          "column": 39,
+          "line": 59,
+          "offset": 1682,
+          "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m4_loop_under_case.orc"
+        },
+        "start": {
+          "column": 3,
+          "line": 31,
+          "offset": 661,
+          "path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m4_loop_under_case.orc"
+        }
+      }
+    }
+  ],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "__write_root__run__attempt__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "__write_root__run__match_attempt__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "report_path": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "run",
+        "outputs": {
+          "return__reason": {
+            "from": {
+              "ref": "root.steps.run__match_attempt.artifacts.return__reason"
+            },
+            "kind": "scalar",
+            "type": "string"
+          },
+          "return__report": {
+            "from": {
+              "ref": "root.steps.run__match_attempt.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "return__status": {
+            "from": {
+              "ref": "root.steps.run__match_attempt.artifacts.return__status"
+            },
+            "kind": "scalar",
+            "type": "string"
+          },
+          "return__variant": {
+            "allowed": [
+              "COMPLETED",
+              "BLOCKED",
+              "EXHAUSTED"
+            ],
+            "from": {
+              "ref": "root.steps.run__match_attempt.artifacts.return__variant"
+            },
+            "kind": "scalar",
+            "type": "enum"
+          }
+        },
+        "steps": [
+          {
+            "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+            "id": "run__attempt",
+            "inject_output_contract": true,
+            "name": "run__attempt",
+            "provider": "fake-execute",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.__write_root__run__attempt__result_bundle}",
+              "shared_fields": [
+                {
+                  "json_pointer": "/report",
+                  "must_exist_target": true,
+                  "name": "report",
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                }
+              ],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/reason",
+                      "name": "reason",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": []
+                }
+              }
+            }
+          },
+          {
+            "id": "run__match_attempt__completed__seed",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": true,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "state__report",
+                  "source": {
+                    "ref": "root.steps.run__attempt.artifacts.report"
+                  }
+                }
+              ]
+            },
+            "name": "run__match_attempt__completed__seed",
+            "requires_variant": {
+              "step": "run__attempt",
+              "value": "COMPLETED"
+            },
+            "when": {
+              "compare": {
+                "left": {
+                  "ref": "root.steps.run__attempt.artifacts.variant"
+                },
+                "op": "eq",
+                "right": "COMPLETED"
+              }
+            }
+          },
+          {
+            "id": "run__match_attempt__completed__loop",
+            "name": "run__match_attempt__completed__loop",
+            "repeat_until": {
+              "condition": {
+                "compare": {
+                  "left": {
+                    "ref": "self.outputs.status"
+                  },
+                  "op": "eq",
+                  "right": "DONE"
+                }
+              },
+              "id": "run__match_attempt__completed__loop__iteration",
+              "max_iterations": 1,
+              "on_exhausted": {
+                "outputs": {
+                  "result__reason": "max_iterations_reached",
+                  "result__status": "exhausted",
+                  "result__variant": "EXHAUSTED"
+                }
+              },
+              "outputs": {
+                "result__reason": {
+                  "from": {
+                    "ref": "self.steps.run__match_attempt__completed__body.artifacts.result__reason"
+                  },
+                  "kind": "scalar",
+                  "type": "string"
+                },
+                "result__report": {
+                  "from": {
+                    "ref": "self.steps.run__match_attempt__completed__body__state.artifacts.state__report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "result__status": {
+                  "from": {
+                    "ref": "self.steps.run__match_attempt__completed__body.artifacts.result__status"
+                  },
+                  "kind": "scalar",
+                  "type": "string"
+                },
+                "result__variant": {
+                  "allowed": [
+                    "COMPLETED",
+                    "BLOCKED",
+                    "EXHAUSTED"
+                  ],
+                  "from": {
+                    "ref": "self.steps.run__match_attempt__completed__body.artifacts.result__variant"
+                  },
+                  "kind": "scalar",
+                  "type": "enum"
+                },
+                "state__report": {
+                  "from": {
+                    "ref": "self.steps.run__match_attempt__completed__body__state.artifacts.state__report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": true,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "status": {
+                  "allowed": [
+                    "CONTINUE",
+                    "DONE"
+                  ],
+                  "from": {
+                    "ref": "self.steps.run__match_attempt__completed__body.artifacts.status"
+                  },
+                  "kind": "scalar",
+                  "type": "enum"
+                }
+              },
+              "steps": [
+                {
+                  "id": "run__match_attempt__completed__body__state__seed_marker",
+                  "materialize_artifacts": {
+                    "values": [
+                      {
+                        "contract": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "name": "seed_iteration",
+                        "source": {
+                          "literal": "seed"
+                        }
+                      }
+                    ]
+                  },
+                  "name": "run__match_attempt__completed__body__state__seed_marker",
+                  "when": {
+                    "equals": {
+                      "left": "${loop.index}",
+                      "right": "0"
+                    }
+                  }
+                },
+                {
+                  "else": {
+                    "id": "run__match_attempt__completed__body__state__seed",
+                    "outputs": {
+                      "state__report": {
+                        "from": {
+                          "ref": "self.steps.run__match_attempt__completed__body__state__use_seed_state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": true,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "run__match_attempt__completed__body__state__seed",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": true,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__report",
+                              "source": {
+                                "ref": "root.steps.run__match_attempt__completed__seed.artifacts.state__report"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "run__match_attempt__completed__body__state__use_seed_state"
+                      }
+                    ]
+                  },
+                  "id": "run__match_attempt__completed__body__state",
+                  "if": {
+                    "compare": {
+                      "left": {
+                        "ref": "self.steps.run__match_attempt__completed__body__state__seed_marker.outcome.class"
+                      },
+                      "op": "eq",
+                      "right": "skipped"
+                    }
+                  },
+                  "name": "run__match_attempt__completed__body__state",
+                  "then": {
+                    "id": "run__match_attempt__completed__body__state__carry",
+                    "outputs": {
+                      "state__report": {
+                        "from": {
+                          "ref": "self.steps.run__match_attempt__completed__body__state__use_carried_state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": true,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "run__match_attempt__completed__body__state__carry",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": true,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__report",
+                              "source": {
+                                "ref": "root.steps.run__match_attempt__completed__loop.artifacts.state__report"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "run__match_attempt__completed__body__state__use_carried_state"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "run__match_attempt__completed__body",
+                  "materialize_artifacts": {
+                    "values": [
+                      {
+                        "contract": {
+                          "allowed": [
+                            "CONTINUE",
+                            "DONE"
+                          ],
+                          "kind": "scalar",
+                          "type": "enum"
+                        },
+                        "name": "status",
+                        "source": {
+                          "literal": "DONE"
+                        }
+                      },
+                      {
+                        "contract": {
+                          "allowed": [
+                            "COMPLETED",
+                            "BLOCKED",
+                            "EXHAUSTED"
+                          ],
+                          "kind": "scalar",
+                          "type": "enum"
+                        },
+                        "name": "result__variant",
+                        "source": {
+                          "literal": "COMPLETED"
+                        }
+                      },
+                      {
+                        "contract": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "name": "result__status",
+                        "source": {
+                          "literal": "completed"
+                        }
+                      },
+                      {
+                        "contract": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "name": "result__reason",
+                        "source": {
+                          "literal": "not_blocked"
+                        }
+                      }
+                    ]
+                  },
+                  "name": "run__match_attempt__completed__body"
+                }
+              ]
+            },
+            "requires_variant": {
+              "step": "run__attempt",
+              "value": "COMPLETED"
+            },
+            "when": {
+              "compare": {
+                "left": {
+                  "ref": "root.steps.run__attempt.artifacts.variant"
+                },
+                "op": "eq",
+                "right": "COMPLETED"
+              }
+            }
+          },
+          {
+            "id": "run__match_attempt__completed__result",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "run__match_attempt__completed__result__blocked",
+                  "outputs": {
+                    "return__reason": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__reason"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "return__status": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__status"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED",
+                        "EXHAUSTED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                          }
+                        }
+                      },
+                      "id": "run__match_attempt__completed__result__blocked__projection_anchor",
+                      "name": "run__match_attempt__completed__result__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "run__match_attempt__completed__result__completed",
+                  "outputs": {
+                    "return__reason": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__reason"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "return__status": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__status"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED",
+                        "EXHAUSTED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                          }
+                        }
+                      },
+                      "id": "run__match_attempt__completed__result__completed__projection_anchor",
+                      "name": "run__match_attempt__completed__result__completed__projection_anchor"
+                    }
+                  ]
+                },
+                "EXHAUSTED": {
+                  "id": "run__match_attempt__completed__result__exhausted",
+                  "outputs": {
+                    "return__reason": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__reason"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.state__report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "return__status": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__status"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED",
+                        "EXHAUSTED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+                          }
+                        }
+                      },
+                      "id": "run__match_attempt__completed__result__exhausted__projection_anchor",
+                      "name": "run__match_attempt__completed__result__exhausted__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.run__match_attempt__completed__loop.artifacts.result__variant"
+            },
+            "name": "run__match_attempt__completed__result",
+            "when": {
+              "compare": {
+                "left": {
+                  "ref": "root.steps.run__attempt.artifacts.variant"
+                },
+                "op": "eq",
+                "right": "COMPLETED"
+              }
+            }
+          },
+          {
+            "id": "run__match_attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "run__match_attempt__blocked",
+                  "outputs": {
+                    "return__reason": {
+                      "from": {
+                        "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.reason"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__report": {
+                      "from": {
+                        "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "return__status": {
+                      "from": {
+                        "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.status"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED",
+                        "EXHAUSTED"
+                      ],
+                      "from": {
+                        "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "id": "run__match_attempt__blocked",
+                      "materialize_artifacts": {
+                        "values": [
+                          {
+                            "contract": {
+                              "allowed": [
+                                "COMPLETED",
+                                "BLOCKED",
+                                "EXHAUSTED"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "return__variant",
+                            "source": {
+                              "literal": "BLOCKED"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "scalar",
+                              "type": "string"
+                            },
+                            "name": "return__status",
+                            "source": {
+                              "literal": "blocked"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "relpath",
+                              "must_exist_target": true,
+                              "type": "relpath",
+                              "under": "artifacts/work"
+                            },
+                            "name": "return__report",
+                            "source": {
+                              "ref": "root.steps.run__attempt.artifacts.report"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "scalar",
+                              "type": "string"
+                            },
+                            "name": "return__reason",
+                            "source": {
+                              "ref": "root.steps.run__attempt.artifacts.reason"
+                            }
+                          }
+                        ]
+                      },
+                      "name": "run__match_attempt__blocked"
+                    },
+                    {
+                      "id": "run__match_attempt__blocked__result_bundle",
+                      "materialize_artifacts": {
+                        "values": [
+                          {
+                            "contract": {
+                              "allowed": [
+                                "COMPLETED",
+                                "BLOCKED",
+                                "EXHAUSTED"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "variant",
+                            "source": {
+                              "literal": "BLOCKED"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "scalar",
+                              "type": "string"
+                            },
+                            "name": "status",
+                            "source": {
+                              "ref": "self.steps.run__match_attempt__blocked.artifacts.return__status"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "relpath",
+                              "must_exist_target": true,
+                              "type": "relpath",
+                              "under": "artifacts/work"
+                            },
+                            "name": "report",
+                            "source": {
+                              "ref": "self.steps.run__match_attempt__blocked.artifacts.return__report"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "scalar",
+                              "type": "string"
+                            },
+                            "name": "reason",
+                            "source": {
+                              "ref": "self.steps.run__match_attempt__blocked.artifacts.return__reason"
+                            }
+                          }
+                        ]
+                      },
+                      "name": "run__match_attempt__blocked__result_bundle",
+                      "variant_output": {
+                        "discriminant": {
+                          "allowed": [
+                            "COMPLETED",
+                            "BLOCKED",
+                            "EXHAUSTED"
+                          ],
+                          "json_pointer": "/variant",
+                          "name": "variant",
+                          "type": "enum"
+                        },
+                        "path": "${inputs.__write_root__run__match_attempt__result_bundle}",
+                        "shared_fields": [
+                          {
+                            "json_pointer": "/status",
+                            "name": "status",
+                            "type": "string"
+                          },
+                          {
+                            "json_pointer": "/report",
+                            "must_exist_target": true,
+                            "name": "report",
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          {
+                            "json_pointer": "/reason",
+                            "name": "reason",
+                            "type": "string"
+                          }
+                        ],
+                        "variants": {
+                          "BLOCKED": {
+                            "fields": []
+                          },
+                          "COMPLETED": {
+                            "fields": []
+                          },
+                          "EXHAUSTED": {
+                            "fields": []
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "run__match_attempt__completed",
+                  "outputs": {
+                    "return__reason": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__reason"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "return__status": {
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__status"
+                      },
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    "return__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED",
+                        "EXHAUSTED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__variant"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__variant"
+                          }
+                        }
+                      },
+                      "id": "run__match_attempt__completed__projection_anchor",
+                      "name": "run__match_attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.run__attempt.artifacts.variant"
+            },
+            "name": "run__match_attempt"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__write_root__run__attempt__result_bundle",
+        "__write_root__run__match_attempt__result_bundle"
+      ],
+      "step_labels": [
+        "run__attempt",
+        "run__match_attempt__completed__seed",
+        "run__match_attempt__completed__loop",
+        "run__match_attempt__completed__body__state__seed_marker",
+        "run__match_attempt__completed__body__state",
+        "run__match_attempt__completed__body__state__use_seed_state",
+        "run__match_attempt__completed__body__state__use_carried_state",
+        "run__match_attempt__completed__body",
+        "run__match_attempt__completed__result",
+        "run__match_attempt__completed__result__blocked__projection_anchor",
+        "run__match_attempt__completed__result__completed__projection_anchor",
+        "run__match_attempt__completed__result__exhausted__projection_anchor",
+        "run__match_attempt",
+        "run__match_attempt__blocked",
+        "run__match_attempt__blocked__result_bundle",
+        "run__match_attempt__completed__projection_anchor"
+      ],
+      "workflow_name": "run"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "f3357a178ab4a0d0a0144fe96c339cb9df1eab5c2deafda739cb60fd626ec039",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [
+        "__write_root__run__attempt__result_bundle",
+        "__write_root__run__match_attempt__result_bundle"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:run:provider_result_bundle:6eabf341451d9bf6",
+          "concrete_path_template": "${inputs.__write_root__run__attempt__result_bundle}",
+          "generated_input_name": "__write_root__run__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "run/run__attempt/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:run:variant_projection_bundle:7cc3d9be4fee6966",
+          "concrete_path_template": "${inputs.__write_root__run__match_attempt__result_bundle}",
+          "generated_input_name": "__write_root__run__match_attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "variant_projection_bundle",
+          "stable_identity": "run/run__match_attempt/match_union_projection"
+        },
+        {
+          "allocation_id": "alloc:run:entrypoint_managed_write_root:07663d55e79cb898",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/run/__write_root__run__attempt__result_bundle.json",
+          "generated_input_name": "__write_root__run__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "run/run__attempt/result_bundle/entry"
+        },
+        {
+          "allocation_id": "alloc:run:entrypoint_managed_write_root:ea35d7c09840e256",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/run/__write_root__run__match_attempt__result_bundle.json",
+          "generated_input_name": "__write_root__run__match_attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "run/run__match_attempt/match_union_projection/entry"
+        }
+      ],
+      "input_keys": [
+        "__write_root__run__attempt__result_bundle",
+        "__write_root__run__match_attempt__result_bundle",
+        "report_path"
+      ],
+      "output_keys": [
+        "return__reason",
+        "return__report",
+        "return__status",
+        "return__variant"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.run__match_attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "run__match_attempt.BLOCKED",
+              "marker_step_id": "root.run__match_attempt.run__match_attempt__blocked",
+              "step_presentation_keys": [
+                "run__match_attempt.BLOCKED.run__match_attempt__blocked",
+                "run__match_attempt.BLOCKED.run__match_attempt__blocked__result_bundle"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "run__match_attempt.COMPLETED",
+              "marker_step_id": "root.run__match_attempt.run__match_attempt__completed",
+              "step_presentation_keys": [
+                "run__match_attempt.COMPLETED.run__match_attempt__completed__projection_anchor"
+              ]
+            }
+          },
+          "root.run__match_attempt__completed__result": {
+            "BLOCKED": {
+              "marker_presentation_key": "run__match_attempt__completed__result.BLOCKED",
+              "marker_step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked",
+              "step_presentation_keys": [
+                "run__match_attempt__completed__result.BLOCKED.run__match_attempt__completed__result__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "run__match_attempt__completed__result.COMPLETED",
+              "marker_step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed",
+              "step_presentation_keys": [
+                "run__match_attempt__completed__result.COMPLETED.run__match_attempt__completed__result__completed__projection_anchor"
+              ]
+            },
+            "EXHAUSTED": {
+              "marker_presentation_key": "run__match_attempt__completed__result.EXHAUSTED",
+              "marker_step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted",
+              "step_presentation_keys": [
+                "run__match_attempt__completed__result.EXHAUSTED.run__match_attempt__completed__result__exhausted__projection_anchor"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "run__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__attempt",
+            "presentation_key": "run__attempt",
+            "provider": "fake-execute",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.run__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__seed",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__seed",
+            "presentation_key": "run__match_attempt__completed__seed",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.run__match_attempt__completed__seed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__loop",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__loop",
+            "presentation_key": "run__match_attempt__completed__loop",
+            "provider": null,
+            "region": "body",
+            "report_kind": "repeat_until",
+            "step_id": "root.run__match_attempt__completed__loop"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed",
+            "presentation_key": "run__match_attempt__completed__result.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result.COMPLETED.run__match_attempt__completed__result__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed.run__match_attempt__completed__result__completed__projection_anchor",
+            "presentation_key": "run__match_attempt__completed__result.COMPLETED.run__match_attempt__completed__result__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed.run__match_attempt__completed__result__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked",
+            "presentation_key": "run__match_attempt__completed__result.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 6,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result.BLOCKED.run__match_attempt__completed__result__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked.run__match_attempt__completed__result__blocked__projection_anchor",
+            "presentation_key": "run__match_attempt__completed__result.BLOCKED.run__match_attempt__completed__result__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked.run__match_attempt__completed__result__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 7,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result.EXHAUSTED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted",
+            "presentation_key": "run__match_attempt__completed__result.EXHAUSTED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted"
+          },
+          {
+            "command": null,
+            "compatibility_index": 8,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result.EXHAUSTED.run__match_attempt__completed__result__exhausted__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted.run__match_attempt__completed__result__exhausted__projection_anchor",
+            "presentation_key": "run__match_attempt__completed__result.EXHAUSTED.run__match_attempt__completed__result__exhausted__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted.run__match_attempt__completed__result__exhausted__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 9,
+            "consumes": [],
+            "display_name": "run__match_attempt__completed__result",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt__completed__result",
+            "presentation_key": "run__match_attempt__completed__result",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.run__match_attempt__completed__result"
+          },
+          {
+            "command": null,
+            "compatibility_index": 10,
+            "consumes": [],
+            "display_name": "run__match_attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt.run__match_attempt__completed",
+            "presentation_key": "run__match_attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run__match_attempt.run__match_attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 11,
+            "consumes": [],
+            "display_name": "run__match_attempt.COMPLETED.run__match_attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt.run__match_attempt__completed.run__match_attempt__completed__projection_anchor",
+            "presentation_key": "run__match_attempt.COMPLETED.run__match_attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run__match_attempt.run__match_attempt__completed.run__match_attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 12,
+            "consumes": [],
+            "display_name": "run__match_attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt.run__match_attempt__blocked",
+            "presentation_key": "run__match_attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run__match_attempt.run__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 13,
+            "consumes": [],
+            "display_name": "run__match_attempt.BLOCKED.run__match_attempt__blocked",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt.run__match_attempt__blocked.run__match_attempt__blocked",
+            "presentation_key": "run__match_attempt.BLOCKED.run__match_attempt__blocked",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.run__match_attempt.run__match_attempt__blocked.run__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 14,
+            "consumes": [],
+            "display_name": "run__match_attempt.BLOCKED.run__match_attempt__blocked__result_bundle",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt.run__match_attempt__blocked.run__match_attempt__blocked__result_bundle",
+            "presentation_key": "run__match_attempt.BLOCKED.run__match_attempt__blocked__result_bundle",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.run__match_attempt.run__match_attempt__blocked.run__match_attempt__blocked__result_bundle"
+          },
+          {
+            "command": null,
+            "compatibility_index": 15,
+            "consumes": [],
+            "display_name": "run__match_attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run__match_attempt",
+            "presentation_key": "run__match_attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.run__match_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.run__attempt",
+          "root.run__match_attempt__completed__seed",
+          "root.run__match_attempt__completed__loop",
+          "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed",
+          "root.run__match_attempt__completed__result.run__match_attempt__completed__result__completed.run__match_attempt__completed__result__completed__projection_anchor",
+          "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked",
+          "root.run__match_attempt__completed__result.run__match_attempt__completed__result__blocked.run__match_attempt__completed__result__blocked__projection_anchor",
+          "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted",
+          "root.run__match_attempt__completed__result.run__match_attempt__completed__result__exhausted.run__match_attempt__completed__result__exhausted__projection_anchor",
+          "root.run__match_attempt__completed__result",
+          "root.run__match_attempt.run__match_attempt__completed",
+          "root.run__match_attempt.run__match_attempt__completed.run__match_attempt__completed__projection_anchor",
+          "root.run__match_attempt.run__match_attempt__blocked",
+          "root.run__match_attempt.run__match_attempt__blocked.run__match_attempt__blocked",
+          "root.run__match_attempt.run__match_attempt__blocked.run__match_attempt__blocked__result_bundle",
+          "root.run__match_attempt"
+        ],
+        "repeat_until_nodes": {
+          "root.run__match_attempt__completed__loop": {
+            "frame_key": "run__match_attempt__completed__loop",
+            "nested_presentation_keys": {
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body": "run__match_attempt__completed__body",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state": "run__match_attempt__completed__body__state",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__carry": "run__match_attempt__completed__body__state.then",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__carry.run__match_attempt__completed__body__state__carry": "run__match_attempt__completed__body__state.then.run__match_attempt__completed__body__state__use_carried_state",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__seed": "run__match_attempt__completed__body__state.else",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__seed.run__match_attempt__completed__body__state__seed": "run__match_attempt__completed__body__state.else.run__match_attempt__completed__body__state__use_seed_state",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state__seed_marker": "run__match_attempt__completed__body__state__seed_marker"
+            },
+            "nested_step_id_suffixes": {
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__carry": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__carry",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__carry.run__match_attempt__completed__body__state__carry": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__carry.run__match_attempt__completed__body__state__carry",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__seed": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__seed",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__seed.run__match_attempt__completed__body__state__seed": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state.run__match_attempt__completed__body__state__seed.run__match_attempt__completed__body__state__seed",
+              "root.run__match_attempt__completed__loop.run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state__seed_marker": "run__match_attempt__completed__loop__iteration.run__match_attempt__completed__body__state__seed_marker"
+            },
+            "node_id": "root.run__match_attempt__completed__loop"
+          }
+        }
+      },
+      "workflow_name": "run"
+    }
+  ],
+  "workflow_names": [
+    "run"
+  ]
+}

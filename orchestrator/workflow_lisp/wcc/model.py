@@ -14,6 +14,7 @@ from ..type_env import TypeRef
 WCC_M1_ROUTE_SCHEMA_VERSION = "wcc_m1"
 WCC_M2_ROUTE_SCHEMA_VERSION = "wcc_m2"
 WCC_M3_ROUTE_SCHEMA_VERSION = "wcc_m3"
+WCC_M4_ROUTE_SCHEMA_VERSION = "wcc_m4"
 
 
 def _stable_identity_digest(payload: dict[str, object]) -> str:
@@ -223,7 +224,13 @@ class WccRecordAtom:
     fields: tuple[tuple[str, "WccValue"], ...]
 
 
-WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccPhaseTargetAtom | WccRecordAtom
+@dataclass(frozen=True)
+class WccOpaqueFrontendValue:
+    metadata: WccNodeMetadata
+    expr: object
+
+
+WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccPhaseTargetAtom | WccRecordAtom | WccOpaqueFrontendValue
 
 
 @dataclass(frozen=True)
@@ -297,6 +304,37 @@ class WccJump:
 
 
 @dataclass(frozen=True)
+class WccLoopRole:
+    frame_role: str = "loop_frame"
+    iteration_role: str = "loop_iteration"
+
+
+@dataclass(frozen=True)
+class WccLoopContinue:
+    metadata: WccNodeMetadata
+    target_name: str
+    state_args: tuple[WccValue, ...]
+
+
+@dataclass(frozen=True)
+class WccLoopDone:
+    metadata: WccNodeMetadata
+    result: WccValue
+
+
+@dataclass(frozen=True)
+class WccRecJoin:
+    metadata: WccNodeMetadata
+    loop_name: str
+    params: tuple[WccJoinParam, ...]
+    budget: WccValue
+    body: "WccBody"
+    exhaustion: "WccBody | None"
+    initial_state: WccValue | None = None
+    roles: WccLoopRole = WccLoopRole()
+
+
+@dataclass(frozen=True)
 class WccHalt:
     metadata: WccNodeMetadata
     result: WccValue
@@ -311,5 +349,5 @@ class WccLet:
     body: "WccBody"
 
 
-WccBody = WccLet | WccCase | WccJoin | WccJump | WccHalt
+WccBody = WccLet | WccCase | WccJoin | WccJump | WccLoopContinue | WccLoopDone | WccRecJoin | WccHalt
 WccProgram = WccBody

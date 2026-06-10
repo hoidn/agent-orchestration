@@ -7,10 +7,16 @@ from unittest.mock import patch
 
 import pytest
 
+from orchestrator.exec.output_capture import CaptureMode, CaptureResult
+from orchestrator.exec.step_executor import ExecutionResult
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
+from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_context, workflow_public_input_contracts
+from orchestrator.workflow.loaded_bundle import (
+    workflow_context,
+    workflow_public_input_contracts,
+)
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -950,6 +956,323 @@ def test_design_delta_implementation_phase_candidate_compiles_with_variant_and_r
     assert any("repeat_until" in step for step in all_steps)
     assert any("command" in step for step in all_steps)
     assert any("return__variant" in lowered["outputs"] for lowered in lowered_workflows)
+
+
+def _review_findings_payload(items_path: str) -> dict[str, str]:
+    return {
+        "schema_version": "ReviewFindings.v1",
+        "items_path": items_path,
+    }
+
+
+def _review_decision_payload(
+    variant: str,
+    *,
+    review_report: str,
+    findings_path: str,
+    blocker_class: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "variant": variant,
+        "review_report": review_report,
+        "findings": _review_findings_payload(findings_path),
+    }
+    if blocker_class is not None:
+        payload["blocker_class"] = blocker_class
+    return payload
+
+
+def _run_wcc_m4_full_fixture_smoke(
+    tmp_path: Path,
+    *,
+    review_payloads: list[dict[str, object]],
+    expected_outputs: dict[str, object],
+    expected_provider_counts: dict[str, int],
+) -> dict[str, object]:
+    fixture = tmp_path / "wcc_m4_implementation_phase_full_fixture.orc"
+    fixture.write_text(
+        (CHARACTERIZATION_FIXTURES / "wcc_m4_implementation_phase_full_fixture.orc").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "prompts" / "implementation").mkdir(parents=True, exist_ok=True)
+    for prompt_name in ("execute", "review", "fix"):
+        (tmp_path / "prompts" / "implementation" / f"{prompt_name}.md").write_text(
+            f"Return structured {prompt_name} output.\n",
+            encoding="utf-8",
+        )
+    work_dir = tmp_path / "artifacts" / "work"
+    review_dir = tmp_path / "artifacts" / "review"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    review_dir.mkdir(parents=True, exist_ok=True)
+    for relpath in (
+        "artifacts/work/plan.md",
+        "artifacts/work/design_review_prompt.md",
+        "artifacts/work/fix_plan_prompt.md",
+        "artifacts/work/execution.md",
+        "artifacts/work/checks.md",
+        "artifacts/work/findings.json",
+        "artifacts/work/findings-revise.json",
+        "artifacts/work/findings-blocked.json",
+        "artifacts/work/findings-exhausted-1.json",
+        "artifacts/work/findings-exhausted-2.json",
+        "artifacts/work/findings-exhausted-3.json",
+        "artifacts/work/execution-fixed.md",
+        "artifacts/review/review.md",
+        "artifacts/review/review-revise.md",
+        "artifacts/review/review-blocked.md",
+        "artifacts/review/review-exhausted-1.md",
+        "artifacts/review/review-exhausted-2.md",
+        "artifacts/review/review-exhausted-3.md",
+    ):
+        target = tmp_path / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"# {target.stem}\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    bundle = result.validated_bundles["wcc_m4_implementation_phase_full_fixture::run"]
+    validate_executable_workflow(bundle.ir)
+
+    input_specs = workflow_public_input_contracts(bundle)
+    provided_inputs = {
+        "plan_path": "artifacts/work/plan.md",
+        "inputs__design_review_prompt": "artifacts/work/design_review_prompt.md",
+        "inputs__fix_plan_prompt": "artifacts/work/fix_plan_prompt.md",
+    }
+    bound_inputs = bind_workflow_inputs(input_specs, provided_inputs, tmp_path)
+    state_manager = StateManager(workspace=tmp_path, run_id="wcc-m4-full-fixture-smoke")
+    state_manager.initialize(str(fixture), workflow_context(bundle), bound_inputs)
+    provider_counts: dict[str, int] = {}
+    pending_review_payloads = list(review_payloads)
+
+    def _write_bundle(path_value: str, payload: dict[str, object]) -> None:
+        bundle_path = Path(path_value)
+        if not bundle_path.is_absolute():
+            bundle_path = tmp_path / bundle_path
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def _prepare_invocation(_self, provider_name=None, prompt_content=None, env=None, **_kwargs):
+        return type(
+            "ProviderInvocationStub",
+            (),
+            {
+                "provider_name": provider_name,
+                "prompt": prompt_content or "",
+                "env": env or {},
+            },
+        )(), None
+
+    def _execute_provider(_self, invocation, **_kwargs):
+        provider_name = getattr(invocation, "provider_name", "")
+        provider_counts[provider_name] = provider_counts.get(provider_name, 0) + 1
+        bundle_path = getattr(invocation, "env", {})["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        if provider_name == "fake-execute":
+            _write_bundle(
+                bundle_path,
+                {
+                    "variant": "COMPLETED",
+                    "execution_report_path": "artifacts/work/execution.md",
+                },
+            )
+        elif provider_name == "fake-review":
+            if not pending_review_payloads:
+                raise AssertionError("fake-review called more times than the test scenario declared")
+            _write_bundle(bundle_path, pending_review_payloads.pop(0))
+        elif provider_name == "fake-fix":
+            _write_bundle(
+                bundle_path,
+                {
+                    "execution_report_path": "artifacts/work/execution-fixed.md",
+                    "checks_report_path": "artifacts/work/checks.md",
+                },
+            )
+        else:
+            raise AssertionError(f"unexpected provider {provider_name!r}")
+        return type(
+            "ProviderExecutionStub",
+            (),
+            {
+                "exit_code": 0,
+                "stdout": b"ok",
+                "stderr": b"",
+                "duration_ms": 1,
+                "error": None,
+                "missing_placeholders": None,
+                "invalid_prompt_placeholder": False,
+                "raw_stdout": None,
+                "normalized_stdout": None,
+                "provider_session": None,
+            },
+        )()
+
+    def _execute_command(_self, step_name, command, env=None, **_kwargs):
+        bundle_path = (env or {})["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        if step_name.endswith("__run_checks"):
+            _write_bundle(bundle_path, {"checks_report_path": "artifacts/work/checks.md"})
+        elif step_name.endswith("__validate_review_findings_v1"):
+            items_path = command[-1] if command else "artifacts/work/findings.json"
+            _write_bundle(
+                bundle_path,
+                {
+                    "schema_version": "ReviewFindings.v1",
+                    "items_path": items_path,
+                },
+            )
+        else:
+            raise AssertionError(f"unexpected command step {step_name!r}: {command!r}")
+        return ExecutionResult(
+            step_name=step_name,
+            exit_code=0,
+            capture_result=CaptureResult(mode=CaptureMode.TEXT, output="ok", exit_code=0),
+            duration_ms=1,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute_provider
+    ), patch("orchestrator.exec.step_executor.StepExecutor.execute_command", _execute_command):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert not pending_review_payloads
+    for output_name, expected_value in expected_outputs.items():
+        assert state["workflow_outputs"][output_name] == expected_value
+    assert provider_counts == expected_provider_counts
+    assert any(
+        "__loop" in step_name
+        and step.get("status") == "completed"
+        and step.get("artifacts", {}).get("result__variant") == expected_outputs["return__variant"]
+        for step_name, step in state["steps"].items()
+        if isinstance(step, dict)
+    )
+    return state
+
+
+@pytest.mark.parametrize(
+    ("scenario", "review_payloads", "expected_outputs", "expected_provider_counts"),
+    [
+        (
+            "approve",
+            [
+                _review_decision_payload(
+                    "APPROVE",
+                    review_report="artifacts/review/review.md",
+                    findings_path="artifacts/work/findings.json",
+                ),
+            ],
+            {
+                "return__variant": "APPROVED",
+                "return__review_report": "artifacts/review/review.md",
+                "return__findings__items_path": "artifacts/work/findings.json",
+            },
+            {"fake-execute": 1, "fake-review": 1},
+        ),
+        (
+            "revise_then_approve",
+            [
+                _review_decision_payload(
+                    "REVISE",
+                    review_report="artifacts/review/review-revise.md",
+                    findings_path="artifacts/work/findings-revise.json",
+                ),
+                _review_decision_payload(
+                    "APPROVE",
+                    review_report="artifacts/review/review.md",
+                    findings_path="artifacts/work/findings.json",
+                ),
+            ],
+            {
+                "return__variant": "APPROVED",
+                "return__review_report": "artifacts/review/review.md",
+                "return__findings__items_path": "artifacts/work/findings.json",
+            },
+            {"fake-execute": 1, "fake-review": 2, "fake-fix": 1},
+        ),
+        (
+            "blocked",
+            [
+                _review_decision_payload(
+                    "BLOCKED",
+                    review_report="artifacts/review/review-blocked.md",
+                    findings_path="artifacts/work/findings-blocked.json",
+                    blocker_class="user_decision_required",
+                ),
+            ],
+            {
+                "return__variant": "BLOCKED",
+                "return__review_report": "artifacts/review/review-blocked.md",
+                "return__blocker_class": "user_decision_required",
+                "return__findings__items_path": "artifacts/work/findings-blocked.json",
+            },
+            {"fake-execute": 1, "fake-review": 1},
+        ),
+        (
+            "exhausted",
+            [
+                _review_decision_payload(
+                    "REVISE",
+                    review_report="artifacts/review/review-exhausted-1.md",
+                    findings_path="artifacts/work/findings-exhausted-1.json",
+                ),
+                _review_decision_payload(
+                    "REVISE",
+                    review_report="artifacts/review/review-exhausted-2.md",
+                    findings_path="artifacts/work/findings-exhausted-2.json",
+                ),
+                _review_decision_payload(
+                    "REVISE",
+                    review_report="artifacts/review/review-exhausted-3.md",
+                    findings_path="artifacts/work/findings-exhausted-3.json",
+                ),
+            ],
+            {
+                "return__variant": "EXHAUSTED",
+                "return__last_review_report": "artifacts/review/review-exhausted-3.md",
+                "return__findings__items_path": "artifacts/work/findings-exhausted-3.json",
+                "return__reason": "max_iterations_reached",
+            },
+            {"fake-execute": 1, "fake-review": 3, "fake-fix": 3},
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_design_delta_migration_wcc_m4_full_fixture_review_loop_paths_execute_nested_under_case(
+    tmp_path: Path,
+    scenario: str,
+    review_payloads: list[dict[str, object]],
+    expected_outputs: dict[str, object],
+    expected_provider_counts: dict[str, int],
+) -> None:
+    _run_wcc_m4_full_fixture_smoke(
+        tmp_path,
+        review_payloads=review_payloads,
+        expected_outputs=expected_outputs,
+        expected_provider_counts=expected_provider_counts,
+    )
 
 
 def test_design_delta_selector_candidate_compiles_as_provider_decision(

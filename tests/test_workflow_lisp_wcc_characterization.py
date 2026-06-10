@@ -39,9 +39,9 @@ def test_manifest_tags_are_present_exactly_once() -> None:
 
     assert tag_counts["value_only"] == 1
     assert tag_counts["straight_line"] == 3
-    assert tag_counts["match"] == 2
-    assert tag_counts["loop"] == 1
-    assert tag_counts["review_loop"] == 1
+    assert tag_counts["match"] == 4
+    assert tag_counts["loop"] == 3
+    assert tag_counts["review_loop"] == 2
     assert tag_counts["module_graph"] == 1
     assert tag_counts["design_delta_leaf"] == 1
 
@@ -93,6 +93,9 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
     assert cases["proc_ref_bind_proc_forwarding"].dual_compile_routes == ("legacy", "wcc_m2")
     assert cases["top_level_match_attempt"].dual_compile_routes == ("legacy", "wcc_m3")
     assert cases["design_delta_union_match_projection"].dual_compile_routes == ("legacy", "wcc_m3")
+    assert cases["top_level_loop_recur"].dual_compile_routes == ("legacy", "wcc_m4")
+    assert cases["stdlib_review_revise_loop"].dual_compile_routes == ("legacy", "wcc_m4")
+    assert cases["wcc_m4_loop_under_case"].dual_compile_routes == ("wcc_m4",)
     for case_id, case in cases.items():
         if case_id in {
             "value_only_minimal_module",
@@ -100,6 +103,9 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
             "proc_ref_bind_proc_forwarding",
             "top_level_match_attempt",
             "design_delta_union_match_projection",
+            "top_level_loop_recur",
+            "stdlib_review_revise_loop",
+            "wcc_m4_loop_under_case",
         }:
             continue
         assert case.dual_compile_routes == ()
@@ -115,7 +121,12 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
     ids=lambda case: case.case_id,
 )
 def test_characterization_structural_cases_match_golden(tmp_path: Path, case) -> None:
-    actual = build_structural_snapshot(case, tmp_path)
+    lowering_route = (
+        "wcc_m4"
+        if case.case_id in {"wcc_m4_loop_under_case", "wcc_m4_implementation_phase_full_fixture"}
+        else "legacy"
+    )
+    actual = build_structural_snapshot(case, tmp_path, lowering_route=lowering_route)
     golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
 
     assert compare_structural_snapshots(actual, golden, case.declared_rename_map) == "identical"
@@ -149,6 +160,11 @@ def test_command_bearing_cases_declare_boundaries_and_module_graph_uses_import_m
     review_loop = cases["stdlib_review_revise_loop"]
     assert isinstance(review_loop.command_boundaries, dict)
     assert "validate_review_findings_v1" in review_loop.command_boundaries
+
+    full_fixture = cases["wcc_m4_implementation_phase_full_fixture"]
+    assert isinstance(full_fixture.command_boundaries, dict)
+    assert "run_checks" in full_fixture.command_boundaries
+    assert "validate_review_findings_v1" in full_fixture.command_boundaries
 
     module_graph = cases["module_graph_imported_bundle_mix"]
     assert module_graph.command_boundaries == Path("tests/fixtures/workflow_lisp/cli/commands.json")
@@ -237,6 +253,34 @@ def test_wcc_m3_design_delta_union_projection_keeps_record_projection_output_con
     assert set(authored_mapping["outputs"]) == {"return__report"}
     assert "return__variant" not in authored_mapping["outputs"]
     assert set(authored_mapping["steps"][1]["match"]["cases"]) == {"COMPLETED", "BLOCKED"}
+
+
+@pytest.mark.parametrize("case_id", ("top_level_loop_recur", "stdlib_review_revise_loop"))
+def test_wcc_m4_loop_cases_dual_compile_for_legacy_and_wcc_m4(tmp_path: Path, case_id: str) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}[case_id]
+
+    legacy_actual = build_structural_snapshot(case, tmp_path / f"{case_id}.legacy", lowering_route="legacy")
+    wcc_actual = build_structural_snapshot(case, tmp_path / f"{case_id}.wcc_m4", lowering_route="wcc_m4")
+
+    assert legacy_actual["diagnostics"] == []
+    assert wcc_actual["diagnostics"] == []
+    assert legacy_actual["workflow_names"] == wcc_actual["workflow_names"]
+
+
+@pytest.mark.parametrize("case_id", ("wcc_m4_loop_under_case", "wcc_m4_implementation_phase_full_fixture"))
+def test_wcc_m4_nested_fixture_cases_compile_under_wcc_m4(tmp_path: Path, case_id: str) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}[case_id]
+    actual = build_structural_snapshot(case, tmp_path / case_id, lowering_route="wcc_m4")
+    metadata = build_structural_snapshot_metadata(case, tmp_path / f"{case_id}.metadata", lowering_route="wcc_m4")
+
+    assert metadata["lowering_route"] == "wcc_m4"
+    allowed_diagnostics = (
+        {"variant_output_without_variant_specific_fields"}
+        if case_id == "wcc_m4_loop_under_case"
+        else set()
+    )
+    assert {diagnostic["code"] for diagnostic in actual["diagnostics"]} <= allowed_diagnostics
+    assert actual["workflow_names"]
 
 
 def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergence() -> None:
