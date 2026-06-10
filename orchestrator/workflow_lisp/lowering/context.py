@@ -9,6 +9,7 @@ from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
+from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
 from ..contracts import WorkflowBoundaryProjection
 from ..phase import PhaseScope
@@ -68,6 +69,7 @@ class _LoweringContext:
     authored_generated_inputs: set[str]
     internal_generated_input_reasons: dict[str, str]
     internal_generated_input_contracts: dict[str, dict[str, Any]]
+    private_exec_context_bindings: list[PrivateExecContextBinding]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: dict[str, LoweringOrigin]
     generated_path_allocations: list[GeneratedPathAllocation]

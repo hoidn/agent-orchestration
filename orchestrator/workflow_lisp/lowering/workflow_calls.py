@@ -6,12 +6,18 @@ from collections.abc import Mapping
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
+from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
 from ..contracts import derive_workflow_boundary_fields
 from ..expressions import FieldAccessExpr, LiteralExpr, NameExpr
-from ..phase import PHASE_CONTEXT_NAME, RUN_CONTEXT_NAME
+from ..phase import (
+    PHASE_CONTEXT_NAME,
+    private_exec_context_bootstrap_supported,
+    private_exec_context_capabilities,
+    private_exec_context_kind,
+)
 from ..workflows import PromotedEntryHiddenContextRequirement
 from ..type_env import PrimitiveTypeRef, RecordTypeRef, WorkflowRefTypeRef
 from . import core as lowering_core
@@ -70,8 +76,20 @@ def _declare_runtime_context_hidden_inputs(
 ) -> dict[str, Any]:
     """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
 
+    if not private_exec_context_bootstrap_supported(requirement.context_kind):
+        raise lowering_core._compile_error(
+            code="private_exec_context_bootstrap_unsupported",
+            message=(
+                f"promoted-entry hidden binding for `{param_name}` requires unsupported "
+                f"private executable context `{requirement.context_kind}`"
+            ),
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+        )
+
     origin = lowering_core._origin_from_context_source(context, source_expr)
     with_bindings: dict[str, Any] = {}
+    generated_input_names: list[str] = []
     for flattened_field in derive_workflow_boundary_fields(
         param_type,
         generated_name=param_name,
@@ -95,9 +113,27 @@ def _declare_runtime_context_hidden_inputs(
             flattened_field.generated_name,
             "runtime_owned_context",
         )
+        generated_input_names.append(flattened_field.generated_name)
         with_bindings[flattened_field.generated_name] = {
             "ref": f"inputs.{flattened_field.generated_name}",
         }
+    binding_record = PrivateExecContextBinding(
+        binding_id=param_name,
+        source_param_name=param_name,
+        context_family=requirement.context_kind,
+        bridge_class="runtime_owned_context",
+        generated_input_names=tuple(generated_input_names),
+        required_capabilities=private_exec_context_capabilities(requirement.context_kind),
+        derived_phase_identity=requirement.phase_name,
+        source_provenance={
+            "workflow_name": context.workflow_name,
+            "path": str(origin.span.start.path),
+            "line": origin.span.start.line,
+            "form_path": list(origin.form_path),
+        },
+    )
+    if binding_record not in context.private_exec_context_bindings:
+        context.private_exec_context_bindings.append(binding_record)
     return with_bindings
 
 
@@ -430,12 +466,8 @@ def _lower_call_expr(
         value_expr = binding_by_name.get(param_name)
         if value_expr is None:
             requirement = getattr(callee_signature, "hidden_context_requirements", {}).get(param_name)
-            if (
-                getattr(context.signature, "allow_hidden_context_binding", False)
-                and isinstance(param_type, RecordTypeRef)
-                and param_type.name in {RUN_CONTEXT_NAME, PHASE_CONTEXT_NAME}
-            ):
-                if requirement is None:
+            if getattr(context.signature, "allow_hidden_context_binding", False) and isinstance(param_type, RecordTypeRef):
+                if requirement is None and private_exec_context_kind(param_type) is not None:
                     code = "promoted_entry_hidden_context_metadata_missing"
                     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
                     if param_name in ambiguities:
@@ -446,16 +478,17 @@ def _lower_call_expr(
                         span=expr.span,
                         form_path=expr.form_path,
                     )
-                with_bindings.update(
-                    lowering_core._declare_runtime_context_hidden_inputs(
-                        context=context,
-                        param_name=param_name,
-                        param_type=param_type,
-                        requirement=requirement,
-                        source_expr=expr,
+                if requirement is not None:
+                    with_bindings.update(
+                        lowering_core._declare_runtime_context_hidden_inputs(
+                            context=context,
+                            param_name=param_name,
+                            param_type=param_type,
+                            requirement=requirement,
+                            source_expr=expr,
+                        )
                     )
-                )
-                continue
+                    continue
             if param_name in callee_signature.param_defaults:
                 continue
             raise lowering_core._compile_error(

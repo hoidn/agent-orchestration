@@ -3362,6 +3362,8 @@ RunCtx
 PhaseCtx
 ItemCtx
 DrainCtx
+SelectionCtx
+RecoveryCtx
 ```
 
 ```lisp
@@ -3369,6 +3371,12 @@ DrainCtx
 (phase-ctx ctx phase-name)
 (item-ctx ctx selected)
 ```
+
+Author-facing workflow boundaries expose only public authored inputs. Generated
+private executable-context bindings, managed write roots, and compatibility
+bridge values are runtime-owned boundary classes and must stay off the public
+input surface even when they appear as generated internal inputs in lowered
+artifacts.
 
 ## 84. `std/provider`
 

@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 
 RUN_CONTEXT_NAME = "RunCtx"
 PHASE_CONTEXT_NAME = "PhaseCtx"
+ITEM_CONTEXT_NAME = "ItemCtx"
+DRAIN_CONTEXT_NAME = "DrainCtx"
+SELECTION_CONTEXT_NAME = "SelectionCtx"
+RECOVERY_CONTEXT_NAME = "RecoveryCtx"
 IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME = "ImplementationAttemptPhaseCtx"
 IMPLEMENTATION_ATTEMPT_PHASE_NAME = "implementation"
 IMPLEMENTATION_ATTEMPT_RESULT_NAME = "ImplementationAttempt"
@@ -76,6 +80,43 @@ class PromotedEntryHiddenContextRequirement:
     param_name: str
     context_kind: str
     phase_name: str | None = None
+
+
+def private_exec_context_capabilities(context_kind: str) -> tuple[str, ...]:
+    """Return the capability tags required for one private executable context family."""
+
+    return {
+        RUN_CONTEXT_NAME: ("run",),
+        PHASE_CONTEXT_NAME: ("run", "phase"),
+        ITEM_CONTEXT_NAME: ("run", "item"),
+        DRAIN_CONTEXT_NAME: ("run", "drain"),
+        SELECTION_CONTEXT_NAME: ("selection",),
+        RECOVERY_CONTEXT_NAME: ("recovery",),
+    }.get(context_kind, ())
+
+
+def private_exec_context_bootstrap_supported(context_kind: str) -> bool:
+    """Return whether the current runtime can bootstrap one context family."""
+
+    return context_kind in {RUN_CONTEXT_NAME, PHASE_CONTEXT_NAME}
+
+
+def private_exec_context_kind(type_ref: TypeRef) -> str | None:
+    """Classify one record boundary by private executable context family."""
+
+    if _is_run_context_shape(type_ref):
+        return RUN_CONTEXT_NAME
+    if _is_phase_context_shape(type_ref):
+        return PHASE_CONTEXT_NAME
+    if _is_item_context_shape(type_ref):
+        return ITEM_CONTEXT_NAME
+    if _is_drain_context_shape(type_ref):
+        return DRAIN_CONTEXT_NAME
+    if _is_selection_context_shape(type_ref):
+        return SELECTION_CONTEXT_NAME
+    if _is_recovery_context_shape(type_ref):
+        return RECOVERY_CONTEXT_NAME
+    return None
 
 
 def is_implementation_attempt_result_type(type_ref: TypeRef) -> bool:
@@ -304,13 +345,19 @@ def derive_promoted_entry_hidden_context_metadata(
     requirements: dict[str, PromotedEntryHiddenContextRequirement] = {}
     ambiguities: dict[str, tuple[str, ...]] = {}
     for param_name, type_ref in signature.params:
-        if is_record_definition_named(type_ref, RUN_CONTEXT_NAME):
+        context_kind = private_exec_context_kind(type_ref)
+        if context_kind == RUN_CONTEXT_NAME:
             requirements[param_name] = PromotedEntryHiddenContextRequirement(
                 param_name=param_name,
                 context_kind=RUN_CONTEXT_NAME,
             )
             continue
-        if not is_record_definition_named(type_ref, PHASE_CONTEXT_NAME):
+        if context_kind != PHASE_CONTEXT_NAME:
+            if context_kind is not None:
+                requirements[param_name] = PromotedEntryHiddenContextRequirement(
+                    param_name=param_name,
+                    context_kind=context_kind,
+                )
             continue
         phase_names = tuple(sorted(_collect_with_phase_names(body_expr, ctx_name=param_name)))
         if len(phase_names) == 1:
@@ -352,6 +399,87 @@ def _collect_with_phase_names(expr: Any, *, ctx_name: str) -> set[str]:
 
     _visit(expr)
     return phase_names
+
+
+def _is_run_context_shape(type_ref: TypeRef) -> bool:
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    return (
+        _record_field_is_primitive(type_ref, "run-id", "RunId")
+        and _record_field_is_path_under(type_ref, "state-root", "state")
+        and _record_field_is_path_under(type_ref, "artifact-root", "artifacts")
+    )
+
+
+def _is_phase_context_shape(type_ref: TypeRef) -> bool:
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    run_field = type_ref.field_types.get("run")
+    return (
+        _is_run_context_shape(run_field)
+        and _record_field_is_primitive(type_ref, "phase-name", "Symbol")
+        and _record_field_is_path_under(type_ref, "state-root", "state")
+        and _record_field_is_path_under(type_ref, "artifact-root", "artifacts")
+    )
+
+
+def _is_item_context_shape(type_ref: TypeRef) -> bool:
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    run_field = type_ref.field_types.get("run")
+    return (
+        _is_run_context_shape(run_field)
+        and _record_field_is_primitive(type_ref, "item-id", "String")
+        and _record_field_is_path_under(type_ref, "state-root", "state")
+        and _record_field_is_path_under(type_ref, "artifact-root", "artifacts")
+        and _record_field_is_path_under(type_ref, "ledger", "state")
+    )
+
+
+def _is_drain_context_shape(type_ref: TypeRef) -> bool:
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    run_field = type_ref.field_types.get("run")
+    return (
+        _is_run_context_shape(run_field)
+        and _record_field_is_path_under(type_ref, "state-root", "state")
+        and _record_field_is_path_under(type_ref, "manifest", "state")
+        and _record_field_is_path_under(type_ref, "ledger", "state")
+    )
+
+
+def _is_selection_context_shape(type_ref: TypeRef) -> bool:
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    run_field = type_ref.field_types.get("run")
+    return (
+        _record_definition_name(type_ref) == SELECTION_CONTEXT_NAME
+        and _is_run_context_shape(run_field)
+        and _record_field_is_path_under(type_ref, "state-root", "state")
+        and _record_field_is_path_under(type_ref, "artifact-root", "artifacts")
+    )
+
+
+def _is_recovery_context_shape(type_ref: TypeRef) -> bool:
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    run_field = type_ref.field_types.get("run")
+    return (
+        _record_definition_name(type_ref) == RECOVERY_CONTEXT_NAME
+        and _is_run_context_shape(run_field)
+        and _record_field_is_path_under(type_ref, "state-root", "state")
+        and _record_field_is_path_under(type_ref, "artifact-root", "artifacts")
+    )
+
+
+def _record_field_is_primitive(record_type: RecordTypeRef, field_name: str, expected_name: str) -> bool:
+    field_type = record_type.field_types.get(field_name)
+    return isinstance(field_type, PrimitiveTypeRef) and field_type.name == expected_name
+
+
+def _record_field_is_path_under(record_type: RecordTypeRef, field_name: str, expected_under: str) -> bool:
+    field_type = record_type.field_types.get(field_name)
+    return isinstance(field_type, PathTypeRef) and field_type.definition.under == expected_under
 
 
 def _require_record_field_type(

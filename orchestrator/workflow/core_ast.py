@@ -12,6 +12,7 @@ from orchestrator.exceptions import ValidationError, ValidationSubjectRef, Workf
 
 from .surface_ast import (
     ImportedWorkflowMetadata,
+    PrivateExecContextBinding,
     SurfaceBranchBlock,
     SurfaceContract,
     SurfaceFinallyBlock,
@@ -37,6 +38,8 @@ class CoreWorkflowImport:
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     managed_write_root_inputs: tuple[str, ...] = ()
     runtime_context_inputs: tuple[str, ...] = ()
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    compatibility_bridge_inputs: tuple[str, ...] = ()
     workflow_name: str | None = None
     output_names: tuple[str, ...] = ()
 
@@ -392,6 +395,8 @@ def _import_from_surface(
         generated_path_allocations=metadata.generated_path_allocations,
         managed_write_root_inputs=metadata.managed_write_root_inputs,
         runtime_context_inputs=metadata.runtime_context_inputs,
+        private_exec_context_bindings=metadata.private_exec_context_bindings,
+        compatibility_bridge_inputs=metadata.compatibility_bridge_inputs,
         workflow_name=workflow_name,
         output_names=output_names,
     )
@@ -739,6 +744,8 @@ def _surface_workflow_from_core_ast(core_workflow_ast: CoreWorkflowAST) -> Surfa
                     generated_path_allocations=metadata.generated_path_allocations,
                     managed_write_root_inputs=metadata.managed_write_root_inputs,
                     runtime_context_inputs=metadata.runtime_context_inputs,
+                    private_exec_context_bindings=metadata.private_exec_context_bindings,
+                    compatibility_bridge_inputs=metadata.compatibility_bridge_inputs,
                     workflow_name=metadata.workflow_name,
                     output_names=metadata.output_names,
                 )
@@ -945,8 +952,28 @@ def _import_to_json(metadata: CoreWorkflowImport) -> dict[str, Any]:
         ],
         "managed_write_root_inputs": list(metadata.managed_write_root_inputs),
         "runtime_context_inputs": list(metadata.runtime_context_inputs),
+        "private_exec_context_bindings": [
+            _private_exec_context_binding_to_json(binding)
+            for binding in metadata.private_exec_context_bindings
+        ],
+        "compatibility_bridge_inputs": list(metadata.compatibility_bridge_inputs),
         "workflow_name": metadata.workflow_name,
         "output_names": list(metadata.output_names),
+    }
+
+
+def _private_exec_context_binding_to_json(binding: PrivateExecContextBinding) -> dict[str, Any]:
+    return {
+        "binding_id": binding.binding_id,
+        "source_param_name": binding.source_param_name,
+        "context_family": binding.context_family,
+        "bridge_class": binding.bridge_class,
+        "generated_input_names": list(binding.generated_input_names),
+        "required_capabilities": list(binding.required_capabilities),
+        "derived_phase_identity": binding.derived_phase_identity,
+        "allocation_ids": list(binding.allocation_ids),
+        "projection_hints": _json_data(binding.projection_hints),
+        "source_provenance": _json_data(binding.source_provenance),
     }
 
 

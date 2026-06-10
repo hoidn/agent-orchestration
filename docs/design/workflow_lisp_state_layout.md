@@ -6,8 +6,9 @@ Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
 ## Purpose
 
 `StateLayout` defines how high-level contexts such as `RunCtx`, `PhaseCtx`,
-`ItemCtx`, and `DrainCtx` derive canonical state paths, bundle paths, snapshot
-paths, temp paths, artifact roots, and optional pointer paths.
+`ItemCtx`, `DrainCtx`, `SelectionCtx`, and `RecoveryCtx` derive canonical
+state paths, bundle paths, snapshot paths, temp paths, artifact roots, and
+optional pointer paths.
 
 The goal is to keep high-level frontend code from hand-managing state paths.
 
@@ -39,8 +40,22 @@ Initial context types:
 - `PhaseCtx`
 - `ItemCtx`
 - `DrainCtx`
+- `SelectionCtx` (reserved in this slice; no executable bootstrap yet)
+- `RecoveryCtx` (reserved in this slice; no executable bootstrap yet)
 
 Each context must map to a deterministic state namespace and artifact namespace.
+
+Initial derivation responsibilities:
+
+- `RunCtx`: run id plus run-scoped `state/` and `artifacts/` roots.
+- `PhaseCtx`: nested run context plus phase-scoped `state/<phase>` and
+  `artifacts/<phase>` roots.
+- `ItemCtx`: nested run context plus item-scoped state/artifact namespaces and
+  ledger location.
+- `DrainCtx`: nested run context plus drain manifest/ledger state namespace.
+- `SelectionCtx`: reserved for typed selection-state and bundle-view identity.
+- `RecoveryCtx`: reserved for blocked/retry recovery state and reconciliation
+  resources.
 
 ## Layout Rules
 
@@ -93,6 +108,8 @@ State layout validation checks:
 - State layout has deterministic semantic identity.
 - Private generated write paths are run-isolated by default.
 - State paths are source-mapped when generated from frontend forms.
+- Private executable context bindings remain private workflow inputs; public
+  authored boundaries expose only user-bindable inputs.
 - Pointer files remain representations, not authority.
 
 ## Open Questions

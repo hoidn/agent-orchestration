@@ -11,6 +11,7 @@ from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
+    workflow_boundary_projection,
     workflow_context,
     workflow_is_managed_write_root_input_name,
     workflow_managed_write_root_inputs,
@@ -39,14 +40,21 @@ def _public_rebind_inputs_for_force_restart(
     persisted_bound_inputs: Any,
 ) -> Dict[str, Any]:
     raw_inputs = persisted_bound_inputs if isinstance(persisted_bound_inputs, dict) else {}
+    boundary = workflow_boundary_projection(workflow_bundle)
     managed_inputs = {
         name
-        for name in workflow_managed_write_root_inputs(workflow_bundle)
+        for name in boundary.private_managed_write_root_inputs
         if isinstance(name, str)
     }
     runtime_context_inputs = {
         name
-        for name in workflow_runtime_context_inputs(workflow_bundle)
+        for binding in boundary.private_runtime_context_bindings
+        for name in binding.generated_input_names
+        if isinstance(name, str)
+    }
+    compatibility_bridge_inputs = {
+        name
+        for name in boundary.private_compatibility_bridge_inputs
         if isinstance(name, str)
     }
     return {
@@ -55,6 +63,7 @@ def _public_rebind_inputs_for_force_restart(
         if isinstance(name, str)
         and name not in managed_inputs
         and name not in runtime_context_inputs
+        and name not in compatibility_bridge_inputs
         and not workflow_is_managed_write_root_input_name(name)
     }
 

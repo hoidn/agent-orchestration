@@ -10,6 +10,7 @@ import sys
 import tempfile
 import shutil
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import hashlib
@@ -17,6 +18,7 @@ import yaml
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.cli.commands.resume import resume_workflow
+from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
@@ -34,6 +36,11 @@ def _workflow_runtime_context_inputs(bundle):
         "workflow_runtime_context_inputs",
         lambda _: (),
     )
+    return helper(bundle)
+
+
+def _workflow_boundary_projection(bundle):
+    helper = getattr(loaded_bundle_helpers, "workflow_boundary_projection")
     return helper(bundle)
 
 
@@ -2256,7 +2263,7 @@ def test_resume_force_restart_rebinds_only_public_inputs_for_promoted_entry_hidd
     }
 
     with patch('os.getcwd', return_value=str(temp_workspace)), patch(
-        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
         return_value=bundle,
     ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="fresh-force-restart-context-run")):
         result = resume_workflow(
@@ -2280,6 +2287,143 @@ def test_resume_force_restart_rebinds_only_public_inputs_for_promoted_entry_hidd
         "inputs__design": "docs/design/selected-item-design.md",
         "inputs__plan": "docs/plans/selected-item-plan.md",
         "inputs__report_path": "artifacts/work/selected-item-execution.md",
+    }
+
+
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+def test_resume_force_restart_uses_typed_boundary_projection_when_runtime_context_tuple_is_absent(
+    mock_executor,
+    temp_workspace,
+):
+    workflow_path = temp_workspace / "private_exec_context_phase_entry.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context_phase_entry)",
+                "  (export entry run-phase)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (label String)",
+                "    (phase_name Symbol))",
+                "  (defworkflow entry",
+                "    ((label String))",
+                "    -> Result",
+                "    (call run-phase",
+                "      :label label))",
+                "  (defworkflow run-phase",
+                "    ((phase-ctx PhaseCtx)",
+                "     (label String))",
+                "    -> Result",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record Result",
+                "        :label label",
+                "        :phase_name phase-ctx.phase-name)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    ).entry_result.validated_bundles[
+        "private_exec_context_phase_entry::entry"
+    ]
+    boundary = _workflow_boundary_projection(bundle)
+    hidden_context_inputs = tuple(boundary.private_runtime_context_bindings[0].generated_input_names)
+    assert hidden_context_inputs
+
+    compatibility_projection_stripped = replace(
+        bundle,
+        provenance=replace(bundle.provenance, runtime_context_inputs=()),
+    )
+    stripped_boundary = _workflow_boundary_projection(compatibility_projection_stripped)
+    assert tuple(stripped_boundary.private_runtime_context_bindings[0].generated_input_names) == hidden_context_inputs
+
+    run_id = "force-restart-typed-private-context"
+    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "run_id": run_id,
+                "workflow_file": str(workflow_path),
+                "workflow_checksum": "sha256:placeholder",
+                "started_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:01:00Z",
+                "status": "failed",
+                "context": {},
+                "bound_inputs": {
+                    "label": "selected-item",
+                    **{name: f"stale-{index}" for index, name in enumerate(hidden_context_inputs)},
+                },
+                "steps": {},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    write_process_metadata(
+        run_root,
+        pid=12345,
+        process_start_time="start-token",
+        argv=[
+            "python",
+            "-m",
+            "orchestrator",
+            "run",
+            workflow_path.as_posix(),
+            "--source-root",
+            temp_workspace.as_posix(),
+            "--entry-workflow",
+            "entry",
+        ],
+    )
+
+    mock_executor.return_value.execute.return_value = {
+        "status": "completed",
+        "steps": {},
+    }
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume.WorkflowLoader.load_bundle',
+        return_value=compatibility_projection_stripped,
+    ), patch('uuid.uuid4', return_value=SimpleNamespace(hex="typed-private-context-restart")):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=True,
+        )
+
+    assert result == 0
+    new_state = json.loads(
+        (
+            temp_workspace
+            / ".orchestrate"
+            / "runs"
+            / "typed-private-context-restart"
+            / "state.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert all(name not in new_state["bound_inputs"] for name in hidden_context_inputs)
+    assert new_state["bound_inputs"] == {
+        "label": "selected-item",
     }
 
 

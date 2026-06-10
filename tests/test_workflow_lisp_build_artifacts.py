@@ -264,6 +264,11 @@ def _workflow_runtime_context_inputs(bundle):
     return helper(bundle)
 
 
+def _workflow_boundary_projection(bundle):
+    helper = getattr(loaded_bundle_helpers, "workflow_boundary_projection")
+    return helper(bundle)
+
+
 def _workflow_payload_by_suffix(payload: dict[str, object], workflow_suffix: str) -> dict[str, object]:
     workflows = payload["workflows"]
     assert isinstance(workflows, list)
@@ -1533,6 +1538,292 @@ def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_proje
         "phase-ctx__state-root": "runtime_owned_context",
         "phase-ctx__artifact-root": "runtime_owned_context",
     }
+
+
+def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_projection(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+    fixture = tmp_path / "private_exec_context_phase_entry.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context_phase_entry)",
+                "  (export entry run-phase)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (label String)",
+                "    (phase_name Symbol))",
+                "  (defworkflow entry",
+                "    ((label String))",
+                "    -> Result",
+                "    (call run-phase",
+                "      :label label))",
+                "  (defworkflow run-phase",
+                "    ((phase-ctx PhaseCtx)",
+                "     (label String))",
+                "    -> Result",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record Result",
+                "        :label label",
+                "        :phase_name phase-ctx.phase-name)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    built = build_frontend_bundle(
+        request_cls(
+            source_path=fixture,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+        )
+    )
+    result = built.compile_result.entry_result
+
+    workflow_name = "private_exec_context_phase_entry::entry"
+    bundle = result.validated_bundles[workflow_name]
+    boundary = _workflow_boundary_projection(bundle)
+    projection_payload = json.loads(
+        built.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
+    workflow_projection = next(
+        item
+        for item in projection_payload["workflows"]
+        if item["workflow_name"] == workflow_name
+    )
+
+    assert set(boundary.public_input_contracts) == set(_workflow_public_input_contracts(bundle))
+    assert boundary.private_managed_write_root_inputs == ()
+    assert boundary.private_compatibility_bridge_inputs == ()
+    assert len(boundary.private_runtime_context_bindings) == 1
+
+    binding = boundary.private_runtime_context_bindings[0]
+    assert binding.binding_id == "phase-ctx"
+    assert binding.source_param_name == "phase-ctx"
+    assert binding.context_family == "PhaseCtx"
+    assert binding.bridge_class == "runtime_owned_context"
+    assert binding.derived_phase_identity == "plan-gate-wrapper"
+    assert set(binding.generated_input_names) == set(_workflow_runtime_context_inputs(bundle))
+
+    assert workflow_projection["boundary"] == {
+        "public_input_names": sorted(_workflow_public_input_contracts(bundle)),
+        "private_runtime_context_bindings": [
+            {
+                "binding_id": "phase-ctx",
+                "source_param_name": "phase-ctx",
+                "context_family": "PhaseCtx",
+                "bridge_class": "runtime_owned_context",
+                "derived_phase_identity": "plan-gate-wrapper",
+                "generated_input_names": sorted(_workflow_runtime_context_inputs(bundle)),
+            }
+        ],
+        "private_managed_write_root_inputs": [],
+        "private_compatibility_bridge_inputs": [],
+    }
+
+
+def test_boundary_projection_serializer_uses_typed_bundle_compatibility_split(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    serialize = getattr(build, "_serialize_workflow_boundary_projection")
+    request_cls = getattr(build, "FrontendBuildRequest")
+    fixture = tmp_path / "private_exec_context_phase_entry.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context_phase_entry)",
+                "  (export entry run-phase)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (label String)",
+                "    (phase_name Symbol))",
+                "  (defworkflow entry",
+                "    ((label String))",
+                "    -> Result",
+                "    (call run-phase",
+                "      :label label))",
+                "  (defworkflow run-phase",
+                "    ((phase-ctx PhaseCtx)",
+                "     (label String))",
+                "    -> Result",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record Result",
+                "        :label label",
+                "        :phase_name phase-ctx.phase-name)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    built = build_frontend_bundle(
+        request_cls(
+            source_path=fixture,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+        )
+    )
+
+    workflow_name = "private_exec_context_phase_entry::entry"
+    bundle = built.compile_result.entry_result.validated_bundles[workflow_name]
+    compatibility_bundle = replace(
+        bundle,
+        provenance=replace(
+            bundle.provenance,
+            compatibility_bridge_inputs=("compatibility__legacy_state_root",),
+        ),
+    )
+    entry_result = replace(
+        built.compile_result.entry_result,
+        validated_bundles={
+            **dict(built.compile_result.entry_result.validated_bundles),
+            workflow_name: compatibility_bundle,
+        },
+    )
+    compile_result = replace(
+        built.compile_result,
+        entry_result=entry_result,
+        validated_bundles_by_name={
+            **dict(built.compile_result.validated_bundles_by_name),
+            workflow_name: compatibility_bundle,
+        },
+    )
+
+    projection_payload = serialize(
+        compile_result,
+        selected_name=workflow_name,
+    )
+    workflow_projection = next(
+        item
+        for item in projection_payload["workflows"]
+        if item["workflow_name"] == workflow_name
+    )
+
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == [
+        "compatibility__legacy_state_root"
+    ]
+
+
+def test_boundary_projection_serializer_preserves_lowered_compatibility_inputs_without_bundle(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+    serialize = getattr(build, "_serialize_workflow_boundary_projection")
+
+    fixture = tmp_path / "private_exec_context_phase_entry.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context_phase_entry)",
+                "  (export entry run-phase)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (label String)",
+                "    (phase_name Symbol))",
+                "  (defworkflow entry",
+                "    ((label String))",
+                "    -> Result",
+                "    (call run-phase",
+                "      :label label))",
+                "  (defworkflow run-phase",
+                "    ((phase-ctx PhaseCtx)",
+                "     (label String))",
+                "    -> Result",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record Result",
+                "        :label label",
+                "        :phase_name phase-ctx.phase-name)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    built = build_frontend_bundle(
+        request_cls(
+            source_path=fixture,
+            source_roots=(tmp_path,),
+            entry_workflow="entry",
+            workspace_root=tmp_path,
+        )
+    )
+    entry_result = built.compile_result.entry_result
+    lowered = replace(
+        entry_result.lowered_workflows[0],
+        compatibility_bridge_inputs=("compatibility__legacy_state_root",),
+    )
+    linked_entry_result = replace(
+        entry_result,
+        lowered_workflows=(lowered, *entry_result.lowered_workflows[1:]),
+        validated_bundles={},
+    )
+    module_name = next(iter(built.compile_result.compiled_results_by_name))
+    compile_result = replace(
+        built.compile_result,
+        entry_result=linked_entry_result,
+        compiled_results_by_name={
+            **dict(built.compile_result.compiled_results_by_name),
+            module_name: linked_entry_result,
+        },
+        validated_bundles_by_name={},
+    )
+
+    projection_payload = serialize(
+        compile_result,
+        selected_name=lowered.typed_workflow.definition.name,
+    )
+    workflow_projection = next(
+        item
+        for item in projection_payload["workflows"]
+        if item["workflow_name"] == lowered.typed_workflow.definition.name
+    )
+
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == [
+        "compatibility__legacy_state_root"
+    ]
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

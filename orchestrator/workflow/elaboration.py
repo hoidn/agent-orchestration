@@ -25,6 +25,7 @@ from .statements import (
 )
 from .surface_ast import (
     ImportedWorkflowMetadata,
+    PrivateExecContextBinding,
     SurfaceBranchBlock,
     SurfaceContract,
     SurfaceFinallyBlock,
@@ -89,6 +90,8 @@ def elaborate_surface_workflow(
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = (),
     managed_write_root_inputs: tuple[str, ...] = (),
     runtime_context_inputs: tuple[str, ...] = (),
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = (),
+    compatibility_bridge_inputs: tuple[str, ...] = (),
     validation_backend: SurfaceWorkflowValidationBackend | None = None,
     workflow_is_imported: bool = False,
 ) -> SurfaceWorkflow | None:
@@ -180,6 +183,8 @@ def elaborate_surface_workflow(
                 generated_path_allocations=bundle.provenance.generated_path_allocations,
                 managed_write_root_inputs=bundle.provenance.managed_write_root_inputs,
                 runtime_context_inputs=bundle.provenance.runtime_context_inputs,
+                private_exec_context_bindings=bundle.provenance.private_exec_context_bindings,
+                compatibility_bridge_inputs=bundle.provenance.compatibility_bridge_inputs,
                 workflow_name=bundle.surface.name,
                 output_names=tuple(bundle.surface.outputs),
             )
@@ -192,6 +197,10 @@ def elaborate_surface_workflow(
         generated_path_allocations=tuple(generated_path_allocations),
         managed_write_root_inputs=managed_inputs,
         runtime_context_inputs=runtime_inputs,
+        private_exec_context_bindings=tuple(private_exec_context_bindings),
+        compatibility_bridge_inputs=tuple(
+            name for name in compatibility_bridge_inputs if isinstance(name, str)
+        ),
         imported_aliases=tuple(imported_bundles.keys()),
     )
 

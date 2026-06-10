@@ -14,7 +14,7 @@ from typing import Any
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.core_ast import build_core_workflow_ast, workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_boundary_projection
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
@@ -1133,10 +1133,73 @@ def _serialize_workflow_boundary_projection(
                     != GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT
                 ):
                     allocation_by_input_name[allocation.generated_input_name] = allocation
+            bundle = compile_result.validated_bundles_by_name.get(
+                lowered.typed_workflow.definition.name
+            )
+            if bundle is not None:
+                boundary = workflow_boundary_projection(bundle)
+                boundary_payload = {
+                    "public_input_names": sorted(boundary.public_input_contracts),
+                    "private_runtime_context_bindings": [
+                        {
+                            "binding_id": binding.binding_id,
+                            "source_param_name": binding.source_param_name,
+                            "context_family": binding.context_family,
+                            "bridge_class": binding.bridge_class,
+                            "derived_phase_identity": binding.derived_phase_identity,
+                            "generated_input_names": sorted(binding.generated_input_names),
+                        }
+                        for binding in boundary.private_runtime_context_bindings
+                    ],
+                    "private_managed_write_root_inputs": sorted(
+                        name
+                        for name in boundary.private_managed_write_root_inputs
+                        if isinstance(name, str)
+                    ),
+                    "private_compatibility_bridge_inputs": sorted(
+                        name
+                        for name in boundary.private_compatibility_bridge_inputs
+                        if isinstance(name, str)
+                    ),
+                }
+            else:
+                boundary_payload = {
+                    "public_input_names": sorted(
+                        field.generated_name
+                        for field in projection.flattened_inputs
+                        if field.generated_name
+                        not in {
+                            internal.generated_name
+                            for internal in projection.generated_internal_inputs
+                        }
+                    ),
+                    "private_runtime_context_bindings": [
+                        {
+                            "binding_id": binding.binding_id,
+                            "source_param_name": binding.source_param_name,
+                            "context_family": binding.context_family,
+                            "bridge_class": binding.bridge_class,
+                            "derived_phase_identity": binding.derived_phase_identity,
+                            "generated_input_names": sorted(binding.generated_input_names),
+                        }
+                        for binding in lowered.private_exec_context_bindings
+                    ],
+                    "private_managed_write_root_inputs": sorted(
+                        field.generated_name
+                        for field in projection.generated_internal_inputs
+                        if field.reason == "managed_write_root"
+                    ),
+                    "private_compatibility_bridge_inputs": sorted(
+                        name
+                        for name in lowered.compatibility_bridge_inputs
+                        if isinstance(name, str)
+                    ),
+                }
             workflows.append(
                 {
                     "workflow_name": projection.workflow_name,
                     "display_name": projection.display_name,
+                    "boundary": boundary_payload,
                     "params": [
                         {"name": param.name, "type_kind": param.type_kind}
                         for param in projection.params

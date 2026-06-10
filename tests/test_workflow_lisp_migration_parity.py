@@ -610,6 +610,128 @@ def test_compute_non_regressive_allows_optional_artifact_not_implemented() -> No
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is True
 
 
+def test_run_parity_target_records_selected_boundary_projection_split(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    candidate_path = tmp_path / str(target.candidate)
+    yaml_primary_path = tmp_path / str(target.yaml_primary)
+    _write_text(candidate_path, "(workflow-lisp)\n")
+    _write_text(yaml_primary_path, "steps: []\n")
+
+    build_root = tmp_path / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    for artifact_name in ("core_workflow_ast", "semantic_ir", "source_map"):
+        (build_root / f"{artifact_name}.json").write_text("{}", encoding="utf-8")
+    (build_root / "workflow_boundary_projection.json").write_text(
+        json.dumps(
+            {
+                "workflows": [
+                    {
+                        "workflow_name": "design_plan_impl_review_stack_v2_call::design-plan-impl-stack",
+                        "display_name": "design-plan-impl-stack",
+                        "boundary": {
+                            "public_input_names": ["backlog_item", "execution_report", "progress_report"],
+                            "private_runtime_context_bindings": [
+                                {
+                                    "binding_id": "phase-ctx",
+                                    "source_param_name": "phase-ctx",
+                                    "context_family": "PhaseCtx",
+                                    "bridge_class": "runtime_owned_context",
+                                    "generated_input_names": [
+                                        "phase-ctx__phase-name",
+                                        "phase-ctx__state-root",
+                                    ],
+                                }
+                            ],
+                            "private_managed_write_root_inputs": ["__write_root__selection_bundle"],
+                            "private_compatibility_bridge_inputs": ["compatibility__legacy_state_root"],
+                        },
+                    }
+                ]
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        build_root / "manifest.json",
+        {
+            "shared_validation_status": "validated",
+            "compiled_workflow_checksum": "sha256:compiled-workflow",
+            "artifact_paths": {
+                "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
+                "semantic_ir": str(build_root / "semantic_ir.json"),
+                "source_map": str(build_root / "source_map.json"),
+                "workflow_boundary_projection": str(build_root / "workflow_boundary_projection.json"),
+            },
+            "artifact_status": {
+                "core_workflow_ast": "emitted",
+                "semantic_ir": "emitted",
+                "source_map": "emitted",
+                "workflow_boundary_projection": "emitted",
+            },
+        },
+    )
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        stdout = json.dumps({"build_root": str(build_root)}) if role == "compile" else ""
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text("", encoding="utf-8")
+        return module.CommandOutcome(
+            status="pass",
+            argv=("python", role),
+            exit_code=0,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr="",
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["workflow_boundary_projection"] == {
+        "workflow_name": "design_plan_impl_review_stack_v2_call::design-plan-impl-stack",
+        "display_name": "design-plan-impl-stack",
+        "public_input_names": ["backlog_item", "execution_report", "progress_report"],
+        "private_runtime_context_bindings": [
+            {
+                "binding_id": "phase-ctx",
+                "source_param_name": "phase-ctx",
+                "context_family": "PhaseCtx",
+                "bridge_class": "runtime_owned_context",
+                "generated_input_names": [
+                    "phase-ctx__phase-name",
+                    "phase-ctx__state-root",
+                ],
+            }
+        ],
+        "private_managed_write_root_inputs": ["__write_root__selection_bundle"],
+        "private_compatibility_bridge_inputs": ["compatibility__legacy_state_root"],
+    }
+
+
 def test_render_parity_index_derives_primary_surface() -> None:
     module = _parity_module()
     report = _valid_report_payload()

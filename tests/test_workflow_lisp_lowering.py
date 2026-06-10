@@ -2708,6 +2708,79 @@ def test_compile_stage3_entrypoint_promoted_entry_emits_hidden_context_call_bind
     }
 
 
+def test_compile_stage3_entrypoint_private_exec_context_records_phase_binding_metadata(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "private_exec_context_phase_entry.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context_phase_entry)",
+                "  (export entry run-phase)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (label String)",
+                "    (phase_name Symbol))",
+                "  (defworkflow entry",
+                "    ((label String))",
+                "    -> Result",
+                "    (call run-phase",
+                "      :label label))",
+                "  (defworkflow run-phase",
+                "    ((phase-ctx PhaseCtx)",
+                "     (label String))",
+                "    -> Result",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record Result",
+                "        :label label",
+                "        :phase_name phase-ctx.phase-name)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        fixture,
+        source_roots=(tmp_path,),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    ).entry_result
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "private_exec_context_phase_entry::entry"
+    )
+
+    assert len(lowered.private_exec_context_bindings) == 1
+    binding = lowered.private_exec_context_bindings[0]
+    assert binding.binding_id == "phase-ctx"
+    assert binding.context_family == "PhaseCtx"
+    assert binding.bridge_class == "runtime_owned_context"
+    assert binding.derived_phase_identity == "plan-gate-wrapper"
+    assert set(binding.generated_input_names) == {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }
+
+
 def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_selected_entry_workflow(
     tmp_path: Path,
 ) -> None:
@@ -4034,6 +4107,46 @@ def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_re
     ] == [
         (("generated_output", "return__report", "command_checks"),),
     ]
+
+
+def test_validate_one_lowered_workflow_preserves_compatibility_bridge_inputs(
+    tmp_path: Path,
+) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
+    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
+
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    lowered = replace(
+        result.lowered_workflows[0],
+        compatibility_bridge_inputs=("compatibility__legacy_state_root",),
+    )
+
+    bundle = validate_one(
+        lowered,
+        workspace_root=tmp_path,
+        imported_bundles={},
+        workflow_is_imported=False,
+    )
+    boundary = loaded_bundle_helpers.workflow_boundary_projection(bundle)
+
+    assert bundle.provenance.compatibility_bridge_inputs == (
+        "compatibility__legacy_state_root",
+    )
+    assert boundary.private_compatibility_bridge_inputs == (
+        "compatibility__legacy_state_root",
+    )
 
 
 def test_compile_stage3_module_normalizes_function_calls_before_lowering(tmp_path: Path) -> None:

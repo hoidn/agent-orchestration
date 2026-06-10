@@ -286,6 +286,14 @@ def run_parity_target(
         "compile_artifacts": compile_artifacts,
         "evidence": evidence,
     }
+    workflow_boundary = _load_selected_workflow_boundary_projection(
+        target=target,
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
+    if workflow_boundary is not None:
+        report["workflow_boundary_projection"] = workflow_boundary
     report["non_regressive"] = compute_non_regressive(report, today=today or date.today())
     return report
 
@@ -816,6 +824,86 @@ def _build_evidence_freshness(
     return freshness
 
 
+def _load_selected_workflow_boundary_projection(
+    *,
+    target: ParityTarget,
+    build_manifest: Mapping[str, Any] | None,
+    build_root: Path | None,
+    repo_root: Path,
+) -> dict[str, object] | None:
+    if build_manifest is None:
+        return None
+    artifact_paths = dict(build_manifest.get("artifact_paths", {}))
+    boundary_path = _resolve_build_artifact_path(
+        artifact_paths.get("workflow_boundary_projection"),
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if boundary_path is None or not boundary_path.exists():
+        return None
+    try:
+        payload = json.loads(boundary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    workflows = payload.get("workflows")
+    if not isinstance(workflows, list):
+        return None
+    selected = next(
+        (
+            item
+            for item in workflows
+            if isinstance(item, Mapping)
+            and (
+                item.get("display_name") == target.entry_workflow
+                or item.get("workflow_name") == target.entry_workflow
+                or str(item.get("workflow_name", "")).endswith(f"::{target.entry_workflow}")
+            )
+        ),
+        None,
+    )
+    if not isinstance(selected, Mapping):
+        return None
+    boundary = selected.get("boundary")
+    if not isinstance(boundary, Mapping):
+        return None
+    return {
+        "workflow_name": str(selected.get("workflow_name")),
+        "display_name": str(selected.get("display_name")),
+        "public_input_names": sorted(
+            name
+            for name in boundary.get("public_input_names", ())
+            if isinstance(name, str)
+        ),
+        "private_runtime_context_bindings": [
+            {
+                key: value
+                for key, value in binding.items()
+                if key
+                in {
+                    "binding_id",
+                    "source_param_name",
+                    "context_family",
+                    "bridge_class",
+                    "derived_phase_identity",
+                    "generated_input_names",
+                }
+            }
+            for binding in boundary.get("private_runtime_context_bindings", ())
+            if isinstance(binding, Mapping)
+        ],
+        "private_managed_write_root_inputs": sorted(
+            name
+            for name in boundary.get("private_managed_write_root_inputs", ())
+            if isinstance(name, str)
+        ),
+        "private_compatibility_bridge_inputs": sorted(
+            name
+            for name in boundary.get("private_compatibility_bridge_inputs", ())
+            if isinstance(name, str)
+        ),
+    }
+
+
 def _validate_evidence_freshness(
     report: Mapping[str, Any],
     *,
@@ -1151,6 +1239,27 @@ def _report_artifact_path(
         artifact_path = build_root.parent.parent / artifact_path
         return _relative_or_absolute_path(artifact_path, repo_root)
     return raw_path
+
+
+def _resolve_build_artifact_path(
+    raw_path: str | None,
+    *,
+    build_root: Path | None,
+    repo_root: Path,
+) -> Path | None:
+    if raw_path is None:
+        return None
+    artifact_path = Path(raw_path)
+    if artifact_path.is_absolute():
+        return artifact_path
+    if build_root is not None:
+        candidate = build_root / artifact_path
+        if candidate.exists():
+            return candidate
+        candidate = build_root.parent.parent / artifact_path
+        if candidate.exists():
+            return candidate
+    return repo_root / artifact_path
 
 
 def _artifact_raw_status(

@@ -11,7 +11,7 @@ from .effects import (
     merge_effect_summaries,
 )
 from .expressions import CallExpr, ExprNode, FunctionCallExpr, NameExpr, WorkflowRefLiteralExpr
-from .phase import PHASE_CONTEXT_NAME, RUN_CONTEXT_NAME
+from .phase import private_exec_context_kind
 from .procedure_refs import (
     ProcRefResolutionContext,
     ResolvedProcRefValue,
@@ -55,7 +55,7 @@ def hidden_context_omission_allowed(
         return False
     if not isinstance(expected_type, RecordTypeRef):
         return False
-    if expected_type.name not in {RUN_CONTEXT_NAME, PHASE_CONTEXT_NAME}:
+    if private_exec_context_kind(expected_type) is None:
         return False
 
     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})

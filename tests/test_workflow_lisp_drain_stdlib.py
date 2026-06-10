@@ -5,6 +5,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
+    compile_stage3_entrypoint,
     compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
@@ -252,6 +253,66 @@ def test_workflow_ref_environment_builds_noop_extern_rebinding_for_provider_free
     typed = _typecheck_fixture(VALID_DRAIN_FIXTURE)
 
     assert typed[-1].definition.name == "drain"
+
+
+def test_promoted_entry_DrainCtx_hidden_binding_reports_unsupported_private_exec_bootstrap(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "private_exec_context" / "drain_ctx.orc"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context/drain_ctx)",
+                "  (export entry selector-run)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defpath StateExisting",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist true)",
+                "  (defpath StateFile",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord DrainCtx",
+                "    (run RunCtx)",
+                "    (state-root Path.state-root)",
+                "    (manifest StateExisting)",
+                "    (ledger StateFile))",
+                "  (defrecord Result",
+                "    (manifest StateExisting))",
+                "  (defworkflow entry",
+                "    ()",
+                "    -> Result",
+                "    (call selector-run))",
+                "  (defworkflow selector-run",
+                "    ((ctx DrainCtx))",
+                "    -> Result",
+                "    (record Result :manifest ctx.manifest))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            path,
+            source_roots=(tmp_path,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "private_exec_context_bootstrap_unsupported"
+    assert "DrainCtx" in diagnostic.message
 
 
 def test_workflow_ref_resolution_rejects_signature_mismatch() -> None:

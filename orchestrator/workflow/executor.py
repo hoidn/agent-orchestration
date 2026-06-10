@@ -65,6 +65,7 @@ from .executable_ir import (
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
 from .loaded_bundle import (
+    workflow_boundary_projection,
     workflow_bundle,
     workflow_context,
     workflow_generated_path_allocations,
@@ -132,18 +133,6 @@ from .adjudication import (
 )
 
 logger = logging.getLogger(__name__)
-
-_RUN_CONTEXT_INPUT_SUFFIXES = frozenset({"run-id", "state-root", "artifact-root"})
-_PHASE_CONTEXT_INPUT_SUFFIXES = frozenset(
-    {
-        "run__run-id",
-        "run__state-root",
-        "run__artifact-root",
-        "phase-name",
-        "state-root",
-        "artifact-root",
-    }
-)
 
 
 def _path_safe_frame_scope_token(frame_id: str) -> str:
@@ -1981,17 +1970,57 @@ class WorkflowExecutor:
             return {}
         contracts = self._workflow_input_contracts()
         bindings: Dict[str, Any] = {}
-        for input_name in workflow_runtime_context_inputs(self.loaded_bundle):
-            if not isinstance(input_name, str):
+        for binding in workflow_boundary_projection(self.loaded_bundle).private_runtime_context_bindings:
+            if binding.context_family not in {"RunCtx", "PhaseCtx"}:
                 continue
-            if input_name.endswith("__run-id"):
-                bindings[input_name] = self.state_manager.run_id
-                continue
-            contract = contracts.get(input_name, {})
-            default_value = contract.get("default") if isinstance(contract, dict) else None
-            if default_value is not None:
-                bindings[input_name] = default_value
+            for input_name in binding.generated_input_names:
+                if not isinstance(input_name, str):
+                    continue
+                contract = contracts.get(input_name, {})
+                derived_value = self._private_exec_context_binding_value(
+                    binding=binding,
+                    input_name=input_name,
+                )
+                if derived_value is not None:
+                    bindings[input_name] = derived_value
+                    continue
+                default_value = contract.get("default") if isinstance(contract, dict) else None
+                if default_value is not None:
+                    bindings[input_name] = default_value
         return bindings
+
+    def _private_exec_context_binding_value(
+        self,
+        *,
+        binding: Any,
+        input_name: str,
+    ) -> Any:
+        """Derive one runtime-owned hidden context value from structured binding metadata."""
+
+        if not isinstance(self.state_manager, StateManager):
+            return None
+        prefix = f"{binding.source_param_name}__"
+        relative_name = input_name[len(prefix):] if input_name.startswith(prefix) else input_name
+        run_state_root = "state/run"
+        run_artifact_root = "artifacts/run"
+        phase_name = (
+            binding.derived_phase_identity
+            if binding.context_family == "PhaseCtx" and isinstance(binding.derived_phase_identity, str)
+            else None
+        )
+        value_by_path = {
+            "run-id": self.state_manager.run_id,
+            "run__run-id": self.state_manager.run_id,
+            "state-root": run_state_root,
+            "run__state-root": run_state_root,
+            "artifact-root": run_artifact_root,
+            "run__artifact-root": run_artifact_root,
+        }
+        if phase_name is not None:
+            value_by_path["phase-name"] = phase_name
+            value_by_path["state-root"] = f"state/{phase_name}"
+            value_by_path["artifact-root"] = f"artifacts/{phase_name}"
+        return value_by_path.get(relative_name)
 
     def _runtime_context_inputs_missing_provenance(self) -> tuple[str, ...]:
         """Return hidden runtime-context inputs present in contracts but absent from provenance."""
@@ -2002,42 +2031,43 @@ class WorkflowExecutor:
         contracts = self._workflow_input_contracts()
         if not contracts:
             return ()
-
-        compiler_recorded_inputs = {
-            input_name
-            for input_name in self.loaded_bundle.surface.provenance.runtime_context_inputs
-            if isinstance(input_name, str) and input_name in contracts
-        }
-        if not compiler_recorded_inputs:
+        if workflow_boundary_projection(self.loaded_bundle).private_runtime_context_bindings:
             return ()
+        return tuple(
+            sorted(
+                {
+                    input_name
+                    for input_name in self.loaded_bundle.surface.provenance.runtime_context_inputs
+                    if isinstance(input_name, str) and input_name in contracts
+                }
+            )
+        )
 
-        grouped_suffixes: Dict[str, set[str]] = {}
-        grouped_names: Dict[str, Dict[str, str]] = {}
-        for input_name in compiler_recorded_inputs:
-            if not isinstance(input_name, str):
-                continue
-            prefix, separator, suffix = input_name.partition("__")
-            if not separator or not suffix:
-                continue
-            grouped_suffixes.setdefault(prefix, set()).add(suffix)
-            grouped_names.setdefault(prefix, {})[suffix] = input_name
+    def _unsupported_private_exec_context_families(self) -> tuple[str, ...]:
+        """Return private context families that this runtime cannot bootstrap."""
 
-        inferred_inputs: set[str] = set()
-        for prefix, suffixes in grouped_suffixes.items():
-            if _RUN_CONTEXT_INPUT_SUFFIXES.issubset(suffixes):
-                inferred_inputs.update(grouped_names[prefix][suffix] for suffix in _RUN_CONTEXT_INPUT_SUFFIXES)
-            if _PHASE_CONTEXT_INPUT_SUFFIXES.issubset(suffixes):
-                inferred_inputs.update(grouped_names[prefix][suffix] for suffix in _PHASE_CONTEXT_INPUT_SUFFIXES)
+        return tuple(
+            sorted(
+                {
+                    binding.context_family
+                    for binding in workflow_boundary_projection(self.loaded_bundle).private_runtime_context_bindings
+                    if binding.context_family not in {"RunCtx", "PhaseCtx"}
+                }
+            )
+        )
 
-        if not inferred_inputs:
-            return ()
+    def _recorded_runtime_context_inputs(self) -> tuple[str, ...]:
+        """Return hidden runtime-context inputs declared by the bundle."""
 
-        recorded_inputs = {
-            input_name
-            for input_name in workflow_runtime_context_inputs(self.loaded_bundle)
-            if isinstance(input_name, str)
-        }
-        return tuple(sorted(input_name for input_name in inferred_inputs if input_name not in recorded_inputs))
+        return tuple(
+            sorted(
+                {
+                    input_name
+                    for input_name in workflow_runtime_context_inputs(self.loaded_bundle)
+                    if isinstance(input_name, str)
+                }
+            )
+        )
 
     def _ensure_entry_managed_write_root_bindings(
         self,
@@ -2089,6 +2119,17 @@ class WorkflowExecutor:
     ) -> Optional[Dict[str, Any]]:
         """Allocate or validate runtime-owned hidden context inputs for entry workflows."""
 
+        unsupported_families = self._unsupported_private_exec_context_families()
+        if unsupported_families:
+            return self._contract_violation_result(
+                "Workflow input binding failed",
+                {
+                    "scope": "workflow_inputs",
+                    "reason": "private_exec_context_bootstrap_unsupported",
+                    "context_families": list(unsupported_families),
+                },
+            )
+
         missing_metadata_inputs = self._runtime_context_inputs_missing_provenance()
         if missing_metadata_inputs:
             return self._contract_violation_result(
@@ -2096,7 +2137,7 @@ class WorkflowExecutor:
                 {
                     "scope": "workflow_inputs",
                     "reason": "promoted_entry_hidden_context_metadata_missing",
-                    "inputs": list(missing_metadata_inputs),
+                    "inputs": list(missing_metadata_inputs or self._recorded_runtime_context_inputs()),
                 },
             )
 

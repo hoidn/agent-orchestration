@@ -38,6 +38,7 @@ from typing import Any
 
 from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
@@ -321,6 +322,8 @@ class LoweredWorkflow:
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
     boundary_projection: WorkflowBoundaryProjection
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    compatibility_bridge_inputs: tuple[str, ...] = ()
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     private_artifact_ids: tuple[str, ...] = ()
 
@@ -620,6 +623,7 @@ def _lower_one_workflow(
         authored_generated_inputs=set(authored_inputs),
         internal_generated_input_reasons={},
         internal_generated_input_contracts={},
+        private_exec_context_bindings=[],
         generated_output_spans=origin_outputs,
         generated_path_spans={},
         generated_path_allocations=[],
@@ -847,6 +851,12 @@ def _lower_one_workflow(
             generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
+        private_exec_context_bindings=tuple(context.private_exec_context_bindings),
+        compatibility_bridge_inputs=tuple(
+            name
+            for name, reason in sorted(context.internal_generated_input_reasons.items())
+            if reason == "compatibility_bridge"
+        ),
         generated_path_allocations=tuple(context.generated_path_allocations),
         private_artifact_ids=tuple(
             name
@@ -1757,6 +1767,8 @@ def _validate_one_lowered_workflow(
             for item in lowered_workflow.boundary_projection.generated_internal_inputs
             if item.reason == "runtime_owned_context"
         ),
+        private_exec_context_bindings=lowered_workflow.private_exec_context_bindings,
+        compatibility_bridge_inputs=lowered_workflow.compatibility_bridge_inputs,
         validation_backend=loader,
         workflow_is_imported=workflow_is_imported,
     )

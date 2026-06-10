@@ -1059,34 +1059,39 @@ Do not use general predicates as proof:
 
 High-level Lisp should derive state paths from contexts.
 
-Common context records:
+Common authored context records:
 
 ```lisp
-(defrecord WorkflowCtx
+(defrecord RunCtx
+  (run-id RunId)
   (state-root Path.state-root)
-  (artifact-root Path.artifact-root)
-  (run-id RunId))
+  (artifact-root Path.artifact-root))
 
 (defrecord PhaseCtx
+  (run RunCtx)
+  (phase-name Symbol)
   (state-root Path.state-root)
-  (artifact-root Path.artifact-root)
-  (run-id RunId)
-  (phase-name Symbol))
+  (artifact-root Path.artifact-root))
 
 (defrecord ItemCtx
+  (run RunCtx)
+  (item-id String)
   (state-root Path.state-root)
   (artifact-root Path.artifact-root)
-  (run-id RunId)
-  (ledger Path.state-existing)
-  (design Path.design))
+  (ledger Path.state-existing))
 
 (defrecord DrainCtx
+  (run RunCtx)
   (state-root Path.state-root)
-  (artifact-root Path.artifact-root)
-  (run-id RunId)
   (manifest Path.state-existing)
   (ledger Path.state-existing))
 ```
+
+When a promoted entry workflow omits one of these context parameters for an
+internal reusable call, Workflow Lisp now records that omission as private
+executable-context metadata. Public authored inputs stay public; runtime-owned
+context bindings, managed write roots, and YAML-compatibility bridge values
+stay off the public boundary.
 
 Use helpers:
 

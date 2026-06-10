@@ -116,6 +116,22 @@ class SurfaceStepCommonConfig:
 
 
 @dataclass(frozen=True)
+class PrivateExecContextBinding:
+    """Structured runtime-owned context binding metadata carried by the bundle."""
+
+    binding_id: str
+    source_param_name: str
+    context_family: str
+    bridge_class: str
+    generated_input_names: tuple[str, ...]
+    required_capabilities: tuple[str, ...] = ()
+    derived_phase_identity: str | None = None
+    allocation_ids: tuple[str, ...] = ()
+    projection_hints: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    source_provenance: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class WorkflowProvenance:
     """Typed workflow-path and source-root metadata."""
 
@@ -124,6 +140,8 @@ class WorkflowProvenance:
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     managed_write_root_inputs: tuple[str, ...] = ()
     runtime_context_inputs: tuple[str, ...] = ()
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    compatibility_bridge_inputs: tuple[str, ...] = ()
     imported_aliases: tuple[str, ...] = ()
     frontend_kind: str | None = None
     frontend_build_root: Path | None = None
@@ -143,6 +161,8 @@ class ImportedWorkflowMetadata:
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     managed_write_root_inputs: tuple[str, ...] = ()
     runtime_context_inputs: tuple[str, ...] = ()
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    compatibility_bridge_inputs: tuple[str, ...] = ()
     workflow_name: Optional[str] = None
     output_names: tuple[str, ...] = ()
 

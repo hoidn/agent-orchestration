@@ -496,6 +496,37 @@ def derive_workflow_semantic_ir(
             layout_kind="runtime_context_input",
             details=MappingProxyType({"input_name": input_name}),
         )
+    for binding in provenance.private_exec_context_bindings:
+        state_layout[
+            _state_layout_id(workflow_name, "private_exec_context_binding", binding.binding_id)
+        ] = SemanticStateLayoutEntry(
+            layout_id=_state_layout_id(workflow_name, "private_exec_context_binding", binding.binding_id),
+            workflow_name=workflow_name,
+            layout_kind="private_exec_context_binding",
+            details=MappingProxyType(
+                {
+                    "binding_id": binding.binding_id,
+                    "source_param_name": binding.source_param_name,
+                    "context_family": binding.context_family,
+                    "bridge_class": binding.bridge_class,
+                    "generated_input_names": tuple(binding.generated_input_names),
+                    "required_capabilities": tuple(binding.required_capabilities),
+                    "derived_phase_identity": binding.derived_phase_identity,
+                    "allocation_ids": tuple(binding.allocation_ids),
+                    "projection_hints": binding.projection_hints,
+                    "source_provenance": binding.source_provenance,
+                }
+            ),
+        )
+    for input_name in provenance.compatibility_bridge_inputs:
+        state_layout[
+            _state_layout_id(workflow_name, "compatibility_bridge_input", input_name)
+        ] = SemanticStateLayoutEntry(
+            layout_id=_state_layout_id(workflow_name, "compatibility_bridge_input", input_name),
+            workflow_name=workflow_name,
+            layout_kind="compatibility_bridge_input",
+            details=MappingProxyType({"input_name": input_name}),
+        )
 
     if provenance.frontend_source_map_coverage is not None:
         for key, value in sorted(provenance.frontend_source_map_coverage.items()):

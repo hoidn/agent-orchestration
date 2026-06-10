@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
@@ -869,7 +871,11 @@ def test_promoted_entry_hidden_context_metadata_missing_fails(tmp_path: Path) ->
 
     broken_bundle = replace(
         bundle,
-        provenance=replace(bundle.provenance, runtime_context_inputs=()),
+        provenance=replace(
+            bundle.provenance,
+            runtime_context_inputs=(),
+            private_exec_context_bindings=(),
+        ),
     )
     assert _workflow_runtime_context_inputs(broken_bundle) == ()
     assert hidden_context_inputs.issubset(workflow_input_contracts(broken_bundle))
@@ -892,6 +898,166 @@ def test_promoted_entry_hidden_context_metadata_missing_fails(tmp_path: Path) ->
     assert state["error"]["type"] == "contract_violation"
     assert state["error"]["context"]["reason"] == "promoted_entry_hidden_context_metadata_missing"
     assert set(state["error"]["context"]["inputs"]) == hidden_context_inputs
+
+
+def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaults(
+    tmp_path: Path,
+) -> None:
+    workflow_path = tmp_path / "private_exec_context_phase_entry.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule private_exec_context_phase_entry)",
+                "  (export entry run-phase)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (label String)",
+                "    (phase_name Symbol)",
+                "    (phase_state_root Path.state-root)",
+                "    (phase_artifact_root Path.artifact-root))",
+                "  (defworkflow entry",
+                "    ((label String))",
+                "    -> Result",
+                "    (call run-phase",
+                "      :label label))",
+                "  (defworkflow run-phase",
+                "    ((phase-ctx PhaseCtx)",
+                "     (label String))",
+                "    -> Result",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record Result",
+                "        :label label",
+                "        :phase_name phase-ctx.phase-name",
+                "        :phase_state_root phase-ctx.state-root",
+                "        :phase_artifact_root phase-ctx.artifact-root)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(tmp_path,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+    workflow_name = "private_exec_context_phase_entry::entry"
+    bundle = result.validated_bundles[workflow_name]
+    hidden_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+    assert hidden_context_inputs == {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }
+
+    stripped_inputs = dict(bundle.surface.inputs)
+    for input_name in hidden_context_inputs:
+        contract = stripped_inputs[input_name]
+        contract_definition = dict(contract.definition)
+        contract_definition.pop("default", None)
+        stripped_inputs[input_name] = replace(contract, definition=contract_definition)
+    stripped_bundle = replace(
+        bundle,
+        surface=replace(bundle.surface, inputs=stripped_inputs),
+    )
+
+    def _execute(candidate_bundle, *, run_id: str) -> dict[str, object]:
+        state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+        state_manager.initialize(
+            workflow_path.as_posix(),
+            context=bundle_context_dict(candidate_bundle),
+            bound_inputs={"label": "selected-item"},
+        )
+        return WorkflowExecutor(candidate_bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    original_state = _execute(bundle, run_id="promoted-entry-defaults")
+    stripped_state = _execute(stripped_bundle, run_id="rid-123")
+
+    assert original_state["status"] == "completed"
+    assert stripped_state["status"] == "completed"
+    assert original_state["workflow_outputs"] == {
+        "return__label": "selected-item",
+        "return__phase_name": "plan-gate-wrapper",
+        "return__phase_state_root": "state/plan-gate-wrapper",
+        "return__phase_artifact_root": "artifacts/plan-gate-wrapper",
+    }
+    assert stripped_state["workflow_outputs"] == original_state["workflow_outputs"]
+    assert stripped_state["bound_inputs"]["phase-ctx__run__run-id"] == "rid-123"
+    assert stripped_state["bound_inputs"]["phase-ctx__phase-name"] == original_state["bound_inputs"]["phase-ctx__phase-name"]
+    assert stripped_state["bound_inputs"]["phase-ctx__run__state-root"] == original_state["bound_inputs"]["phase-ctx__run__state-root"]
+    assert stripped_state["bound_inputs"]["phase-ctx__run__artifact-root"] == original_state["bound_inputs"]["phase-ctx__run__artifact-root"]
+    assert stripped_state["bound_inputs"]["phase-ctx__state-root"] == original_state["bound_inputs"]["phase-ctx__state-root"]
+    assert stripped_state["bound_inputs"]["phase-ctx__artifact-root"] == original_state["bound_inputs"]["phase-ctx__artifact-root"]
+
+
+@pytest.mark.parametrize("context_name", ["SelectionCtx", "RecoveryCtx"])
+def test_promoted_entry_reserved_private_context_families_report_unsupported_bootstrap(
+    tmp_path: Path,
+    context_name: str,
+) -> None:
+    workflow_path = tmp_path / f"private_exec_context_{context_name.lower()}.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                f"  (defmodule private_exec_context_{context_name.lower()})",
+                "  (export entry use-context)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                f"  (defrecord {context_name}",
+                "    (run RunCtx)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord Result",
+                "    (state_root Path.state-root))",
+                "  (defworkflow entry",
+                "    ()",
+                "    -> Result",
+                "    (call use-context))",
+                "  (defworkflow use-context",
+                f"    ((ctx {context_name}))",
+                "    -> Result",
+                "    (record Result :state_root ctx.state-root))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(tmp_path,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostics = getattr(excinfo.value, "diagnostics", ())
+    assert diagnostics, "expected frontend diagnostics"
+    diagnostic = diagnostics[0]
+    assert diagnostic.code == "private_exec_context_bootstrap_unsupported"
+    assert context_name in diagnostic.message
 
 
 def test_resume_or_start_plan_gate_reusable_state_parity_path(
@@ -1173,18 +1339,20 @@ def test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imp
         for value in seed_step["materialize_artifacts"]["values"]
     }
 
-    def _walk_steps(steps):
-        for step in steps:
-            yield step
-            match_block = step.get("match")
-            if isinstance(match_block, dict):
-                for case in match_block.get("cases", {}).values():
-                    if isinstance(case, dict):
-                        yield from _walk_steps(case.get("steps", []))
-
-    nested_steps = list(_walk_steps(body_steps))
-    assert any(step.get("provider") == "fake-review" for step in nested_steps)
-    assert any(step.get("provider") == "fake-fix" for step in nested_steps)
+    nested_steps = list(_iter_nested_steps(body_steps))
+    assert any(
+        isinstance(step.get("call"), str) and step["call"].endswith("::run-review.v1")
+        for step in nested_steps
+    )
+    assert any(
+        isinstance(step.get("call"), str) and step["call"].endswith("::apply-fix.v1")
+        for step in nested_steps
+    )
+    assert any(
+        any(step.get("provider") == provider for step in workflow.authored_mapping.get("steps", ()))
+        for provider in ("fake-review", "fake-fix")
+        for workflow in result.lowered_workflows
+    )
     assert authored["outputs"]["return__review_report"]["under"] == "artifacts/review"
     assert authored["outputs"]["return__last_review_report"]["under"] == "artifacts/review"
     assert authored["outputs"]["return__findings__items_path"]["under"] == "artifacts/work"

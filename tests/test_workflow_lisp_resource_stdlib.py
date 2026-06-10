@@ -8,6 +8,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
+    compile_stage3_entrypoint,
     compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
@@ -429,6 +430,66 @@ def test_typecheck_rejects_drain_ctx_with_non_runctx_run(tmp_path: Path) -> None
         _typecheck_fixture(path)
 
     assert excinfo.value.diagnostics[0].code == "drain_context_invalid"
+
+
+def test_promoted_entry_ItemCtx_hidden_binding_reports_unsupported_private_exec_bootstrap(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "private_exec_context" / "item_ctx.orc"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        dedent(
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.14")
+              (defmodule private_exec_context/item_ctx)
+              (export entry run-selected-item)
+              (defrecord RunCtx
+                (run-id RunId)
+                (state-root Path.state-root)
+                (artifact-root Path.artifact-root))
+              (defpath StateFile
+                :kind relpath
+                :under "state"
+                :must-exist false)
+              (defrecord ItemCtx
+                (run RunCtx)
+                (item-id String)
+                (state-root Path.state-root)
+                (artifact-root Path.artifact-root)
+                (ledger StateFile))
+              (defrecord SelectionPayload
+                (item-id String))
+              (defrecord Result
+                (item-id String))
+              (defworkflow entry
+                ((selection SelectionPayload))
+                -> Result
+                (call run-selected-item
+                  :selection selection))
+              (defworkflow run-selected-item
+                ((item-ctx ItemCtx)
+                 (selection SelectionPayload))
+                -> Result
+                (record Result :item-id selection.item-id)))
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            path,
+            source_roots=(tmp_path,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "private_exec_context_bootstrap_unsupported"
+    assert "ItemCtx" in diagnostic.message
 
 
 def test_typecheck_rejects_resource_transition_without_certified_adapter() -> None:

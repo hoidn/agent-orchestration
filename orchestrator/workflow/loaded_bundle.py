@@ -16,7 +16,12 @@ from .state_layout import (
     derive_entrypoint_managed_write_root_allocations,
 )
 from .state_projection import WorkflowStateProjection
-from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProvenance
+from .surface_ast import (
+    ImportedWorkflowMetadata,
+    PrivateExecContextBinding,
+    SurfaceWorkflow,
+    WorkflowProvenance,
+)
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,16 @@ class LoadedWorkflowBundle:
     runtime_plan: WorkflowRuntimePlan
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
+
+
+@dataclass(frozen=True)
+class WorkflowBoundaryProjectionView:
+    """Typed public/private workflow-boundary classification for one bundle."""
+
+    public_input_contracts: Mapping[str, Mapping[str, Any]]
+    private_runtime_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    private_managed_write_root_inputs: tuple[str, ...] = ()
+    private_compatibility_bridge_inputs: tuple[str, ...] = ()
 
 
 def _compatibility_value(value: Any) -> Any:
@@ -99,6 +114,14 @@ def _runtime_context_input_set(bundle: LoadedWorkflowBundle) -> frozenset[str]:
     return frozenset(name for name in runtime_inputs if isinstance(name, str))
 
 
+def _compatibility_bridge_input_set(bundle: LoadedWorkflowBundle) -> frozenset[str]:
+    return frozenset(
+        name
+        for name in bundle.provenance.compatibility_bridge_inputs
+        if isinstance(name, str)
+    )
+
+
 def workflow_public_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
     """Return the user-bindable workflow input contracts from the typed bundle."""
     if workflow_or_bundle is None:
@@ -106,12 +129,14 @@ def workflow_public_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Map
     bundle = _require_bundle(workflow_or_bundle)
     managed_inputs = _managed_write_root_input_set(bundle)
     runtime_context_inputs = _runtime_context_input_set(bundle)
+    compatibility_bridge_inputs = _compatibility_bridge_input_set(bundle)
     return MappingProxyType({
         name: _compatibility_value(contract.definition)
         for name, contract in bundle.surface.inputs.items()
         if isinstance(name, str)
         and name not in managed_inputs
         and name not in runtime_context_inputs
+        and name not in compatibility_bridge_inputs
         and isinstance(contract.definition, Mapping)
     })
 
@@ -223,6 +248,17 @@ def workflow_runtime_context_inputs(workflow_or_bundle: Any) -> tuple[str, ...]:
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is None:
         return ()
+    if bundle.provenance.private_exec_context_bindings:
+        return tuple(
+            sorted(
+                {
+                    name
+                    for binding in bundle.provenance.private_exec_context_bindings
+                    for name in binding.generated_input_names
+                    if isinstance(name, str)
+                }
+            )
+        )
     return tuple(
         name
         for name in bundle.provenance.runtime_context_inputs
@@ -238,3 +274,21 @@ def workflow_generated_path_allocations(workflow_or_bundle: Any) -> tuple[Genera
         return ()
     recorded = tuple(bundle.provenance.generated_path_allocations)
     return recorded + derive_entrypoint_managed_write_root_allocations(recorded)
+
+
+def workflow_boundary_projection(workflow_or_bundle: Any) -> WorkflowBoundaryProjectionView:
+    """Return the typed public/private input boundary classification."""
+
+    if workflow_or_bundle is None:
+        return WorkflowBoundaryProjectionView(public_input_contracts=MappingProxyType({}))
+    bundle = _require_bundle(workflow_or_bundle)
+    return WorkflowBoundaryProjectionView(
+        public_input_contracts=workflow_public_input_contracts(bundle),
+        private_runtime_context_bindings=tuple(bundle.provenance.private_exec_context_bindings),
+        private_managed_write_root_inputs=workflow_managed_write_root_inputs(bundle),
+        private_compatibility_bridge_inputs=tuple(
+            name
+            for name in bundle.provenance.compatibility_bridge_inputs
+            if isinstance(name, str)
+        ),
+    )
