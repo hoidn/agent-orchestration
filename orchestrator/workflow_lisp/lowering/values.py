@@ -759,6 +759,8 @@ def _lower_union_variant_expr(
             },
             output_kind="step",
             hidden_inputs={},
+            returned_union_type_name=typed_expr.type_ref.name,
+            returned_union_variant_name=union_expr.variant_name,
         )
     bundle_contract = derive_structured_result_contract(
         typed_expr.type_ref,
@@ -829,4 +831,6 @@ def _lower_union_variant_expr(
         output_refs=output_refs,
         output_kind="step",
         hidden_inputs={allocation.generated_input_name: _origin_from_context_source(context, union_expr)},
+        returned_union_type_name=typed_expr.type_ref.name,
+        returned_union_variant_name=union_expr.variant_name,
     )

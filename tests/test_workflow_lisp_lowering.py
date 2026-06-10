@@ -1955,6 +1955,327 @@ def test_lower_workflow_definitions_supports_generic_match_outputs(tmp_path: Pat
     )
 
 
+def test_cross_union_match_translation_normalizes_three_named_result_mappings(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "cross_union_match_translation.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    external_dependency_outside_authority)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewLoopResult",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (EXHAUSTED",
+                "      (last_review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defunion ImplementationPhaseResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (REVIEW_EXHAUSTED",
+                "      (review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((review",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ReviewLoopResult)))",
+                "      (match review",
+                "        ((APPROVED approved)",
+                "         (variant ImplementationPhaseResult COMPLETED",
+                "           :execution_report approved.execution_report))",
+                "        ((EXHAUSTED exhausted)",
+                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
+                "           :review_report exhausted.last_review_report))",
+                "        ((BLOCKED blocked)",
+                "         (variant ImplementationPhaseResult BLOCKED",
+                "           :progress_report blocked.progress_report",
+                "           :blocker_class blocked.blocker_class))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    match_step = lowered["steps"][1]
+
+    completed_bundle = match_step["match"]["cases"]["APPROVED"]["steps"][0]
+    assert completed_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "COMPLETED"}
+    assert match_step["match"]["cases"]["APPROVED"]["outputs"]["return__variant"]["from"]["ref"].endswith(
+        ".artifacts.variant"
+    )
+    assert (
+        match_step["match"]["cases"]["APPROVED"]["outputs"]["return__execution_report"]["from"]["ref"].endswith(
+            ".artifacts.execution_report"
+        )
+    )
+
+    exhausted_bundle = match_step["match"]["cases"]["EXHAUSTED"]["steps"][0]
+    assert exhausted_bundle["materialize_artifacts"]["values"][0]["source"] == {
+        "literal": "REVIEW_EXHAUSTED"
+    }
+    assert (
+        match_step["match"]["cases"]["EXHAUSTED"]["outputs"]["return__review_report"]["from"]["ref"].endswith(
+            ".artifacts.review_report"
+        )
+    )
+
+    blocked_bundle = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
+    assert blocked_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "BLOCKED"}
+    assert (
+        match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__progress_report"]["from"]["ref"].endswith(
+            ".artifacts.progress_report"
+        )
+    )
+    assert (
+        match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__blocker_class"]["from"]["ref"].endswith(
+            ".artifacts.blocker_class"
+        )
+    )
+
+
+def test_returned_variant_union_normalization_preserves_same_union_match_passthrough(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "same_union_match_passthrough.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    external_dependency_outside_authority)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ImplementationPhaseResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ImplementationPhaseResult)))",
+                "      (match attempt",
+                "        ((COMPLETED completed) attempt)",
+                "        ((BLOCKED blocked) attempt)))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    match_step = lowered["steps"][1]
+    completed_bundle = match_step["match"]["cases"]["COMPLETED"]["steps"][0]
+    blocked_bundle = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
+
+    assert completed_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "COMPLETED"}
+    assert (
+        match_step["match"]["cases"]["COMPLETED"]["outputs"]["return__execution_report"]["from"]["ref"].endswith(
+            ".artifacts.execution_report"
+        )
+    )
+    assert blocked_bundle["materialize_artifacts"]["values"][0]["source"] == {"literal": "BLOCKED"}
+    assert (
+        match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__progress_report"]["from"]["ref"].endswith(
+            ".artifacts.progress_report"
+        )
+    )
+
+
+def test_union_return_variant_ambiguous_cross_union_match_translation_reports_owned_diagnostic(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "union_return_variant_ambiguous.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewLoopResult",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (EXHAUSTED",
+                "      (last_review_report WorkReport)))",
+                "  (defunion ImplementationPhaseResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (REVIEW_EXHAUSTED",
+                "      (review_report WorkReport)))",
+                "  (defworkflow helper",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (provider-result providers.review",
+                "      :prompt prompts.review",
+                "      :inputs (report_path)",
+                "      :returns ImplementationPhaseResult))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((review",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ReviewLoopResult)))",
+                "      (match review",
+                "        ((APPROVED approved)",
+                "         (call helper :report_path approved.execution_report))",
+                "        ((EXHAUSTED exhausted)",
+                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
+                "           :review_report exhausted.last_review_report))))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={
+                "providers.execute": "test-provider",
+                "providers.review": "review-provider",
+            },
+            prompt_externs={
+                "prompts.implementation.execute": "prompts/implementation/execute.md",
+                "prompts.review": "prompts/review.md",
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "union_return_variant_ambiguous"
+    assert diagnostic.span.start.path.endswith("union_return_variant_ambiguous.orc")
+    assert "ImplementationPhaseResult" in diagnostic.message
+    assert "APPROVED" in diagnostic.message
+
+
+def test_union_return_variant_incompatible_explicit_target_union_reports_owned_diagnostic(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.lowering.control_match import _normalize_union_match_case_terminal
+    from orchestrator.workflow_lisp.lowering.context import _TerminalResult
+
+    result_type = compile_stage3_module(
+        _write_module(
+            tmp_path / "tmp_union_return_variant_incompatible_probe.orc",
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defenum BlockerClass",
+                    "    missing_resource)",
+                    "  (defpath WorkReport",
+                    "    :kind relpath",
+                    '    :under "artifacts/work"',
+                    "    :must-exist true)",
+                    "  (defunion ImplementationPhaseResult",
+                    "    (COMPLETED",
+                    "      (execution_report WorkReport))",
+                    "    (BLOCKED",
+                    "      (progress_report WorkReport)",
+                    "      (blocker_class BlockerClass)))",
+                    "  (defworkflow entry",
+                    "    ((report_path WorkReport))",
+                    "    -> ImplementationPhaseResult",
+                    "    (let* ((attempt",
+                    "             (provider-result providers.execute",
+                    "               :prompt prompts.implementation.execute",
+                    "               :inputs (report_path)",
+                    "               :returns ImplementationPhaseResult)))",
+                    "      attempt)))",
+                ]
+            ),
+        ),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    ).lowered_workflows[0].typed_workflow.signature.return_type_ref
+
+    span = SourceSpan(
+        start=SourcePosition(path="incompatible_union_return.orc", line=23, column=10, offset=0),
+        end=SourcePosition(path="incompatible_union_return.orc", line=23, column=25, offset=15),
+    )
+    context = SimpleNamespace(
+        workflow_name="entry",
+        step_spans={},
+        generated_path_spans={},
+        origin_notes=(),
+        signature=SimpleNamespace(form_path=("workflow-lisp", "defworkflow", "entry")),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _normalize_union_match_case_terminal(
+            case_name="entry__match_attempt__approved",
+            case_steps=[],
+            case_terminal=_TerminalResult(
+                step_name="entry__approved",
+                step_id="entry__approved",
+                output_refs={"return__execution_report": "root.steps.entry__approved.artifacts.execution_report"},
+                output_kind="step",
+                hidden_inputs={},
+                returned_union_type_name="DifferentResult",
+                returned_union_variant_name="APPROVED",
+            ),
+            result_type=result_type,
+            source_variant_name="COMPLETED",
+            subject_union_type=None,
+            shared_bundle_input_name="__write_root__entry__match_attempt__result_bundle",
+            shared_bundle_path="artifacts/work/entry_match_result.json",
+            context=context,
+            span=span,
+            form_path=("workflow-lisp", "defworkflow", "entry"),
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "union_return_variant_incompatible"
+    assert "ImplementationPhaseResult" in diagnostic.message
+    assert "DifferentResult" in diagnostic.message
+
+
 def test_compile_stage3_module_lowers_effectful_match_arm_provider_branches(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "effectful_match_arm_provider_branches.orc",

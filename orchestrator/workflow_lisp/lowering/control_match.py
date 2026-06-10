@@ -267,6 +267,7 @@ def _control_lower_match_expr_impl(
             case_steps, case_terminal = _hoist_match_case_fragment_to_helper(
                 match_expr=match_expr,
                 branch_expr=arm.body,
+                pre_hoist_terminal=case_terminal,
                 result_type=result_type,
                 case_name=case_name,
                 context=arm_context,
@@ -284,7 +285,8 @@ def _control_lower_match_expr_impl(
                 case_steps=case_steps,
                 case_terminal=case_terminal,
                 result_type=result_type,
-                variant_name=arm.variant_name,
+                source_variant_name=arm.variant_name,
+                subject_union_type=subject_type if isinstance(subject_type, UnionTypeRef) else None,
                 shared_bundle_input_name=shared_union_bundle_allocation.generated_input_name,
                 shared_bundle_path=shared_union_bundle_allocation.concrete_path_template,
                 context=context,
@@ -345,7 +347,8 @@ def _normalize_union_match_case_terminal(
     case_steps: list[dict[str, Any]],
     case_terminal: _TerminalResult,
     result_type: UnionTypeRef,
-    variant_name: str,
+    source_variant_name: str,
+    subject_union_type: UnionTypeRef | None,
     shared_bundle_input_name: str,
     shared_bundle_path: str,
     context: _LoweringContext,
@@ -354,6 +357,14 @@ def _normalize_union_match_case_terminal(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     from .control_loops import _conditional_case_ref, _materialize_values_step
 
+    resolved_variant_name = _resolve_match_return_union_variant(
+        case_terminal=case_terminal,
+        result_type=result_type,
+        source_variant_name=source_variant_name,
+        subject_union_type=subject_union_type,
+        span=span,
+        form_path=form_path,
+    )
     step_name = f"{case_name}__result_bundle"
     step_id = _normalize_generated_step_id(step_name)
     bundle_contract = derive_structured_result_contract(
@@ -369,7 +380,7 @@ def _normalize_union_match_case_terminal(
     values = [
         {
             "name": "variant",
-            "source": {"literal": variant_name},
+            "source": {"literal": resolved_variant_name},
             "contract": _surface_contract_from_structured_field(authored_contract["discriminant"]),
         }
     ]
@@ -393,12 +404,15 @@ def _normalize_union_match_case_terminal(
             }
         )
         normalized_field_names.add(field["name"])
-    for field in authored_contract["variants"][variant_name]["fields"]:
+    for field in authored_contract["variants"][resolved_variant_name]["fields"]:
         output_ref = case_terminal.output_refs.get(f"return__{field['name']}")
         if not isinstance(output_ref, str):
             raise _compile_error(
                 code="workflow_return_not_exportable",
-                message=f"match case did not expose union field `{field['name']}` for `{variant_name}`",
+                message=(
+                    f"match case did not expose union field `{field['name']}` "
+                    f"for `{resolved_variant_name}`"
+                ),
                 span=span,
                 form_path=form_path,
             )
@@ -471,7 +485,61 @@ def _normalize_union_match_case_terminal(
                 **case_terminal.hidden_inputs,
                 shared_bundle_input_name: LoweringOrigin(span=span, form_path=form_path),
             },
+            returned_union_type_name=result_type.name,
+            returned_union_variant_name=resolved_variant_name,
         ),
+    )
+
+
+def _resolve_match_return_union_variant(
+    *,
+    case_terminal: _TerminalResult,
+    result_type: UnionTypeRef,
+    source_variant_name: str,
+    subject_union_type: UnionTypeRef | None,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> str:
+    explicit_union_name = case_terminal.returned_union_type_name
+    explicit_variant_name = case_terminal.returned_union_variant_name
+    if explicit_union_name is not None or explicit_variant_name is not None:
+        if explicit_union_name != result_type.name or explicit_variant_name is None:
+            observed = explicit_union_name or "<unknown>"
+            if explicit_variant_name is not None:
+                observed = f"{observed}.{explicit_variant_name}"
+            raise _compile_error(
+                code="union_return_variant_incompatible",
+                message=(
+                    f"match branch for source variant `{source_variant_name}` must return `{result_type.name}`; "
+                    f"explicit returned-union evidence resolved to `{observed}`"
+                ),
+                span=span,
+                form_path=form_path,
+            )
+        if explicit_variant_name not in result_type.variant_field_types:
+            raise _compile_error(
+                code="union_return_variant_incompatible",
+                message=(
+                    f"match branch for source variant `{source_variant_name}` must return a declared "
+                    f"variant of `{result_type.name}`; explicit returned variant "
+                    f"`{explicit_variant_name}` is not part of that union"
+                ),
+                span=span,
+                form_path=form_path,
+            )
+        return explicit_variant_name
+    if subject_union_type is not None and subject_union_type.name == result_type.name:
+        return source_variant_name
+    subject_union_name = subject_union_type.name if subject_union_type is not None else "<non-union>"
+    raise _compile_error(
+        code="union_return_variant_ambiguous",
+        message=(
+            f"match branch for source variant `{source_variant_name}` must return `{result_type.name}` with "
+            "explicit target-variant evidence; dynamic branch output is ambiguous because the matched subject "
+            f"union `{subject_union_name}` does not match the target union"
+        ),
+        span=span,
+        form_path=form_path,
     )
 
 
@@ -518,6 +586,7 @@ def _hoist_match_case_fragment_to_helper(
     *,
     match_expr: MatchExpr,
     branch_expr: Any,
+    pre_hoist_terminal: _TerminalResult,
     result_type: TypeRef,
     case_name: str,
     context: _LoweringContext,
@@ -689,6 +758,8 @@ def _hoist_match_case_fragment_to_helper(
         },
         output_kind="call",
         hidden_inputs={},
+        returned_union_type_name=pre_hoist_terminal.returned_union_type_name,
+        returned_union_variant_name=pre_hoist_terminal.returned_union_variant_name,
     )
 
 

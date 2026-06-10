@@ -281,6 +281,8 @@ def _control_lower_let_star_impl(
         output_refs=terminal.output_refs,
         output_kind=terminal.output_kind,
         hidden_inputs=hidden_inputs,
+        returned_union_type_name=terminal.returned_union_type_name,
+        returned_union_variant_name=terminal.returned_union_variant_name,
     )
 
 

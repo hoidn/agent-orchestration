@@ -33,6 +33,8 @@ class _TerminalResult:
     output_refs: Mapping[str, str]
     output_kind: str
     hidden_inputs: Mapping[str, LoweringOrigin]
+    returned_union_type_name: str | None = None
+    returned_union_variant_name: str | None = None
 
 
 @dataclass(frozen=True)

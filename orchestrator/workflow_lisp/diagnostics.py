@@ -162,6 +162,8 @@ _LOWERING_SURFACE_CODES = frozenset(
         "workflow_boundary_collection_unsupported",
         "collection_element_type_unsupported",
         "review_loop_special_lowerer_used",
+        "union_return_variant_ambiguous",
+        "union_return_variant_incompatible",
     }
 )
 _MODULE_CODES = frozenset(

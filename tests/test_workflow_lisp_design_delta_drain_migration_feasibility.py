@@ -501,6 +501,81 @@ def test_design_delta_migration_union_match_projection_compiles(tmp_path: Path) 
     assert result.lowered_workflows[0].typed_workflow.definition.name == "summarize"
 
 
+def test_design_delta_migration_cross_union_result_translation_compiles(tmp_path: Path) -> None:
+    module_path = _write_module(
+        tmp_path / "cross_union_result_translation.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule cross_union_result_translation)",
+                "  (export translate)",
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    external_dependency_outside_authority)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewLoopResult",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (EXHAUSTED",
+                "      (last_review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defunion ImplementationPhaseResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (REVIEW_EXHAUSTED",
+                "      (review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow translate",
+                "    ((report WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((review",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report)",
+                "               :returns ReviewLoopResult)))",
+                "      (match review",
+                "        ((APPROVED approved)",
+                "         (variant ImplementationPhaseResult COMPLETED",
+                "           :execution_report approved.execution_report))",
+                "        ((EXHAUSTED exhausted)",
+                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
+                "           :review_report exhausted.last_review_report))",
+                "        ((BLOCKED blocked)",
+                "         (variant ImplementationPhaseResult BLOCKED",
+                "           :progress_report blocked.progress_report",
+                "           :blocker_class blocked.blocker_class))))))",
+            ]
+        )
+        + "\n",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0]
+
+    assert lowered.typed_workflow.definition.name == "translate"
+    assert lowered.boundary_projection.return_kind == "union"
+    assert "return__variant" in lowered.authored_mapping["outputs"]
+    assert result.validated_bundles
+
+
 def test_design_delta_domain_types_import_from_two_candidate_modules(tmp_path: Path) -> None:
     package_dir = tmp_path / "lisp_frontend_design_delta_probe"
     selector = _write_module(
