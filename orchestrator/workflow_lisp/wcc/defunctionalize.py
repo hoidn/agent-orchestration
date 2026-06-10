@@ -9,6 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
+from ..conditionals import render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     CallExpr,
@@ -16,6 +17,7 @@ from ..expressions import (
     ContinueExpr,
     DoneExpr,
     FieldAccessExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
     MatchArm,
@@ -63,6 +65,7 @@ from .model import (
     WccCase,
     WccFieldAccessAtom,
     WccHalt,
+    WccIf,
     WccInject,
     WccJoin,
     WccJoinParam,
@@ -691,6 +694,15 @@ def _defunctionalize_body(
             jump_target=jump_target,
         )
 
+    if isinstance(body, WccIf):
+        return _defunctionalize_if(
+            body,
+            context=context,
+            local_values=local_values,
+            scope_analysis=scope_analysis,
+            jump_target=jump_target,
+        )
+
     if isinstance(body, WccRecJoin):
         return _defunctionalize_rec_join(
             body,
@@ -1009,6 +1021,109 @@ def _defunctionalize_case(
         ),
         output_kind="match",
         hidden_inputs=hidden_inputs,
+    )
+
+
+def _defunctionalize_if(
+    body: WccIf,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    scope_analysis: WccScopeAnalysis,
+    jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    step_name = context.step_name_prefix
+    step_id = lowering_core._normalize_generated_step_id(step_name)
+    condition = render_condition_predicate(
+        body.condition_shape,
+        local_values=local_values,
+    )
+    output_contracts = lowering_core._output_contracts_for_type(
+        body.metadata.type_ref,
+        context=context,
+        span=body.metadata.source_span,
+        form_path=body.metadata.form_path,
+    )
+    then_step_name = f"{step_name}__then"
+    else_step_name = f"{step_name}__else"
+    then_steps, then_terminal = _defunctionalize_body(
+        body.then_body,
+        context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=then_step_name),
+        local_values=local_values,
+        scope_analysis=scope_analysis,
+        jump_target=jump_target,
+    )
+    else_steps, else_terminal = _defunctionalize_body(
+        body.else_body,
+        context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=else_step_name),
+        local_values=local_values,
+        scope_analysis=scope_analysis,
+        jump_target=jump_target,
+    )
+    then_outputs = _conditional_case_outputs(
+        then_terminal,
+        output_contracts=output_contracts,
+        span=body.then_body.metadata.source_span,
+        form_path=body.then_body.metadata.form_path,
+    )
+    else_outputs = _conditional_case_outputs(
+        else_terminal,
+        output_contracts=output_contracts,
+        span=body.else_body.metadata.source_span,
+        form_path=body.else_body.metadata.form_path,
+    )
+    if not then_steps:
+        then_steps = [
+            _build_match_projection_anchor_step(
+                match_step_name=step_name,
+                variant_name="then",
+                case_outputs=then_outputs,
+                context=context,
+                span=body.then_body.metadata.source_span,
+            )
+        ]
+    if not else_steps:
+        else_steps = [
+            _build_match_projection_anchor_step(
+                match_step_name=step_name,
+                variant_name="else",
+                case_outputs=else_outputs,
+                context=context,
+                span=body.else_body.metadata.source_span,
+            )
+        ]
+    step_origin = LoweringOrigin(
+        span=body.metadata.source_span,
+        form_path=body.metadata.form_path,
+        expansion_stack=body.metadata.expansion_stack,
+    )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=step_origin)
+    return [
+        {
+            "name": step_name,
+            "id": step_id,
+            "if": condition,
+            "then": {
+                "id": lowering_core._normalize_generated_step_id(then_step_name),
+                "outputs": then_outputs,
+                "steps": then_steps,
+            },
+            "else": {
+                "id": lowering_core._normalize_generated_step_id(else_step_name),
+                "outputs": else_outputs,
+                "steps": else_steps,
+            },
+        }
+    ], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=_conditional_output_refs(
+            step_name=step_name,
+            output_contracts=output_contracts,
+            result_type=body.metadata.type_ref,
+        ),
+        output_kind="if",
+        hidden_inputs={**then_terminal.hidden_inputs, **else_terminal.hidden_inputs},
     )
 
 
@@ -1781,6 +1896,15 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody):
                 )
                 for arm in body.arms
             ),
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        )
+    if isinstance(body, WccIf):
+        return IfExpr(
+            condition_expr=_frontend_expr_from_wcc_value(body.condition),
+            then_expr=_frontend_expr_from_wcc_loop_body(body.then_body),
+            else_expr=_frontend_expr_from_wcc_loop_body(body.else_body),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
             expansion_stack=body.metadata.expansion_stack,
