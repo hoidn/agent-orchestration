@@ -1,0 +1,237 @@
+{
+  "case_id": "wcc_ifexpr_non_tail_binding",
+  "compiled_module_names": [
+    "wcc_ifexpr_non_tail_binding"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "approved_report": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "blocked_report": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "enabled": {
+            "kind": "scalar",
+            "type": "bool"
+          }
+        },
+        "name": "choose-summary",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.choose-summary__chosen.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "else": {
+              "id": "choose_summary__chosen__else",
+              "outputs": {
+                "return__report": {
+                  "from": {
+                    "ref": "inputs.blocked_report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                }
+              },
+              "steps": [
+                {
+                  "assert": {
+                    "compare": {
+                      "left": {
+                        "ref": "inputs.blocked_report"
+                      },
+                      "op": "eq",
+                      "right": {
+                        "ref": "inputs.blocked_report"
+                      }
+                    }
+                  },
+                  "id": "choose_summary__chosen__else__projection_anchor",
+                  "name": "choose-summary__chosen__else__projection_anchor"
+                }
+              ]
+            },
+            "id": "choose_summary__chosen",
+            "if": {
+              "artifact_bool": {
+                "ref": "inputs.enabled"
+              }
+            },
+            "name": "choose-summary__chosen",
+            "then": {
+              "id": "choose_summary__chosen__then",
+              "outputs": {
+                "return__report": {
+                  "from": {
+                    "ref": "inputs.approved_report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                }
+              },
+              "steps": [
+                {
+                  "assert": {
+                    "compare": {
+                      "left": {
+                        "ref": "inputs.approved_report"
+                      },
+                      "op": "eq",
+                      "right": {
+                        "ref": "inputs.approved_report"
+                      }
+                    }
+                  },
+                  "id": "choose_summary__chosen__then__projection_anchor",
+                  "name": "choose-summary__chosen__then__projection_anchor"
+                }
+              ]
+            }
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [],
+      "step_labels": [
+        "choose-summary__chosen",
+        "choose-summary__chosen__else__projection_anchor",
+        "choose-summary__chosen__then__projection_anchor"
+      ],
+      "workflow_name": "choose-summary"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "19fb02761548d441312d7f04c8e2e12448546ec5415d939686b7d90f56a7a1e4",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [],
+      "generated_paths": [],
+      "input_keys": [
+        "approved_report",
+        "blocked_report",
+        "enabled"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {},
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "choose-summary__chosen.then",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__chosen.choose_summary__chosen__then",
+            "presentation_key": "choose-summary__chosen.then",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_if_branch",
+            "step_id": "root.choose_summary__chosen.choose_summary__chosen__then"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "choose-summary__chosen.then.choose-summary__chosen__then__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__chosen.choose_summary__chosen__then.choose_summary__chosen__then__projection_anchor",
+            "presentation_key": "choose-summary__chosen.then.choose-summary__chosen__then__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.choose_summary__chosen.choose_summary__chosen__then.choose_summary__chosen__then__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "choose-summary__chosen.else",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__chosen.choose_summary__chosen__else",
+            "presentation_key": "choose-summary__chosen.else",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_if_branch",
+            "step_id": "root.choose_summary__chosen.choose_summary__chosen__else"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "choose-summary__chosen.else.choose-summary__chosen__else__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__chosen.choose_summary__chosen__else.choose_summary__chosen__else__projection_anchor",
+            "presentation_key": "choose-summary__chosen.else.choose-summary__chosen__else__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.choose_summary__chosen.choose_summary__chosen__else.choose_summary__chosen__else__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "choose-summary__chosen",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__chosen",
+            "presentation_key": "choose-summary__chosen",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_if_join",
+            "step_id": "root.choose_summary__chosen"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.choose_summary__chosen.choose_summary__chosen__then",
+          "root.choose_summary__chosen.choose_summary__chosen__then.choose_summary__chosen__then__projection_anchor",
+          "root.choose_summary__chosen.choose_summary__chosen__else",
+          "root.choose_summary__chosen.choose_summary__chosen__else.choose_summary__chosen__else__projection_anchor",
+          "root.choose_summary__chosen"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "choose-summary"
+    }
+  ],
+  "workflow_names": [
+    "choose-summary"
+  ]
+}

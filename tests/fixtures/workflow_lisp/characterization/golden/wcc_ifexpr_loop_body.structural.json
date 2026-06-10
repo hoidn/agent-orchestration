@@ -1,0 +1,501 @@
+{
+  "case_id": "wcc_ifexpr_loop_body",
+  "compiled_module_names": [
+    "wcc_ifexpr_loop_body"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "enabled": {
+            "kind": "scalar",
+            "type": "bool"
+          },
+          "initial__report": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "choose-summary",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.choose-summary__result.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "id": "choose_summary__seed",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "state__report",
+                  "source": {
+                    "ref": "inputs.initial__report"
+                  }
+                }
+              ]
+            },
+            "name": "choose-summary__seed"
+          },
+          {
+            "id": "choose_summary__loop",
+            "name": "choose-summary__loop",
+            "repeat_until": {
+              "condition": {
+                "compare": {
+                  "left": {
+                    "ref": "self.outputs.status"
+                  },
+                  "op": "eq",
+                  "right": "DONE"
+                }
+              },
+              "id": "choose_summary__loop__iteration",
+              "max_iterations": 2,
+              "outputs": {
+                "result__report": {
+                  "from": {
+                    "ref": "self.steps.choose-summary__body.artifacts.result__report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "state__report": {
+                  "from": {
+                    "ref": "self.steps.choose-summary__body.artifacts.state__report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "status": {
+                  "allowed": [
+                    "CONTINUE",
+                    "DONE"
+                  ],
+                  "from": {
+                    "ref": "self.steps.choose-summary__body.artifacts.status"
+                  },
+                  "kind": "scalar",
+                  "type": "enum"
+                }
+              },
+              "steps": [
+                {
+                  "id": "choose_summary__body__state__seed_marker",
+                  "materialize_artifacts": {
+                    "values": [
+                      {
+                        "contract": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "name": "seed_iteration",
+                        "source": {
+                          "literal": "seed"
+                        }
+                      }
+                    ]
+                  },
+                  "name": "choose-summary__body__state__seed_marker",
+                  "when": {
+                    "equals": {
+                      "left": "${loop.index}",
+                      "right": "0"
+                    }
+                  }
+                },
+                {
+                  "else": {
+                    "id": "choose_summary__body__state__seed",
+                    "outputs": {
+                      "state__report": {
+                        "from": {
+                          "ref": "self.steps.choose-summary__body__state__use_seed_state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "choose_summary__body__state__seed",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__report",
+                              "source": {
+                                "ref": "root.steps.choose-summary__seed.artifacts.state__report"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "choose-summary__body__state__use_seed_state"
+                      }
+                    ]
+                  },
+                  "id": "choose_summary__body__state",
+                  "if": {
+                    "compare": {
+                      "left": {
+                        "ref": "self.steps.choose-summary__body__state__seed_marker.outcome.class"
+                      },
+                      "op": "eq",
+                      "right": "skipped"
+                    }
+                  },
+                  "name": "choose-summary__body__state",
+                  "then": {
+                    "id": "choose_summary__body__state__carry",
+                    "outputs": {
+                      "state__report": {
+                        "from": {
+                          "ref": "self.steps.choose-summary__body__state__use_carried_state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "choose_summary__body__state__carry",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__report",
+                              "source": {
+                                "ref": "root.steps.choose-summary__loop.artifacts.state__report"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "choose-summary__body__state__use_carried_state"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "else": {
+                    "id": "choose_summary__body__else",
+                    "outputs": {
+                      "result__report": {
+                        "from": {
+                          "ref": "self.steps.choose-summary__body__else.artifacts.result__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "state__report": {
+                        "from": {
+                          "ref": "parent.steps.choose-summary__body__state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "status": {
+                        "allowed": [
+                          "CONTINUE",
+                          "DONE"
+                        ],
+                        "from": {
+                          "ref": "self.steps.choose-summary__body__else.artifacts.status"
+                        },
+                        "kind": "scalar",
+                        "type": "enum"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "choose_summary__body__else",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "allowed": [
+                                  "CONTINUE",
+                                  "DONE"
+                                ],
+                                "kind": "scalar",
+                                "type": "enum"
+                              },
+                              "name": "status",
+                              "source": {
+                                "literal": "CONTINUE"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "result__report",
+                              "source": {
+                                "literal": "artifacts/work/loop-placeholder.txt"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "choose-summary__body__else"
+                      }
+                    ]
+                  },
+                  "id": "choose_summary__body",
+                  "if": {
+                    "artifact_bool": {
+                      "ref": "inputs.enabled"
+                    }
+                  },
+                  "name": "choose-summary__body",
+                  "then": {
+                    "id": "choose_summary__body__then",
+                    "outputs": {
+                      "result__report": {
+                        "from": {
+                          "ref": "parent.steps.choose-summary__body__state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "state__report": {
+                        "from": {
+                          "ref": "parent.steps.choose-summary__body__state.artifacts.state__report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "status": {
+                        "allowed": [
+                          "CONTINUE",
+                          "DONE"
+                        ],
+                        "from": {
+                          "ref": "self.steps.choose-summary__body__then.artifacts.status"
+                        },
+                        "kind": "scalar",
+                        "type": "enum"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "choose_summary__body__then",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "allowed": [
+                                  "CONTINUE",
+                                  "DONE"
+                                ],
+                                "kind": "scalar",
+                                "type": "enum"
+                              },
+                              "name": "status",
+                              "source": {
+                                "literal": "DONE"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "choose-summary__body__then"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "choose_summary__result",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "return__report",
+                  "source": {
+                    "ref": "root.steps.choose-summary__loop.artifacts.result__report"
+                  }
+                }
+              ]
+            },
+            "name": "choose-summary__result"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [],
+      "step_labels": [
+        "choose-summary__seed",
+        "choose-summary__loop",
+        "choose-summary__body__state__seed_marker",
+        "choose-summary__body__state",
+        "choose-summary__body__state__use_seed_state",
+        "choose-summary__body__state__use_carried_state",
+        "choose-summary__body",
+        "choose-summary__body__else",
+        "choose-summary__body__then",
+        "choose-summary__result"
+      ],
+      "workflow_name": "choose-summary"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "d09fc4e391f0be008db7bd88d49fb82d7cec91f4fea5f9c89b8efe6bf74d6f97",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [],
+      "generated_paths": [],
+      "input_keys": [
+        "enabled",
+        "initial__report"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {},
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "choose-summary__seed",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__seed",
+            "presentation_key": "choose-summary__seed",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.choose_summary__seed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "choose-summary__loop",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__loop",
+            "presentation_key": "choose-summary__loop",
+            "provider": null,
+            "region": "body",
+            "report_kind": "repeat_until",
+            "step_id": "root.choose_summary__loop"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "choose-summary__result",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.choose_summary__result",
+            "presentation_key": "choose-summary__result",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.choose_summary__result"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.choose_summary__seed",
+          "root.choose_summary__loop",
+          "root.choose_summary__result"
+        ],
+        "repeat_until_nodes": {
+          "root.choose_summary__loop": {
+            "frame_key": "choose-summary__loop",
+            "nested_presentation_keys": {
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body": "choose-summary__body",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else": "choose-summary__body.else",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else.choose_summary__body__else": "choose-summary__body.else.choose-summary__body__else",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__then": "choose-summary__body.then",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__then.choose_summary__body__then": "choose-summary__body.then.choose-summary__body__then",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state": "choose-summary__body__state",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__carry": "choose-summary__body__state.then",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__carry.choose_summary__body__state__carry": "choose-summary__body__state.then.choose-summary__body__state__use_carried_state",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__seed": "choose-summary__body__state.else",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__seed.choose_summary__body__state__seed": "choose-summary__body__state.else.choose-summary__body__state__use_seed_state",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state__seed_marker": "choose-summary__body__state__seed_marker"
+            },
+            "nested_step_id_suffixes": {
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body": "choose_summary__loop__iteration.choose_summary__body",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else": "choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else.choose_summary__body__else": "choose_summary__loop__iteration.choose_summary__body.choose_summary__body__else.choose_summary__body__else",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__then": "choose_summary__loop__iteration.choose_summary__body.choose_summary__body__then",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body.choose_summary__body__then.choose_summary__body__then": "choose_summary__loop__iteration.choose_summary__body.choose_summary__body__then.choose_summary__body__then",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state": "choose_summary__loop__iteration.choose_summary__body__state",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__carry": "choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__carry",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__carry.choose_summary__body__state__carry": "choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__carry.choose_summary__body__state__carry",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__seed": "choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__seed",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__seed.choose_summary__body__state__seed": "choose_summary__loop__iteration.choose_summary__body__state.choose_summary__body__state__seed.choose_summary__body__state__seed",
+              "root.choose_summary__loop.choose_summary__loop__iteration.choose_summary__body__state__seed_marker": "choose_summary__loop__iteration.choose_summary__body__state__seed_marker"
+            },
+            "node_id": "root.choose_summary__loop"
+          }
+        }
+      },
+      "workflow_name": "choose-summary"
+    }
+  ],
+  "workflow_names": [
+    "choose-summary"
+  ]
+}

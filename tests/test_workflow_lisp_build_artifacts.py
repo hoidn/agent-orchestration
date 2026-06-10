@@ -460,6 +460,31 @@ def _assert_design_delta_work_item_advanced_past_wcc_ifexpr(
     assert diagnostics, "expected a distinct downstream diagnostic or successful compile"
 
 
+def _walk_design_delta_work_item_steps(steps: list[dict[str, object]]):
+    for step in steps:
+        yield step
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            for case_payload in match_block.get("cases", {}).values():
+                if isinstance(case_payload, dict):
+                    yield from _walk_design_delta_work_item_steps(case_payload.get("steps", []))
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            yield from _walk_design_delta_work_item_steps(repeat_until.get("steps", []))
+        for key in ("then", "else"):
+            branch = step.get(key)
+            if isinstance(branch, dict):
+                yield from _walk_design_delta_work_item_steps(branch.get("steps", []))
+
+
+def _design_delta_work_item_run_work_item_lowered(compile_result):
+    return next(
+        workflow
+        for workflow in compile_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "lisp_frontend_design_delta/work_item::run-work-item"
+    )
+
+
 def _resume_entry_request(tmp_path: Path):
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -2206,10 +2231,23 @@ def test_build_artifacts_emit_entrypoint_managed_write_root_allocations(
 def test_design_delta_work_item_runtime_context_inputs_stay_internal(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    lowered = _design_delta_work_item_run_work_item_lowered(compile_result)
+    authored_inputs = set(lowered.authored_mapping["inputs"])
+    flattened_input_names = {
+        field.generated_name
+        for field in lowered.boundary_projection.flattened_inputs
+    }
+    internal_inputs = {
+        item.generated_name: item.reason
+        for item in lowered.boundary_projection.generated_internal_inputs
+    }
 
-    _assert_design_delta_work_item_advanced_past_wcc_ifexpr(exc_info.value.diagnostics)
+    assert internal_inputs
+    assert set(internal_inputs).issubset(authored_inputs)
+    assert set(internal_inputs).isdisjoint(flattened_input_names)
+    assert set(internal_inputs.values()) == {"managed_write_root"}
+    assert all(name.startswith("__write_root__") for name in internal_inputs)
 
 
 def test_design_delta_work_item_command_boundary_lineage_records_family_adapters(
@@ -2229,10 +2267,26 @@ def test_design_delta_work_item_command_boundary_lineage_records_family_adapters
         "select_lisp_frontend_blocked_recovery_route",
     }.issubset(boundary_names)
 
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    command_scripts = {
+        tuple(step["command"])
+        for workflow in compile_result.entry_result.lowered_workflows
+        for step in _walk_design_delta_work_item_steps(workflow.authored_mapping.get("steps", []))
+        if isinstance(step.get("command"), list)
+    }
 
-    _assert_design_delta_work_item_advanced_past_wcc_ifexpr(exc_info.value.diagnostics)
+    assert (
+        "python",
+        "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
+    ) in command_scripts
+    assert (
+        "python",
+        "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
+    ) in command_scripts
+    assert (
+        "python",
+        "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
+    ) in command_scripts
 
 
 def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(
