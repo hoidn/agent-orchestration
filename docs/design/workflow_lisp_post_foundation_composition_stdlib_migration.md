@@ -3,7 +3,7 @@
 Status: draft design
 Kind: architecture decision / migration target design
 Created: 2026-06-08
-Updated: 2026-06-09
+Updated: 2026-06-10
 Scope: post-foundation Workflow Lisp composition: nested structured control,
 typed result translation, imported/std `.orc` reuse, `review-revise-loop`
 first-class composition, private executable context, typed projection,
@@ -108,6 +108,8 @@ Implement the work in these ordered tranches:
   identity.
 - Tranche 3 (P0): private executable context bridge, entrypoint bootstrap,
   defaults, and hidden reusable-call binding.
+- Tranche 3A (P0 prerequisite within Tranche 3): parent-callable phase-family
+  boundary rehabilitation for plan, implementation, and work-item surfaces.
 - Tranche 4: imported/std `.orc` reuse and `review-revise-loop` first-class
   composition.
 - Tranche 5 (P1): typed projection and selector/bundle materialization.
@@ -124,6 +126,14 @@ bridge, and run-state/resource-transition ownership — gate parent-callable
 migration for the drain family. Until they land, migrations of that family
 must continue as typed leaf candidates plus explicit bridge records, with YAML
 remaining primary.
+
+The 2026-06-10 blocked recovery for the imported-child returned-variant slice
+showed the next draftable prerequisite inside the private-context blocker:
+after the cross-union work-item route is repaired, the real plan,
+implementation, and work-item candidates still fail parent-callable
+compilation on `low_level_state_path_in_high_level_module` and
+`workflow_boundary_type_invalid` until their phase-family boundary contracts
+are rehabilitated.
 
 The target success condition is not "more leaves compile." The target success
 condition is that at least one real workflow family reaches parent-callable
@@ -194,7 +204,12 @@ assessment against this target. Durable evidence:
 - committed leaf candidates for plan, implementation, selector, design-gap
   architect, and work-item pieces; and
 - feasibility test module
-  `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`.
+  `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`;
+- blocked prerequisite evidence from the imported-child returned-variant
+  recovery:
+  `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/10/blocked-progress-report.md`
+  and
+  `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/10/blocked-recovery-decision.json`.
 
 ### 4.2 Current status snapshot
 
@@ -206,11 +221,12 @@ assessment against this target. Durable evidence:
 | Imported `PhaseCtx` recognition | Fixed frontend bug (F1) from name-local to structural/provenance-aware recognition | Preserve as invariant for future stdlib/context forms; keep regression coverage |
 | Generic effectful composition | Partial/implemented across existing lowering and stdlib fixtures; design-delta drain proved top-level shapes work | Harden nested `match`, nested `repeat_until`, stdlib calls in branches, branch-local refs, proof scopes, and shared validation |
 | Nested structured control | Gap; structured `match` / `repeat_until` accepted only top-level, branch-local generated refs invisible to shared validation (F2) | Tranche 1: nested structured-control composition and branch-scope shared validation |
-| Union-to-union result translation | Bug/gap; lowering normalizes by enclosing matched case name and raises `KeyError` for legitimate cross-union mappings (F3) | Tranche 2: returned-variant-based normalization |
+| Union-to-union result translation | Partial/implemented; the returned-variant route now clears the real imported-child work-item prerequisite, including same-target union pass-through from helper/imported child calls (F3) | Keep returned-variant normalization authoritative and finish the remaining Tranche 2 work such as variant-scoped identity and diagnostic hardening |
 | Variant output field identity | Gap, mitigated by verbose variant-specific field naming (F4) | Tranche 2: variant-scoped identity, or an explicit documented restriction |
 | Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage |
 | `review-revise-loop` stdlib route | First route exists through `stdlib_modules/std/phase.orc` with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions; works for leaf/top-level patterns only (F8) | Prove it composes under nested branches and promoted routes without name-special compiler behavior |
 | Private runtime context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Tranche 3: private executable context bridge and hidden reusable-call binding |
+| Phase-family boundary rehabilitation | Gap newly isolated by the imported-child returned-variant recovery: `plan_phase.orc`, `implementation_phase.orc`, and `work_item.orc` still fail parent-callable compilation on `low_level_state_path_in_high_level_module` or `workflow_boundary_type_invalid` after the cross-union blocker is cleared (F12) | Tranche 3A: rehabilitate high-level phase boundaries, compatibility bridge labeling, and helper/private-workflow phase bindings before Tranche 7 |
 | Selector/bundle publication | Selector leaf can model provider decision; publication remains an unclassified script (F7) | Tranche 5: typed projection or certified adapter authority for selection bundle publication |
 | Adapter/resource-transition authority | Adapter contract exists; family scripts still encode workflow semantics (F6, F10) | Tranche 6: classify helpers, certify retained adapters, move recurring state/resource transitions to typed runtime effects where justified |
 | Migration parity gates | Strict gate hardening implemented in foundation; leaf-versus-family distinction relies on prose labels in migration records (F11) | Tranche 8: parent-callable readiness labels; leaf-only evidence insufficient for promotability |
@@ -221,9 +237,10 @@ assessment against this target. Durable evidence:
 | --- | --- | --- | --- |
 | F1 imported `PhaseCtx` recognition | Fixed frontend bug | Preserve structural/capability recognition across module boundaries | Regression blocks stdlib/context promotion |
 | F2 nested structured control | P0 frontend/runtime design gap | Tranche 1: nested structured-control composition and branch-scope shared validation | Parent implementation phase remains split until fixed |
-| F3 union-to-union result mapping | P1 lowering bug/design gap | Tranche 2: returned variant controls target union normalization | Domain result types must not be shaped by inner control names |
+| F3 union-to-union result mapping | P1 lowering bug/design gap, partially implemented | Tranche 2: returned variant controls target union normalization; same-target imported-child pass-through is now required route evidence | Domain result types must not be shaped by inner control names |
 | F4 variant output field uniqueness | P1 ergonomics/shared-validation issue | Tranche 2: variant-scoped output field identity; documented restriction is interim mitigation only | Variant-specific field-name workarounds remain compatibility only |
 | F5 private context and StateLayout | P0 frontend/runtime design gap | Tranche 3: private executable context bridge and entrypoint bootstrap | Public state roots or fake `PhaseCtx` inputs are not parity evidence |
+| F12 parent-callable phase-family boundaries | P0 frontend/runtime design gap | Tranche 3A: parent-callable phase-boundary rehabilitation for plan, implementation, and work-item, including private/helper boundary types and compatibility path labeling | Leaf candidates remain non-parent-callable and fail on `low_level_state_path_in_high_level_module` / `workflow_boundary_type_invalid` until fixed |
 | F6 certified adapters and resources | P0 runtime/adapter authority gap | Tranche 6: certified adapter/resource-transition ownership | Hidden state mutation blocks family promotion |
 | F7 selector/bundle publication | P1 projection/materialization gap | Tranche 5: typed projection and materialized bundle views | Selector leaves remain non-parity candidates until publication is authoritative |
 | F8 review loop first-class composition | P0 stdlib composition gap | Tranches 1 and 4: stdlib review loops compose wherever effectful procedures are valid | Review-loop leaves are insufficient if nested branches fail |
@@ -727,6 +744,23 @@ ReviewLoopResult.EXHAUSTED -> ImplementationPhaseResult.REVIEW_EXHAUSTED
 ImplementationAttempt.BLOCKED -> ImplementationPhaseResult.BLOCKED
 ```
 
+The parent-callable work-item route adds one explicit prerequisite shape under
+this tranche: a parent workflow must be able to `match` an imported child
+union and return a different local domain union without inheriting the child
+variant name as target identity. The canonical work-item examples are:
+
+```text
+DesignDeltaPlanPhaseResult.BLOCKED -> WorkItemResult.TERMINAL_BLOCKED
+WorkItemTerminalClassification.COMPLETE -> WorkItemResult.COMPLETED
+WorkItemTerminalClassification.IMPLEMENTATION_BLOCKED -> WorkItemResult.BLOCKED_RECOVERY
+```
+
+If that route still fails with `union_return_variant_ambiguous`, the blocker
+belongs to this tranche as a prerequisite gap. It must not be pushed down into
+Tranche 7 by renaming outer variants to child control-state names, splitting
+the work-item surface back into leaves, or treating the parent route as an
+authoring problem.
+
 ### 13.3 Variant-scoped field identity
 
 The canonical lowered identity for a variant output field is:
@@ -752,6 +786,9 @@ reused.
 
 - Replace source-case-name-based union return normalization with
   returned-variant-based normalization.
+- Add a focused prerequisite fixture for imported-child parent routing: a
+  parent-callable work-item-style workflow that matches imported child unions
+  and returns a local domain union without `union_return_variant_ambiguous`.
 - Add diagnostics for ambiguous returned union variants, missing expected
   type, and incompatible target variants.
 - Introduce variant-scoped output identity in lowering and shared validation.
@@ -772,9 +809,15 @@ reused.
 
 - Branches can translate inner review-loop variants to outer domain-specific
   result variants.
+- Imported child workflow/classifier unions can be matched and translated into
+  a parent work-item or drain-domain union without forcing the outer union to
+  mirror child control-state names.
 - Domain unions do not need to mirror inner control-state names.
 - No lowering path raises `KeyError` for well-typed cross-union mappings; any
   rejected mapping has a typed diagnostic.
+- The real work-item-style imported-child route no longer fails with
+  `union_return_variant_ambiguous`; if it still does, Tranche 7 is blocked on
+  this prerequisite.
 - The same logical field name may appear in multiple variants without
   validation collisions. The documented restriction plus diagnostic is an
   interim mitigation while the gap is open; it does not satisfy this
@@ -868,6 +911,62 @@ into private context. That bridge must be:
   shapes as authority; and
 - retired or narrowed when typed resource/state transitions replace the legacy
   path dependency.
+
+### 14.4A Phase-Family Boundary Rehabilitation Prerequisite
+
+The imported-child returned-variant recovery showed that there is a narrower,
+immediately draftable prerequisite inside this tranche. After the cross-union
+work-item route is repaired, the real design-delta `plan_phase.orc`,
+`implementation_phase.orc`, and `work_item.orc` candidates still fail
+parent-callable compilation on `low_level_state_path_in_high_level_module` and
+`workflow_boundary_type_invalid`. This slice is the first executable portion of
+the private-context bridge for those phase-family candidates; it does not
+replace the broader `PrivateExecCtx` / entrypoint-bootstrap target.
+
+Required behavior:
+
+- high-level phase-family workflows must compile as high-level `.orc`
+  boundaries without exposing phase state roots, generated write roots, or
+  synthetic top-level `PhaseCtx` values as ordinary authored inputs;
+- compatibility bridge inputs for legacy YAML `state/` values may remain only
+  as explicit private or compatibility-labeled executable bindings with
+  provenance, not as promoted high-level boundary fields;
+- generated private-workflow or helper-hoisted branch routes used to realize
+  nested composition must receive phase-context-like values through accepted
+  private or compatibility carriers rather than invalid workflow-boundary field
+  types; and
+- clearing this slice does not relax the lint against low-level state paths;
+  it changes the boundary shape so the lint no longer fires on promoted
+  phase-family routes.
+
+Tasks:
+
+- define the narrow public/private boundary shape for plan, implementation,
+  and work-item candidates before the full family-wide `RunCtx` / `DrainCtx`
+  bootstrap lands;
+- define which existing YAML `state/` path inputs, if any, survive only as
+  compatibility bridge bindings and how build artifacts/parity reports label
+  them;
+- define how generated helper/private workflow boundaries carry phase context
+  without `workflow_boundary_type_invalid`; and
+- add compile/build-artifact fixtures for the real design-delta phase-family
+  routes so this prerequisite fails before Tranche 7 if those diagnostics
+  regress.
+
+Acceptance:
+
+- the real design-delta `plan_phase.orc`, `implementation_phase.orc`, and
+  `work_item.orc` candidates no longer fail parent-callable compilation on
+  `low_level_state_path_in_high_level_module`;
+- the approved-arm helper/private-workflow route introduced by the
+  imported-child returned-variant recovery no longer fails on
+  `workflow_boundary_type_invalid` when it carries phase-family context;
+- boundary inspection shows any retained YAML `state/` values as private or
+  compatibility-bridge bindings rather than normal high-level `.orc` inputs;
+  and
+- if the phase-family compile route remains blocked after this slice, the
+  remaining failure is owned by another documented tranche rather than by
+  high-level boundary/path exposure or invalid phase-helper boundary types.
 
 ### 14.5 Tasks
 
@@ -1262,12 +1361,20 @@ remains in force until this tranche's prerequisites pass.
 ### 18.2 Parent-callable phase surfaces
 
 Before a parent `.orc` drain can be promoted, each child phase must be
-parent-callable:
+parent-callable. After Tranche 2 lands, the next mandatory gate is Tranche 3A
+phase-family boundary rehabilitation for the real plan, implementation, and
+work-item candidates:
 
 - public inputs match the intended YAML/user boundary;
 - private context is hidden and runtime-owned;
 - generated write roots are hidden and allocator-owned;
+- phase-family candidates clear the Tranche 3A boundary failures: no
+  `low_level_state_path_in_high_level_module` on promoted high-level phase
+  surfaces and no `workflow_boundary_type_invalid` on generated/private helper
+  boundaries that carry phase context;
 - child terminal results are typed unions;
+- imported child unions can be translated into outer work-item/drain result
+  unions through the Tranche 2 returned-variant route;
 - artifact and state effects are declared;
 - resource transitions are visible;
 - retry/resume identity is stable; and
@@ -1668,8 +1775,16 @@ available. Union normalization and variant-scoped field identity reduce
 authoring workarounds and make domain types independent from control-state
 internals.
 
-Tranche 3 should land before promoted wrapper parity, because public generated
-state roots and synthetic context inputs are not acceptable evidence.
+Tranche 3A should land before parent-callable phase compilation. It is the
+next draftable prerequisite surfaced by the imported-child returned-variant
+recovery: until it lands, the real plan/implementation/work-item routes can
+clear the cross-union blocker and still fail on
+`low_level_state_path_in_high_level_module` or
+`workflow_boundary_type_invalid`.
+
+The broader Tranche 3 bootstrap should land before promoted wrapper parity,
+because public generated state roots and synthetic context inputs are not
+acceptable evidence.
 
 Tranche 4 depends on Tranche 1 for rich composition. It should not rebuild
 existing stdlib routes; it should harden them under nested branches and
@@ -1683,8 +1798,14 @@ Tranche 6 can begin as an inventory immediately, but enforcement for new
 high-level `.orc` should become strict only after certified declaration
 mechanics are available.
 
-Tranche 7 should wait for at least the P0 portions of Tranches 1, 3, 5, and 6.
-A parent drain written before then would likely recreate YAML-shaped Lisp.
+Tranche 7 should wait for at least the P0 portions of Tranches 1, 3A, 5, and
+6, plus the broader Tranche 3 bootstrap before family promotion. It also
+depends on the Tranche 2 imported-child returned-variant prerequisite whenever
+a work-item or parent route matches child phase/classifier unions and returns
+a different domain union. A parent drain or parent-callable work-item written
+before then would likely recreate YAML-shaped Lisp, force outer result types
+to mirror child control-state names, or re-expose low-level phase-state
+surfaces at high-level boundaries.
 
 Tranche 8 can proceed in parallel for report schema/readiness labels, but
 promotable family evidence must wait for parent-callable workflows.
@@ -1760,6 +1881,14 @@ generated state/write-root/context inputs while executable/runtime contracts
 still receive the required private bindings, and resume reconstructs the same
 private paths.
 
+Phase-family boundary rehabilitation follows this design only if the real
+design-delta `plan_phase.orc`, `implementation_phase.orc`, and `work_item.orc`
+routes compile without `low_level_state_path_in_high_level_module`, generated
+helper/private workflow boundaries stop failing with
+`workflow_boundary_type_invalid`, and any retained YAML `state/` values are
+labeled as private or compatibility-bridge bindings rather than public high-
+level `.orc` inputs.
+
 Imported/std reuse follows this design only if promoted fixtures pass through
 ordinary import/specialization/typecheck/lowering without compiler-name
 special casing and without runtime ref leakage.
@@ -1800,6 +1929,9 @@ The following do not prove this target:
   field names are supported;
 - a drafting-guide restriction note plus compile-time diagnostic presented as
   variant-scoped identity completion;
+- a plan/implementation/work-item candidate that still fails on
+  `low_level_state_path_in_high_level_module` or
+  `workflow_boundary_type_invalid` presented as parent-callable phase parity;
 - public `state_root`, `manifest_path`, `progress_ledger_path`, or
   `__write_root__...` inputs in a promoted `.orc` boundary;
 - a synthetic top-level `PhaseCtx` input presented as context bootstrap;
@@ -1900,6 +2032,20 @@ resource-transition parity, or current freshness comparators.
   migration-bridge labeling.
 - Module-qualified imported context recognized by structural/capability
   checks (F1 regression).
+
+### 27.4A Phase-family boundary rehabilitation tests
+
+- `plan_phase.orc`, `implementation_phase.orc`, and `work_item.orc` clear
+  `low_level_state_path_in_high_level_module` on their promoted high-level
+  boundaries.
+- The approved-arm helper/private-workflow route used by the real work-item
+  candidate clears `workflow_boundary_type_invalid` when it carries phase
+  context.
+- Build-artifact inspection shows retained YAML `state/` values, if any, as
+  private or compatibility-bridge bindings rather than public authored inputs.
+- The parent-callable work-item compile fixture fails with another documented
+  tranche diagnostic, if any remain, rather than with boundary/path-exposure
+  errors owned by Tranche 3A.
 
 ### 27.5 Imported/std and review-loop tests
 
@@ -2118,6 +2264,9 @@ This post-foundation target succeeds when:
   source cases;
 - variant-scoped output identity allows repeated logical field names across
   variants;
+- the real plan/implementation/work-item phase-family candidates clear the
+  Tranche 3A boundary failures, keeping low-level phase-state roots and
+  synthetic phase contexts out of promoted high-level `.orc` boundaries;
 - promoted `.orc` entrypoints hide private runtime context, generated write
   roots, state roots, and compatibility paths from public boundaries;
 - hidden reusable-call binding supplies internal `RunCtx`, `PhaseCtx`,
@@ -2159,6 +2308,12 @@ nested structured control, principled result translation, ordinary
 imported/std `.orc`, private runtime context, typed projection, certified
 adapters, declared resource transitions, parent-callable family workflows, and
 strict migration evidence.
+
+After the imported-child returned-variant slice, the next draftable
+prerequisite is Tranche 3A phase-family boundary rehabilitation for the real
+plan/implementation/work-item candidates. Until that lands, parent-callable
+work-item and drain work should remain blocked even if the cross-union route
+compiles.
 
 Until the P0 tranches land, the correct migration shape remains compileable
 typed leaves, explicit bridge records, and no parent `.orc` wrapper pretending

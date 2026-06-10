@@ -18,6 +18,10 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_comm
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CLI_FIXTURES = FIXTURES / "cli"
+# This checked-in candidate remains the authoritative proof source for the
+# imported-child prerequisite until the shipping library module lands its
+# separate parent-callable `run-work-item` export.
+DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = FIXTURES / "valid" / "design_delta_work_item_runtime"
 ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
 RUNTIME_CLOSURE_MARKERS = (
@@ -162,6 +166,295 @@ def _selector_projection_request(tmp_path: Path):
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def _design_delta_work_item_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    providers_path = tmp_path / "design_delta_work_item_providers.json"
+    prompts_path = tmp_path / "design_delta_work_item_prompts.json"
+    commands_path = tmp_path / "design_delta_work_item_commands.json"
+    providers_path.write_text(
+        json.dumps(
+            {
+                "providers.plan.draft": "fake-plan-draft",
+                "providers.plan.review": "fake-plan-review",
+                "providers.plan.fix": "fake-plan-fix",
+                "providers.implementation.execute": "fake-implementation-execute",
+                "providers.implementation.review": "fake-implementation-review",
+                "providers.implementation.fix": "fake-implementation-fix",
+                "providers.work-item.recovery-classifier": "fake-work-item-recovery",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    prompts_path.write_text(
+        json.dumps(
+            {
+                "prompts.plan.draft": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md"
+                ),
+                "prompts.plan.review": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
+                ),
+                "prompts.plan.fix": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md"
+                ),
+                "prompts.implementation.execute": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+                ),
+                "prompts.implementation.review": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+                ),
+                "prompts.implementation.fix": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+                ),
+                "prompts.work-item.classify-blocked-recovery": (
+                    "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
+                    "classify_blocked_implementation_recovery.md"
+                ),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    commands_path.write_text(
+        json.dumps(
+            {
+                "run_neurips_backlog_checks": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "workflows/library/scripts/run_neurips_backlog_checks.py",
+                    ],
+                },
+                "validate_review_findings_v1": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "-m",
+                        "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                    ],
+                },
+                "materialize_lisp_frontend_work_item_inputs": {
+                    "kind": "certified_adapter",
+                    "stable_command": [
+                        "python",
+                        "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
+                    ],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "ResolvedWorkItemInputs",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["design_delta_work_item_inputs_ok"],
+                    "negative_fixture_ids": ["design_delta_work_item_inputs_bad"],
+                    "behavior_class": "structured_result",
+                    "input_signature": [
+                        {
+                            "name": "selection_bundle_path",
+                            "type_name": "SelectionBundlePath",
+                            "required": True,
+                            "transport_key": "selection_path",
+                        }
+                    ],
+                    "artifact_contracts": ["materialize_lisp_frontend_work_item_inputs_bundle"],
+                    "state_writes": [],
+                    "error_codes": ["materialize_lisp_frontend_work_item_inputs_invalid"],
+                    "owner_module": "lisp_frontend_design_delta/work_item",
+                    "replacement_path": "SelectionCtx + ItemCtx private bootstrap + typed projection",
+                    "invocation_protocol": "json_object_positional_arg",
+                },
+                "classify_lisp_frontend_work_item_terminal": {
+                    "kind": "certified_adapter",
+                    "stable_command": [
+                        "python",
+                        "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
+                    ],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "WorkItemTerminalClassification",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["design_delta_work_item_terminal_ok"],
+                    "negative_fixture_ids": ["design_delta_work_item_terminal_bad"],
+                    "behavior_class": "outcome_finalization",
+                    "input_signature": [
+                        {
+                            "name": "plan_review_decision",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "plan_review_decision",
+                        },
+                        {
+                            "name": "implementation_state",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "implementation_state",
+                        },
+                        {
+                            "name": "implementation_review_decision",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "implementation_review_decision",
+                        },
+                        {
+                            "name": "work_item_source",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "work_item_source",
+                        }
+                    ],
+                    "artifact_contracts": ["classify_lisp_frontend_work_item_terminal_bundle"],
+                    "state_writes": [],
+                    "error_codes": ["classify_lisp_frontend_work_item_terminal_invalid"],
+                    "owner_module": "lisp_frontend_design_delta/work_item",
+                    "replacement_path": "typed implementation terminal union",
+                    "invocation_protocol": "json_object_positional_arg",
+                },
+                "select_lisp_frontend_blocked_recovery_route": {
+                    "kind": "certified_adapter",
+                    "stable_command": [
+                        "python",
+                        "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
+                    ],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "BlockedRecoveryDecision",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["design_delta_blocked_recovery_route_ok"],
+                    "negative_fixture_ids": ["design_delta_blocked_recovery_route_bad"],
+                    "behavior_class": "outcome_finalization",
+                    "input_signature": [
+                        {
+                            "name": "terminal_route",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "terminal_route",
+                        },
+                        {
+                            "name": "work_item_source",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "work_item_source",
+                        },
+                        {
+                            "name": "blocked_recovery_route",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "blocked_recovery_route",
+                        },
+                        {
+                            "name": "reason",
+                            "type_name": "String",
+                            "required": True,
+                            "transport_key": "reason",
+                        }
+                    ],
+                    "artifact_contracts": ["select_lisp_frontend_blocked_recovery_route_bundle"],
+                    "state_writes": [],
+                    "error_codes": ["select_lisp_frontend_blocked_recovery_route_invalid"],
+                    "owner_module": "lisp_frontend_design_delta/work_item",
+                    "replacement_path": "typed BlockedRecoveryDecision normalization",
+                    "invocation_protocol": "json_object_positional_arg",
+                },
+                "record_terminal_work_item": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "workflows/library/scripts/update_lisp_frontend_run_state.py",
+                    ],
+                },
+                "record_blocked_recovery_outcome": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+                    ],
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return request_cls(
+        source_path=(
+            DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT
+            / "lisp_frontend_design_delta"
+            / "work_item.orc"
+        ),
+        source_roots=(DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT,),
+        entry_workflow="run-work-item",
+        provider_externs_path=providers_path,
+        prompt_externs_path=prompts_path,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=commands_path,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
+def _compile_design_delta_work_item_without_shared_validation(tmp_path: Path):
+    build = _build_module()
+    request = _design_delta_work_item_request(tmp_path)
+    resolve_request = getattr(build, "_resolve_request")
+    load_string_mapping = getattr(build, "_load_string_mapping")
+    load_prompt_extern_mapping = getattr(build, "_load_prompt_extern_mapping")
+    load_command_boundaries_manifest_payload = getattr(
+        build,
+        "_load_command_boundaries_manifest_payload",
+    )
+    parse_command_boundaries_manifest = getattr(
+        build,
+        "_parse_command_boundaries_manifest",
+    )
+
+    resolved_request = resolve_request(request)
+    provider_externs = load_string_mapping(
+        resolved_request.provider_externs_path,
+        label="provider externs manifest",
+    )
+    prompt_externs = load_prompt_extern_mapping(
+        resolved_request.prompt_externs_path,
+    )
+    command_boundary_manifest = load_command_boundaries_manifest_payload(
+        resolved_request.command_boundaries_path,
+    )
+    command_boundaries = parse_command_boundaries_manifest(
+        command_boundary_manifest,
+        manifest_path=resolved_request.command_boundaries_path,
+    )
+    compile_result = compile_stage3_entrypoint(
+        resolved_request.source_path,
+        source_roots=resolved_request.source_roots,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        imported_workflow_bundles=None,
+        command_boundaries=command_boundaries,
+        validate_shared=False,
+        workspace_root=resolved_request.workspace_root,
+        lint_profile=resolved_request.lint_profile,
+    )
+    return request, command_boundary_manifest, compile_result
+
+
+def _assert_design_delta_work_item_build_blocked_by_phase_family_boundary(
+    request,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        build_frontend_bundle(request)
+
+    diagnostic_codes = {diagnostic.code for diagnostic in exc_info.value.diagnostics}
+    assert "workflow_boundary_type_invalid" in diagnostic_codes
+    assert "low_level_state_path_in_high_level_module" in diagnostic_codes
 
 
 def _resume_entry_request(tmp_path: Path):
@@ -1790,6 +2083,62 @@ def test_build_artifacts_emit_entrypoint_managed_write_root_allocations(
     assert "${runtime.run_id}" in entrypoint_projection["concrete_path_template"]
     assert entrypoint_source_map["allocation_id"] == entrypoint_projection["allocation_id"]
     assert entrypoint_layout["details"]["allocation_id"] == entrypoint_projection["allocation_id"]
+
+
+def test_design_delta_work_item_runtime_context_inputs_stay_internal(
+    tmp_path: Path,
+) -> None:
+    request, _command_boundary_manifest, compile_result = (
+        _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    )
+    lowered = next(
+        workflow
+        for workflow in compile_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == "lisp_frontend_design_delta/work_item::run-work-item"
+    )
+    lowered_inputs = lowered.authored_mapping["inputs"]
+
+    assert {
+        "selection_bundle_path",
+        "manifest_path",
+        "architecture_bundle_path",
+        "steering_path",
+        "target_design_path",
+        "baseline_design_path",
+        "progress_ledger_path",
+        "run_state_path",
+        "implementation_execute_provider",
+        "implementation_review_provider",
+    }.issubset(lowered_inputs)
+    assert {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }.issubset(lowered_inputs)
+    assert any(name.startswith("__write_root__") for name in lowered_inputs)
+
+    _assert_design_delta_work_item_build_blocked_by_phase_family_boundary(request)
+
+
+def test_design_delta_work_item_command_boundary_lineage_records_family_adapters(
+    tmp_path: Path,
+) -> None:
+    request, command_boundary_manifest, _compile_result = (
+        _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    )
+    boundary_names = set(command_boundary_manifest)
+
+    assert {
+        "materialize_lisp_frontend_work_item_inputs",
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
+    }.issubset(boundary_names)
+
+    _assert_design_delta_work_item_build_blocked_by_phase_family_boundary(request)
 
 
 def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(

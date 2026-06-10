@@ -20,7 +20,7 @@ from orchestrator.workflow_lisp.command_boundaries import (
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -28,11 +28,20 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "cli"
 WORKFLOW_LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
+# This checked-in candidate remains the authoritative proof source for the
+# imported-child prerequisite until the shipping library module lands its
+# separate parent-callable `run-work-item` export.
+DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_work_item_runtime"
+)
 NESTED_IMPLEMENTATION_PHASE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
 )
 PARENT_CALL_IMPLEMENTATION_PHASE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_parent_calls_implementation_phase.orc"
+)
+PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_parent_calls_work_item.orc"
 )
 NESTED_SAME_FILE_CALL_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_same_file_call_local_record.orc"
@@ -399,10 +408,19 @@ def _compile_design_delta_parent_call_runtime_entrypoint(tmp_path: Path):
     return module_path, result
 
 
+def _copy_design_delta_work_item_runtime_modules(tmp_path: Path) -> Path:
+    module_dir = tmp_path / "lisp_frontend_design_delta"
+    module_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("plan_phase.orc", "implementation_phase.orc", "types.orc", "work_item.orc"):
+        source = DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta" / name
+        _write_module(module_dir / name, source.read_text(encoding="utf-8"))
+    return module_dir / "work_item.orc"
+
+
 def _compile_design_delta_work_item_entrypoint(tmp_path: Path):
     result = compile_stage3_entrypoint(
-        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
+        DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta" / "work_item.orc",
+        source_roots=(DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT,),
         provider_externs=_design_delta_work_item_provider_externs(),
         prompt_externs=_design_delta_work_item_prompt_externs(),
         command_boundaries=_design_delta_work_item_command_boundaries(),
@@ -417,19 +435,27 @@ def _compile_design_delta_work_item_entrypoint(tmp_path: Path):
     return result, lowered_by_name
 
 
+def _compile_design_delta_work_item_library_module(tmp_path: Path):
+    return compile_stage3_module(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc",
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_command_boundaries(),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+
 def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
     tmp_path: Path,
 ):
     try:
         result, lowered_by_name = _compile_design_delta_work_item_entrypoint(tmp_path)
     except LispFrontendCompileError as exc:
-        diagnostic_codes = [diagnostic.code for diagnostic in exc.diagnostics]
-
-        assert diagnostic_codes
-        assert diagnostic_codes[0] in {
-            "workflow_boundary_type_invalid",
-            "low_level_state_path_in_high_level_module",
-        }
+        _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
+            exc.diagnostics,
+        )
+        diagnostic_codes = {diagnostic.code for diagnostic in exc.diagnostics}
         assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
         return None, None
 
@@ -437,6 +463,106 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
     assert any("finalize-approved-review-state" in name for name in lowered_names)
     assert any("finalize-approved-nonblocked" in name for name in lowered_names)
     return result, lowered_by_name
+
+
+def _assert_design_delta_work_item_helper_alias_boundary_failure(
+    diagnostics: tuple[LispFrontendDiagnostic, ...],
+) -> None:
+    diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
+    boundary_messages = [
+        diagnostic.message
+        for diagnostic in diagnostics
+        if diagnostic.code == "workflow_boundary_type_invalid"
+    ]
+
+    assert "workflow_boundary_type_invalid" in diagnostic_codes
+    assert "union_return_variant_ambiguous" not in diagnostic_codes
+    assert "union_return_variant_incompatible" not in diagnostic_codes
+    assert any(
+        "unknown import alias" in message
+        and "route-blocked-implementation.v1" in message
+        for message in boundary_messages
+    )
+    assert any(
+        "unknown import alias" in message
+        and "finalize-approved-nonblocked.v1" in message
+        for message in boundary_messages
+    )
+
+
+def _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
+    diagnostics: tuple[LispFrontendDiagnostic, ...],
+) -> None:
+    _assert_design_delta_work_item_helper_alias_boundary_failure(diagnostics)
+    diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
+    low_level_workflows = {
+        match.group(1)
+        for diagnostic in diagnostics
+        if diagnostic.code == "low_level_state_path_in_high_level_module"
+        for match in [re.search(r"workflow `([^`]+)`", diagnostic.message)]
+        if match is not None
+    }
+
+    assert diagnostic_codes == {
+        "workflow_boundary_type_invalid",
+        "low_level_state_path_in_high_level_module",
+    }
+    assert low_level_workflows == {
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/work_item::run-work-item",
+    }
+
+
+def _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
+    diagnostics: tuple[LispFrontendDiagnostic, ...],
+) -> None:
+    _assert_design_delta_work_item_helper_alias_boundary_failure(diagnostics)
+    diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
+
+    assert diagnostic_codes == {"workflow_boundary_type_invalid"}
+
+
+def _compile_design_delta_work_item_runtime_entrypoint(tmp_path: Path):
+    module_path = _copy_design_delta_work_item_runtime_modules(tmp_path)
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return module_path, result
+
+
+def _compile_design_delta_parent_call_work_item_entrypoint(tmp_path: Path):
+    _copy_design_delta_work_item_runtime_modules(tmp_path)
+    module_path = _write_entrypoint_fixture_to_tmp(
+        PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
+
+
+def _design_delta_work_item_runtime_command_boundaries(tmp_path: Path) -> dict[str, object]:
+    _ = tmp_path
+    return dict(_design_delta_work_item_command_boundaries())
 
 
 def _compile_design_delta_parent_contract_probe_entrypoint(tmp_path: Path):
@@ -472,7 +598,9 @@ def _compile_design_delta_parent_contract_probe_entrypoint(tmp_path: Path):
                 "     (execution_report_target_path ArtifactWorkTargetPath)",
                 "     (progress_report_target_path ArtifactWorkTargetPath)",
                 "     (checks_report_target_path ArtifactChecksTargetPath)",
-                "     (implementation_review_report_target_path ArtifactReviewTargetPath))",
+                "     (implementation_review_report_target_path ArtifactReviewTargetPath)",
+                "     (implementation_execute_provider String)",
+                "     (implementation_review_provider String))",
                 "    -> ImplementationPhaseResult",
                 "    (let* ((phase-result",
                 "             (call implementation-phase",
@@ -485,7 +613,9 @@ def _compile_design_delta_parent_contract_probe_entrypoint(tmp_path: Path):
                 "               :progress_report_target_path progress_report_target_path",
                 "               :checks_report_target_path checks_report_target_path",
                 "               :implementation_review_report_target_path",
-                "                 implementation_review_report_target_path)))",
+                "                 implementation_review_report_target_path",
+                "               :implementation_execute_provider implementation_execute_provider",
+                "               :implementation_review_provider implementation_review_provider)))",
                 "      (record ImplementationPhaseResult",
                 "        :implementation-state phase-result.implementation-state",
                 "        :implementation-review-decision phase-result.implementation-review-decision",
@@ -667,6 +797,8 @@ def _design_delta_runtime_bound_inputs(*, attempt_variant: str) -> dict[str, str
         "implementation_review_report_target_path": (
             "artifacts/review/implementation_review_report.md"
         ),
+        "implementation_execute_provider": "codex",
+        "implementation_review_provider": "codex",
     }
 
 
@@ -992,6 +1124,463 @@ def _execute_design_delta_parent_call_route(
         workflow_path=workflow_path,
         module_root=tmp_path / "lisp_frontend_design_delta",
         attempt_variant=attempt_variant,
+        review_sequence=review_sequence,
+    )
+
+
+def _write_design_delta_work_item_runtime_prompt_assets(module_root: Path) -> None:
+    for relpath in _design_delta_work_item_prompt_externs().values():
+        target = Path(relpath)
+        if target.is_absolute():
+            continue
+        target = module_root / target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("prompt\n", encoding="utf-8")
+
+
+def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> None:
+    script_dir = tmp_path / "workflows" / "library" / "scripts"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    _write_module(
+        script_dir / "materialize_lisp_frontend_work_item_inputs.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "payload = json.loads(sys.argv[1])",
+                "selection = json.loads(Path(payload['selection_path']).read_text(encoding='utf-8'))",
+                "work_item_source = selection.get('work_item_source', 'DESIGN_GAP')",
+                "work_item_id = selection.get('work_item_id', 'design-gap-work-item')",
+                "check_commands_path = Path('state/runtime_work_item/check_commands.json')",
+                "check_commands_path.parent.mkdir(parents=True, exist_ok=True)",
+                "check_commands_path.write_text(json.dumps(['python -m pytest -q']) + '\\n', encoding='utf-8')",
+                "context_path = Path('artifacts/work/runtime_work_item_context.md')",
+                "context_path.parent.mkdir(parents=True, exist_ok=True)",
+                "context_path.write_text('# work item context\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(json.dumps({",
+                "  'work_item_source': work_item_source,",
+                "  'work_item_id': work_item_id,",
+                "  'work_item_context_path': context_path.as_posix(),",
+                "  'check_commands_path': check_commands_path.as_posix(),",
+                "  'plan_target_path': 'docs/plans/generated_plan.md',",
+                "  'plan_phase_state_root': 'state/runtime_work_item/plan-phase',",
+                "  'implementation_phase_state_root': 'state/runtime_work_item/implementation-phase',",
+                "  'plan_review_report_target_path': 'artifacts/review/plan_review_report.md',",
+                "  'execution_report_target_path': 'artifacts/work/execution_report.md',",
+                "  'progress_report_target_path': 'artifacts/work/progress_report.md',",
+                "  'checks_report_target_path': 'artifacts/checks/checks_report.md',",
+                "  'implementation_review_report_target_path': 'artifacts/review/implementation_review_report.md',",
+                "  'item_summary_target_path': 'artifacts/work/item_summary.json'",
+                "}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        script_dir / "classify_lisp_frontend_work_item_terminal.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "payload = json.loads(sys.argv[1])",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "if payload.get('plan_review_decision') == 'REVISE':",
+                "    route = 'PLAN_REVIEW_EXHAUSTED'",
+                "    reason = 'plan_review_exhausted'",
+                "elif payload.get('implementation_state') == 'BLOCKED':",
+                "    route = 'IMPLEMENTATION_BLOCKED'",
+                "    reason = 'implementation_blocked'",
+                "elif payload.get('implementation_review_decision') == 'REVISE':",
+                "    route = 'IMPLEMENTATION_REVIEW_EXHAUSTED'",
+                "    reason = 'implementation_review_exhausted'",
+                "else:",
+                "    route = 'COMPLETE'",
+                "    reason = 'none'",
+                "bundle_path.write_text(json.dumps({'terminal_route': route, 'block_reason': reason}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        script_dir / "select_lisp_frontend_blocked_recovery_route.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "payload = json.loads(sys.argv[1])",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "route = payload.get('blocked_recovery_route', 'TERMINAL_BLOCKED')",
+                "reason = payload.get('reason', 'implementation_blocked')",
+                "bundle_path.write_text(json.dumps({'blocked_recovery_route': route, 'reason': reason}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        script_dir / "update_lisp_frontend_run_state.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "_, state_path, item_id, work_item_source, reason, summary_path = sys.argv",
+                "summary = Path(summary_path)",
+                "summary.parent.mkdir(parents=True, exist_ok=True)",
+                "summary.write_text(json.dumps({'summary': summary_path, 'reason': reason}) + '\\n', encoding='utf-8')",
+                "state = Path(state_path)",
+                "state.parent.mkdir(parents=True, exist_ok=True)",
+                "state.write_text(json.dumps({'item_id': item_id, 'source': work_item_source, 'reason': reason}) + '\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        script_dir / "record_lisp_frontend_blocked_recovery_outcome.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "_, state_path, item_id, work_item_source, summary_path, progress_report = sys.argv",
+                "summary = Path(summary_path)",
+                "summary.parent.mkdir(parents=True, exist_ok=True)",
+                "summary.write_text(json.dumps({'summary': summary_path, 'progress_report': progress_report}) + '\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+
+
+def _write_design_delta_work_item_runtime_inputs(
+    tmp_path: Path,
+    *,
+    work_item_source: str,
+) -> None:
+    for relpath, contents in {
+        "docs/design/target.md": "# target\n",
+        "docs/design/baseline.md": "# baseline\n",
+        "docs/steering.md": "# steering\n",
+        "state/progress_ledger.json": json.dumps({"events": []}) + "\n",
+        "state/run_state.json": json.dumps({"history": []}) + "\n",
+        "state/selection.json": json.dumps(
+            {"work_item_source": work_item_source, "work_item_id": "design-gap-work-item"}
+        )
+        + "\n",
+        "state/manifest.json": json.dumps({"items": []}) + "\n",
+        "state/architecture_validation.json": json.dumps({"architecture_validation_status": "VALID"}) + "\n",
+    }.items():
+        target = tmp_path / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents, encoding="utf-8")
+
+
+def _design_delta_work_item_bound_inputs() -> dict[str, str]:
+    return {
+        "selection_bundle_path": "state/selection.json",
+        "manifest_path": "state/manifest.json",
+        "architecture_bundle_path": "state/architecture_validation.json",
+        "steering_path": "docs/steering.md",
+        "target_design_path": "docs/design/target.md",
+        "baseline_design_path": "docs/design/baseline.md",
+        "progress_ledger_path": "state/progress_ledger.json",
+        "run_state_path": "state/run_state.json",
+        "implementation_execute_provider": "codex",
+        "implementation_review_provider": "codex",
+    }
+
+
+def _execute_design_delta_work_item_route(
+    tmp_path: Path,
+    *,
+    plan_variant: str,
+    implementation_variant: str,
+    work_item_source: str,
+    recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
+    recovery_reason: str = "implementation_architecture_under_scoped",
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    workflow_path, result = _compile_design_delta_work_item_runtime_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles["lisp_frontend_design_delta/work_item::run-work-item"]
+    return _execute_design_delta_work_item_bundle(
+        tmp_path,
+        workflow_path=workflow_path,
+        bundle=bundle,
+        bound_inputs=_design_delta_work_item_bound_inputs(),
+        plan_variant=plan_variant,
+        implementation_variant=implementation_variant,
+        work_item_source=work_item_source,
+        recovery_route=recovery_route,
+        recovery_reason=recovery_reason,
+        review_sequence=review_sequence,
+    )
+
+
+def _execute_design_delta_work_item_bundle(
+    tmp_path: Path,
+    *,
+    workflow_path: Path,
+    bundle,
+    bound_inputs: dict[str, object],
+    plan_variant: str,
+    implementation_variant: str,
+    work_item_source: str,
+    recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
+    recovery_reason: str = "implementation_architecture_under_scoped",
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+
+    _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
+    _write_design_delta_runtime_run_checks_script(tmp_path)
+    _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
+    _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
+
+    provider_calls: list[str] = []
+    review_index = 0
+
+    def _prepare_invocation(
+        _self,
+        provider_name=None,
+        params=None,
+        context=None,
+        prompt_content=None,
+        env=None,
+        **_kwargs,
+    ):
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=prompt_content or "",
+                env=env or {},
+                provider_name=provider_name,
+            ),
+            None,
+        )
+
+    def _execute_provider(_self, invocation, **_kwargs):
+        nonlocal review_index
+        provider_calls.append(invocation.provider_name)
+        bundle_path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if invocation.provider_name == "fake-plan-draft":
+            plan_path = tmp_path / "docs" / "plans" / "generated_plan.md"
+            plan_path.parent.mkdir(parents=True, exist_ok=True)
+            plan_path.write_text("# generated plan\n", encoding="utf-8")
+            bundle_path.write_text(
+                json.dumps({"plan_path": "docs/plans/generated_plan.md"}) + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+        if invocation.provider_name == "fake-plan-review":
+            review_report = tmp_path / "artifacts" / "review" / "plan_review_report.md"
+            review_report.parent.mkdir(parents=True, exist_ok=True)
+            review_report.write_text("# plan review\n", encoding="utf-8")
+            findings_path = tmp_path / "artifacts" / "work" / "plan_findings.json"
+            findings_path.parent.mkdir(parents=True, exist_ok=True)
+            findings_path.write_text(
+                json.dumps({"schema_version": "ReviewFindings.v1", "items": []}) + "\n",
+                encoding="utf-8",
+            )
+            if plan_variant == "APPROVED":
+                payload = {
+                    "variant": "APPROVED",
+                    "review_report": "artifacts/review/plan_review_report.md",
+                    "review_decision": "APPROVE",
+                    "findings": {
+                        "schema_version": "ReviewFindings.v1",
+                        "items_path": "artifacts/work/plan_findings.json",
+                    },
+                }
+            elif plan_variant == "BLOCKED":
+                payload = {
+                    "variant": "BLOCKED",
+                    "review_report": "artifacts/review/plan_review_report.md",
+                    "blocker_class": "roadmap_conflict",
+                    "findings": {
+                        "schema_version": "ReviewFindings.v1",
+                        "items_path": "artifacts/work/plan_findings.json",
+                    },
+                }
+            else:
+                payload = {
+                    "variant": "EXHAUSTED",
+                    "last_review_report": "artifacts/review/plan_review_report.md",
+                    "reason": "review_exhausted",
+                    "findings": {
+                        "schema_version": "ReviewFindings.v1",
+                        "items_path": "artifacts/work/plan_findings.json",
+                    },
+                }
+            bundle_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            return _success_provider_result()
+        if invocation.provider_name == "fake-plan-fix":
+            bundle_path.write_text(
+                json.dumps({"plan_path": "docs/plans/generated_plan.md"}) + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+        if invocation.provider_name == "fake-implementation-execute":
+            if implementation_variant == "COMPLETED":
+                execution_report = tmp_path / "artifacts" / "work" / "execution_report.md"
+                execution_report.parent.mkdir(parents=True, exist_ok=True)
+                execution_report.write_text("# execution report\n", encoding="utf-8")
+                payload = {
+                    "variant": "COMPLETED",
+                    "implementation_state": "COMPLETED",
+                    "execution_report": "artifacts/work/execution_report.md",
+                }
+            else:
+                progress_report = tmp_path / "artifacts" / "work" / "progress_report.md"
+                progress_report.parent.mkdir(parents=True, exist_ok=True)
+                progress_report.write_text("# blocked progress\n", encoding="utf-8")
+                payload = {
+                    "variant": "BLOCKED",
+                    "implementation_state": "BLOCKED",
+                    "implementation_review_decision": "NOT_APPLICABLE",
+                    "progress_report": "artifacts/work/progress_report.md",
+                    "blocker_class": "external_dependency_outside_authority",
+                }
+            bundle_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            return _success_provider_result()
+        if invocation.provider_name == "fake-implementation-review":
+            review_variant = review_sequence[min(review_index, len(review_sequence) - 1)]
+            review_report = tmp_path / "artifacts" / "review" / "implementation_review_report.md"
+            review_report.parent.mkdir(parents=True, exist_ok=True)
+            review_report.write_text(f"# implementation review {review_index}\n", encoding="utf-8")
+            findings_path = tmp_path / "artifacts" / "work" / "implementation_findings.json"
+            findings_path.parent.mkdir(parents=True, exist_ok=True)
+            findings_path.write_text(
+                json.dumps({"schema_version": "ReviewFindings.v1", "items": []}) + "\n",
+                encoding="utf-8",
+            )
+            review_index += 1
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "variant": review_variant,
+                        "review_report": "artifacts/review/implementation_review_report.md",
+                        "findings": {
+                            "schema_version": "ReviewFindings.v1",
+                            "items_path": "artifacts/work/implementation_findings.json",
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+        if invocation.provider_name == "fake-implementation-fix":
+            fixed_report = tmp_path / "artifacts" / "work" / "execution_report_fixed.md"
+            fixed_report.parent.mkdir(parents=True, exist_ok=True)
+            fixed_report.write_text("# fixed execution report\n", encoding="utf-8")
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "execution_report": "artifacts/work/execution_report_fixed.md",
+                        "checks_report": "artifacts/checks/checks_report.md",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+        if invocation.provider_name == "fake-work-item-recovery":
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "blocked_recovery_route": recovery_route,
+                        "reason": recovery_reason,
+                        "summary": "design-gap recovery requested",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+        raise AssertionError(f"unexpected provider call: {invocation.provider_name}")
+
+    original_resolve_bound_inputs = CallExecutor.resolve_bound_inputs
+
+    def _resolve_bound_inputs(self, step, imported_workflow, state, **kwargs):
+        bound_inputs, error = original_resolve_bound_inputs(
+            self,
+            step,
+            imported_workflow,
+            state,
+            **kwargs,
+        )
+        if error is not None or bound_inputs is None:
+            return bound_inputs, error
+        return _rewrite_managed_write_root_bindings_for_smoke(bound_inputs), None
+
+    state_manager = StateManager(workspace=tmp_path, run_id=f"work-item-{plan_variant.lower()}")
+    state_manager.initialize(
+        workflow_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute_provider
+    ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+            on_error="stop"
+        )
+
+    return tmp_path, state, provider_calls
+
+
+def _execute_design_delta_parent_call_work_item_route(
+    tmp_path: Path,
+    *,
+    plan_variant: str,
+    implementation_variant: str,
+    work_item_source: str,
+    recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
+    recovery_reason: str = "implementation_architecture_under_scoped",
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    workflow_path, result, _lowered_by_name = _compile_design_delta_parent_call_work_item_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "design_delta_parent_calls_work_item::run-parent-work-item"
+    ]
+    _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
+    _write_design_delta_runtime_run_checks_script(tmp_path)
+    _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
+    _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
+    return _execute_design_delta_work_item_bundle(
+        tmp_path,
+        workflow_path=workflow_path,
+        bundle=bundle,
+        bound_inputs=_design_delta_work_item_bound_inputs(),
+        plan_variant=plan_variant,
+        implementation_variant=implementation_variant,
+        work_item_source=work_item_source,
+        recovery_route=recovery_route,
+        recovery_reason=recovery_reason,
         review_sequence=review_sequence,
     )
 
@@ -1688,60 +2277,33 @@ def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(
     )
 
 
-def test_design_delta_work_item_candidate_compiles_as_parent_callable_workflow(
+def test_design_delta_work_item_candidate_is_blocked_by_phase_family_boundary(
     tmp_path: Path,
 ) -> None:
-    result, lowered_by_name = _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
-        tmp_path
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_design_delta_work_item_entrypoint(tmp_path)
+
+    _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
+        exc_info.value.diagnostics,
     )
-    if result is None or lowered_by_name is None:
-        return
 
-    workflow_name = "lisp_frontend_design_delta/work_item::run-work-item"
-    assert set(result.entry_result.validated_bundles) == {workflow_name}
 
-    bundle = result.entry_result.validated_bundles[workflow_name]
-    public_inputs = workflow_public_input_contracts(bundle)
-    lowered = lowered_by_name[workflow_name]
-    lowered_names = set(lowered_by_name)
-    lowered_steps = list(_walk_lowered_steps(lowered["steps"]))
-    assert set(public_inputs) == {
-        "selection_bundle_path",
-        "manifest_path",
-        "architecture_bundle_path",
-        "steering_path",
-        "target_design_path",
-        "baseline_design_path",
-        "progress_ledger_path",
-        "run_state_path",
-        "implementation_execute_provider",
-        "implementation_review_provider",
+test_design_delta_work_item_candidate_is_blocked_by_phase_family_boundary.design_delta_work_item_candidate_compiles_as_parent_callable_workflow = True
+
+
+def test_design_delta_work_item_library_module_stays_closure_only(
+    tmp_path: Path,
+) -> None:
+    result = _compile_design_delta_work_item_library_module(tmp_path)
+    lowered_names = {
+        workflow.typed_workflow.definition.name
+        for workflow in result.lowered_workflows
     }
-    assert not any(name.endswith("classify-work-item-terminal") for name in lowered_names)
-    assert not any(name.endswith("classify-blocked-implementation-recovery") for name in lowered_names)
-    assert sum(1 for step in lowered_steps if step.get("call") == "run-plan-phase") == 1
-    assert any(step.get("call") == "implementation-phase" for step in lowered_steps)
-    assert any(
-        step.get("provider") == "fake-work-item-recovery"
-        for step in lowered_steps
-    )
-    assert any(
-        "materialize_lisp_frontend_work_item_inputs.py" in " ".join(step.get("command", []))
-        for step in lowered_steps
-    )
-    assert any(
-        "classify_lisp_frontend_work_item_terminal.py" in " ".join(step.get("command", []))
-        for step in lowered_steps
-    )
-    assert any(
-        "select_lisp_frontend_blocked_recovery_route.py" in " ".join(step.get("command", []))
-        for step in lowered_steps
-    )
-    assert any(
-        step.get("match", {}).get("ref")
-        for step in lowered_steps
-        if isinstance(step.get("match"), dict)
-    )
+
+    assert lowered_names == {
+        "lisp_frontend_design_delta/work_item::classify-work-item-terminal",
+        "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+    }
 
 
 def test_design_delta_work_item_candidate_advances_past_private_workflow_ifexpr_export_blocker(
@@ -1932,6 +2494,50 @@ def test_design_delta_parent_call_implementation_phase_smokes_completed_and_bloc
     assert not (
         blocked_workspace / "artifacts" / "review" / "implementation_review_report.md"
     ).exists()
+
+
+def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_design_delta_work_item_runtime_entrypoint(tmp_path / "completed")
+
+    _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
+        exc_info.value.diagnostics,
+    )
+
+
+def test_design_delta_work_item_candidate_smokes_terminal_blocked_route(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_design_delta_work_item_runtime_entrypoint(tmp_path / "plan-blocked")
+
+    _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
+        exc_info.value.diagnostics,
+    )
+
+
+def test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery_routes(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path / "completed")
+
+    _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
+        exc_info.value.diagnostics,
+    )
+
+
+def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path / "plan-blocked")
+
+    _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
+        exc_info.value.diagnostics,
+    )
 
 
 def test_design_delta_migration_nested_same_file_call_with_local_record_compiles(

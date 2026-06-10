@@ -2574,6 +2574,198 @@ def test_returned_variant_union_normalization_preserves_same_union_match_passthr
     )
 
 
+def test_cross_union_match_translation_allows_same_target_call_passthrough(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "cross_union_match_translation_same_target_call.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    external_dependency_outside_authority)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewLoopResult",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (EXHAUSTED",
+                "      (last_review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defunion ImplementationPhaseResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (REVIEW_EXHAUSTED",
+                "      (review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow helper",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (provider-result providers.review",
+                "      :prompt prompts.review",
+                "      :inputs (report_path)",
+                "      :returns ImplementationPhaseResult))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((review",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ReviewLoopResult)))",
+                "      (match review",
+                "        ((APPROVED approved)",
+                "         (call helper :report_path approved.execution_report))",
+                "        ((EXHAUSTED exhausted)",
+                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
+                "           :review_report exhausted.last_review_report))",
+                "        ((BLOCKED blocked)",
+                "         (variant ImplementationPhaseResult BLOCKED",
+                "           :progress_report blocked.progress_report",
+                "           :blocker_class blocked.blocker_class))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={
+            "providers.execute": "test-provider",
+            "providers.review": "review-provider",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.review": "prompts/review.md",
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry"
+    )
+    match_step = lowered["steps"][1]
+    approved_case = match_step["match"]["cases"]["APPROVED"]
+    approved_steps = approved_case["steps"]
+    approved_call = approved_steps[0]
+
+    assert not any("materialize_artifacts" in step for step in approved_steps)
+    assert approved_call["call"] == "helper"
+    assert approved_case["outputs"]["return__variant"]["from"]["ref"].endswith(
+        f".{approved_call['name']}.artifacts.return__variant"
+    )
+    assert approved_case["outputs"]["return__execution_report"]["from"]["ref"].endswith(
+        f".{approved_call['name']}.artifacts.return__execution_report"
+    )
+
+
+def test_cross_union_match_translation_allows_same_target_let_bound_call_passthrough(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "cross_union_match_translation_same_target_let_bound_call.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    external_dependency_outside_authority)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewLoopResult",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (EXHAUSTED",
+                "      (last_review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defunion ImplementationPhaseResult",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (REVIEW_EXHAUSTED",
+                "      (review_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow helper",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (provider-result providers.review",
+                "      :prompt prompts.review",
+                "      :inputs (report_path)",
+                "      :returns ImplementationPhaseResult))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationPhaseResult",
+                "    (let* ((review",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ReviewLoopResult)))",
+                "      (match review",
+                "        ((APPROVED approved)",
+                "         (let* ((attempt",
+                "                  (call helper :report_path approved.execution_report)))",
+                "           attempt))",
+                "        ((EXHAUSTED exhausted)",
+                "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
+                "           :review_report exhausted.last_review_report))",
+                "        ((BLOCKED blocked)",
+                "         (variant ImplementationPhaseResult BLOCKED",
+                "           :progress_report blocked.progress_report",
+                "           :blocker_class blocked.blocker_class))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={
+            "providers.execute": "test-provider",
+            "providers.review": "review-provider",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.review": "prompts/review.md",
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry"
+    )
+    match_step = lowered["steps"][1]
+    approved_case = match_step["match"]["cases"]["APPROVED"]
+    approved_steps = approved_case["steps"]
+    approved_call = approved_steps[0]
+
+    assert not any("materialize_artifacts" in step for step in approved_steps)
+    assert approved_call["call"] == "helper"
+    assert approved_case["outputs"]["return__variant"]["from"]["ref"].endswith(
+        f".{approved_call['name']}.artifacts.return__variant"
+    )
+    assert approved_case["outputs"]["return__execution_report"]["from"]["ref"].endswith(
+        f".{approved_call['name']}.artifacts.return__execution_report"
+    )
+
+
 def test_union_return_variant_ambiguous_cross_union_match_translation_reports_owned_diagnostic(
     tmp_path: Path,
 ) -> None:
@@ -2598,13 +2790,6 @@ def test_union_return_variant_ambiguous_cross_union_match_translation_reports_ow
                 "      (execution_report WorkReport))",
                 "    (REVIEW_EXHAUSTED",
                 "      (review_report WorkReport)))",
-                "  (defworkflow helper",
-                "    ((report_path WorkReport))",
-                "    -> ImplementationPhaseResult",
-                "    (provider-result providers.review",
-                "      :prompt prompts.review",
-                "      :inputs (report_path)",
-                "      :returns ImplementationPhaseResult))",
                 "  (defworkflow entry",
                 "    ((report_path WorkReport))",
                 "    -> ImplementationPhaseResult",
@@ -2615,7 +2800,12 @@ def test_union_return_variant_ambiguous_cross_union_match_translation_reports_ow
                 "               :returns ReviewLoopResult)))",
                 "      (match review",
                 "        ((APPROVED approved)",
-                "         (call helper :report_path approved.execution_report))",
+                "         (let* ((attempt",
+                "                  (provider-result providers.review",
+                "                    :prompt prompts.review",
+                "                    :inputs (approved.execution_report)",
+                "                    :returns ImplementationPhaseResult)))",
+                "           attempt))",
                 "        ((EXHAUSTED exhausted)",
                 "         (variant ImplementationPhaseResult REVIEW_EXHAUSTED",
                 "           :review_report exhausted.last_review_report))))))",
@@ -2643,7 +2833,9 @@ def test_union_return_variant_ambiguous_cross_union_match_translation_reports_ow
     assert diagnostic.code == "union_return_variant_ambiguous"
     assert diagnostic.span.start.path.endswith("union_return_variant_ambiguous.orc")
     assert "ImplementationPhaseResult" in diagnostic.message
+    assert "ReviewLoopResult" in diagnostic.message
     assert "APPROVED" in diagnostic.message
+    assert "opaque" in diagnostic.message
 
 
 def test_union_return_variant_incompatible_explicit_target_union_reports_owned_diagnostic(
@@ -2702,11 +2894,9 @@ def test_union_return_variant_incompatible_explicit_target_union_reports_owned_d
         signature=SimpleNamespace(form_path=("workflow-lisp", "defworkflow", "entry")),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _normalize_union_match_case_terminal(
-            case_name="entry__match_attempt__approved",
-            case_steps=[],
-            case_terminal=_TerminalResult(
+    incompatible_cases = (
+        (
+            _TerminalResult(
                 step_name="entry__approved",
                 step_id="entry__approved",
                 output_refs={"return__execution_report": "root.steps.entry__approved.artifacts.execution_report"},
@@ -2715,21 +2905,49 @@ def test_union_return_variant_incompatible_explicit_target_union_reports_owned_d
                 returned_union_type_name="DifferentResult",
                 returned_union_variant_name="APPROVED",
             ),
-            result_type=result_type,
-            source_variant_name="COMPLETED",
-            subject_union_type=None,
-            shared_bundle_input_name="__write_root__entry__match_attempt__result_bundle",
-            shared_bundle_path="artifacts/work/entry_match_result.json",
-            context=context,
-            span=span,
-            form_path=("workflow-lisp", "defworkflow", "entry"),
-        )
+            "explicit",
+        ),
+        (
+            _TerminalResult(
+                step_name="entry__approved_passthrough",
+                step_id="entry__approved_passthrough",
+                output_refs={
+                    "return__variant": "root.steps.entry__approved_passthrough.artifacts.return__variant",
+                    "return__execution_report": (
+                        "root.steps.entry__approved_passthrough.artifacts.return__execution_report"
+                    ),
+                },
+                output_kind="call",
+                hidden_inputs={},
+            ),
+            "pass-through",
+        ),
+    )
 
-    diagnostic = excinfo.value.diagnostics[0]
+    for case_terminal, terminal_mode in incompatible_cases:
+        if terminal_mode == "pass-through":
+            case_terminal.passthrough_union_type_name = "DifferentResult"
+        with pytest.raises(LispFrontendCompileError) as excinfo:
+            _normalize_union_match_case_terminal(
+                case_name="entry__match_attempt__approved",
+                case_steps=[],
+                case_terminal=case_terminal,
+                result_type=result_type,
+                source_variant_name="COMPLETED",
+                subject_union_type=None,
+                shared_bundle_input_name="__write_root__entry__match_attempt__result_bundle",
+                shared_bundle_path="artifacts/work/entry_match_result.json",
+                context=context,
+                span=span,
+                form_path=("workflow-lisp", "defworkflow", "entry"),
+            )
 
-    assert diagnostic.code == "union_return_variant_incompatible"
-    assert "ImplementationPhaseResult" in diagnostic.message
-    assert "DifferentResult" in diagnostic.message
+        diagnostic = excinfo.value.diagnostics[0]
+
+        assert diagnostic.code == "union_return_variant_incompatible"
+        assert "ImplementationPhaseResult" in diagnostic.message
+        assert "DifferentResult" in diagnostic.message
+        assert terminal_mode in diagnostic.message
 
 
 def test_compile_stage3_module_lowers_effectful_match_arm_provider_branches(tmp_path: Path) -> None:
