@@ -1,4 +1,4 @@
-"""Administrative-normal-form normalization for the WCC M1 pure subset."""
+"""Administrative-normal-form normalization for Workflow Core Calculus."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 from dataclasses import dataclass, replace
 
 from .model import (
-    WCC_M1_ROUTE_SCHEMA_VERSION,
     WccBody,
+    WccCall,
     WccFieldAccessAtom,
     WccHalt,
     WccIdentityFactory,
@@ -17,6 +17,7 @@ from .model import (
     WccLiteralAtom,
     WccNameAtom,
     WccNodeMetadata,
+    WccPerform,
     WccRecordAtom,
     WccValue,
 )
@@ -56,7 +57,7 @@ def _generated_name_atom(metadata: WccNodeMetadata, *, purpose: str) -> WccNameA
     factory = WccIdentityFactory(
         owner_name=metadata.node_id,
         lexical_owner_chain=(metadata.scope_id, "anf-ref", purpose),
-        route_schema_version=WCC_M1_ROUTE_SCHEMA_VERSION,
+        route_schema_version=_route_schema_version(metadata),
     )
     return WccNameAtom(
         metadata=factory.atom_metadata(
@@ -86,7 +87,7 @@ def _wrap_pending_lets(prefix: tuple[_PendingLet, ...], tail: WccBody) -> WccBod
         factory = WccIdentityFactory(
             owner_name=pending.source_metadata.node_id,
             lexical_owner_chain=(pending.source_metadata.scope_id, "anf-let", pending.binding_name),
-            route_schema_version=WCC_M1_ROUTE_SCHEMA_VERSION,
+            route_schema_version=_route_schema_version(pending.source_metadata),
         )
         current = WccLet(
             metadata=factory.body_metadata(
@@ -112,7 +113,7 @@ def normalize_wcc_body_to_anf(body: WccBody) -> WccBody:
 
 def _normalize_body(body: WccBody) -> WccBody:
     if isinstance(body, WccLet):
-        prefix, bound_value = _normalize_value(body.bound_value)
+        prefix, bound_value = _normalize_binding_value(body.bound_value)
         normalized_body = _normalize_body(body.body)
         let_node = replace(body, bound_value=bound_value, body=normalized_body)
         return _wrap_pending_lets(prefix, let_node)
@@ -124,6 +125,14 @@ def _normalize_body(body: WccBody) -> WccBody:
     halt_atom = _generated_name_atom(result.metadata, purpose="halt")
     halt = replace(body, result=halt_atom)
     return _wrap_pending_lets((*prefix, generated), halt)
+
+
+def _normalize_binding_value(value) -> tuple[tuple[_PendingLet, ...], object]:
+    if isinstance(value, WccPerform):
+        return _normalize_perform(value)
+    if isinstance(value, WccCall):
+        return _normalize_call(value)
+    return _normalize_value(value)
 
 
 def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue]:
@@ -154,3 +163,51 @@ def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue
             normalized_fields.append((field_name, normalized_field))
         return tuple(pending), replace(value, fields=tuple(normalized_fields))
     raise TypeError(f"unsupported WCC M1 ANF node: {type(value).__name__}")
+
+
+def _normalize_perform(value: WccPerform) -> tuple[tuple[_PendingLet, ...], WccPerform]:
+    pending: list[_PendingLet] = []
+    positional_args: list[WccValue] = []
+    keyword_args: list[tuple[str, WccValue]] = []
+    for index, arg in enumerate(value.positional_args):
+        arg_prefix, normalized_arg = _normalize_value(arg)
+        pending.extend(arg_prefix)
+        if not _is_atomic_effect_arg(normalized_arg):
+            generated = _generated_pending_let(normalized_arg, purpose=f"{value.perform_kind}:arg:{index}")
+            pending.append(generated)
+            normalized_arg = _generated_name_atom(normalized_arg.metadata, purpose=f"{value.perform_kind}:arg:{index}")
+        positional_args.append(normalized_arg)
+    for field_name, arg in value.keyword_args:
+        arg_prefix, normalized_arg = _normalize_value(arg)
+        pending.extend(arg_prefix)
+        if not _is_atomic_effect_arg(normalized_arg):
+            generated = _generated_pending_let(normalized_arg, purpose=f"{value.perform_kind}:{field_name}")
+            pending.append(generated)
+            normalized_arg = _generated_name_atom(normalized_arg.metadata, purpose=f"{value.perform_kind}:{field_name}")
+        keyword_args.append((field_name, normalized_arg))
+    return tuple(pending), replace(value, positional_args=tuple(positional_args), keyword_args=tuple(keyword_args))
+
+
+def _normalize_call(value: WccCall) -> tuple[tuple[_PendingLet, ...], WccCall]:
+    pending: list[_PendingLet] = []
+    args: list[WccValue] = []
+    for index, arg in enumerate(value.args):
+        arg_prefix, normalized_arg = _normalize_value(arg)
+        pending.extend(arg_prefix)
+        if not _is_atomic_effect_arg(normalized_arg):
+            generated = _generated_pending_let(normalized_arg, purpose=f"call:{index}")
+            pending.append(generated)
+            normalized_arg = _generated_name_atom(normalized_arg.metadata, purpose=f"call:{index}")
+        args.append(normalized_arg)
+    return tuple(pending), replace(value, args=tuple(args))
+
+
+def _is_atomic_effect_arg(value: WccValue) -> bool:
+    return isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom))
+
+
+def _route_schema_version(metadata: WccNodeMetadata) -> str:
+    parts = metadata.node_id.split(":")
+    if len(parts) >= 3:
+        return parts[1]
+    return WccIdentityFactory.route_schema_version

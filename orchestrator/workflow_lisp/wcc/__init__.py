@@ -2,8 +2,11 @@
 
 from .model import (
     WCC_M1_ROUTE_SCHEMA_VERSION,
+    WCC_M2_ROUTE_SCHEMA_VERSION,
     WccAtom,
+    WccBindingValue,
     WccBody,
+    WccCall,
     WccFieldAccessAtom,
     WccHalt,
     WccIdentityFactory,
@@ -12,20 +15,31 @@ from .model import (
     WccLiteralAtom,
     WccNameAtom,
     WccNodeMetadata,
+    WccPhaseScope,
+    WccPerform,
     WccProgram,
     WccRecordAtom,
     WccValue,
 )
 from .anf import normalize_wcc_body_to_anf
 from .elaborate import elaborate_typed_workflow, elaborate_typed_workflow_body
-from .route import DEFAULT_LOWERING_ROUTE, LoweringRoute, normalize_lowering_route, validate_wcc_m1_route_supported
+from .route import (
+    DEFAULT_LOWERING_ROUTE,
+    LoweringRoute,
+    normalize_lowering_route,
+    validate_wcc_m1_route_supported,
+    validate_wcc_m2_route_supported,
+)
 
 __all__ = [
     "DEFAULT_LOWERING_ROUTE",
     "LoweringRoute",
     "WCC_M1_ROUTE_SCHEMA_VERSION",
+    "WCC_M2_ROUTE_SCHEMA_VERSION",
     "WccAtom",
+    "WccBindingValue",
     "WccBody",
+    "WccCall",
     "WccFieldAccessAtom",
     "WccHalt",
     "WccIdentityFactory",
@@ -34,6 +48,8 @@ __all__ = [
     "WccLiteralAtom",
     "WccNameAtom",
     "WccNodeMetadata",
+    "WccPhaseScope",
+    "WccPerform",
     "WccProgram",
     "WccRecordAtom",
     "WccValue",
@@ -42,4 +58,5 @@ __all__ = [
     "elaborate_typed_workflow_body",
     "normalize_lowering_route",
     "validate_wcc_m1_route_supported",
+    "validate_wcc_m2_route_supported",
 ]

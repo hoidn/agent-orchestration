@@ -1535,7 +1535,7 @@ def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_proje
     }
 
 
-def test_build_frontend_bundle_keeps_legacy_default_and_wcc_route_out_of_artifacts(
+def test_build_frontend_bundle_keeps_legacy_default_and_lowering_route_out_of_artifacts(
     tmp_path: Path,
 ) -> None:
     build = _build_module()
@@ -1547,8 +1547,10 @@ def test_build_frontend_bundle_keeps_legacy_default_and_wcc_route_out_of_artifac
 
     assert result.manifest.shared_validation_status == "validated"
     assert "wcc_m1" not in manifest_payload
+    assert "wcc_m2" not in manifest_payload
     assert "lowering_route" not in manifest_payload
     assert "wcc_m1" not in source_map_payload
+    assert "wcc_m2" not in source_map_payload
     assert "lowering_route" not in source_map_payload
 
 

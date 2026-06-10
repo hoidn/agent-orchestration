@@ -50,13 +50,25 @@ from ..workflows import (
 
 
 @dataclass(frozen=True)
+class LowerableProcedureCall:
+    """Owner-level procedure-call payload shared by frontend and WCC lowering."""
+
+    callee_name: str
+    args: tuple[Any, ...]
+    span: Any
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
+    specialized_callee_name: str | None = None
+
+
+@dataclass(frozen=True)
 class ProcedureLoweringPlan:
     """Internal procedure-lowering plan before runtime-visible emission."""
 
     selected_procedure: TypedProcedureDef | None
     resolved_args: tuple[Any, ...]
     chosen_lowering_mode: ProcedureLoweringMode | None
-    provenance_source: ProcedureCallExpr
+    provenance_source: Any
     runtime_erasure_inputs: tuple[Any, ...]
 
 
@@ -255,6 +267,29 @@ def _lower_procedure_call_expr(
     context: Any,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], Any]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ProcedureCallExpr)
+    return _lower_procedure_call(
+        LowerableProcedureCall(
+            callee_name=expr.callee_name,
+            args=tuple(expr.args),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        result_type=typed_expr.type_ref,
+        context=context,
+        local_values=local_values,
+    )
+
+
+def _lower_procedure_call(
+    expr: LowerableProcedureCall,
+    *,
+    result_type: TypeRef,
+    context: Any,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], Any]:
     """Lower a reusable procedure call without adding a second runtime model.
 
     A `defproc` is reusable workflow behavior, not just syntax. Lowering either
@@ -285,8 +320,6 @@ def _lower_procedure_call_expr(
         _managed_write_root_requirements_for_callable,
     )
 
-    expr = typed_expr.expr
-    assert isinstance(expr, ProcedureCallExpr)
     arg_exprs = expr.args
     parent_origin_notes = context.origin_notes
     plan = ProcedureLoweringPlan(
@@ -300,60 +333,70 @@ def _lower_procedure_call_expr(
         provenance_source=expr,
         runtime_erasure_inputs=(local_values, context.origin_notes),
     )
-    bound_proc_ref = _resolved_proc_ref_value(
-        local_values.get(expr.callee_name),
-        context=context,
-        local_values=local_values,
-    )
-    if bound_proc_ref is not None:
-        procedure = context.typed_procedures.get(bound_proc_ref.call_target_name)
-        if procedure is None:
-            base_procedure = context.typed_procedures.get(bound_proc_ref.procedure_name)
-            if base_procedure is None:
-                raise _compile_error(
-                    code="procedure_call_unknown",
-                    message=f"unknown procedure callee `{bound_proc_ref.procedure_name}` during lowering",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                )
-            procedure = specialize_typed_procedure(
-                base_procedure,
-                value_bindings={
-                    binding.name: binding.value_expr
-                    for binding in bound_proc_ref.bound_args
-                    if not isinstance(binding.type_ref, ProcRefTypeRef)
-                },
-                proc_ref_bindings={
-                    binding.name: resolved_binding
-                    for binding in bound_proc_ref.bound_args
-                    if isinstance(binding.type_ref, ProcRefTypeRef)
-                    for resolved_binding in (
-                        _resolved_proc_ref_value(
-                            binding.value_expr,
-                            context=context,
-                            local_values=local_values,
-                        ),
-                    )
-                    if resolved_binding is not None
-                },
-                remaining_params=bound_proc_ref.residual_params,
-                workflow_path=context.workflow_path,
-                type_env=context.type_env,
-                typed_procedures_by_name=context.typed_procedures,
-                specialized_name=bound_proc_ref.call_target_name,
-                origin_span=expr.span,
-                origin_form_path=expr.form_path,
-            )
-        arg_exprs = expr.args
-    else:
-        procedure = context.typed_procedures.get(expr.callee_name)
+    if expr.specialized_callee_name is not None:
+        procedure = context.typed_procedures.get(expr.specialized_callee_name)
         if procedure is None:
             raise _compile_error(
                 code="procedure_call_unknown",
-                message=f"unknown procedure callee `{expr.callee_name}` during lowering",
+                message=f"unknown procedure callee `{expr.specialized_callee_name}` during lowering",
                 span=expr.span,
                 form_path=expr.form_path,
             )
+    else:
+        bound_proc_ref = _resolved_proc_ref_value(
+            local_values.get(expr.callee_name),
+            context=context,
+            local_values=local_values,
+        )
+        if bound_proc_ref is not None:
+            procedure = context.typed_procedures.get(bound_proc_ref.call_target_name)
+            if procedure is None:
+                base_procedure = context.typed_procedures.get(bound_proc_ref.procedure_name)
+                if base_procedure is None:
+                    raise _compile_error(
+                        code="procedure_call_unknown",
+                        message=f"unknown procedure callee `{bound_proc_ref.procedure_name}` during lowering",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                procedure = specialize_typed_procedure(
+                    base_procedure,
+                    value_bindings={
+                        binding.name: binding.value_expr
+                        for binding in bound_proc_ref.bound_args
+                        if not isinstance(binding.type_ref, ProcRefTypeRef)
+                    },
+                    proc_ref_bindings={
+                        binding.name: resolved_binding
+                        for binding in bound_proc_ref.bound_args
+                        if isinstance(binding.type_ref, ProcRefTypeRef)
+                        for resolved_binding in (
+                            _resolved_proc_ref_value(
+                                binding.value_expr,
+                                context=context,
+                                local_values=local_values,
+                            ),
+                        )
+                        if resolved_binding is not None
+                    },
+                    remaining_params=bound_proc_ref.residual_params,
+                    workflow_path=context.workflow_path,
+                    type_env=context.type_env,
+                    typed_procedures_by_name=context.typed_procedures,
+                    specialized_name=bound_proc_ref.call_target_name,
+                    origin_span=expr.span,
+                    origin_form_path=expr.form_path,
+                )
+            arg_exprs = expr.args
+        else:
+            procedure = context.typed_procedures.get(expr.callee_name)
+            if procedure is None:
+                raise _compile_error(
+                    code="procedure_call_unknown",
+                    message=f"unknown procedure callee `{expr.callee_name}` during lowering",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
     if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in procedure.signature.params):
         workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
         remaining_params: list[tuple[str, TypeRef]] = []
@@ -502,7 +545,7 @@ def _lower_procedure_call_expr(
                 step_id=step_id,
                 output_refs={
                     output_name: f"root.steps.{step_name}.artifacts.{output_name}"
-                    for output_name, _ in _flatten_boundary_leaf_paths(typed_expr.type_ref, generated_name="return")
+                    for output_name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return")
                 },
                 output_kind="call",
                 hidden_inputs={},
@@ -670,7 +713,7 @@ def _rewrite_refs_in_sibling_scope(value: Any, sibling_names: tuple[str, ...]) -
 
 
 def _procedure_provenance_notes(
-    expr: ProcedureCallExpr,
+    expr: Any,
     procedure: TypedProcedureDef,
     *,
     typed_procedures: Mapping[str, TypedProcedureDef] | None = None,

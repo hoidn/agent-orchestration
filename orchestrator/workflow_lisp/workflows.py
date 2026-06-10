@@ -491,7 +491,7 @@ def analyze_workflow_boundary_type(
                 allow_union=False,
                 allow_top_level_workflow_ref=False,
             )
-            if not analysis.lowerable:
+            if not analysis.lowerable or analysis.contains_collection:
                 return analysis
         return_analysis = analyze_workflow_boundary_type(
             type_ref.return_type_ref,
@@ -499,7 +499,7 @@ def analyze_workflow_boundary_type(
             allow_union=True,
             allow_top_level_workflow_ref=False,
         )
-        if not return_analysis.lowerable:
+        if not return_analysis.lowerable or return_analysis.contains_collection:
             return return_analysis
         if allow_top_level_workflow_ref:
             return WorkflowBoundaryAnalysis(
@@ -611,7 +611,7 @@ def analyze_workflow_boundary_type(
                 allow_union=allow_union,
                 allow_top_level_workflow_ref=False,
             )
-            if not analysis.lowerable:
+            if not analysis.lowerable or analysis.contains_collection:
                 return analysis
         return WorkflowBoundaryAnalysis(
             lowerable=True,
@@ -633,7 +633,7 @@ def analyze_workflow_boundary_type(
                         allow_union=False,
                         allow_top_level_workflow_ref=False,
                     )
-                    if not analysis.lowerable:
+                    if not analysis.lowerable or analysis.contains_collection:
                         return analysis
             return WorkflowBoundaryAnalysis(
                 lowerable=True,
@@ -1380,7 +1380,14 @@ def _boundary_diagnostic(
 ) -> LispFrontendDiagnostic | None:
     """Translate workflow-boundary analysis into a frontend diagnostic."""
 
-    if analysis.lowerable:
+    if analysis.lowerable and not (
+        analysis.contains_json
+        or analysis.contains_provider_or_prompt
+        or analysis.contains_workflow_ref
+        or analysis.contains_proc_ref
+        or analysis.contains_collection
+        or analysis.contains_union
+    ):
         return None
 
     path_label = ".".join(analysis.offending_path) if analysis.offending_path else workflow_name

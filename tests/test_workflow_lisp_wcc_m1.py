@@ -501,6 +501,30 @@ def test_compile_stage3_entrypoint_rejects_unsupported_wcc_m1_route_for_module_g
             },
         ),
         (
+            FIXTURES / "characterization" / "sources" / "wcc_m2_straight_line_effects.orc",
+            {
+                "provider_externs": {"providers.execute": "fake"},
+                "prompt_externs": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
+                "command_boundaries": {
+                    "run_checks": ExternalToolBinding(
+                        name="run_checks",
+                        stable_command=("python", "scripts/run_checks.py"),
+                    ),
+                },
+            },
+        ),
+        (
+            VALID_FIXTURES / "proc_ref_bind_proc_forwarding.orc",
+            {
+                "command_boundaries": {
+                    "run_checks": ExternalToolBinding(
+                        name="run_checks",
+                        stable_command=("python", "scripts/run_checks.py"),
+                    ),
+                },
+            },
+        ),
+        (
             VALID_FIXTURES / "workflow_refs_same_file.orc",
             {
                 "command_boundaries": {

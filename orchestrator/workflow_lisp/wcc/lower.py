@@ -18,6 +18,7 @@ from ..workflows import (
     WorkflowCatalog,
 )
 from ..procedures import ProcedureCatalog, TypedProcedureDef
+from .defunctionalize import lower_wcc_m2_workflow_definitions
 from .anf import normalize_wcc_body_to_anf
 from .elaborate import elaborate_typed_workflow
 from .model import (

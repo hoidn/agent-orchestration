@@ -107,6 +107,7 @@ from .procedure_specialization import (
     procedure_catalog_with_specializations as _procedure_catalog_with_specializations_owner,
 )
 from .reader import read_sexpr_file
+from .spans import SourcePosition, SourceSpan
 from .source_map import build_source_map_document
 from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
 from .stdlib_contracts import (
@@ -164,8 +165,9 @@ from .wcc.route import (
     LoweringRoute,
     normalize_lowering_route,
     validate_wcc_m1_route_supported,
+    validate_wcc_m2_route_supported,
 )
-from .wcc.lower import lower_wcc_m1_workflow_definitions
+from .wcc.lower import lower_wcc_m1_workflow_definitions, lower_wcc_m2_workflow_definitions
 
 
 _EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
@@ -343,6 +345,10 @@ def compile_stage3_entrypoint(
     and optional shared validation for every reachable module.
     """
 
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
+    if normalized_lowering_route is LoweringRoute.WCC_M2:
+        _raise_wcc_m2_module_graph_unsupported(path)
+
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=_effective_source_roots(path, source_roots=source_roots),
@@ -353,7 +359,7 @@ def compile_stage3_entrypoint(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
-        lowering_route=normalize_lowering_route(lowering_route),
+        lowering_route=normalized_lowering_route,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -384,6 +390,8 @@ def compile_stage3_module(
 
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     if _syntax_module_uses_module_graph(path):
+        if normalized_lowering_route is LoweringRoute.WCC_M2:
+            _raise_wcc_m2_module_graph_unsupported(path)
         linked = compile_stage3_entrypoint(
             path,
             provider_externs=provider_externs,
@@ -776,6 +784,19 @@ def _lower_workflows_for_route(
             command_boundary_environment=command_boundary_environment,
             type_env=type_env,
         )
+    if lowering_route is LoweringRoute.WCC_M2:
+        validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
+        return lower_wcc_m2_workflow_definitions(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog,
+            workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
     return lower_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
@@ -786,6 +807,24 @@ def _lower_workflows_for_route(
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
+    )
+
+
+def _raise_wcc_m2_module_graph_unsupported(path: Path) -> None:
+    span = SourceSpan(
+        start=SourcePosition(path=str(path), line=1, column=1, offset=0),
+        end=SourcePosition(path=str(path), line=1, column=1, offset=0),
+    )
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="wcc_lowering_route_unsupported",
+                message="WCC M2 lowering currently supports same-file module compiles only",
+                span=span,
+                form_path=("workflow-lisp",),
+                phase="lowering",
+            ),
+        )
     )
 
 

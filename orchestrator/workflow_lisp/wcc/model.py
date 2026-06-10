@@ -1,4 +1,4 @@
-"""Workflow Core Calculus M1 data model and identity helpers."""
+"""Workflow Core Calculus data model and identity helpers."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from ..type_env import TypeRef
 
 
 WCC_M1_ROUTE_SCHEMA_VERSION = "wcc_m1"
+WCC_M2_ROUTE_SCHEMA_VERSION = "wcc_m2"
 
 
 def _stable_identity_digest(payload: dict[str, object]) -> str:
@@ -32,6 +33,18 @@ class WccNodeMetadata:
     effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
     proof_context: tuple[object, ...] = ()
     allocation_requests: tuple[object, ...] = ()
+    phase_scope: "WccPhaseScope | None" = None
+
+
+@dataclass(frozen=True)
+class WccPhaseScope:
+    """Authored `with-phase` lowering context carried transparently through WCC."""
+
+    ctx_expr: object
+    phase_name: str
+    source_span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -70,6 +83,10 @@ class WccIdentityFactory:
         source_span: SourceSpan,
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
+        effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY,
+        proof_context: tuple[object, ...] = (),
+        allocation_requests: tuple[object, ...] = (),
+        phase_scope: "WccPhaseScope | None" = None,
     ) -> WccNodeMetadata:
         digest = _stable_identity_digest(
             {
@@ -87,6 +104,10 @@ class WccIdentityFactory:
             source_span=source_span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            effect_summary=effect_summary,
+            proof_context=proof_context,
+            allocation_requests=allocation_requests,
+            phase_scope=phase_scope,
         )
 
     def atom_metadata(
@@ -97,6 +118,10 @@ class WccIdentityFactory:
         source_span: SourceSpan,
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
+        effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY,
+        proof_context: tuple[object, ...] = (),
+        allocation_requests: tuple[object, ...] = (),
+        phase_scope: "WccPhaseScope | None" = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="atom",
@@ -105,6 +130,10 @@ class WccIdentityFactory:
             source_span=source_span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            effect_summary=effect_summary,
+            proof_context=proof_context,
+            allocation_requests=allocation_requests,
+            phase_scope=phase_scope,
         )
 
     def value_metadata(
@@ -115,6 +144,10 @@ class WccIdentityFactory:
         source_span: SourceSpan,
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
+        effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY,
+        proof_context: tuple[object, ...] = (),
+        allocation_requests: tuple[object, ...] = (),
+        phase_scope: "WccPhaseScope | None" = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="value",
@@ -123,6 +156,10 @@ class WccIdentityFactory:
             source_span=source_span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            effect_summary=effect_summary,
+            proof_context=proof_context,
+            allocation_requests=allocation_requests,
+            phase_scope=phase_scope,
         )
 
     def body_metadata(
@@ -133,6 +170,10 @@ class WccIdentityFactory:
         source_span: SourceSpan,
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
+        effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY,
+        proof_context: tuple[object, ...] = (),
+        allocation_requests: tuple[object, ...] = (),
+        phase_scope: "WccPhaseScope | None" = None,
     ) -> WccNodeMetadata:
         return self._metadata(
             node_kind="body",
@@ -141,6 +182,10 @@ class WccIdentityFactory:
             source_span=source_span,
             form_path=form_path,
             expansion_stack=expansion_stack,
+            effect_summary=effect_summary,
+            proof_context=proof_context,
+            allocation_requests=allocation_requests,
+            phase_scope=phase_scope,
         )
 
 
@@ -186,6 +231,28 @@ WccValue = WccAtom | WccInject
 
 
 @dataclass(frozen=True)
+class WccPerform:
+    metadata: WccNodeMetadata
+    perform_kind: str
+    target_name: str
+    prompt_name: str | None
+    positional_args: tuple[WccValue, ...]
+    keyword_args: tuple[tuple[str, WccValue], ...]
+    returns_type_name: str | None
+
+
+@dataclass(frozen=True)
+class WccCall:
+    metadata: WccNodeMetadata
+    callee_name: str
+    specialized_callee_name: str
+    args: tuple[WccValue, ...]
+
+
+WccBindingValue = WccValue | WccPerform | WccCall
+
+
+@dataclass(frozen=True)
 class WccHalt:
     metadata: WccNodeMetadata
     result: WccValue
@@ -196,7 +263,7 @@ class WccLet:
     metadata: WccNodeMetadata
     bound_name: str
     bound_type_ref: TypeRef
-    bound_value: WccValue
+    bound_value: WccBindingValue
     body: "WccBody"
 
 

@@ -205,13 +205,32 @@ def _resolve_active_phase_scope(
 ) -> _ActivePhaseScope:
     """Resolve derived phase paths and targets for a `with-phase` body."""
 
-    context_value = _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values)
+    return _resolve_active_phase_scope_parts(
+        ctx_expr=expr.ctx_expr,
+        phase_name=expr.phase_name,
+        span=expr.span,
+        form_path=expr.form_path,
+        local_values=local_values,
+    )
+
+
+def _resolve_active_phase_scope_parts(
+    *,
+    ctx_expr: Any,
+    phase_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+) -> _ActivePhaseScope:
+    """Resolve derived phase paths and targets for a transparent phase-scope wrapper."""
+
+    context_value = _resolve_inline_expr_value(ctx_expr, local_values=local_values)
     if not isinstance(context_value, Mapping):
         raise _compile_error(
             code="phase_translation_body_invalid",
             message="`with-phase` lowering requires the phase context to resolve from workflow inputs",
-            span=expr.ctx_expr.span,
-            form_path=expr.ctx_expr.form_path,
+            span=ctx_expr.span,
+            form_path=ctx_expr.form_path,
         )
     if "implementation_state_bundle_path" not in context_value:
         state_root_ref = context_value.get("state-root")
@@ -221,32 +240,32 @@ def _resolve_active_phase_scope(
             raise _compile_error(
                 code="phase_translation_body_invalid",
                 message="`with-phase` lowering requires generic phase roots to resolve from workflow inputs",
-                span=expr.ctx_expr.span,
-                form_path=expr.ctx_expr.form_path,
+                span=ctx_expr.span,
+                form_path=ctx_expr.form_path,
             )
         target_refs = {
-            target_name: _join_ref_path(artifact_root_ref, f"{expr.phase_name}/{suffix}")
+            target_name: _join_ref_path(artifact_root_ref, f"{phase_name}/{suffix}")
             for target_name, (_, _, suffix) in PHASE_TARGET_SPECS.items()
         }
         return _ActivePhaseScope(
             scope=PhaseScope(
                 context_record_name="PhaseCtx",
-                phase_name=expr.phase_name,
+                phase_name=phase_name,
                 target_types={},
             ),
-            bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/state.json"),
-            temp_bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/state.tmp.json"),
-            snapshot_root_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/snapshots"),
-            candidate_root_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/candidates"),
+            bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/state.json"),
+            temp_bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/state.tmp.json"),
+            snapshot_root_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/snapshots"),
+            candidate_root_ref=_join_ref_path(state_root_ref, f"phases/{phase_name}/candidates"),
             target_refs=target_refs,
             runtime_phase_name_ref=runtime_phase_name_ref if isinstance(runtime_phase_name_ref, str) else None,
         )
-    if expr.phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
+    if phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
         raise _compile_error(
             code="phase_context_invalid",
             message="`with-phase` supports only the `implementation` phase in the legacy bridge",
-            span=expr.span,
-            form_path=expr.form_path,
+            span=span,
+            form_path=form_path,
         )
     bundle_ref = context_value.get("implementation_state_bundle_path")
     execution_ref = context_value.get("execution_report_target")
@@ -255,13 +274,13 @@ def _resolve_active_phase_scope(
         raise _compile_error(
             code="phase_translation_body_invalid",
             message="`with-phase` lowering requires bound relpath fields on the phase context",
-            span=expr.ctx_expr.span,
-            form_path=expr.ctx_expr.form_path,
+            span=ctx_expr.span,
+            form_path=ctx_expr.form_path,
         )
     return _ActivePhaseScope(
         scope=PhaseScope(
             context_record_name="ImplementationAttemptPhaseCtx",
-            phase_name=expr.phase_name,
+            phase_name=phase_name,
             bundle_path_field="implementation_state_bundle_path",
             target_fields={
                 "execution-report": "execution_report_target",
