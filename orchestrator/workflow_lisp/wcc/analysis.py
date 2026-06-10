@@ -12,6 +12,7 @@ from .model import (
     WccCase,
     WccCaseArm,
     WccHalt,
+    WccIf,
     WccJoin,
     WccJoinParam,
     WccJump,
@@ -82,6 +83,10 @@ def analyze_wcc_body(body: WccBody) -> WccScopeAnalysis:
             joins_by_name[node.join_name] = node
             walk(node.body)
             walk(node.continuation)
+            return
+        if isinstance(node, WccIf):
+            walk(node.then_body)
+            walk(node.else_body)
             return
         if isinstance(node, WccJump):
             jump_args_by_join[node.join_name].append(tuple(node.args))
@@ -155,6 +160,10 @@ def _proof_scopes(body: WccBody) -> tuple[object, ...]:
         if isinstance(node, WccJoin):
             walk(node.body)
             walk(node.continuation)
+            return
+        if isinstance(node, WccIf):
+            walk(node.then_body)
+            walk(node.else_body)
             return
         if isinstance(node, WccRecJoin):
             walk(node.body)

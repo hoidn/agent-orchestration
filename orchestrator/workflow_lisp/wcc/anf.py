@@ -14,6 +14,7 @@ from .model import (
     WccFieldAccessAtom,
     WccHalt,
     WccIdentityFactory,
+    WccIf,
     WccInject,
     WccJoin,
     WccJump,
@@ -149,6 +150,21 @@ def _normalize_body(body: WccBody) -> WccBody:
             body,
             body=_normalize_body(body.body),
             continuation=_normalize_body(body.continuation),
+        )
+    if isinstance(body, WccIf):
+        condition_prefix, condition = _normalize_value(body.condition)
+        if not _is_atomic_effect_arg(condition):
+            generated = _generated_pending_let(condition, purpose="if:condition")
+            condition = _generated_name_atom(condition.metadata, purpose="if:condition")
+            condition_prefix = (*condition_prefix, generated)
+        return _wrap_pending_lets(
+            condition_prefix,
+            replace(
+                body,
+                condition=condition,
+                then_body=_normalize_body(body.then_body),
+                else_body=_normalize_body(body.else_body),
+            ),
         )
     if isinstance(body, WccJump):
         pending: list[_PendingLet] = []
