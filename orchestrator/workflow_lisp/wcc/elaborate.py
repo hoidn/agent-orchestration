@@ -2259,11 +2259,28 @@ def _infer_expr_type(
             procedure_return_types=procedure_return_types,
         )
         if isinstance(then_type, LoopControlTypeRef) and isinstance(else_type, LoopControlTypeRef):
-            if not type_refs_compatible(then_type.state_type_ref, else_type.state_type_ref):
-                raise TypeError("if loop-control branch state types must match during WCC inference")
+            if then_type.result_type_ref is None and else_type.result_type_ref is None:
+                if not type_refs_compatible(then_type.state_type_ref, else_type.state_type_ref):
+                    raise TypeError("if loop-control continue state types must match during WCC inference")
+                return LoopControlTypeRef(
+                    state_type_ref=then_type.state_type_ref,
+                    result_type_ref=None,
+                )
+            if then_type.result_type_ref is not None and else_type.result_type_ref is not None:
+                if not type_refs_compatible(then_type.result_type_ref, else_type.result_type_ref):
+                    raise TypeError("if loop-control done result types must match during WCC inference")
+                return LoopControlTypeRef(
+                    state_type_ref=then_type.state_type_ref,
+                    result_type_ref=then_type.result_type_ref,
+                )
             result_type_ref = then_type.result_type_ref or else_type.result_type_ref
+            state_type_ref = (
+                then_type.state_type_ref
+                if then_type.result_type_ref is None
+                else else_type.state_type_ref
+            )
             return LoopControlTypeRef(
-                state_type_ref=then_type.state_type_ref,
+                state_type_ref=state_type_ref,
                 result_type_ref=result_type_ref,
             )
         if not type_refs_compatible(then_type, else_type):
