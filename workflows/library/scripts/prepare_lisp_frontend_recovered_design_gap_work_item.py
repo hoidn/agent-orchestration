@@ -44,9 +44,28 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 def _find_architecture_bundle(drain_state_root: Path, design_gap_id: str) -> dict[str, Any]:
     for path in sorted(drain_state_root.glob("iterations/*/design-gap-architect/architecture-validation.json")):
         payload = _load_json(path)
-        if payload.get("architecture_validation_status") == "VALID" and payload.get("work_item_id") == design_gap_id:
+        if (
+            payload.get("architecture_validation_status") == "VALID"
+            and payload.get("work_item_id") == design_gap_id
+            and _bundle_input_paths_exist(payload)
+        ):
             return payload
     raise SystemExit(f"No prior VALID architecture bundle found for recovered design gap: {design_gap_id}")
+
+
+def _bundle_input_paths_exist(payload: dict[str, Any]) -> bool:
+    try:
+        context_path = _safe_relpath(str(payload.get("work_item_context_path") or ""), under="state", must_exist=True)
+        checks_path = _safe_relpath(str(payload.get("check_commands_path") or ""), under="state", must_exist=True)
+    except SystemExit:
+        return False
+    try:
+        checks = json.loads((REPO_ROOT / checks_path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    return (REPO_ROOT / context_path).is_file() and isinstance(checks, list) and any(
+        str(item).strip() for item in checks
+    )
 
 
 def main() -> int:
