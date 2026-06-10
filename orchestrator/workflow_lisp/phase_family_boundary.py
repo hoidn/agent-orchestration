@@ -16,6 +16,7 @@ PHASE_FAMILY_MODULE_PREFIX = "lisp_frontend_design_delta/"
 PHASE_CONTEXT_TYPE_NAME = "PhaseCtx"
 PHASE_FAMILY_PARENT_WORKFLOW_NAMES = frozenset(
     {
+        "design_delta_parent_calls_implementation_phase::run-implementation-phase",
         "design_delta_parent_calls_work_item::run-parent-work-item",
     }
 )
@@ -115,6 +116,7 @@ def phase_family_entry_phase_identity(workflow_name: str) -> str | None:
     entry_name = workflow_name.rsplit("::", 1)[-1]
     return {
         "run-plan-phase": "plan",
+        "run-implementation-phase": "implementation",
         "implementation-phase": "implementation",
         "run-work-item": "work-item",
     }.get(entry_name)

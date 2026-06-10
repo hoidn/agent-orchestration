@@ -737,7 +737,7 @@ def _write_design_delta_runtime_inputs(tmp_path: Path) -> None:
         "docs/design/target.md": "# target\n",
         "docs/design/baseline.md": "# baseline\n",
         "docs/plans/plan.md": "# plan\n",
-        "docs/plans/check_commands.json": json.dumps(["python -m pytest -q"]) + "\n",
+        "state/check_commands.json": json.dumps(["python -m pytest -q"]) + "\n",
     }.items():
         target = tmp_path / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -766,7 +766,7 @@ def _design_delta_runtime_bound_inputs(*, attempt_variant: str) -> dict[str, str
         "target_design": "docs/design/target.md",
         "baseline_design": "docs/design/baseline.md",
         "plan_path": "docs/plans/plan.md",
-        "check_commands_path": "docs/plans/check_commands.json",
+        "check_commands_path": "state/check_commands.json",
         "execution_report_target_path": "artifacts/work/execution_report.md",
         "progress_report_target_path": "artifacts/work/progress_report.md",
         "checks_report_target_path": "artifacts/checks/checks_report.md",
