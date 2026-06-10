@@ -468,7 +468,7 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
     try:
         result, lowered_by_name = _compile_design_delta_work_item_entrypoint(tmp_path)
     except LispFrontendCompileError as exc:
-        _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(exc.diagnostics)
+        _assert_design_delta_work_item_candidate_post_ifexpr_boundary_failure(exc.diagnostics)
         diagnostic_codes = {diagnostic.code for diagnostic in exc.diagnostics}
         assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
         return None, None
@@ -479,37 +479,28 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
     return result, lowered_by_name
 
 
-def _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(
+def _assert_design_delta_work_item_candidate_post_ifexpr_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
     diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
-    unsupported_messages = [
-        diagnostic.message
-        for diagnostic in diagnostics
-        if diagnostic.code == "wcc_lowering_route_unsupported"
-    ]
 
-    assert diagnostic_codes == {"wcc_lowering_route_unsupported"}
     assert "union_return_variant_ambiguous" not in diagnostic_codes
     assert "union_return_variant_incompatible" not in diagnostic_codes
     assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
-    assert any(
-        "unsupported `IfExpr`" in message
-        and "lisp_frontend_design_delta/work_item::run-work-item" in message
-        for message in unsupported_messages
-    )
+    assert not any("unsupported `IfExpr`" in diagnostic.message for diagnostic in diagnostics)
+    assert diagnostics, "expected a distinct downstream diagnostic or successful compile"
 
 
 def _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
-    _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(diagnostics)
+    _assert_design_delta_work_item_candidate_post_ifexpr_boundary_failure(diagnostics)
 
 
 def _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
-    _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(diagnostics)
+    _assert_design_delta_work_item_candidate_post_ifexpr_boundary_failure(diagnostics)
 
 
 def _compile_design_delta_work_item_runtime_entrypoint(tmp_path: Path):

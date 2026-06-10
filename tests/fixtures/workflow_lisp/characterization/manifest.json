@@ -624,6 +624,81 @@
         "match"
       ],
       "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_m3_nested_non_tail_match.structural.json"
+    },
+    {
+      "case_id": "wcc_ifexpr_tail",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_tail.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/characterization/sources"
+      ],
+      "provider_externs": null,
+      "prompt_externs": null,
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "dual_compile_routes": [
+        "legacy",
+        "wcc_m4"
+      ],
+      "tags": [
+        "ifexpr"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_ifexpr_tail.structural.json"
+    },
+    {
+      "case_id": "wcc_ifexpr_non_tail_binding",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_non_tail_binding.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/characterization/sources"
+      ],
+      "provider_externs": null,
+      "prompt_externs": null,
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "dual_compile_routes": [
+        "legacy",
+        "wcc_m4"
+      ],
+      "tags": [
+        "ifexpr"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_ifexpr_non_tail_binding.structural.json"
+    },
+    {
+      "case_id": "wcc_ifexpr_loop_body",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_ifexpr_loop_body.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/characterization/sources"
+      ],
+      "provider_externs": null,
+      "prompt_externs": null,
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "dual_compile_routes": [
+        "legacy",
+        "wcc_m4"
+      ],
+      "tags": [
+        "ifexpr"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_ifexpr_loop_body.structural.json"
     }
   ]
 }

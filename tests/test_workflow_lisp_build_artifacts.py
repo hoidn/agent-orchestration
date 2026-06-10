@@ -448,22 +448,16 @@ def _compile_design_delta_work_item_without_shared_validation(tmp_path: Path):
     return request, command_boundary_manifest, compile_result
 
 
-def _assert_design_delta_work_item_blocked_by_wcc_ifexpr(
+def _assert_design_delta_work_item_advanced_past_wcc_ifexpr(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
     diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
-    messages = [
-        diagnostic.message
-        for diagnostic in diagnostics
-        if diagnostic.code == "wcc_lowering_route_unsupported"
-    ]
 
-    assert diagnostic_codes == {"wcc_lowering_route_unsupported"}
-    assert any(
-        "unsupported `IfExpr`" in message
-        and "lisp_frontend_design_delta/work_item::run-work-item" in message
-        for message in messages
-    )
+    assert "union_return_variant_ambiguous" not in diagnostic_codes
+    assert "union_return_variant_incompatible" not in diagnostic_codes
+    assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
+    assert not any("unsupported `IfExpr`" in diagnostic.message for diagnostic in diagnostics)
+    assert diagnostics, "expected a distinct downstream diagnostic or successful compile"
 
 
 def _resume_entry_request(tmp_path: Path):
@@ -2215,7 +2209,7 @@ def test_design_delta_work_item_runtime_context_inputs_stay_internal(
     with pytest.raises(LispFrontendCompileError) as exc_info:
         _compile_design_delta_work_item_without_shared_validation(tmp_path)
 
-    _assert_design_delta_work_item_blocked_by_wcc_ifexpr(exc_info.value.diagnostics)
+    _assert_design_delta_work_item_advanced_past_wcc_ifexpr(exc_info.value.diagnostics)
 
 
 def test_design_delta_work_item_command_boundary_lineage_records_family_adapters(
@@ -2238,7 +2232,7 @@ def test_design_delta_work_item_command_boundary_lineage_records_family_adapters
     with pytest.raises(LispFrontendCompileError) as exc_info:
         _compile_design_delta_work_item_without_shared_validation(tmp_path)
 
-    _assert_design_delta_work_item_blocked_by_wcc_ifexpr(exc_info.value.diagnostics)
+    _assert_design_delta_work_item_advanced_past_wcc_ifexpr(exc_info.value.diagnostics)
 
 
 def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(

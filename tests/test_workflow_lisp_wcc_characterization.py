@@ -22,6 +22,33 @@ def _allowed_m5_diagnostics(case_id: str) -> set[str]:
     return set()
 
 
+def _walk_steps(steps: list[dict[str, object]]):
+    for step in steps:
+        yield step
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            for case_payload in match_block.get("cases", {}).values():
+                if isinstance(case_payload, dict):
+                    yield from _walk_steps(case_payload.get("steps", []))
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            yield from _walk_steps(repeat_until.get("steps", []))
+        then_block = step.get("then")
+        if isinstance(then_block, dict):
+            yield from _walk_steps(then_block.get("steps", []))
+        else_block = step.get("else")
+        if isinstance(else_block, dict):
+            yield from _walk_steps(else_block.get("steps", []))
+
+
+def _has_authored_if_step(snapshot: dict[str, object]) -> bool:
+    for workflow in snapshot["lowered_workflows"]:
+        authored_mapping = workflow["authored_mapping"]
+        if any("if" in step for step in _walk_steps(authored_mapping.get("steps", []))):
+            return True
+    return False
+
+
 def test_manifest_covers_required_m0_tags() -> None:
     cases = load_characterization_cases()
 
@@ -34,6 +61,7 @@ def test_manifest_covers_required_m0_tags() -> None:
         "review_loop",
         "module_graph",
         "design_delta_leaf",
+        "ifexpr",
     }
 
 
@@ -51,6 +79,7 @@ def test_manifest_tags_are_present_exactly_once() -> None:
     assert tag_counts["review_loop"] == 2
     assert tag_counts["module_graph"] == 1
     assert tag_counts["design_delta_leaf"] == 1
+    assert tag_counts["ifexpr"] == 3
 
 
 def test_manifest_behavior_contracts_are_complete() -> None:
@@ -114,6 +143,9 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
     assert cases["top_level_loop_recur"].dual_compile_routes == ("legacy", "wcc_m4")
     assert cases["stdlib_review_revise_loop"].dual_compile_routes == ("legacy", "wcc_m4")
     assert cases["wcc_m4_loop_under_case"].dual_compile_routes == ("wcc_m4",)
+    assert cases["wcc_ifexpr_tail"].dual_compile_routes == ("legacy", "wcc_m4")
+    assert cases["wcc_ifexpr_non_tail_binding"].dual_compile_routes == ("legacy", "wcc_m4")
+    assert cases["wcc_ifexpr_loop_body"].dual_compile_routes == ("legacy", "wcc_m4")
     for case_id, case in cases.items():
         if case_id in {
             "value_only_minimal_module",
@@ -124,6 +156,9 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
             "top_level_loop_recur",
             "stdlib_review_revise_loop",
             "wcc_m4_loop_under_case",
+            "wcc_ifexpr_tail",
+            "wcc_ifexpr_non_tail_binding",
+            "wcc_ifexpr_loop_body",
         }:
             continue
         assert case.dual_compile_routes == ()
@@ -174,6 +209,7 @@ def test_characterization_structural_cases_match_golden(tmp_path: Path, case) ->
     lowering_route = (
         "wcc_m4"
         if case.case_id in {"wcc_m4_loop_under_case", "wcc_m4_implementation_phase_full_fixture"}
+        or "ifexpr" in case.tags
         else "legacy"
     )
     actual = build_structural_snapshot(case, tmp_path, lowering_route=lowering_route)
@@ -331,6 +367,43 @@ def test_wcc_m4_nested_fixture_cases_compile_under_wcc_m4(tmp_path: Path, case_i
     )
     assert {diagnostic["code"] for diagnostic in actual["diagnostics"]} <= allowed_diagnostics
     assert actual["workflow_names"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in load_characterization_cases() if "ifexpr" in case.tags],
+    ids=lambda case: case.case_id,
+)
+def test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route(tmp_path: Path, case) -> None:
+    wcc_actual = build_structural_snapshot(case, tmp_path / f"{case.case_id}.wcc_m4", lowering_route="wcc_m4")
+    default_actual = build_structural_snapshot(case, tmp_path / f"{case.case_id}.default", lowering_route=None)
+
+    assert wcc_actual["diagnostics"] == []
+    assert default_actual["diagnostics"] == []
+    assert _has_authored_if_step(wcc_actual)
+    assert _has_authored_if_step(default_actual)
+
+
+def test_wcc_ifexpr_non_tail_binding_uses_control_join_without_unsupported_rewrite(
+    tmp_path: Path,
+) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}["wcc_ifexpr_non_tail_binding"]
+    actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route="wcc_m4")
+
+    messages = [diagnostic["message"] for diagnostic in actual["diagnostics"]]
+    assert not any("unsupported WCC control rewrite node: WccIf" in message for message in messages)
+    assert actual["diagnostics"] == []
+
+
+def test_wcc_ifexpr_loop_body_converts_without_unsupported_loop_node(
+    tmp_path: Path,
+) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}["wcc_ifexpr_loop_body"]
+    actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route="wcc_m4")
+
+    messages = [diagnostic["message"] for diagnostic in actual["diagnostics"]]
+    assert not any("unsupported WCC loop body during defunctionalization: WccIf" in message for message in messages)
+    assert actual["diagnostics"] == []
 
 
 def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergence() -> None:
