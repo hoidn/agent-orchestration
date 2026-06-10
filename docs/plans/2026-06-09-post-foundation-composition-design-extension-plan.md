@@ -102,3 +102,42 @@ claim. The cross-review's other four recommendations (Tranche 1 owning
 generic effectful normalization, Contracts And Interfaces section,
 resource-transition contract, resume-or-start schema/taxonomy) were
 already incorporated in the second-pass synthesis.
+
+## Revision (2026-06-10, fourth pass)
+
+Fold the 2026-06-10 WCC reconciliation unplanned findings
+(`docs/reports/2026-06-10-wcc-post-foundation-unplanned-architecture-findings.md`,
+UAF-01..12) into the target. The reconciliation execution already updated
+WCC authority, the `IfExpr` blocker, Tranche 3A, and inventory rows; this
+pass adds what it did not:
+
+- UAF findings map and the 2026-06-10 report in evidence/related docs;
+- route identity (WCC schema-2 vs legacy schema-1) as a semantic dimension
+  of fixtures, examples, and migration evidence, with an example/fixture
+  route taxonomy in Tranche 0 and prohibited-evidence entries;
+- Tranche 2: terminal provenance contract (let-bound values, workflow and
+  procedure calls, branch projections) and runtime active-variant output
+  resolution acceptance (UAF-03, UAF-11);
+- Tranche 1 acceptance: inherited activation guards reference (UAF-04,
+  owned by the WCC design);
+- Tranche 4: stdlib provider-effect ownership across generated callable
+  workflows (UAF-06);
+- Tranche 5: WCC projection/reference value classes and the pure-projection
+  decision — pure input-derived outputs lower to a visible projection step
+  (UAF-07, UAF-10);
+- Tranche 8: reusable-state diagnostic taxonomy (fail-closed outer class,
+  preserved inner cause codes) and the normalized resume bundle boundary as
+  a consumed contract (UAF-08, UAF-09);
+- ownership routing: guard-inheritance semantics, resume bundle shape, and
+  CLI route policy stay with the WCC/runtime/authoring docs respectively.
+
+Post-pass correction from reviewing merge `ebdc635`: route identity is
+multi-valued (`LoweringRoute.LEGACY`, `WCC_M1`-`WCC_M4`, plus a separate
+lowering schema version), not the binary "WCC schema-2 vs legacy schema-1"
+first written; the live selection authority
+(`post_wcc_reconciliation_index.md`) and reconciliation inventory are now
+referenced from §4.1, Related docs, and Tranche 0 tasks; and the F4
+inventory row was corrected to partially-implemented (WCC M5 variant-scoped
+allocation identity evidence plus UAF-11 runtime active-variant resolution),
+with remaining work narrowed to authored field-name reuse acceptance and
+active-variant parity.

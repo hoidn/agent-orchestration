@@ -45,6 +45,9 @@ Related docs:
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/design/workflow_command_adapter_contract.md`
 - `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
+- `docs/reports/2026-06-10-wcc-post-foundation-unplanned-architecture-findings.md`
+- `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`
+- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`
 - `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
 - `docs/lisp_workflow_drafting_guide.md`
 - `specs/dsl.md`
@@ -215,6 +218,24 @@ assessment against this target. Durable evidence:
   and
   `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/10/blocked-recovery-decision.json`.
 
+The 2026-06-10 WCC reconciliation added a second findings layer:
+
+- unplanned architecture findings report (UAF-01..UAF-12):
+  `docs/reports/2026-06-10-wcc-post-foundation-unplanned-architecture-findings.md`;
+- post-reconciliation verification evidence: WCC M0-M5 and characterization
+  suites (164 passed), design-delta feasibility (27 passed), resume command
+  (47 passed), and the core Workflow Lisp regression band (437 passed); and
+- the negative evidence that representative `.orc` example dry-runs failed
+  under the WCC default for route-classification reasons (UAF-01), which is a
+  finding about example/evidence labeling, not WCC architecture failure;
+- the reconciliation inventory:
+  `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`; and
+- the live per-gap selection authority:
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`,
+  whose `implemented_by_wcc` / `superseded_by_wcc` / `remaining_post_wcc`
+  statuses are a third labeling axis alongside the readiness and route
+  taxonomies in Tranche 0.
+
 ### 4.2 Current status snapshot
 
 | Surface | Current state | Remaining post-foundation work |
@@ -226,7 +247,7 @@ assessment against this target. Durable evidence:
 | Generic effectful composition | Implemented for the migrated WCC M0-M5 subset; design-delta implementation-phase parent-callable fixture compiles and smokes through WCC | Continue new compiler-lane work on WCC; do not add a second helper-hoisting route |
 | Nested structured control | Implemented for the canonical implementation-phase shape through WCC; still incomplete for non-migrated surface forms such as work-item `IfExpr` (F2) | Draft the WCC `IfExpr` gap before parent-callable work-item/drain parity |
 | Union-to-union result translation | Implemented on the WCC route and preserved on the legacy route where required; returned variants, not matched source cases, control target identity (F3) | Keep returned-variant normalization authoritative and finish remaining diagnostic hardening |
-| Variant output field identity | Gap, mitigated by verbose variant-specific field naming (F4) | Tranche 2: variant-scoped identity, or an explicit documented restriction |
+| Variant output field identity | Partially implemented on the WCC route (F4): variant-scoped generated allocation identity has M5 evidence (schema- and branch-scoped, formatting-stable), and runtime active-variant output resolution landed in the reconciliation (UAF-11) | Tranche 2: verify authored field-name reuse acceptance (`APPROVED.plan_path` / `BLOCKED.plan_path`) and active-variant parity comparison on WCC; documented restriction remains interim mitigation only |
 | Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage |
 | `review-revise-loop` stdlib route | Composes inside the canonical implementation-phase branch through WCC with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions (F8) | Preserve denylist/source-map/resume evidence and extend only through WCC for new nested shapes |
 | Private runtime context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Tranche 3: private executable context bridge and hidden reusable-call binding |
@@ -251,6 +272,23 @@ assessment against this target. Durable evidence:
 | F9 work-item and parent drain | P0 workflow-family design gap | Tranche 7: typed work-item/backlog-drain model | Parent `.orc` wrapper must not hide YAML-shaped state choreography |
 | F10 command adapter ergonomics | P1 authoring ergonomics issue | Tranche 6: typed adapter declaration/call surface | Raw argv plumbing is allowed only as low-level compatibility |
 | F11 migration readiness evidence | P1 migration evidence gap | Tranche 8: parent-callable readiness and strict parity labels | `--require-promotable` fails on leaf-only evidence |
+
+### 4.4 Reconciliation findings map (2026-06-10, UAF)
+
+| Finding | Owning response in this document |
+| --- | --- |
+| UAF-01 stale/legacy-only examples under WCC default | Tranche 0 route taxonomy and Tranche 8 evidence rules; CLI route policy and example labeling mechanics are owned by the authoring/discoverability docs |
+| UAF-02 tests/examples need explicit route classification | Tranche 0 readiness labels carry route identity; route identity is part of evidence freshness (Tranche 8) |
+| UAF-03 terminal provenance / union pass-through under-specified | Tranche 2 terminal provenance contract |
+| UAF-04 inherited activation guards for control markers | Owned by the WCC design / executable IR docs; referenced by Tranche 1 acceptance |
+| UAF-05 WCC `IfExpr` is the immediate work-item blocker | Tranche 1 / Tranche 3A; already reflected in the work order and inventory |
+| UAF-06 stdlib provider effects owned by generated callable workflows | Tranche 4 provider-effect ownership rules |
+| UAF-07 pure input-derived outputs need a projection contract | Tranche 5 pure-projection decision |
+| UAF-08 reusable-state diagnostics lost specific causes | Tranche 8 diagnostic taxonomy |
+| UAF-09 resume has two bundle shapes | Normalized resume bundle boundary owned by runtime/state docs; consumed by Tranches 3 and 8 |
+| UAF-10 typed projection needs a WCC value class | Tranche 5 projection/reference value classes |
+| UAF-11 active union variant resolution is runtime output behavior | Tranche 2 runtime output finalization acceptance |
+| UAF-12 context recognition must be structural | Already an invariant (F1 lesson); Tranche 3 keeps structural/capability acceptance |
 
 ## 5. Authority And Dependency Direction
 
@@ -317,8 +355,14 @@ assessment against this target. Durable evidence:
 - broad hard-error linting for all legacy YAML;
 - public authored-YAML collection artifact widening;
 - arbitrary child-process filesystem sandboxing;
-- provider domain correctness; or
-- operator explain tooling as a prerequisite for stdlib migration.
+- provider domain correctness;
+- operator explain tooling as a prerequisite for stdlib migration;
+- guard-inheritance semantics for defunctionalized executable control markers
+  (owned by the WCC design and executable IR docs);
+- the normalized resume bundle shape and force-restart public/private input
+  filtering (owned by runtime/state docs; consumed here); or
+- CLI lowering-route override policy and `.orc` example labeling mechanics
+  (owned by the drafting guide and workflow index).
 
 ## 6. Target Dependency Directions
 
@@ -535,6 +579,13 @@ leaf .orc compile success
   primary-surface decision.
 - Leaf compile evidence is necessary but never sufficient for family
   promotion; parity evidence carries explicit readiness labels.
+- Lowering-route identity is a semantic dimension of fixtures, examples,
+  tests, and migration evidence, and it is multi-valued: the route enum
+  (`LoweringRoute.LEGACY`, `WCC_M1` through `WCC_M4`) and the lowering schema
+  version are recorded as distinct dimensions. A result whose route is
+  unstated or wrong is stale evidence, and a pass pinned to an intermediate
+  preview route (`WCC_M2`/`WCC_M3`) is not evidence for the `WCC_M4` default
+  (UAF-01/UAF-02 lesson).
 
 ## 11. Tranche 0: Current-State Inventory And Readiness Labels
 
@@ -560,8 +611,35 @@ readiness state:
 
 Leaf-only evidence must never satisfy `--require-promotable`.
 
+Every readiness label must also record the specific lowering route that
+produced its evidence (the `LoweringRoute` enum value, e.g. `LEGACY` or
+`WCC_M4`) and the lowering schema version. A label whose route is unstated,
+whose route is an intermediate preview route presented as default-route
+evidence, or whose route no longer matches the candidate's current compile
+route, is stale for gate purposes.
+
+In addition, checked-in `.orc` examples and fixtures carry exactly one route/
+readiness classification so that current guidance is selected by label, not by
+filename or recency:
+
+| Example/fixture label | Meaning |
+| --- | --- |
+| `wcc_default` | Compiles and runs under the default WCC schema-2 route; copy-safe current guidance |
+| `legacy_schema1_compat` | Exists to preserve or prove legacy schema-1 behavior; not current authoring guidance |
+| `historical_negative` | Kept as a negative or historical fixture; expected to fail or demonstrate retired behavior |
+| `migration_candidate` | Mid-migration; route and parity status tracked in migration records |
+| `stale_needs_update` | Known-broken under the current default; must not be cited as evidence of anything except its own staleness |
+
+Compiler/lowering tests must pin their route explicitly unless the test
+intentionally checks the default route.
+
 ### 11.3 Tasks
 
+- Consult the post-WCC reconciliation index
+  (`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`)
+  before gap selection: do not select `superseded_by_wcc` gaps, and do not
+  reselect `implemented_by_wcc` gaps except as explicit regression or
+  retirement-evidence items.
 - Verify current source routes for `std/phase.orc`, `review-revise-loop`,
   imported `.orc` expansion, `ProcRef` specialization, and structural context
   recognition.
@@ -694,6 +772,12 @@ Acceptance requires:
 - dry-run or fake-provider smoke succeeds;
 - branch-local producers are not visible outside their branch except through
   explicit projections;
+- inactive branch control markers are never evaluated: defunctionalized case
+  and loop selectors inherit their parent activation guards
+  (`active(match parent) AND active(case selector)`); guard-inheritance
+  semantics are owned by the WCC design / executable IR docs, and negative
+  fixtures where inactive branches contain loops or selectors are required
+  acceptance here (UAF-04);
 - resume identity is stable for branch-scoped generated steps;
 - unsupported nested shapes fail with actionable diagnostics; and
 - the implementation phase no longer has to split into
@@ -766,6 +850,23 @@ Tranche 7 by renaming outer variants to child control-state names, splitting
 the work-item surface back into leaves, or treating the parent route as an
 authoring problem.
 
+Terminal provenance contract (UAF-03). Returned-variant normalization is not a
+per-lowerer convention. Every terminal expression must carry one durable
+provenance record through lowering, on both routes while the legacy route
+survives:
+
+- the actual returned expression;
+- the expected target union;
+- the returned union type, when statically known;
+- the active variant proof used for field access, if any; and
+- whether the terminal is a pass-through or a projection.
+
+The contract applies to direct `match` arm terminals, let-bound terminal
+values, workflow-call terminals, procedure-call terminals, and branch
+projections. Lowering paths that carry this metadata ad hoc and independently
+are the defect class the 2026-06-10 reconciliation fixed; they must not
+reappear.
+
 ### 13.3 Variant-scoped field identity
 
 The canonical lowered identity for a variant output field is:
@@ -787,6 +888,13 @@ Lowered artifact names, JSON pointers, bundle paths, source-map entries, and
 Semantic IR entries must remain distinct even when the logical field name is
 reused.
 
+Variant-scoped identity does not stop at lowered names (UAF-11). Runtime
+workflow output finalization and signature projection must resolve the active
+variant: inactive variants are skipped, inactive variants' required fields are
+neither required nor published, and the active variant's fields resolve
+deterministically. Parity comparison operates on active terminal state, not on
+all variant fields as though every branch ran.
+
 ### 13.4 Tasks
 
 - Replace source-case-name-based union return normalization with
@@ -803,6 +911,11 @@ reused.
   names.
 - Add source-map and Semantic IR entries that record both authored field name
   and lowered variant-scoped identity.
+- Make terminal provenance a typed internal contract covering match-arm,
+  let-bound, workflow-call, procedure-call, and branch-projection terminals on
+  both lowering routes while the legacy route survives.
+- Extend runtime workflow output finalization and signature projection to
+  resolve active variants and skip inactive variants' fields.
 - While variant-scoped identity remains unimplemented, document the
   restriction and the required variant-specific naming style in
   `docs/lisp_workflow_drafting_guide.md` with examples, add a compile-time
@@ -828,6 +941,12 @@ reused.
   interim mitigation while the gap is open; it does not satisfy this
   acceptance.
 - Shared validation checks only the active variant's required fields.
+- Runtime output finalization resolves the active variant: fixtures where
+  inactive variants reuse field names and omit their required fields still
+  resolve the active variant successfully, and parity compares active terminal
+  state only.
+- Terminal provenance survives let-bound values, workflow calls, procedure
+  calls, and branch projections without route-local ad hoc metadata.
 - Generated bundle/artifact identities remain collision-proof.
 - Existing verbose variant-specific names continue to compile as compatibility
   style.
@@ -1070,7 +1189,12 @@ For `review-revise-loop`:
 - carried evidence identity comes from inputs/state, not provider replacement
   fields;
 - branch proof, effects, generated paths, source maps, loop state, and resume
-  identity survive nested calls; and
+  identity survive nested calls;
+- provider-effect ownership crosses workflow boundaries (UAF-06): the parent
+  loop owns repeat/call/validation control identity, while generated callable
+  workflows own provider effects such as review and fix procedures; evidence
+  must prove the call relationship and source provenance across that boundary,
+  not the physical inlining of provider steps in the parent; and
 - runtime artifacts contain no `ProcRef`, provider ref, prompt ref, closure,
   or unresolved type parameter.
 
@@ -1110,6 +1234,10 @@ For `review-revise-loop`:
   projection, materialization, and resource surfaces.
 - APPROVE, REVISE->APPROVE, BLOCKED, EXHAUSTED, and resume fixtures pass,
   including with the loop invoked from nested contexts.
+- Source-map acceptance covers caller frame, imported stdlib body, generated
+  callable workflow, and provider effect; no acceptance check requires
+  provider steps to be physically inline in the parent when semantic ownership
+  is a generated call boundary.
 - A real workflow-family parity report can include review/revise evidence
   without relying on split-leaf workarounds.
 
@@ -1133,6 +1261,20 @@ Selector and bundle publication should follow this preference order:
 3. private context bridge: keep the bundle path private to
    runtime/`StateLayout` and expose typed selection values to `.orc`, when
    downstream callers need values rather than paths.
+
+Projections are typed WCC values, not ad hoc opaque expressions (UAF-10).
+Provider bundle references, selection bundle views, compatibility pointer
+views, and materialized value views are instances of an explicit
+projection/reference value class with a declared authority class; adding a new
+projection-like surface as a special opaque expression repeats the pre-WCC
+failure mode and is prohibited.
+
+Pure input-derived outputs lower to a visible projection step (UAF-07). A
+workflow whose public outputs are derived only from its inputs must emit an
+explicit `pure_projection` node so its outputs remain step-backed under shared
+validation. Pure helpers that are not workflow boundaries stay below
+workflow-boundary validation; what is prohibited is a public workflow output
+with no step-backed producer and no declared projection.
 
 ### 16.2 Projection authority rules
 
@@ -1168,6 +1310,12 @@ projection, not hidden routing.
 
 - Define a projection effect class visible to shared validation and Semantic
   IR.
+- Define the WCC projection/reference value class covering provider bundle
+  references, selection bundle views, compatibility pointer views, and
+  materialized value views, with authority class, source maps, and
+  StateLayout requirements per instance.
+- Add the `pure_projection` lowering for pure input-derived workflow outputs
+  so they remain step-backed under shared validation.
 - Add projection contracts for selector bundle publication and other
   deterministic bundle/path materializations.
 - Route projection bundle/view paths through `StateLayout` / `PathAllocator`.
@@ -1194,6 +1342,11 @@ projection, not hidden routing.
   fixtures, and its certification record names the native replacement route.
 - Source maps and Semantic IR identify projection inputs, outputs, allocation
   identity, and authority class.
+- Provider-bundle-path projection lowers through the typed
+  projection/reference value class, not an opaque expression special case.
+- A pure input-derived workflow output compiles to a visible `pure_projection`
+  step and passes shared validation; a public output with no step-backed
+  producer and no declared projection is rejected.
 - Parent workflow calls do not need to know the legacy publication script
   path.
 
@@ -1497,6 +1650,22 @@ Failure taxonomy:
 Resume decisions must be based on state/artifact/resource contracts, not
 report parsing or pointer-file authority.
 
+Diagnostic taxonomy (UAF-08). Reusable-state validation fails closed, but the
+outer failure class must preserve the inner cause code. A single generic
+`resume_state_contract_invalid` is insufficient when the cause is part of
+recovery behavior: stale input, missing artifact, schema mismatch, unsupported
+version, unsafe path, pointer-as-authority, context mismatch, and resource
+conflict must remain distinguishable. Tests assert specific causes where the
+caller branches on the cause, and generic failure only where the caller must
+not branch.
+
+Resume bundle boundary (UAF-09). Resume, force-restart rebinding, and
+public/private input filtering operate over one normalized resume bundle
+shape. That normalization contract is owned by the runtime/state docs; this
+tranche consumes it and must not introduce a second resume bundle API. Tests
+that patch raw loaded bundles are compatibility inputs to that normalization
+layer, not an alternative resume surface.
+
 ### 19.3 Migration evidence roles
 
 A promotable family target must carry evidence for:
@@ -1520,6 +1689,13 @@ A promotable family target must carry evidence for:
 - deprecated-mechanic replacement or accepted waiver; and
 - strict `migration-parity` computation.
 
+Route identity is part of evidence freshness (UAF-01/UAF-02). Every evidence
+role above records the specific lowering route (`LoweringRoute` enum value)
+and lowering schema version that produced it. A legacy-route pass cited as
+WCC-route evidence, a preview-route (`WCC_M2`/`WCC_M3`) pass cited as
+default-route evidence, or vice versa, is stale evidence; a route flip
+invalidates route-sensitive evidence for re-gating the affected targets.
+
 ### 19.4 Tasks
 
 - Canonicalize reusable-state schema and failure taxonomy.
@@ -1532,6 +1708,12 @@ A promotable family target must carry evidence for:
   compile and smoke individually.
 - Add report/index labels for leaf, parent-callable, family non-regressive,
   and promotion-eligible states.
+- Add lowering-route identity to readiness labels, evidence roles, and
+  freshness comparators.
+- Preserve inner cause codes through the fail-closed reusable-state failure
+  class, with cause-specific fixtures for the taxonomy rows above.
+- Consume the normalized resume bundle boundary from the runtime/state docs
+  for resume, force-restart, and public/private input filtering.
 
 ### 19.5 Acceptance
 
@@ -1542,6 +1724,10 @@ A promotable family target must carry evidence for:
 - Parent-callable parity evidence is required for family non-regression.
 - Leaf compile evidence is displayed as useful progress but is insufficient
   for `--require-promotable`.
+- Reusable-state failures preserve actionable inner cause codes while
+  remaining fail-closed.
+- Parity evidence records the lowering route per evidence role, and
+  route-mismatched evidence is rejected as stale.
 - A real workflow-family `.orc` parity report computes `non_regressive=true`
   only when required parent-callable evidence is complete.
 - Any YAML-primary replacement passes `--require-promotable`.
@@ -1642,6 +1828,8 @@ Projection classes initially include:
 
 - `variant_field_projection`;
 - `selection_bundle_projection`;
+- `provider_bundle_reference`;
+- `pure_projection`;
 - `materialized_value_view`;
 - `compatibility_pointer_view`;
 - `report_view_projection`; and
@@ -1955,7 +2143,17 @@ The following do not prove this target:
   helper;
 - a pointer file, report, stdout payload, or debug YAML projection treated as
   semantic state;
-- hand-authored `non_regressive`; or
+- hand-authored `non_regressive`;
+- a compiler/lowering test that does not pin its lowering route presented as
+  evidence for a specific route;
+- a legacy-route pass cited as WCC-route evidence, or a WCC-route pass cited
+  as legacy compatibility evidence;
+- a stale or legacy-only `.orc` example's dry-run failure under the WCC
+  default presented as a WCC architecture finding;
+- an acceptance check that requires provider steps to be physically inline in
+  a parent loop when semantic ownership is a generated call boundary;
+- a public workflow output with no step-backed producer and no declared
+  `pure_projection`, accepted because validation happened to be bypassed; or
 - a migration report without parent-callable evidence used to pass
   `--require-promotable`.
 
@@ -2030,6 +2228,11 @@ resource-transition parity, or current freshness comparators.
 - Repeated logical field names across variants: `APPROVED.plan_path`,
   `BLOCKED.plan_path`, `EXHAUSTED.plan_path`.
 - Variant-scoped artifact/json-pointer identity.
+- Terminal provenance through let-bound values, workflow calls, procedure
+  calls, and branch projections, on both routes while legacy survives.
+- Runtime output finalization resolves active variants; inactive variants
+  with reused field names and omitted required fields do not block
+  resolution.
 - Source-map and Semantic IR entries for variant-scoped fields.
 
 ### 27.4 Private context tests
@@ -2089,6 +2292,10 @@ resource-transition parity, or current freshness comparators.
 - Path escape.
 - Certified projection adapter positive and negative fixtures.
 - Bridge-certified publication records its native replacement route.
+- Provider-bundle-path projection lowers through the typed
+  projection/reference value class.
+- Pure input-derived workflow output lowers to a visible `pure_projection`
+  step; a step-less public output is rejected.
 - Downstream consumption of typed selection state without pointer/report
   authority.
 
@@ -2132,11 +2339,26 @@ resource-transition parity, or current freshness comparators.
 - Private context mismatch.
 - Resource version conflict.
 - Fresh/resumed branch normalization.
+- Reusable-state failures preserve inner cause codes (stale, missing,
+  incompatible, unsupported, unsafe path, pointer-authority, context
+  mismatch, resource conflict) inside the fail-closed outer class.
 - Leaf-only evidence fails `--require-promotable`.
 - Parent-callable but regressive evidence fails `--require-non-regressive`.
 - Non-regressive but ineligible evidence passes non-regressive gate and fails
   promotable gate.
 - Promotable family passes both gates.
+
+### 27.10 Route identity tests
+
+- Compiler/lowering tests pin `LoweringRoute` explicitly or are intentional
+  default-route checks.
+- Readiness labels and parity evidence roles record the producing route.
+- Route-mismatched reused evidence is rejected as stale by the strict gate.
+- Inactive-branch guard inheritance: fixtures where inactive match arms
+  contain loops or selectors do not evaluate them (UAF-04, WCC-owned
+  semantics, exercised here through the implementation-phase BLOCKED route).
+- Example/fixture route labels exist for representative `.orc` examples, and
+  a `stale_needs_update` example is never cited as architecture evidence.
 
 ## 28. Declarative Acceptance Scenarios
 
@@ -2274,9 +2496,11 @@ This post-foundation target succeeds when:
 - branch scopes, proof scopes, effect summaries, source maps, Semantic IR
   entries, and generated path allocation survive nested normalization;
 - union-to-union result mapping uses returned variants rather than matched
-  source cases;
+  source cases, with terminal provenance preserved through let-bound values,
+  workflow calls, procedure calls, and branch projections;
 - variant-scoped output identity allows repeated logical field names across
-  variants;
+  variants, and runtime output finalization resolves active variants while
+  skipping inactive variants' fields;
 - the real implementation-phase candidate keeps parent-callable WCC evidence,
   and the remaining plan/work-item phase-family candidates clear the Tranche
   3A/WCC `IfExpr` boundary failures while keeping low-level phase-state roots
@@ -2302,9 +2526,14 @@ This post-foundation target succeeds when:
   transitions or accepted certified bridges;
 - a work-item and parent backlog-drain path can be expressed as typed `.orc`
   composition rather than hidden YAML-shaped state choreography;
-- `resume-or-start` has canonical typed reusable-state validation;
+- `resume-or-start` has canonical typed reusable-state validation with
+  preserved inner cause codes;
 - migration parity distinguishes leaf candidates, parent-callable candidates,
-  family non-regression, and promotion eligibility;
+  family non-regression, and promotion eligibility, and records lowering-route
+  identity per evidence role;
+- examples, fixtures, and compiler tests carry explicit route/readiness
+  classification, so stale or legacy-only `.orc` surfaces cannot masquerade as
+  current guidance or architecture evidence;
 - at least one real workflow family reaches strict, machine-computed
   `non_regressive=true` through `.orc`; and
 - any YAML-primary replacement also passes `--require-promotable`.
