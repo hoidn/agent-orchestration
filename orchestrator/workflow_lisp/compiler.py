@@ -166,8 +166,8 @@ from .workflows import (
     typecheck_workflow_definitions,
 )
 from .wcc.route import (
-    DEFAULT_LOWERING_ROUTE,
     LoweringRoute,
+    lowering_schema_for_route,
     normalize_lowering_route,
     validate_wcc_m1_route_supported,
     validate_wcc_m2_route_supported,
@@ -347,7 +347,7 @@ def compile_stage3_entrypoint(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    lowering_route: LoweringRoute | str = DEFAULT_LOWERING_ROUTE,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -396,7 +396,7 @@ def compile_stage3_module(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    lowering_route: LoweringRoute | str = DEFAULT_LOWERING_ROUTE,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
@@ -444,6 +444,7 @@ def compile_stage3_module(
         lowered_workflows=state.lowered_workflows,
         validated_bundles=state.validated_bundles,
         diagnostics=diagnostics,
+        lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
     )
 
 
@@ -632,8 +633,9 @@ def _run_stage3_entrypoint_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    lowering_route: LoweringRoute = DEFAULT_LOWERING_ROUTE,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     graph = resolve_module_graph(path, source_roots=source_roots)
     compile_result: LinkedStage3CompileResult | None = None
     selected_workflow_name: str | None = None
@@ -649,7 +651,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             validate_shared=False,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
-            lowering_route=lowering_route,
+            lowering_route=normalized_lowering_route,
         )
         selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
         return replace(
@@ -823,7 +825,11 @@ def _lower_workflows_for_route(
             type_env=type_env,
         )
     if lowering_route is LoweringRoute.WCC_M4:
-        validate_wcc_m4_route_supported(typed_workflows, typed_procedures)
+        validate_wcc_m4_route_supported(
+            typed_workflows,
+            typed_procedures,
+            workflow_signatures=workflow_catalog.signatures_by_name,
+        )
         return lower_wcc_m4_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
@@ -877,8 +883,9 @@ def _run_stage3_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    lowering_route: LoweringRoute = DEFAULT_LOWERING_ROUTE,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
     def parse_pass(state: ValidationPipelineState) -> ValidationPipelineState:
@@ -909,6 +916,7 @@ def _run_stage3_validation_pipeline(
             workflow_defs,
             type_env,
             imported_workflow_bundles=effective_imported_workflow_bundles,
+            allow_collection_boundaries=normalized_lowering_route is LoweringRoute.LEGACY,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
         function_catalog = build_function_catalog(function_defs, type_env=type_env)
@@ -1007,7 +1015,7 @@ def _run_stage3_validation_pipeline(
 
     def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         lowered_workflows = _lower_workflows_for_route(
-            lowering_route=lowering_route,
+            lowering_route=normalized_lowering_route,
             typed_workflows=state.typed_workflows,
             typed_procedures=state.typed_procedures,
             procedure_catalog=state.procedure_catalog,
@@ -1397,7 +1405,7 @@ def _compile_stage3_graph(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
-    lowering_route: LoweringRoute = DEFAULT_LOWERING_ROUTE,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -1407,6 +1415,7 @@ def _compile_stage3_graph(
     so downstream modules can call them through the existing workflow loader.
     """
 
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -1532,6 +1541,7 @@ def _compile_stage3_graph(
             lookup_aliases=workflow_lookup_aliases,
             imported_workflow_bundles=effective_imported_bundles,
             allow_hidden_context_callers=module_name == graph.entry_module_name,
+            allow_collection_boundaries=normalized_lowering_route is LoweringRoute.LEGACY,
         )
         function_catalog = build_function_catalog(
             function_defs,
@@ -1669,7 +1679,7 @@ def _compile_stage3_graph(
             **{procedure.definition.name: procedure for procedure in typed_procedures},
         }
         lowered_workflows = _lower_workflows_for_route(
-            lowering_route=lowering_route,
+            lowering_route=normalized_lowering_route,
             typed_workflows=typed_workflows,
             typed_procedures=tuple(combined_typed_procedures.values()),
             procedure_catalog=procedure_catalog,
@@ -1705,6 +1715,7 @@ def _compile_stage3_graph(
             lowered_workflows=lowered_workflows,
             validated_bundles=validated_exports if validate_shared else {},
             diagnostics=_collect_stage3_required_lint_diagnostics(typed_workflows),
+            lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
         )
         compiled_results_by_name[module_name] = result
         aggregate_diagnostics.extend(result.diagnostics)

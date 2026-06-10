@@ -328,6 +328,7 @@ def _workflow_extern_requirements(
     visiting_procedures: set[str] = set()
 
     def walk(expr: Any) -> None:
+        # schema1_compatibility: legacy extern discovery for covered provider result forms.
         if isinstance(expr, ProviderResultExpr):
             if isinstance(expr.provider, NameExpr):
                 provider_names.add(expr.provider.name)
@@ -408,6 +409,7 @@ def _lower_composed_with_phase(
     lowering_phase_scope = _resolve_active_phase_scope(expr, local_values=local_values)
     scoped_context = _copy_context_with_phase_scope(context, lowering_phase_scope)
     if step_name_prefix is not None:
+        # emitter: with-phase composition reuses the provider-result owner emitter.
         if isinstance(expr.body, ProviderResultExpr):
             return _lower_provider_result(
                 expr.body,

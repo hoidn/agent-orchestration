@@ -16,6 +16,7 @@ import hashlib
 import yaml
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
+import orchestrator.cli.commands.resume as resume_command
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
@@ -25,6 +26,7 @@ from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.resume_planner import ResumePlanner
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
 
 
@@ -1307,6 +1309,102 @@ def partial_run_state(temp_workspace, sample_workflow):
     state_file.write_text(json.dumps(state, indent=2))
 
     return run_id, state_dir
+
+
+def _seed_orc_resume_schema_state(
+    workspace: Path,
+    *,
+    run_id: str,
+    lowering_schema: int | None,
+    status: str = "completed",
+) -> Path:
+    workflow_path = workspace / "schema_resume.orc"
+    workflow_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\") (defenum Status READY))\n"
+    workflow_path.write_text(workflow_text, encoding="utf-8")
+    checksum = f"sha256:{hashlib.sha256(workflow_text.encode()).hexdigest()}"
+    run_root = workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    context = {}
+    if lowering_schema is not None:
+        context = workflow_lisp_context_with_lowering_schema(context, lowering_schema)
+    state = {
+        "schema_version": StateManager.SCHEMA_VERSION,
+        "run_id": run_id,
+        "workflow_file": str(workflow_path),
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": status,
+        "context": context,
+        "bound_inputs": {},
+        "workflow_outputs": {},
+        "finalization": {},
+        "steps": {},
+        "for_each": {},
+        "repeat_until": {},
+        "call_frames": {},
+        "artifact_versions": {},
+        "artifact_consumes": {},
+        "private_artifact_versions": {},
+        "private_artifact_consumes": {},
+        "transition_count": 0,
+        "step_visits": {},
+    }
+    (run_root / "state.json").write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    return workflow_path
+
+
+@pytest.mark.parametrize("schema", [1, 2])
+def test_workflow_lisp_lowering_schema_same_schema_completed_resume_passes_gate(
+    temp_workspace,
+    capsys,
+    schema: int,
+) -> None:
+    run_id = f"schema-{schema}-same"
+    _seed_orc_resume_schema_state(temp_workspace, run_id=run_id, lowering_schema=schema)
+    bundle = resume_command.ResumeWorkflowBundle(bundle=SimpleNamespace(), lowering_schema_version=schema)
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        result = resume_workflow(run_id=run_id, force_restart=False)
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "already completed successfully" in captured.out
+    assert "workflow_lisp_lowering_schema_mismatch" not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("persisted_schema", "candidate_schema"),
+    [(1, 2), (2, 1)],
+)
+def test_workflow_lisp_lowering_schema_cross_schema_resume_fails_closed(
+    temp_workspace,
+    capsys,
+    persisted_schema: int,
+    candidate_schema: int,
+) -> None:
+    run_id = f"schema-{persisted_schema}-candidate-{candidate_schema}"
+    _seed_orc_resume_schema_state(temp_workspace, run_id=run_id, lowering_schema=persisted_schema)
+    bundle = resume_command.ResumeWorkflowBundle(
+        bundle=SimpleNamespace(),
+        lowering_schema_version=candidate_schema,
+    )
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ):
+        result = resume_workflow(run_id=run_id, force_restart=False)
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "workflow_lisp_lowering_schema_mismatch" in captured.err
+    assert "persisted lowering schema" in captured.err
+    assert "candidate lowering schema" in captured.err
+    assert "--force-restart" in captured.err
 
 
 def test_at4_resume_nonexistent_run(temp_workspace):

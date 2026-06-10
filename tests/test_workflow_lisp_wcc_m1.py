@@ -442,7 +442,7 @@ def test_compile_stage3_module_rejects_unsupported_wcc_m1_route_before_lowering(
     _assert_wcc_route_unsupported(excinfo)
 
 
-def test_compile_stage3_entrypoint_defaults_to_legacy_route_for_module_graph(tmp_path: Path) -> None:
+def test_compile_stage3_entrypoint_supports_explicit_legacy_route_for_module_graph(tmp_path: Path) -> None:
     result = compile_stage3_entrypoint(
         MODULE_FIXTURES / "callables" / "neurips" / "entry.orc",
         source_roots=(MODULE_FIXTURES / "callables",),
@@ -454,6 +454,7 @@ def test_compile_stage3_entrypoint_defaults_to_legacy_route_for_module_graph(tmp
                 stable_command=("python", "scripts/run_checks.py"),
             ),
         },
+        lowering_route="legacy",
         validate_shared=False,
         workspace_root=tmp_path,
     )

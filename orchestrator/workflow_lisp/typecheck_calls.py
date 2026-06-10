@@ -27,6 +27,7 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
     WorkflowRefTypeRef,
+    type_refs_compatible,
 )
 from .workflow_refs import (
     resolve_workflow_ref_name,
@@ -595,7 +596,7 @@ def typecheck_call_expr(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
-            if typed_binding.type_ref != expected_type:
+            if not type_refs_compatible(expected_type, typed_binding.type_ref):
                 compat._raise_error(
                     f"workflow ref argument `{binding_name}` does not match `{expected_type.name}`",
                     code="workflow_ref_signature_invalid",
@@ -614,7 +615,7 @@ def typecheck_call_expr(
                 typed_factory=typed_factory,
             )
             binding_summaries.append(typed_binding.effect_summary)
-            if typed_binding.type_ref != expected_type:
+            if not type_refs_compatible(expected_type, typed_binding.type_ref):
                 compat._raise_error(
                     f"procedure ref argument `{binding_name}` does not match `{expected_type.name}`",
                     code="proc_ref_signature_invalid",
@@ -624,7 +625,7 @@ def typecheck_call_expr(
             continue
         typed_binding = recurse(binding_expr)
         binding_summaries.append(typed_binding.effect_summary)
-        if typed_binding.type_ref != expected_type:
+        if not type_refs_compatible(expected_type, typed_binding.type_ref):
             compat._raise_error(
                 f"call binding `{binding_name}` expected `{compat._type_label(expected_type)}`"
                 f" but got `{compat._type_label(typed_binding.type_ref)}`",
@@ -697,7 +698,7 @@ def typecheck_function_call_expr(
     for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
         typed_arg = recurse(arg_expr)
         arg_summaries.append(typed_arg.effect_summary)
-        if typed_arg.type_ref != expected_type:
+        if not type_refs_compatible(expected_type, typed_arg.type_ref):
             compat._raise_error(
                 f"function argument `{param_name}` expected `{compat._type_label(expected_type)}`"
                 f" but got `{compat._type_label(typed_arg.type_ref)}`",

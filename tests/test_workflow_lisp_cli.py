@@ -748,8 +748,8 @@ def test_run_workflow_kiss_backlog_item_dry_run_accepts_only_typed_backlog_input
     result = run_workflow(
         _kiss_run_args(
             input_values=[
-                "inputs__backlog_item=docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md",
-                "inputs__work_instructions=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md",
+                "backlog-inputs__backlog_item=docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md",
+                "backlog-inputs__work_instructions=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md",
             ]
         )
     )

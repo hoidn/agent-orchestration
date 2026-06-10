@@ -5,12 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
+    CallExpr,
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
@@ -25,12 +26,14 @@ from ..expressions import (
     RecordExpr,
     UnionVariantExpr,
 )
+from ..phase_stdlib import ProduceOneOfProducerSpec
 from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
 from ..typecheck_context import TypedExpr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 from ..workflows import CommandBoundaryEnvironment, ExternEnvironment, TypedWorkflowDef, WorkflowCatalog, WorkflowDef, WorkflowSignature
 from ..workflow_refs import WorkflowCallableSpecialization, specialization_name
 from ..workflow_refs import ResolvedWorkflowRef
+from .route import LOWERING_SCHEMA_WCC
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from ..lowering import core as lowering_core
 from ..lowering.context import _LoweringContext, _TerminalResult, _copy_context_with_phase_scope
@@ -40,6 +43,11 @@ from ..lowering.generated_paths import allocate_generated_result_bundle, allocat
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
 from ..lowering.values import _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation
+from ..lowering.phase_flow import (
+    _phase_stdlib_lower_produce_one_of_impl,
+    _phase_stdlib_lower_resume_or_start_impl,
+    _phase_stdlib_lower_run_provider_phase_impl,
+)
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _resolve_procedure_lowering, _lower_procedure_call, _rewrite_nested_sibling_step_refs
@@ -68,8 +76,11 @@ from .model import (
     WccPerform,
     WccPhaseScope,
     WccPhaseTargetAtom,
+    WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
+    WccResumeOrStartPayload,
+    WccRunProviderPhasePayload,
     WccValue,
 )
 from .analysis import WccScopeAnalysis, analyze_wcc_body
@@ -382,11 +393,19 @@ def _lower_one_wcc_workflow(
         ),
         local_type_bindings={name: type_ref for name, type_ref in typed_workflow.signature.params},
         is_generated_private_workflow=is_generated_private_workflow,
+        lowering_schema_version=LOWERING_SCHEMA_WCC if route_schema_version == "wcc_m4" else None,
+        wcc_effect_lowerer=_lower_wcc_effect_expr,
     )
     workflow_return_types = {
         name: workflow.signature.return_type_ref
         for name, workflow in workflows_by_name.items()
     }
+    workflow_return_types.update(
+        {
+            name: signature.return_type_ref
+            for name, signature in workflow_catalog.signatures_by_name.items()
+        }
+    )
     procedure_return_types = {
         name: procedure.signature.return_type_ref
         for name, procedure in typed_procedures.items()
@@ -816,7 +835,7 @@ def _match_subject_producer_step_name(binding_terminal: _TerminalResult) -> str 
             continue
         suffix = variant_ref.removeprefix(prefix)
         step_name, separator, remainder = suffix.partition(".artifacts.")
-        if separator and step_name and remainder == "variant":
+        if separator and step_name and remainder in {"variant", "return__variant"}:
             return step_name
     return None
 
@@ -1312,11 +1331,185 @@ def _lower_effectful_binding(
                 context=context,
                 local_values=local_values,
             )
+        if value.perform_kind in {"run_provider_phase", "produce_one_of", "resume_or_start"}:
+            steps, terminal = _lower_wcc_phase_effect(
+                value,
+                binding_type=binding_type,
+                context=context,
+                local_values=local_values,
+            )
+            return steps, _terminal_with_union_variant_ref(terminal, binding_type=binding_type)
     return _lower_wcc_procedure_call(
         value,
         binding_type=binding_type,
         context=context,
         local_values=local_values,
+    )
+
+
+def _terminal_with_union_variant_ref(
+    terminal: _TerminalResult,
+    *,
+    binding_type: TypeRef,
+) -> _TerminalResult:
+    if isinstance(binding_type, UnionTypeRef) and "return__variant" not in terminal.output_refs:
+        return replace(
+            terminal,
+            output_refs={
+                **terminal.output_refs,
+                "return__variant": f"root.steps.{terminal.step_name}.artifacts.variant",
+            },
+        )
+    return terminal
+
+
+def _name_expr_for_wcc(name: str, value: WccPerform) -> NameExpr:
+    return NameExpr(
+        name=name,
+        span=value.metadata.source_span,
+        form_path=value.metadata.form_path,
+        expansion_stack=value.metadata.expansion_stack,
+    )
+
+
+def _lower_wcc_phase_effect(
+    value: WccPerform,
+    *,
+    binding_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    payload = value.operation_payload
+    if isinstance(payload, WccRunProviderPhasePayload):
+        phase_expr = SimpleNamespace(
+            phase_name=payload.phase_name,
+            ctx_expr=_frontend_expr_from_wcc_value(payload.ctx_expr),
+            inputs_expr=_frontend_expr_from_wcc_value(payload.inputs_expr),
+            provider=_name_expr_for_wcc(payload.provider_name, value),
+            prompt=_name_expr_for_wcc(payload.prompt_name, value),
+            returns_type_name=value.returns_type_name or binding_type.name,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+        return _phase_stdlib_lower_run_provider_phase_impl(
+            TypedExpr(
+                expr=phase_expr,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(payload, WccProduceOneOfPayload):
+        phase_expr = SimpleNamespace(
+            ctx_expr=_frontend_expr_from_wcc_value(payload.ctx_expr),
+            producer=ProduceOneOfProducerSpec(
+                kind="provider",
+                provider_expr=_name_expr_for_wcc(payload.provider_name, value),
+                prompt_expr=_name_expr_for_wcc(payload.prompt_name, value),
+                inputs=tuple(_frontend_expr_from_wcc_value(item) for item in payload.producer_inputs),
+            ),
+            candidates=payload.candidates,
+            returns_type_name=value.returns_type_name or binding_type.name,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+        return _phase_stdlib_lower_produce_one_of_impl(
+            TypedExpr(
+                expr=phase_expr,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(payload, WccResumeOrStartPayload):
+        phase_expr = SimpleNamespace(
+            resume_name=payload.resume_name,
+            ctx_expr=_frontend_expr_from_wcc_value(payload.ctx_expr),
+            resume_from_expr=_frontend_expr_from_wcc_value(payload.resume_from_expr),
+            valid_when=payload.valid_when,
+            start_expr=payload.start_value,
+            returns_type_name=value.returns_type_name or binding_type.name,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+            validation_spec=payload.validation_spec,
+        )
+        return _phase_stdlib_lower_resume_or_start_impl(
+            TypedExpr(
+                expr=phase_expr,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    raise TypeError(f"WCC {value.perform_kind} lowering requires a typed operation payload")
+
+
+def _lower_wcc_effect_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = _resolve_inline_expr_value(typed_expr.expr, local_values=local_values)
+    if isinstance(expr, (WccPerform, WccCall)):
+        return _lower_effectful_binding(
+            expr,
+            binding_type=typed_expr.type_ref,
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(expr, ProviderResultExpr):
+        steps, terminal = _lower_provider_result_operation(
+            LowerableProviderResult(
+                provider_name=expr.provider.name,
+                prompt_name=expr.prompt.name,
+                inputs=tuple(expr.inputs),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            result_type=typed_expr.type_ref,
+            context=context,
+            local_values=local_values,
+            step_name=None if context.step_name_prefix == context.workflow_name else context.step_name_prefix,
+        )
+        return steps, _terminal_with_union_variant_ref(terminal, binding_type=typed_expr.type_ref)
+    if isinstance(expr, CallExpr):
+        steps, terminal = _lower_workflow_call(
+            LowerableWorkflowCall(
+                callee_name=expr.callee_name,
+                bindings=tuple(expr.bindings),
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            ),
+            result_type=typed_expr.type_ref,
+            context=context,
+            local_values=local_values,
+        )
+        return steps, _terminal_with_union_variant_ref(terminal, binding_type=typed_expr.type_ref)
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="wcc_effect_unsupported",
+                message=f"WCC default route cannot lower frontend effect `{type(expr).__name__}` through an emitter",
+                span=typed_expr.span,
+                form_path=typed_expr.form_path,
+                phase="lowering",
+            ),
+        )
     )
 
 
@@ -1393,6 +1586,12 @@ def _lower_wcc_procedure_call(
         name: workflow.signature.return_type_ref
         for name, workflow in context.workflows_by_name.items()
     }
+    workflow_return_types.update(
+        {
+            name: signature.return_type_ref
+            for name, signature in context.workflow_catalog.signatures_by_name.items()
+        }
+    )
     procedure_return_types = {
         name: candidate.signature.return_type_ref
         for name, candidate in context.typed_procedures.items()
@@ -1415,6 +1614,14 @@ def _lower_wcc_procedure_call(
         local_values=child_locals,
         scope_analysis=analyze_wcc_body(wcc_body),
     )
+    if isinstance(binding_type, UnionTypeRef) and "return__variant" not in terminal.output_refs and terminal.step_name:
+        terminal = replace(
+            terminal,
+            output_refs={
+                **terminal.output_refs,
+                "return__variant": f"root.steps.{terminal.step_name}.artifacts.variant",
+            },
+        )
     _rewrite_nested_sibling_step_refs(steps)
     return steps, terminal
 

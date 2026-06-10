@@ -211,6 +211,7 @@ def _procedure_private_call_site_analysis(
                 resolved_binding = _resolve_expr_local_value(binding, local_values=child_locals)
                 if resolved_binding is not None:
                     child_locals[binding_name] = resolved_binding
+                # schema1_compatibility: legacy local-value projection for covered provider results.
                 elif isinstance(binding, ProviderResultExpr):
                     binding_type = type_env.resolve_type(
                         binding.returns_type_name,
@@ -224,6 +225,7 @@ def _procedure_private_call_site_analysis(
                         )
             walk(expr.body, local_values=child_locals)
             return
+        # schema1_compatibility: legacy procedure traversal for covered match forms.
         if isinstance(expr, MatchExpr):
             walk(expr.subject, local_values=local_values)
             for arm in expr.arms:
@@ -237,12 +239,14 @@ def _procedure_private_call_site_analysis(
             walk(expr.ctx_expr, local_values=local_values)
             walk(expr.body, local_values=local_values)
             return
+        # schema1_compatibility: legacy procedure traversal for covered provider results.
         if isinstance(expr, ProviderResultExpr):
             walk(expr.provider, local_values=local_values)
             walk(expr.prompt, local_values=local_values)
             for value in expr.inputs:
                 walk(value, local_values=local_values)
             return
+        # schema1_compatibility: legacy procedure traversal for covered command results.
         if isinstance(expr, CommandResultExpr):
             for value in expr.argv:
                 walk(value, local_values=local_values)
@@ -605,6 +609,7 @@ def _lower_procedure_call(
         is_generated_private_workflow=context.is_generated_private_workflow,
         phase_scope=context.phase_scope,
         iteration_scope=context.iteration_scope,
+        lowering_schema_version=context.lowering_schema_version,
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
     )
     steps, terminal = _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)

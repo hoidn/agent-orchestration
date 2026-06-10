@@ -691,6 +691,7 @@ def _lower_loop_body_expr(
             output_kind=body_terminal.output_kind,
             hidden_inputs=hidden_inputs,
         )
+    # schema1_compatibility: legacy loop body match lowering retained outside promoted WCC.
     if isinstance(expr, MatchExpr):
         if not isinstance(expr.subject, NameExpr):
             raise _compile_error(

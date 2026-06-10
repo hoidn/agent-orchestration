@@ -253,6 +253,7 @@ class WccPerform:
     positional_args: tuple[WccValue, ...]
     keyword_args: tuple[tuple[str, WccValue], ...]
     returns_type_name: str | None
+    operation_payload: object | None = None
 
 
 @dataclass(frozen=True)
@@ -264,6 +265,34 @@ class WccCall:
 
 
 WccBindingValue = WccValue | WccPerform | WccCall
+
+
+@dataclass(frozen=True)
+class WccRunProviderPhasePayload:
+    phase_name: str
+    ctx_expr: WccValue
+    inputs_expr: WccValue
+    provider_name: str
+    prompt_name: str
+
+
+@dataclass(frozen=True)
+class WccProduceOneOfPayload:
+    ctx_expr: WccValue
+    provider_name: str
+    prompt_name: str
+    producer_inputs: tuple[WccValue, ...]
+    candidates: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class WccResumeOrStartPayload:
+    resume_name: str
+    ctx_expr: WccValue
+    resume_from_expr: WccValue
+    valid_when: tuple[str, ...]
+    start_value: WccBindingValue
+    validation_spec: object | None
 
 
 @dataclass(frozen=True)

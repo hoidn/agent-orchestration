@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 from enum import Enum
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -23,10 +24,13 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProduceOneOfExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
     RecordExpr,
+    ResumeOrStartExpr,
+    RunProviderPhaseExpr,
     UnionVariantExpr,
     WithPhaseExpr,
 )
@@ -45,7 +49,12 @@ class LoweringRoute(str, Enum):
     WCC_M4 = "wcc_m4"
 
 
-DEFAULT_LOWERING_ROUTE = LoweringRoute.LEGACY
+LOWERING_SCHEMA_LEGACY = 1
+LOWERING_SCHEMA_WCC = 2
+DEFAULT_LOWERING_ROUTE = LoweringRoute.WCC_M4
+DEFAULT_LOWERING_SCHEMA = LOWERING_SCHEMA_WCC
+WORKFLOW_LISP_CONTEXT_KEY = "workflow_lisp"
+LOWERING_SCHEMA_CONTEXT_KEY = "lowering_schema_version"
 _PURE_WCC_M1_EXPR_TYPES = (
     LiteralExpr,
     NameExpr,
@@ -64,6 +73,52 @@ def normalize_lowering_route(route: LoweringRoute | str | None) -> LoweringRoute
     if isinstance(route, LoweringRoute):
         return route
     return LoweringRoute(route)
+
+
+def lowering_schema_for_route(route: LoweringRoute | str | None) -> int:
+    """Return the route-neutral lowering schema version for a compiler route."""
+
+    normalized = normalize_lowering_route(route)
+    if normalized is LoweringRoute.LEGACY:
+        return LOWERING_SCHEMA_LEGACY
+    return LOWERING_SCHEMA_WCC
+
+
+def lowering_route_for_schema(schema: int) -> LoweringRoute:
+    """Return the internal compatibility route for a persisted schema version."""
+
+    if schema == LOWERING_SCHEMA_LEGACY:
+        return LoweringRoute.LEGACY
+    if schema == LOWERING_SCHEMA_WCC:
+        return LoweringRoute.WCC_M4
+    raise ValueError(f"unsupported Workflow Lisp lowering schema: {schema}")
+
+
+def workflow_lisp_context_with_lowering_schema(context: Mapping[str, Any], schema: int) -> dict[str, Any]:
+    """Return run context with route-neutral Workflow Lisp lowering metadata."""
+
+    updated = dict(context)
+    lisp_context = dict(updated.get(WORKFLOW_LISP_CONTEXT_KEY) or {})
+    lisp_context[LOWERING_SCHEMA_CONTEXT_KEY] = schema
+    updated[WORKFLOW_LISP_CONTEXT_KEY] = lisp_context
+    return updated
+
+
+def lowering_schema_from_run_context(context: Mapping[str, Any]) -> int | None:
+    """Read a persisted Workflow Lisp lowering schema from run context."""
+
+    lisp_context = context.get(WORKFLOW_LISP_CONTEXT_KEY)
+    if not isinstance(lisp_context, Mapping):
+        return None
+    value = lisp_context.get(LOWERING_SCHEMA_CONTEXT_KEY)
+    return value if isinstance(value, int) else None
+
+
+def effective_persisted_lowering_schema_for_orc(context: Mapping[str, Any]) -> int:
+    """Treat missing historical `.orc` lowering schema as schema 1."""
+
+    schema = lowering_schema_from_run_context(context)
+    return LOWERING_SCHEMA_LEGACY if schema is None else schema
 
 
 def validate_wcc_m1_route_supported(typed_workflows: tuple[TypedWorkflowDef, ...]) -> None:
@@ -153,17 +208,22 @@ def validate_wcc_m3_route_supported(
 def validate_wcc_m4_route_supported(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     typed_procedures: tuple[TypedProcedureDef, ...],
+    workflow_signatures: Mapping[str, WorkflowSignature] | None = None,
 ) -> None:
     """Reject callables outside the bounded WCC M4 loop preview subset."""
 
     local_workflow_signatures = {
         workflow.definition.name: workflow.signature for workflow in typed_workflows
     }
+    supported_workflow_signatures = {
+        **dict(workflow_signatures or {}),
+        **local_workflow_signatures,
+    }
     for workflow in typed_workflows:
         _validate_wcc_m4_expr_supported(
             workflow.typed_body.expr,
             workflow_name=workflow.definition.name,
-            local_workflow_signatures=local_workflow_signatures,
+            local_workflow_signatures=supported_workflow_signatures,
             workflow_ref_value_names=frozenset(
                 param_name
                 for param_name, type_ref in workflow.signature.params
@@ -174,7 +234,7 @@ def validate_wcc_m4_route_supported(
         _validate_wcc_m4_expr_supported(
             procedure.typed_body.expr,
             workflow_name=procedure.definition.name,
-            local_workflow_signatures=local_workflow_signatures,
+            local_workflow_signatures=supported_workflow_signatures,
             workflow_ref_value_names=frozenset(
                 param_name
                 for param_name, type_ref in procedure.signature.params
@@ -744,6 +804,62 @@ def _validate_wcc_m4_expr_supported(
         for arg_expr in expr.inputs:
             _validate_wcc_m4_expr_supported(
                 arg_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
+    if isinstance(expr, RunProviderPhaseExpr):
+        for child_expr in (expr.ctx_expr, expr.inputs_expr, expr.provider, expr.prompt):
+            _validate_wcc_m4_expr_supported(
+                child_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
+    if isinstance(expr, ProduceOneOfExpr):
+        _validate_wcc_m4_expr_supported(
+            expr.ctx_expr,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
+        if expr.producer.provider_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.producer.provider_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        if expr.producer.prompt_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.producer.prompt_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        for arg_expr in expr.producer.inputs:
+            _validate_wcc_m4_expr_supported(
+                arg_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        for candidate in expr.candidates:
+            for field in candidate.fields:
+                if field.target_expr is not None:
+                    _validate_wcc_m4_expr_supported(
+                        field.target_expr,
+                        workflow_name=workflow_name,
+                        local_workflow_signatures=local_workflow_signatures,
+                        workflow_ref_value_names=workflow_ref_value_names,
+                )
+        return
+    if isinstance(expr, ResumeOrStartExpr):
+        for child_expr in (expr.ctx_expr, expr.resume_from_expr, expr.start_expr):
+            _validate_wcc_m4_expr_supported(
+                child_expr,
                 workflow_name=workflow_name,
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,

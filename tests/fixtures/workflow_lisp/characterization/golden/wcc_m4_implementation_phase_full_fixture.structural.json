@@ -2706,234 +2706,234 @@
       ],
       "generated_paths": [
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:provider_result_bundle:4e1665e529f4041f",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:provider_result_bundle:36739c303ead73d1",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__attempt/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__attempt/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:5b4bc85328b9f295",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:00970427e9b2a921",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "command_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__checks__run_checks/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__checks__run_checks/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:provider_result_bundle:b6324b79d5e9af2a",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:provider_result_bundle:e91f05c11ad7d678",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__review_decision__review_1__result__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__review_decision__review_1__result__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1__result/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1__result/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:b24bb5161fd9fb02",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:dbc511fa1062b442",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/execution_report_path.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/execution_report_path"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1/prompt_inputs/execution_report_path"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:b488e64c3891f501",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:17ea2b3021a283d7",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/checks_report_path.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/checks_report_path"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1/prompt_inputs/checks_report_path"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:945ded3c6e45f571",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:a9c7864938fe6433",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/design_review_prompt.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/design_review_prompt"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1/prompt_inputs/design_review_prompt"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:30f915120b2d9a81",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:92d22f4504f146c3",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/fix_plan_prompt.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/fix_plan_prompt"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1/prompt_inputs/fix_plan_prompt"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:604133bb215b6703",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:2c1352c8efce94d9",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "command_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__approve__validated-findings__validate_review_findings_v1/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__approve__validated-findings__validate_review_findings_v1/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:478a3cb21c2cac28",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:d431428d8441c99d",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "command_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__validated-findings__validate_review_findings_v1/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__validated-findings__validate_review_findings_v1/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:provider_result_bundle:0869a4f812e3e1bc",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:provider_result_bundle:1c10b4048c2ab740",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__revise__fixed_completed__fix_1__result__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__revise__fixed_completed__fix_1__result__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1__result/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1__result/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:b24bb5161fd9fb02",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:0b3cb15733785854",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/execution_report_path.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/execution_report_path"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1/prompt_inputs/execution_report_path"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:b488e64c3891f501",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:9a7b04c8973902f1",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/checks_report_path.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/checks_report_path"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1/prompt_inputs/checks_report_path"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:945ded3c6e45f571",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:6af55814ceed4d9b",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/design_review_prompt.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/design_review_prompt"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1/prompt_inputs/design_review_prompt"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:30f915120b2d9a81",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:a88efe9f07cdf668",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/fix_plan_prompt.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/fix_plan_prompt"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1/prompt_inputs/fix_plan_prompt"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:3d5487f8b4ecaf84",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:materialized_value_view:84c59b305aaec399",
           "concrete_path_template": ".orchestrate/workflow_lisp/wcc_m4_implementation_phase_full_fixture::run/materialized/items_path.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/prompt_inputs/items_path"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1/prompt_inputs/items_path"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:541a7a45131f869a",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:command_result_bundle:b42fe165ff0aa930",
           "concrete_path_template": "${inputs.__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle}",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "command_result_bundle",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__blocked__validated-findings__validate_review_findings_v1/result_bundle"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__blocked__validated-findings__validate_review_findings_v1/result_bundle"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:57acfe9472be6dcb",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:978f51969030c2f4",
           "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__attempt/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__attempt/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:d08857e7f7ec24aa",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:9f117a89cda915e0",
           "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__checks__run_checks/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__checks__run_checks/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:bd0f2194c6f4a148",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__c974930ea9b52572.json",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:04f42412e02a625c",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__2405b07a743e8ffa.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__review_decision__review_1__result__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1__result/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__review-decision__review_1__result/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:20f76c01471ecc1c",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__d550821173bc1ebe.json",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:cca34eb9aaf2d3cb",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__0a638e91aef160e0.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__approve__validated-findings__validate_review_findings_v1/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__approve__validated-findings__validate_review_findings_v1/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:f0a7c0df04128715",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__c48a01c8573cdd90.json",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:35dd08333f437ad5",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__b762c64b3d8f6a7c.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__validated-findings__validate_review_findings_v1/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__validated-findings__validate_review_findings_v1/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:c6e742187e1095a9",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__9a19e898cb72d0a4.json",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:b3135cff4c2b8eeb",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__7e4391ef0f850e5a.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__revise__fixed_completed__fix_1__result__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1__result/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__revise__fixed-completed__fix_1__result/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:b74aa4ae641fa4fb",
-          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__bda94738ce085c2f.json",
+          "allocation_id": "alloc:wcc_m4_implementation_phase_full_fixture_run:entrypoint_managed_write_root:f19051aa50cfe941",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/wcc_m4_implementation_phase_full_fixture_run/__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_para__d5f8464777d6864e.json",
           "generated_input_name": "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8c84321b5055_d971d67c71dd_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__blocked__validated-findings__validate_review_findings_v1/result_bundle/entry"
+          "stable_identity": "schema:2/wcc_m4_implementation_phase_full_fixture::run/wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.8c84321b5055.d971d67c71dd_1__body__blocked__validated-findings__validate_review_findings_v1/result_bundle/entry"
         }
       ],
       "input_keys": [

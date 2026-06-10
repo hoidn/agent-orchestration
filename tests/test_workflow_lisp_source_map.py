@@ -34,6 +34,7 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=validate_shared,
         workspace_root=tmp_path,
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
+from ..diagnostics import LispFrontendCompileError
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expressions import (
     BindProcExpr,
@@ -22,13 +23,25 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
     RecordExpr,
+    ResumeOrStartExpr,
+    RunProviderPhaseExpr,
     UnionVariantExpr,
     WithPhaseExpr,
 )
-from ..type_env import FrontendTypeEnvironment, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef
+from ..type_env import (
+    FrontendTypeEnvironment,
+    PrimitiveTypeRef,
+    ProcRefTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+    VariantCaseTypeRef,
+    type_refs_compatible,
+)
 from ..typecheck_context import TypedExpr
 from ..loops import LoopControlTypeRef
 from ..loop_state import carrier_metadata_for_expr
@@ -54,8 +67,11 @@ from .model import (
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPerform,
+    WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
+    WccResumeOrStartPayload,
+    WccRunProviderPhasePayload,
     WccValue,
 )
 
@@ -278,7 +294,18 @@ def _elaborate_expr_to_body(
             result=result_value,
         )
         return _wrap_prefix_lets(prefix, done_node)
-    if isinstance(expr, (ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr)):
+    if isinstance(
+        expr,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ResumeOrStartExpr,
+            CallExpr,
+            ProcedureCallExpr,
+        ),
+    ):
         return _elaborate_effect_expr_to_body(
             expr,
             scope=scope,
@@ -397,7 +424,18 @@ def _elaborate_let_star(
                 local_scope.child_scope("body", authored_binding_name=binding_name),
                 next_compile_time_bindings,
             )
-        if isinstance(binding_expr, (ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr)):
+        if isinstance(
+            binding_expr,
+            (
+                ProviderResultExpr,
+                CommandResultExpr,
+                RunProviderPhaseExpr,
+                ProduceOneOfExpr,
+                ResumeOrStartExpr,
+                CallExpr,
+                ProcedureCallExpr,
+            ),
+        ):
             tail = build(
                 index + 1,
                 next_env,
@@ -1016,7 +1054,18 @@ def _elaborate_match_to_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
-    if isinstance(expr.subject, (ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr)):
+    if isinstance(
+        expr.subject,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ResumeOrStartExpr,
+            CallExpr,
+            ProcedureCallExpr,
+        ),
+    ):
         subject_binding_scope = scope.child_scope("match-subject-effect", authored_binding_name="subject")
         subject_binding_name = _generated_effect_binding_name_from_scope(
             subject_binding_scope,
@@ -1417,13 +1466,28 @@ def _elaborate_effect_binding_to_body(
         ),
         body=continuation,
     )
-    for arg_name, arg_type, match_expr in reversed(match_bindings):
-        current = _elaborate_non_tail_match_binding(
-            binding_name=arg_name,
-            binding_type=arg_type,
-            match_expr=match_expr,
-            continuation=current,
-            scope=scope.child_scope("effect-arg-match", authored_binding_name=arg_name),
+    for arg_name, arg_type, prebound_expr in reversed(match_bindings):
+        if isinstance(prebound_expr, MatchExpr):
+            current = _elaborate_non_tail_match_binding(
+                binding_name=arg_name,
+                binding_type=arg_type,
+                match_expr=prebound_expr,
+                continuation=current,
+                scope=scope.child_scope("effect-arg-match", authored_binding_name=arg_name),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            continue
+        prebound_scope = scope.child_scope("effect-arg-value", authored_binding_name=arg_name)
+        prebound_body = _elaborate_expr_to_body(
+            prebound_expr,
+            scope=prebound_scope,
             type_env=type_env,
             value_env=value_env,
             workflow_return_types=workflow_return_types,
@@ -1433,6 +1497,22 @@ def _elaborate_effect_binding_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
+        prebound_prefix, prebound_value = _body_to_prefix_and_value(prebound_body)
+        current = WccLet(
+            metadata=prebound_scope.body_metadata(
+                role=f"let:{arg_name}",
+                type_ref=arg_type,
+                source_span=prebound_expr.span,
+                form_path=prebound_expr.form_path,
+                expansion_stack=prebound_expr.expansion_stack,
+            ),
+            bound_name=arg_name,
+            bound_type_ref=arg_type,
+            bound_value=prebound_value,
+            body=current,
+        )
+        for prefix_let in reversed(prebound_prefix):
+            current = replace(prefix_let, body=current)
     return current
 
 
@@ -1444,11 +1524,11 @@ def _prebind_effect_argument_matches(
     value_env: Mapping[str, TypeRef],
     workflow_return_types: Mapping[str, TypeRef],
     procedure_return_types: Mapping[str, TypeRef],
-) -> tuple[object, tuple[tuple[str, TypeRef, MatchExpr], ...]]:
-    match_bindings: list[tuple[str, TypeRef, MatchExpr]] = []
+) -> tuple[object, tuple[tuple[str, TypeRef, object], ...]]:
+    match_bindings: list[tuple[str, TypeRef, object]] = []
 
     def replace_arg(arg_expr, *, role: str):
-        if not isinstance(arg_expr, MatchExpr):
+        if not isinstance(arg_expr, (MatchExpr, LetStarExpr)):
             return arg_expr
         binding_type = _infer_expr_type(
             arg_expr,
@@ -1486,6 +1566,56 @@ def _prebind_effect_argument_matches(
                     for index, arg_expr in enumerate(expr.argv)
                 ),
             ),
+            tuple(match_bindings),
+        )
+    if isinstance(expr, RunProviderPhaseExpr):
+        return (
+            replace(
+                expr,
+                ctx_expr=replace_arg(expr.ctx_expr, role="run-provider-phase:ctx"),
+                inputs_expr=replace_arg(expr.inputs_expr, role="run-provider-phase:inputs"),
+                provider=replace_arg(expr.provider, role="run-provider-phase:provider"),
+                prompt=replace_arg(expr.prompt, role="run-provider-phase:prompt"),
+            ),
+            tuple(match_bindings),
+        )
+    if isinstance(expr, ProduceOneOfExpr):
+        producer = replace(
+            expr.producer,
+            provider_expr=(
+                replace_arg(expr.producer.provider_expr, role="produce-one-of:provider")
+                if expr.producer.provider_expr is not None
+                else None
+            ),
+            prompt_expr=(
+                replace_arg(expr.producer.prompt_expr, role="produce-one-of:prompt")
+                if expr.producer.prompt_expr is not None
+                else None
+            ),
+            inputs=tuple(
+                replace_arg(input_expr, role=f"produce-one-of:input:{index}")
+                for index, input_expr in enumerate(expr.producer.inputs)
+            ),
+        )
+        candidates = tuple(
+            replace(
+                candidate,
+                fields=tuple(
+                    replace(
+                        field,
+                        target_expr=(
+                            replace_arg(field.target_expr, role=f"produce-one-of:{candidate.variant_name}:{field.field_name}")
+                            if field.target_expr is not None
+                            else None
+                        ),
+                    )
+                    for field in candidate.fields
+                ),
+            )
+            for candidate in expr.candidates
+        )
+        return (
+            replace(expr, ctx_expr=replace_arg(expr.ctx_expr, role="produce-one-of:ctx"), producer=producer, candidates=candidates),
             tuple(match_bindings),
         )
     if isinstance(expr, CallExpr):
@@ -1588,6 +1718,142 @@ def _elaborate_effect_expr_to_binding_value(
             ),
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
+        )
+    if isinstance(expr, RunProviderPhaseExpr):
+        ctx_value = _elaborate_atomic_value(
+            expr.ctx_expr,
+            scope=scope.child_scope("run-provider-phase", authored_binding_name="ctx"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        inputs_value = _elaborate_atomic_value(
+            expr.inputs_expr,
+            scope=scope.child_scope("run-provider-phase", authored_binding_name="inputs"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:run_provider_phase", **metadata_kwargs),
+            perform_kind="run_provider_phase",
+            target_name=_require_name_expr(expr.provider),
+            prompt_name=_require_name_expr(expr.prompt),
+            positional_args=(ctx_value, inputs_value),
+            keyword_args=(),
+            returns_type_name=expr.returns_type_name,
+            operation_payload=WccRunProviderPhasePayload(
+                phase_name=expr.phase_name,
+                ctx_expr=ctx_value,
+                inputs_expr=inputs_value,
+                provider_name=_require_name_expr(expr.provider),
+                prompt_name=_require_name_expr(expr.prompt),
+            ),
+        )
+    if isinstance(expr, ProduceOneOfExpr):
+        ctx_value = _elaborate_atomic_value(
+            expr.ctx_expr,
+            scope=scope.child_scope("produce-one-of", authored_binding_name="ctx"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        producer_inputs = tuple(
+            _elaborate_atomic_value(
+                item,
+                scope=scope.child_scope("produce-one-of-input", authored_binding_name=str(index)),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            for index, item in enumerate(expr.producer.inputs)
+        )
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:produce_one_of", **metadata_kwargs),
+            perform_kind="produce_one_of",
+            target_name=_require_name_expr(expr.producer.provider_expr),
+            prompt_name=_require_name_expr(expr.producer.prompt_expr),
+            positional_args=(ctx_value, *producer_inputs),
+            keyword_args=(),
+            returns_type_name=expr.returns_type_name,
+            operation_payload=WccProduceOneOfPayload(
+                ctx_expr=ctx_value,
+                provider_name=_require_name_expr(expr.producer.provider_expr),
+                prompt_name=_require_name_expr(expr.producer.prompt_expr),
+                producer_inputs=producer_inputs,
+                candidates=expr.candidates,
+            ),
+        )
+    if isinstance(expr, ResumeOrStartExpr):
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:resume_or_start", **metadata_kwargs),
+            perform_kind="resume_or_start",
+            target_name=expr.resume_name,
+            prompt_name=None,
+            positional_args=(),
+            keyword_args=(),
+            returns_type_name=expr.returns_type_name,
+            operation_payload=WccResumeOrStartPayload(
+                resume_name=expr.resume_name,
+                ctx_expr=_elaborate_atomic_value(
+                    expr.ctx_expr,
+                    scope=scope.child_scope("resume-or-start", authored_binding_name="ctx"),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                ),
+                resume_from_expr=_elaborate_atomic_value(
+                    expr.resume_from_expr,
+                    scope=scope.child_scope("resume-or-start", authored_binding_name="resume-from"),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                ),
+                valid_when=expr.valid_when,
+                start_value=_elaborate_effect_expr_to_binding_value(
+                    expr.start_expr,
+                    scope=scope.child_scope("resume-or-start", authored_binding_name="start"),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                ),
+                validation_spec=expr.validation_spec,
+            ),
         )
     if isinstance(expr, CallExpr):
         return WccPerform(
@@ -1865,9 +2131,10 @@ def _infer_expr_type(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
-    if isinstance(expr, (ProviderResultExpr, CommandResultExpr)):
-        return type_env.resolve_type(
+    if isinstance(expr, (ProviderResultExpr, CommandResultExpr, RunProviderPhaseExpr, ProduceOneOfExpr, ResumeOrStartExpr)):
+        return _resolve_wcc_type_name(
             expr.returns_type_name,
+            type_env=type_env,
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
@@ -1882,3 +2149,32 @@ def _infer_expr_type(
     if isinstance(expr, BindProcExpr):
         return value_env.get(expr.base_expr.target_name, PrimitiveTypeRef(name="String"))
     raise TypeError(f"unsupported WCC type inference node: {type(expr).__name__}")
+
+
+def _resolve_wcc_type_name(
+    type_name: str,
+    *,
+    type_env: FrontendTypeEnvironment,
+    span,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...],
+) -> TypeRef:
+    try:
+        return type_env.resolve_type(
+            type_name,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    except LispFrontendCompileError as exc:
+        suffixes = (f"::{type_name}", f"/{type_name}")
+        candidates: list[TypeRef] = []
+        for name, candidate in type_env._type_refs.items():  # noqa: SLF001 - WCC consumes canonical import refs.
+            if not any(name.endswith(suffix) for suffix in suffixes):
+                continue
+            if any(type_refs_compatible(existing, candidate) for existing in candidates):
+                continue
+            candidates.append(candidate)
+        if len(candidates) == 1:
+            return candidates[0]
+        raise exc

@@ -918,44 +918,44 @@
       ],
       "generated_paths": [
         {
-          "allocation_id": "alloc:run:provider_result_bundle:6eabf341451d9bf6",
+          "allocation_id": "alloc:run:provider_result_bundle:ffabb864c4ce3ccd",
           "concrete_path_template": "${inputs.__write_root__run__attempt__result_bundle}",
           "generated_input_name": "__write_root__run__attempt__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
-          "stable_identity": "run/run__attempt/result_bundle"
+          "stable_identity": "schema:2/run/run__attempt/result_bundle"
         },
         {
-          "allocation_id": "alloc:run:variant_projection_bundle:7cc3d9be4fee6966",
+          "allocation_id": "alloc:run:variant_projection_bundle:9e57a68f81031871",
           "concrete_path_template": "${inputs.__write_root__run__match_attempt__result_bundle}",
           "generated_input_name": "__write_root__run__match_attempt__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "variant_projection_bundle",
-          "stable_identity": "run/run__match_attempt/match_union_projection"
+          "stable_identity": "schema:2/run/run__match_attempt/match_union_projection"
         },
         {
-          "allocation_id": "alloc:run:entrypoint_managed_write_root:07663d55e79cb898",
+          "allocation_id": "alloc:run:entrypoint_managed_write_root:3062fd3d73f49281",
           "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/run/__write_root__run__attempt__result_bundle.json",
           "generated_input_name": "__write_root__run__attempt__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "run/run__attempt/result_bundle/entry"
+          "stable_identity": "schema:2/run/run__attempt/result_bundle/entry"
         },
         {
-          "allocation_id": "alloc:run:entrypoint_managed_write_root:ea35d7c09840e256",
+          "allocation_id": "alloc:run:entrypoint_managed_write_root:35d4e7c1f9293bf4",
           "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/run/__write_root__run__match_attempt__result_bundle.json",
           "generated_input_name": "__write_root__run__match_attempt__result_bundle",
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "run",
           "semantic_role": "entrypoint_managed_write_root",
-          "stable_identity": "run/run__match_attempt/match_union_projection/entry"
+          "stable_identity": "schema:2/run/run__match_attempt/match_union_projection/entry"
         }
       ],
       "input_keys": [

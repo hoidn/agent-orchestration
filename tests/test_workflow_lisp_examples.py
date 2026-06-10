@@ -4,7 +4,7 @@ import importlib
 
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -24,6 +24,11 @@ DESIGN_DOCS_REVIEW_PROMPT = (
 DESIGN_DOCS_FIX_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_design_docs" / "fix.md"
 )
+
+
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
 
 
 def _write_module(path: Path, body: str) -> Path:

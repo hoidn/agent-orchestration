@@ -17,6 +17,7 @@ from orchestrator.workflow_lisp.modules import resolve_module_graph
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_command_boundary_environment
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -1102,6 +1103,7 @@ def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route="legacy",
         )
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
@@ -1148,6 +1150,7 @@ def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route="legacy",
         )
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
@@ -1258,6 +1261,7 @@ def test_build_artifacts_preserve_statement_taxonomy_facet_lineage(tmp_path: Pat
             command_boundaries_path=None,
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route="legacy",
         )
     )
     resource_core = json.loads(resource_result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))
@@ -1608,6 +1612,7 @@ def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_proje
                 stable_command=("python", "scripts/resolve_plan_gate.py"),
             ),
         },
+        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     ).entry_result
@@ -1650,23 +1655,55 @@ def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_proje
     }
 
 
-def test_build_frontend_bundle_keeps_legacy_default_and_lowering_route_out_of_artifacts(
+def test_build_frontend_bundle_keeps_wcc_default_schema_and_lowering_route_out_of_artifacts(
     tmp_path: Path,
 ) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
     result = build_frontend_bundle(_build_request(tmp_path))
 
-    manifest_payload = result.manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    manifest_payload = json.dumps(manifest, sort_keys=True)
     source_map_payload = result.artifact_paths["source_map"].read_text(encoding="utf-8")
 
     assert result.manifest.shared_validation_status == "validated"
+    assert manifest["lowering_schema_version"] == 2
     assert "wcc_m1" not in manifest_payload
     assert "wcc_m2" not in manifest_payload
+    assert "wcc_m4" not in manifest_payload
     assert "lowering_route" not in manifest_payload
     assert "wcc_m1" not in source_map_payload
     assert "wcc_m2" not in source_map_payload
+    assert "wcc_m4" not in source_map_payload
     assert "lowering_route" not in source_map_payload
+
+
+def test_build_frontend_bundle_keeps_wcc_candidate_schema_and_lowering_route_out_of_artifacts(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request = _build_request(tmp_path)
+    result = build_frontend_bundle(
+        type(request)(
+            **{
+                **request.__dict__,
+                "lowering_route": LoweringRoute.WCC_M4,
+            }
+        )
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    manifest_text = json.dumps(manifest, sort_keys=True)
+    source_map_text = result.artifact_paths["source_map"].read_text(encoding="utf-8")
+
+    assert result.manifest.shared_validation_status == "validated"
+    assert manifest["lowering_schema_version"] == 2
+    assert "wcc_m4" not in manifest_text
+    assert "lowering_route" not in manifest_text
+    assert "wcc_m4" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
 
 
 def test_same_file_wcc_m3_source_map_keeps_route_names_out_and_preserves_match_join_lineage(

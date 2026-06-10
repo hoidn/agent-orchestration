@@ -13,6 +13,8 @@ from typing import Any
 from unittest.mock import patch
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
+from orchestrator.exec.output_capture import CaptureMode, CaptureResult
+from orchestrator.exec.step_executor import ExecutionResult
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_public_input_contracts
@@ -62,6 +64,8 @@ class CharacterizationCase:
     tags: tuple[str, ...]
     golden_structural: Path
     golden_behavior: Path | None
+    route_flip_corpus: bool = True
+    historical_legacy_fixture: bool = False
 
 
 def _relpath(value: str, *, field_name: str) -> Path:
@@ -199,6 +203,8 @@ def _load_case(payload: dict[str, Any]) -> CharacterizationCase:
         behavior_runtime=behavior_runtime,
         declared_rename_map=declared_rename_map,
         dual_compile_routes=tuple(dual_compile_routes),
+        route_flip_corpus=bool(payload.get("route_flip_corpus", True)),
+        historical_legacy_fixture=bool(payload.get("historical_legacy_fixture", False)),
         tags=tuple(tags),
         golden_structural=_relpath(str(payload["golden_structural"]), field_name=f"{case_id}.golden_structural"),
         golden_behavior=golden_behavior,
@@ -251,7 +257,7 @@ def _resolve_command_boundaries(value: dict[str, Any] | Path | None) -> dict[str
     return bindings
 
 
-def _compile_case(case: CharacterizationCase, workspace: Path, *, lowering_route: str = "legacy") -> dict[str, Any]:
+def _compile_case(case: CharacterizationCase, workspace: Path, *, lowering_route: str | None = "legacy") -> dict[str, Any]:
     source_path = REPO_ROOT / case.source_path
     source_roots = tuple(REPO_ROOT / root for root in case.source_roots)
     if case.fixture_kind == "module":
@@ -272,9 +278,6 @@ def _compile_case(case: CharacterizationCase, workspace: Path, *, lowering_route
             "selected_workflow_name": None,
             "lowering_route": lowering_route,
         }
-    if lowering_route != "legacy":
-        raise ValueError(f"{case.case_id} does not support lowering_route={lowering_route!r} for entrypoint fixtures")
-
     build = __import__("orchestrator.workflow_lisp.build", fromlist=["FrontendBuildRequest", "build_frontend_bundle"])
     request_cls = getattr(build, "FrontendBuildRequest")
     provider_path = (
@@ -306,6 +309,7 @@ def _compile_case(case: CharacterizationCase, workspace: Path, *, lowering_route
             command_boundaries_path=command_path,
             emit_debug_yaml=False,
             workspace_root=workspace,
+            lowering_route=lowering_route,
         )
     )
     return {
@@ -498,7 +502,7 @@ def build_structural_snapshot(
     case: CharacterizationCase,
     tmp_path: Path,
     *,
-    lowering_route: str = "legacy",
+    lowering_route: str | None = "legacy",
 ) -> dict[str, Any]:
     compiled = _compile_case(case, tmp_path, lowering_route=lowering_route)
     compile_result = compiled["compile_result"]
@@ -541,7 +545,7 @@ def build_structural_snapshot_metadata(
     case: CharacterizationCase,
     tmp_path: Path,
     *,
-    lowering_route: str = "legacy",
+    lowering_route: str | None = "legacy",
 ) -> dict[str, Any]:
     compiled = _compile_case(case, tmp_path, lowering_route=lowering_route)
     return {
@@ -654,6 +658,14 @@ def _materialize_relpath(relpath: str, workspace: Path) -> None:
         target.write_text(f"{target.name}\n", encoding="utf-8")
 
 
+def _write_runtime_bundle(path: str | Path, payload: dict[str, Any], workspace: Path) -> None:
+    bundle_path = Path(path)
+    if not bundle_path.is_absolute():
+        bundle_path = workspace / bundle_path
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    bundle_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def _load_provider_scenario(workspace: Path) -> dict[str, Any]:
     return json.loads((workspace / "state" / "fake_provider_scenario.json").read_text(encoding="utf-8"))
 
@@ -684,7 +696,12 @@ def _provider_payload_for_invocation(
     return payload
 
 
-def build_behavior_observation(case: CharacterizationCase, tmp_path: Path) -> dict[str, Any]:
+def build_behavior_observation(
+    case: CharacterizationCase,
+    tmp_path: Path,
+    *,
+    lowering_route: str | None = "legacy",
+) -> dict[str, Any]:
     if case.behavior_runtime is None:
         raise ValueError(f"{case.case_id} is not a behavioral characterization case")
 
@@ -693,7 +710,7 @@ def build_behavior_observation(case: CharacterizationCase, tmp_path: Path) -> di
     if case.behavior_runtime.fake_provider_scenario is not None:
         _write_fake_provider_scenario(tmp_path, case.behavior_runtime.fake_provider_scenario)
 
-    compiled = _compile_case(case, tmp_path)
+    compiled = _compile_case(case, tmp_path, lowering_route=lowering_route)
     bundle = _select_behavior_bundle(case, compiled["compile_result"])
     bound_inputs = bind_workflow_inputs(
         workflow_public_input_contracts(bundle),
@@ -701,7 +718,11 @@ def build_behavior_observation(case: CharacterizationCase, tmp_path: Path) -> di
         tmp_path,
     )
     state_manager = StateManager(workspace=tmp_path, run_id="oracle-run")
-    state_manager.initialize((REPO_ROOT / case.source_path).as_posix(), _thaw(workflow_context(bundle)), bound_inputs)
+    context_payload = _thaw(workflow_context(bundle))
+    lowering_schema_version = getattr(compiled["compile_result"], "lowering_schema_version", None)
+    if lowering_schema_version is not None:
+        context_payload.setdefault("workflow_lisp", {})["lowering_schema_version"] = lowering_schema_version
+    state_manager.initialize((REPO_ROOT / case.source_path).as_posix(), context_payload, bound_inputs)
 
     provider_counts: dict[str, int] = {}
 
@@ -747,9 +768,41 @@ def build_behavior_observation(case: CharacterizationCase, tmp_path: Path) -> di
             },
         )()
 
+    def _execute_command(_self, step_name, command, env=None, **_kwargs):
+        bundle_path = (env or {}).get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH")
+        if not isinstance(bundle_path, str) or not bundle_path:
+            raise ValueError(f"command step {step_name!r} did not receive an output bundle path")
+        if str(step_name).endswith("__run_checks"):
+            payload = {"checks_report_path": "artifacts/work/checks_report.md"}
+        elif str(step_name).endswith("__validate_review_findings_v1"):
+            items_path = command[-1] if isinstance(command, list) and command else "artifacts/work/findings.json"
+            payload = {
+                "schema_version": "ReviewFindings.v1",
+                "items_path": items_path,
+            }
+        else:
+            raise AssertionError(f"unexpected command step {step_name!r}: {command!r}")
+        for relpath in _iter_relpaths(payload):
+            _materialize_relpath(relpath, tmp_path)
+        _write_runtime_bundle(bundle_path, payload, tmp_path)
+        return ExecutionResult(
+            step_name=step_name,
+            exit_code=0,
+            capture_result=CaptureResult(mode=CaptureMode.TEXT, output="ok", exit_code=0),
+            duration_ms=1,
+        )
+
     with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
         ProviderExecutor, "execute", _execute
+    ), patch(
+        "orchestrator.exec.step_executor.StepExecutor.execute_command",
+        _execute_command,
     ):
         state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="continue")
 
-    return _build_observation(tmp_path, state)
+    observation = _build_observation(tmp_path, state)
+    if lowering_route is None:
+        observation["state"] = {
+            "context": state_manager.load().to_dict().get("context", {}),
+        }
+    return observation

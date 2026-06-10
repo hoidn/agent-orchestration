@@ -119,6 +119,10 @@ def _template_for_ref(ref: str) -> str:
 
 
 def _lower_expression(*args, **kwargs):
+    context = kwargs.get("context")
+    lowerer = getattr(context, "wcc_effect_lowerer", None)
+    if callable(lowerer):
+        return lowerer(*args, **kwargs)
     return lowering_core._lower_expression(*args, **kwargs)
 
 
@@ -269,7 +273,6 @@ def _phase_stdlib_lower_run_provider_phase_impl(
     """
 
     expr = typed_expr.expr
-    assert isinstance(expr, RunProviderPhaseExpr)
     if context.phase_scope is None:
         raise _compile_error(
             code="phase_translation_body_invalid",
@@ -366,7 +369,6 @@ def _phase_stdlib_lower_produce_one_of_impl(
     """
 
     expr = typed_expr.expr
-    assert isinstance(expr, ProduceOneOfExpr)
     if context.phase_scope is None or context.phase_scope.snapshot_root_ref is None:
         raise _compile_error(
             code="phase_translation_body_invalid",
@@ -630,7 +632,6 @@ def _phase_stdlib_lower_resume_or_start_impl(
     """
 
     expr = typed_expr.expr
-    assert isinstance(expr, ResumeOrStartExpr)
     validator_binding_name = "validate_reusable_phase_state"
     writer_binding_name = "write_reusable_phase_state_v1"
     loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
@@ -807,12 +808,15 @@ def _phase_stdlib_lower_resume_or_start_impl(
             context,
             step_name_prefix=case_prefix,
         )
+        start_metadata = getattr(expr.start_expr, "metadata", None)
+        start_span = getattr(expr.start_expr, "span", getattr(start_metadata, "source_span", None))
+        start_form_path = getattr(expr.start_expr, "form_path", getattr(start_metadata, "form_path", ()))
         case_steps, case_terminal = _lower_expression(
             TypedExpr(
                 expr=expr.start_expr,
                 type_ref=typed_expr.type_ref,
-                span=expr.start_expr.span,
-                form_path=expr.start_expr.form_path,
+                span=start_span,
+                form_path=start_form_path,
             ),
             context=case_context,
             local_values=local_values,
@@ -1040,6 +1044,7 @@ def _resume_start_bundle_ref(
 ) -> str:
     """Find the canonical bundle path produced by a `resume-or-start` start arm."""
 
+    # emitter: resume-or-start bundle selection for command-result owner output.
     if isinstance(start_expr, CommandResultExpr):
         return f"inputs.__write_root__{start_terminal.step_id}__result_bundle"
     if isinstance(start_expr, CallExpr):
@@ -1072,6 +1077,7 @@ def _resume_start_bundle_ref(
             callee_name=start_expr.callee_name,
             managed_inputs=(bundle_input_name,),
         )[bundle_input_name]
+    # emitter: phase stdlib starts expose the active phase bundle.
     if isinstance(start_expr, (RunProviderPhaseExpr, ProduceOneOfExpr)):
         if context.phase_scope is None:
             raise _compile_error(
@@ -1081,6 +1087,7 @@ def _resume_start_bundle_ref(
                 form_path=start_expr.form_path,
             )
         return context.phase_scope.bundle_path_ref
+    # emitter: provider-result starts expose the active phase bundle.
     if isinstance(start_expr, ProviderResultExpr):
         if context.phase_scope is None:
             raise _compile_error(
@@ -1090,11 +1097,55 @@ def _resume_start_bundle_ref(
                 form_path=start_expr.form_path,
             )
         return context.phase_scope.bundle_path_ref
+    perform_kind = getattr(start_expr, "perform_kind", None)
+    if perform_kind == "workflow_call":
+        callee_name = start_expr.target_name
+        lowered_callee = context.lowered_callees.get(callee_name)
+        imported_bundle = context.imported_workflow_bundles.get(callee_name)
+        if lowered_callee is None and imported_bundle is None and callee_name in context.workflows_by_name:
+            lowered_callee = context.ensure_workflow_lowered(callee_name)
+        bundle_input_name = _call_result_bundle_input_name(
+            callee_name,
+            context=context,
+            span=start_expr.metadata.source_span,
+            form_path=start_expr.metadata.form_path,
+        )
+        managed_inputs = _managed_write_root_requirements_for_callable(
+            lowered_callee=lowered_callee,
+            imported_bundle=imported_bundle,
+            span=start_expr.metadata.source_span,
+            form_path=start_expr.metadata.form_path,
+        )
+        if bundle_input_name not in set(managed_inputs):
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call canonical bundle input must be a managed write root",
+                span=start_expr.metadata.source_span,
+                form_path=start_expr.metadata.form_path,
+            )
+        return _managed_write_root_bindings(
+            caller_workflow_name=context.workflow_name,
+            call_step_name=start_terminal.step_name,
+            callee_name=callee_name,
+            managed_inputs=(bundle_input_name,),
+        )[bundle_input_name]
+    if perform_kind in {"provider_result", "run_provider_phase", "produce_one_of"}:
+        if context.phase_scope is None:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="phase-scoped WCC resume start lowering requires an active phase scope",
+                span=start_expr.metadata.source_span,
+                form_path=start_expr.metadata.form_path,
+            )
+        return context.phase_scope.bundle_path_ref
+    if perform_kind == "command_result":
+        return f"inputs.__write_root__{start_terminal.step_id}__result_bundle"
+    fallback_metadata = getattr(start_expr, "metadata", None)
     raise _compile_error(
         code="resume_or_start_contract_invalid",
         message="`resume-or-start :start` must lower to one canonical bundle path in this slice",
-        span=start_expr.span,
-        form_path=start_expr.form_path,
+        span=getattr(start_expr, "span", getattr(fallback_metadata, "source_span", None)),
+        form_path=getattr(start_expr, "form_path", getattr(fallback_metadata, "form_path", ())),
     )
 
 

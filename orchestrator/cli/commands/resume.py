@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 import sys
+from dataclasses import dataclass
 
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
@@ -28,10 +29,22 @@ from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.wcc.route import (
+    LOWERING_SCHEMA_WCC,
+    effective_persisted_lowering_schema_for_orc,
+    lowering_route_for_schema,
+    workflow_lisp_context_with_lowering_schema,
+)
 
 
 logger = logging.getLogger(__name__)
 PROVIDER_SESSION_QUARANTINE_ERROR = "provider_session_interrupted_visit_quarantined"
+
+
+@dataclass(frozen=True)
+class ResumeWorkflowBundle:
+    bundle: Any
+    lowering_schema_version: int | None = None
 
 
 def _public_rebind_inputs_for_force_restart(
@@ -165,13 +178,21 @@ def _load_resume_workflow_bundle(
     workflow_path: Path,
     workspace_dir: Path,
     run_root: Path,
-):
+    persisted_lowering_schema: int | None = None,
+    force_restart: bool = False,
+) -> ResumeWorkflowBundle:
     if workflow_path.suffix != ".orc":
         loader = WorkflowLoader(workspace_dir)
-        return loader.load_bundle(workflow_path)
+        return ResumeWorkflowBundle(bundle=loader.load_bundle(workflow_path))
 
     metadata = read_process_metadata(run_root)
     argv = metadata.argv if metadata is not None else ()
+    if force_restart and metadata is None:
+        loader = WorkflowLoader(workspace_dir)
+        return ResumeWorkflowBundle(
+            bundle=loader.load_bundle(workflow_path),
+            lowering_schema_version=LOWERING_SCHEMA_WCC,
+        )
 
     def first_path(flag: str) -> Optional[Path]:
         values = _argv_option_values(argv, flag)
@@ -197,9 +218,17 @@ def _load_resume_workflow_bundle(
             command_boundaries_path=first_path("--command-boundaries-file"),
             emit_debug_yaml=_argv_has_flag(argv, "--emit-debug-yaml"),
             workspace_root=workspace_dir,
+            lowering_route=(
+                None
+                if force_restart or persisted_lowering_schema is None
+                else lowering_route_for_schema(persisted_lowering_schema)
+            ),
         )
     )
-    return frontend_build.validated_bundle
+    return ResumeWorkflowBundle(
+        bundle=frontend_build.validated_bundle,
+        lowering_schema_version=frontend_build.manifest.lowering_schema_version,
+    )
 
 
 def resume_workflow(
@@ -372,21 +401,45 @@ def resume_workflow(
 
     # Load workflow
     workspace_dir = Path.cwd()
+    persisted_lowering_schema = (
+        effective_persisted_lowering_schema_for_orc(state.context)
+        if workflow_path.suffix == ".orc"
+        else None
+    )
     try:
-        workflow_bundle = _load_resume_workflow_bundle(
+        resume_bundle = _load_resume_workflow_bundle(
             workflow_path=workflow_path,
             workspace_dir=workspace_dir,
             run_root=run_root,
+            persisted_lowering_schema=persisted_lowering_schema,
+            force_restart=force_restart,
         )
+        workflow_bundle = resume_bundle.bundle
     except LispFrontendCompileError as e:
         for diagnostic in e.diagnostics:
             logger.error(render_diagnostic(diagnostic))
         return 2
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     except WorkflowValidationError as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
         return 2
     except Exception as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
+        return 1
+
+    if (
+        not force_restart
+        and workflow_path.suffix == ".orc"
+        and persisted_lowering_schema is not None
+        and resume_bundle.lowering_schema_version is not None
+        and persisted_lowering_schema != resume_bundle.lowering_schema_version
+    ):
+        print("Error: workflow_lisp_lowering_schema_mismatch", file=sys.stderr)
+        print(f"persisted lowering schema: {persisted_lowering_schema}", file=sys.stderr)
+        print(f"candidate lowering schema: {resume_bundle.lowering_schema_version}", file=sys.stderr)
+        print("Use --force-restart to start a new run with the candidate schema.", file=sys.stderr)
         return 1
 
     # Validate checksum unless force restart
@@ -425,7 +478,14 @@ def resume_workflow(
         )
         state_manager.initialize(
             workflow_file=str(workflow_path),
-            context=dict(workflow_context(workflow_bundle)),
+            context=(
+                workflow_lisp_context_with_lowering_schema(
+                    workflow_context(workflow_bundle),
+                    resume_bundle.lowering_schema_version,
+                )
+                if resume_bundle.lowering_schema_version is not None
+                else dict(workflow_context(workflow_bundle))
+            ),
             bound_inputs=bound_inputs,
             observability=observability,
         )

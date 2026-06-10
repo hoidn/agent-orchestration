@@ -154,8 +154,10 @@ def _control_lower_expression_impl(
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
+    # schema1_compatibility: retained legacy direct lowerers for explicit schema-1 builds only.
     if isinstance(expr, CommandResultExpr):
         return _lower_command_result(typed_expr, context=context, local_values=local_values)
+    # schema1_compatibility: retained legacy direct lowerers for explicit schema-1 builds only.
     if isinstance(expr, ProviderResultExpr):
         return _lower_provider_result(
             expr,
@@ -175,6 +177,7 @@ def _control_lower_expression_impl(
         return _lower_finalize_selected_item(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, BacklogDrainExpr):
         return _lower_backlog_drain(typed_expr, context=context, local_values=local_values)
+    # schema1_compatibility: covered loops lower through WCC for promoted schema-2 compiles.
     if isinstance(expr, LoopRecurExpr):
         from .control_loops import _lower_loop_recur
 
@@ -189,6 +192,7 @@ def _control_lower_expression_impl(
         return _lower_union_variant_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, RecordExpr):
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
+    # schema1_compatibility: covered matches lower through WCC for promoted schema-2 compiles.
     if isinstance(expr, MatchExpr):
         from .control_match import _lower_binding_match_expr
 
@@ -371,6 +375,7 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name_prefix=step_name_prefix,
         )
+    # emitter: phase composition reuses the provider-result owner emitter.
     if isinstance(expr, ProviderResultExpr):
         return _lower_provider_result(
             expr,
@@ -379,6 +384,7 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name=step_name_prefix,
         )
+    # schema1_compatibility: retained for explicit legacy composed match lowering.
     if isinstance(expr, MatchExpr):
         from .control_match import _lower_binding_match_expr
 

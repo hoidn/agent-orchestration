@@ -1463,6 +1463,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
         )
+    # schema1_compatibility: legacy lowering type inference for covered structured effects.
     if isinstance(
         expr,
         (
@@ -1524,6 +1525,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
                 form_path=expr.form_path,
             )
         return procedure.signature.return_type_ref
+    # schema1_compatibility: legacy lowering type inference for covered match forms.
     if isinstance(expr, MatchExpr):
         arm_types = [
             _resolve_lowering_expr_type(
@@ -1569,6 +1571,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
                 binding_type=binding_type,
             ),
         )
+    # schema1_compatibility: legacy lowering type inference for covered loop forms.
     if isinstance(expr, LoopRecurExpr):
         state_type = _resolve_lowering_expr_type(expr.initial_state_expr, context=context)
         if state_type is None:
@@ -1652,11 +1655,13 @@ def _typed_workflow_dependencies(
                 walk(binding)
             walk(expr.body)
             return
+        # schema1_compatibility: legacy dependency walk for covered match forms.
         if isinstance(expr, MatchExpr):
             walk(expr.subject)
             for arm in expr.arms:
                 walk(arm.body)
             return
+        # schema1_compatibility: legacy dependency walk for covered loop forms.
         if isinstance(expr, LoopRecurExpr):
             walk(expr.max_iterations_expr)
             walk(expr.initial_state_expr)
@@ -1676,12 +1681,14 @@ def _typed_workflow_dependencies(
             walk(expr.ctx_expr)
             walk(expr.body)
             return
+        # schema1_compatibility: legacy dependency walk for covered provider results.
         if isinstance(expr, ProviderResultExpr):
             walk(expr.provider)
             walk(expr.prompt)
             for value in expr.inputs:
                 walk(value)
             return
+        # schema1_compatibility: legacy dependency walk for covered command results.
         if isinstance(expr, CommandResultExpr):
             for value in expr.argv:
                 walk(value)

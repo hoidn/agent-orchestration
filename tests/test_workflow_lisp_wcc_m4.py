@@ -117,8 +117,8 @@ def test_normalize_lowering_route_accepts_wcc_m4() -> None:
     assert normalize_lowering_route(LoweringRoute.WCC_M4) is LoweringRoute.WCC_M4
 
 
-def test_default_lowering_route_remains_legacy() -> None:
-    assert DEFAULT_LOWERING_ROUTE is LoweringRoute.LEGACY
+def test_default_lowering_route_is_wcc_m4_after_m5_flip() -> None:
+    assert DEFAULT_LOWERING_ROUTE is LoweringRoute.WCC_M4
 
 
 def test_wcc_m4_route_validator_accepts_loop_recur_fixture(tmp_path: Path) -> None:
@@ -153,20 +153,19 @@ def test_wcc_m3_still_rejects_loop_recur_fixture(tmp_path: Path) -> None:
     _assert_diagnostic_code(excinfo, "wcc_lowering_route_unsupported")
 
 
-def test_wcc_m4_rejects_generic_imported_workflow_call_module_graph(
+def test_wcc_m4_accepts_generic_imported_workflow_call_module_graph(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            MODULE_FIXTURES / "imported_loop_recur_on_exhausted" / "entry.orc",
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route="wcc_m4",
-        )
+    result = compile_stage3_module(
+        MODULE_FIXTURES / "imported_loop_recur_on_exhausted" / "entry.orc",
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
 
-    _assert_diagnostic_code(excinfo, "wcc_lowering_route_unsupported")
+    assert result.lowered_workflows
 
 
 def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:

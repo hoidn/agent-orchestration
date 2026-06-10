@@ -1449,6 +1449,7 @@ def _workflow_extern_requirements(
     visiting_procedures: set[str] = set()
 
     def walk(expr: Any) -> None:
+        # schema1_compatibility: legacy extern discovery for covered provider result forms.
         if isinstance(expr, ProviderResultExpr):
             if isinstance(expr.provider, NameExpr):
                 provider_names.add(expr.provider.name)
@@ -1488,6 +1489,7 @@ def _workflow_extern_requirements(
                 walk(binding)
             walk(expr.body)
             return
+        # schema1_compatibility: legacy extern discovery for covered match forms.
         if isinstance(expr, MatchExpr):
             walk(expr.subject)
             for arm in expr.arms:
@@ -1498,6 +1500,7 @@ def _workflow_extern_requirements(
             walk(expr.then_expr)
             walk(expr.else_expr)
             return
+        # schema1_compatibility: legacy extern discovery for covered loop forms.
         if isinstance(expr, LoopRecurExpr):
             walk(expr.max_iterations_expr)
             walk(expr.initial_state_expr)
@@ -1517,6 +1520,7 @@ def _workflow_extern_requirements(
             for _, value in expr.bindings:
                 walk(value)
             return
+        # schema1_compatibility: legacy extern discovery for covered command result forms.
         if isinstance(expr, CommandResultExpr):
             for value in expr.argv:
                 walk(value)

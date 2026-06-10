@@ -15,7 +15,7 @@ from orchestrator.workflow_lisp.compiler import (
     _typecheck_procedure_definitions,
     _validate_definition_module,
     _validate_procedure_effects_and_cycles,
-    compile_stage3_module,
+    compile_stage3_module as _compile_stage3_module,
 )
 from orchestrator.workflow_lisp.drain_stdlib import BacklogDrainSpec
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
@@ -83,6 +83,11 @@ PROC_REF_SIGNATURE_INVALID_FIXTURE = FIXTURES / "invalid" / "proc_ref_signature_
 PROC_REF_SPECIALIZATION_CYCLE_FIXTURE = FIXTURES / "invalid" / "proc_ref_specialization_cycle.orc"
 
 
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
+
+
 def _compile(path: Path, *, tmp_path: Path):
     return compile_stage3_module(
         path,
@@ -94,6 +99,7 @@ def _compile(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -110,6 +116,7 @@ def _compile_validated(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -677,7 +684,8 @@ def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Pa
     ]
 
     assert len(specialized) == 1
-    assert specialized[0].definition.name.startswith("%parametric-call.apply_runner.")
+    assert specialized[0].definition.name.startswith("%proc-ref-call.%parametric_call.apply_runner.")
+    assert set(specialized[0].specialization.proc_ref_bindings) == {"runner"}
     assert specialized[0].signature.type_params == ()
     assert specialized[0].signature.return_type_ref.name == "WorkflowInput"
 
@@ -1182,7 +1190,7 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "proc_ref_bindings", {})
-        and getattr(procedure.specialization, "base_name", "").startswith("%parametric-call.apply_checker.")
+        and getattr(procedure.specialization, "base_name", "") == "apply-checker"
     )
 
     expected_effect = UsesCommandEffect(subject=("run_checks",))
@@ -2924,6 +2932,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -3032,6 +3041,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -3553,6 +3563,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         source_roots=(source_root,),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     )

@@ -460,7 +460,83 @@
         }
       },
       "imported_workflow_bundles_path": null,
-      "evidence_mode": "structural_only",
+      "evidence_mode": "structural_and_behavioral",
+      "behavior_runtime": {
+        "bound_inputs": {
+          "phase-ctx__run__run-id": "char-full-implementation",
+          "phase-ctx__run__state-root": "state/characterization/full-implementation",
+          "phase-ctx__run__artifact-root": "artifacts",
+          "phase-ctx__phase-name": "implementation-review",
+          "phase-ctx__state-root": "state/characterization/full-implementation",
+          "phase-ctx__artifact-root": "artifacts",
+          "plan_path": "artifacts/work/implementation_plan.md",
+          "inputs__design_review_prompt": "artifacts/work/design-review-prompt.md",
+          "inputs__fix_plan_prompt": "artifacts/work/fix-plan-prompt.md"
+        },
+        "workspace_seed_files": [
+          {
+            "path": "prompts/implementation/execute.md",
+            "text_payload": "execute prompt\n"
+          },
+          {
+            "path": "prompts/implementation/review.md",
+            "text_payload": "review prompt\n"
+          },
+          {
+            "path": "prompts/implementation/fix.md",
+            "text_payload": "fix prompt\n"
+          },
+          {
+            "path": "artifacts/work/implementation_plan.md",
+            "text_payload": "# implementation plan\n"
+          },
+          {
+            "path": "artifacts/work/design-review-prompt.md",
+            "text_payload": "# review focus\n"
+          },
+          {
+            "path": "artifacts/work/fix-plan-prompt.md",
+            "text_payload": "# fix plan\n"
+          }
+        ],
+        "fake_provider_scenario": {
+          "provider_sequences": {
+            "fake-execute": [
+              {
+                "variant": "COMPLETED",
+                "execution_report_path": "artifacts/work/completed_execution_report.md"
+              }
+            ],
+            "fake-review": [
+              {
+                "variant": "REVISE",
+                "review_report": "artifacts/review/review_round_1.md",
+                "revise_review_report": "artifacts/review/review_round_1.md",
+                "findings": {
+                  "schema_version": "ReviewFindings.v1",
+                  "items_path": "artifacts/work/review_round_1_findings.json"
+                }
+              },
+              {
+                "variant": "APPROVE",
+                "checks_report": "artifacts/work/checks_report.md",
+                "review_report": "artifacts/review/review_round_2.md",
+                "review_decision": "APPROVE",
+                "findings": {
+                  "schema_version": "ReviewFindings.v1",
+                  "items_path": "artifacts/work/review_round_2_findings.json"
+                }
+              }
+            ],
+            "fake-fix": [
+              {
+                "execution_report_path": "artifacts/work/fixed_execution_report.md",
+                "checks_report_path": "artifacts/work/checks_report.md"
+              }
+            ]
+          }
+        }
+      },
       "declared_rename_map": {
         "step_labels": {},
         "generated_input_names": {}
@@ -470,7 +546,8 @@
         "match",
         "review_loop"
       ],
-      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_m4_implementation_phase_full_fixture.structural.json"
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_m4_implementation_phase_full_fixture.structural.json",
+      "golden_behavior": "tests/fixtures/workflow_lisp/characterization/golden/wcc_m4_implementation_phase_full_fixture.behavior.json"
     },
     {
       "case_id": "module_graph_imported_bundle_mix",

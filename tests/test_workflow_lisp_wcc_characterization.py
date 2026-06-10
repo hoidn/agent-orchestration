@@ -13,6 +13,13 @@ from tests.workflow_lisp_characterization import (
     compare_structural_snapshots,
     load_characterization_cases,
 )
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+
+
+def _allowed_m5_diagnostics(case_id: str) -> set[str]:
+    if case_id == "wcc_m4_loop_under_case":
+        return {"variant_output_without_variant_specific_fields"}
+    return set()
 
 
 def test_manifest_covers_required_m0_tags() -> None:
@@ -57,6 +64,17 @@ def test_manifest_behavior_contracts_are_complete() -> None:
         else:
             assert case.golden_behavior is None
             assert case.behavior_runtime is None
+
+
+def test_m5_full_implementation_fixture_is_behavioral_gate() -> None:
+    case = {
+        case.case_id: case
+        for case in load_characterization_cases()
+    }["wcc_m4_implementation_phase_full_fixture"]
+
+    assert case.evidence_mode == "structural_and_behavioral"
+    assert case.golden_behavior is not None
+    assert case.behavior_runtime is not None
 
 
 def test_design_delta_case_uses_checked_in_characterization_source() -> None:
@@ -109,6 +127,38 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
         }:
             continue
         assert case.dual_compile_routes == ()
+
+
+def test_m5_route_flip_corpus_has_no_normal_exclusions() -> None:
+    for case in load_characterization_cases():
+        if case.historical_legacy_fixture:
+            assert not case.route_flip_corpus
+        else:
+            assert case.route_flip_corpus, f"{case.case_id} is a normal corpus case and cannot be excluded from M5"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in load_characterization_cases() if case.route_flip_corpus],
+    ids=lambda case: case.case_id,
+)
+def test_m5_route_flip_corpus_compiles_under_wcc_candidate_route(tmp_path: Path, case) -> None:
+    actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route=LoweringRoute.WCC_M4)
+
+    assert {diagnostic["code"] for diagnostic in actual["diagnostics"]} <= _allowed_m5_diagnostics(case.case_id)
+    assert actual["workflow_names"] or actual["compiled_module_names"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in load_characterization_cases() if case.route_flip_corpus],
+    ids=lambda case: case.case_id,
+)
+def test_m5_route_flip_corpus_compiles_under_default_wcc_route(tmp_path: Path, case) -> None:
+    actual = build_structural_snapshot(case, tmp_path / case.case_id, lowering_route=None)
+
+    assert {diagnostic["code"] for diagnostic in actual["diagnostics"]} <= _allowed_m5_diagnostics(case.case_id)
+    assert actual["workflow_names"] or actual["compiled_module_names"]
 
 
 @pytest.mark.parametrize(
@@ -338,7 +388,8 @@ def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergen
     ids=lambda case: case.case_id,
 )
 def test_characterization_behavior_cases_match_golden(tmp_path: Path, case) -> None:
-    actual = build_behavior_observation(case, tmp_path)
+    lowering_route = None if case.case_id == "wcc_m4_implementation_phase_full_fixture" else "legacy"
+    actual = build_behavior_observation(case, tmp_path, lowering_route=lowering_route)
     golden = json.loads((Path.cwd() / case.golden_behavior).read_text(encoding="utf-8"))
 
     assert actual == golden

@@ -413,6 +413,7 @@ class Stage3CompileResult:
     lowered_workflows: tuple["LoweredWorkflow", ...]
     validated_bundles: Mapping[str, "LoadedWorkflowBundle"]
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
+    lowering_schema_version: int = 1
 
 
 @dataclass(frozen=True)
@@ -681,6 +682,7 @@ def build_workflow_catalog(
     lookup_aliases: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
     allow_hidden_context_callers: bool = False,
+    allow_collection_boundaries: bool = False,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
 
@@ -731,6 +733,7 @@ def build_workflow_catalog(
             span=workflow_def.span,
             form_path=workflow_def.form_path,
             expansion_stack=workflow_def.expansion_stack,
+            allow_collection_boundaries=allow_collection_boundaries,
         )
         if return_diagnostic is not None:
             diagnostics.append(return_diagnostic)
@@ -756,6 +759,7 @@ def build_workflow_catalog(
                 span=param.span,
                 form_path=param.form_path,
                 expansion_stack=param.expansion_stack,
+                allow_collection_boundaries=allow_collection_boundaries,
             )
             if param_diagnostic is not None:
                 diagnostics.append(param_diagnostic)
@@ -1377,8 +1381,12 @@ def _boundary_diagnostic(
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack = (),
+    allow_collection_boundaries: bool = False,
 ) -> LispFrontendDiagnostic | None:
     """Translate workflow-boundary analysis into a frontend diagnostic."""
+
+    if allow_collection_boundaries and analysis.lowerable and analysis.contains_collection:
+        return None
 
     if analysis.lowerable and not (
         analysis.contains_json

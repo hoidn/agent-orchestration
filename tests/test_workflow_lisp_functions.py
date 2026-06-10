@@ -8,7 +8,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
-    compile_stage3_module,
+    compile_stage3_module as _compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -29,6 +29,11 @@ def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
+
+
 def _functions_module():
     try:
         return importlib.import_module("orchestrator.workflow_lisp.functions")
@@ -47,6 +52,7 @@ def _compile(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=False,
         workspace_root=tmp_path,
     )

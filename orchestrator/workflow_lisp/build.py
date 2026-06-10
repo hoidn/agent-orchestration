@@ -33,6 +33,7 @@ from .workflows import (
     prompt_extern_source_bindings_payload,
     prompt_extern_source_payload,
 )
+from .wcc.route import LoweringRoute
 
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
@@ -65,6 +66,7 @@ class FrontendBuildRequest:
     emit_debug_yaml: bool = False
     workspace_root: Path | None = None
     lint_profile: str = LINT_PROFILE_DEFAULT
+    lowering_route: LoweringRoute | str | None = None
 
 
 @dataclass(frozen=True)
@@ -124,6 +126,7 @@ class FrontendBuildManifest:
     debug_yaml_status: str
     source_map_schema_version: str | None = None
     source_map_coverage: Mapping[str, str] | None = None
+    lowering_schema_version: int = 1
 
 
 @dataclass(frozen=True)
@@ -199,6 +202,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         provider_externs_path=resolved_request.provider_externs_path,
         prompt_externs_path=resolved_request.prompt_externs_path,
         command_boundaries_path=resolved_request.command_boundaries_path,
+        lowering_route=resolved_request.lowering_route,
     )
     imported_workflow_bundles = {
         binding.canonical_key: binding.bundle
@@ -215,6 +219,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         validate_shared=True,
         workspace_root=resolved_request.workspace_root,
         lint_profile=resolved_request.lint_profile,
+        lowering_route=resolved_request.lowering_route,
     )
 
     entry_selection = _select_entry_workflow(
@@ -420,6 +425,7 @@ def load_imported_workflow_bundle_manifest(
     provider_externs_path: Path | None = None,
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
     """Load imported workflow bundles from one explicit manifest file."""
 
@@ -504,6 +510,7 @@ def load_imported_workflow_bundle_manifest(
                     command_boundaries_path=command_boundaries_path,
                     emit_debug_yaml=False,
                     workspace_root=workspace_root,
+                    lowering_route=lowering_route,
                 )
             )
             bundle = compiled_result.validated_bundle
@@ -562,6 +569,7 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         emit_debug_yaml=request.emit_debug_yaml,
         workspace_root=workspace_root,
         lint_profile=request.lint_profile,
+        lowering_route=request.lowering_route,
     )
 
 
@@ -902,6 +910,7 @@ def _fingerprint_build(
         },
         "source_roots": [str(path) for path in request.source_roots],
         "entry_workflow": entry_selection.canonical_name,
+        "lowering_schema_version": compile_result.entry_result.lowering_schema_version,
         "provider_externs": dict(sorted(provider_externs.items())),
         "prompt_externs": prompt_extern_source_bindings_payload(prompt_externs),
         "command_boundaries": _json_data(dict(sorted(command_boundary_manifest.items()))),
@@ -1029,6 +1038,7 @@ def _build_manifest(
         debug_yaml_status="emitted" if emit_debug_yaml else "not_requested",
         source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         source_map_coverage=dict(SOURCE_MAP_COVERAGE),
+        lowering_schema_version=compile_result.entry_result.lowering_schema_version,
     )
 
 
