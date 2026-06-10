@@ -80,6 +80,15 @@ gaps are context, not fresh work.
    Workflow Lisp, runtime, provider, adapter, state/resource, or
    migration-promotion behavior.
 
+## Temporary Reconciliation Gate
+
+- Do not select new gaps that modify Workflow Lisp lowering, WCC, control
+  dispatch, match/loop lowering, phase scope, procedure lowering, or workflow
+  call lowering until `feat/wcc-middle-end` is integrated with this branch.
+- If a selected gap requires those files, stop and select the WCC/post-foundation
+  reconciliation work first.
+- Orthogonal lanes may continue only when they avoid compiler/lowering files.
+
 ## Constraints
 
 - Do not reset or discard completed frontend-drain history merely because the
