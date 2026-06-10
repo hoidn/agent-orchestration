@@ -354,6 +354,7 @@ class IfBranchMarkerNode(ExecutableNodeBase):
     branch_name: str = ""
     guard_condition: Any = None
     invert_guard: bool = False
+    bound_when_predicate: Any = None
 
 
 @dataclass(frozen=True)
@@ -362,6 +363,7 @@ class IfJoinNode(ExecutableNodeBase):
 
     statement_name: str = ""
     branch_outputs: Mapping[str, Mapping[str, ExecutableContract]] = field(default_factory=empty_frozen_mapping)
+    bound_when_predicate: Any = None
 
 
 @dataclass(frozen=True)

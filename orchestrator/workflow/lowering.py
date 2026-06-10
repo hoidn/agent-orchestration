@@ -678,6 +678,7 @@ class _IRBuilder:
                 branch_name=branch_name,
                 guard_condition=_bind_predicate(step.if_condition, context),
                 invert_guard=invert_guard,
+                bound_when_predicate=_bind_predicate(step.when_predicate, context),
             )
             self._register_node(node=marker, region=region, top_level_region=top_level_region)
             ordered.append(marker.node_id)
@@ -694,6 +695,7 @@ class _IRBuilder:
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
             statement_name=statement_presentation_name,
             branch_outputs=MappingProxyType(dict(branch_outputs)),
+            bound_when_predicate=_bind_predicate(step.when_predicate, context),
         )
         self._register_node(node=join, region=region, top_level_region=top_level_region)
         self.projection.register_structured_if(step.step_id, branch_projection)

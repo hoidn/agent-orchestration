@@ -96,7 +96,7 @@
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
      (work_item_context WorkReport)
-     (progress_ledger ProgressLedger)
+     (progress_ledger_path ProgressLedger)
      (plan_target_path PlanDocTarget)
      (plan_review_report_target_path ArtifactReviewTargetPath))
     -> DesignDeltaPlanPhaseResult
@@ -108,7 +108,7 @@
                           target_design
                           baseline_design
                           work_item_context
-                          progress_ledger
+                          progress_ledger_path
                           plan_target_path)
                  :returns PlanDraftResult))
              (completed
@@ -120,7 +120,7 @@
                  :target_design target_design
                  :baseline_design baseline_design
                  :work_item_context work_item_context
-                 :progress_ledger progress_ledger
+                 :progress_ledger progress_ledger_path
                  :plan_target_path plan_target_path
                  :plan_review_report_target_path plan_review_report_target_path))
              (review

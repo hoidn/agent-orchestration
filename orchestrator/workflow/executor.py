@@ -1476,7 +1476,19 @@ class WorkflowExecutor:
         """Return one structured guard condition, preferring the typed IR node."""
         node = self._executable_node_for_step(step)
         if isinstance(node, IfBranchMarkerNode):
-            return node.guard_condition, node.invert_guard
+            if node.bound_when_predicate is None:
+                return node.guard_condition, node.invert_guard
+            if node.guard_condition is None:
+                return node.bound_when_predicate, False
+            branch_guard = (
+                NotPredicateNode(item=node.guard_condition)
+                if node.invert_guard
+                else node.guard_condition
+            )
+            return (
+                AllOfPredicateNode(items=(node.bound_when_predicate, branch_guard)),
+                False,
+            )
         if isinstance(node, MatchCaseMarkerNode):
             case_predicate = ComparePredicateNode(
                 left=node.selector_address,

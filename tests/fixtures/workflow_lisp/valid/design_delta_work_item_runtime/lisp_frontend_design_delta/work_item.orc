@@ -10,7 +10,11 @@
       PlanDoc PlanDraftResult ProgressLedger ResolvedWorkItemInputs RunStatePath
       SelectionBundlePath StateFile StateFileExisting SteeringDoc TargetDesignDoc WorkItemResult
       WorkItemTerminalReason WorkReport WorkReportTarget))
-  (export run-work-item)
+  (export
+    BlockedRecoveryClassification
+    WorkItemSummary
+    WorkItemTerminalClassification
+    run-work-item)
 
   (defrecord RunCtx
     (run-id RunId)
@@ -189,6 +193,7 @@
                     implementation_phase_result
                     decision)))
            (variant WorkItemResult BLOCKED_RECOVERY
+             :reason "gap_design_revision_required"
              :summary recorded.summary)))
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
@@ -200,6 +205,7 @@
                     implementation_phase_result
                     decision)))
            (variant WorkItemResult BLOCKED_RECOVERY
+             :reason "target_design_revision_required"
              :summary recorded.summary)))
         ((PREREQUISITE_GAP_REQUIRED recovery)
          (let* ((recorded
@@ -211,6 +217,7 @@
                     implementation_phase_result
                     decision)))
            (variant WorkItemResult BLOCKED_RECOVERY
+             :reason "prerequisite_gap_required"
              :summary recorded.summary))))))
 
   (defproc finalize-approved-review-state
@@ -239,6 +246,7 @@
                  "complete"
                  resolved_inputs.item_summary_target_path)))
         (variant WorkItemResult COMPLETED
+          :reason ""
           :summary recorded.summary))))
 
   (defproc finalize-approved-nonblocked
@@ -289,7 +297,7 @@
                :target_design target_design_path
                :baseline_design baseline_design_path
                :work_item_context resolved.work_item_context_path
-               :progress_ledger progress_ledger_path
+               :progress_ledger_path progress_ledger_path
                :plan_target_path resolved.plan_target_path
                :plan_review_report_target_path resolved.plan_review_report_target_path)))
       (match plan

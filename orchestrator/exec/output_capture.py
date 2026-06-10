@@ -130,10 +130,12 @@ class OutputCapture:
         # Handle stderr (always written to logs if non-empty)
         if stderr:
             stderr_file = self._log_file(step_name, "stderr")
+            stderr_file.parent.mkdir(parents=True, exist_ok=True)
             stderr_file.write_bytes(stderr)
 
         # Tee full stdout to output_file if specified (AT-52)
         if output_file:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
             output_file.write_bytes(stdout)
 
         # Decode stdout for processing
@@ -170,6 +172,7 @@ class OutputCapture:
 
             # Write full output to logs
             stdout_file = self._log_file(step_name, "stdout")
+            stdout_file.parent.mkdir(parents=True, exist_ok=True)
             stdout_file.write_bytes(raw_stdout)
 
         return CaptureResult(
@@ -199,6 +202,7 @@ class OutputCapture:
 
             # Write full output to logs
             stdout_file = self._log_file(step_name, "stdout")
+            stdout_file.parent.mkdir(parents=True, exist_ok=True)
             stdout_file.write_bytes(raw_stdout)
 
         return CaptureResult(
@@ -229,6 +233,7 @@ class OutputCapture:
 
                 # Write full output to logs (AT-52: spill consistency with text mode)
                 stdout_file = self._log_file(step_name, "stdout")
+                stdout_file.parent.mkdir(parents=True, exist_ok=True)
                 stdout_file.write_bytes(raw_stdout)
 
                 return CaptureResult(
@@ -274,6 +279,7 @@ class OutputCapture:
 
                     # Write full output to logs
                     stdout_file = self._log_file(step_name, "stdout")
+                    stdout_file.parent.mkdir(parents=True, exist_ok=True)
                     stdout_file.write_bytes(raw_stdout)
 
                 return CaptureResult(

@@ -2245,9 +2245,121 @@ def test_design_delta_work_item_runtime_context_inputs_stay_internal(
 
     assert internal_inputs
     assert set(internal_inputs).issubset(authored_inputs)
-    assert set(internal_inputs).isdisjoint(flattened_input_names)
-    assert set(internal_inputs.values()) == {"managed_write_root"}
-    assert all(name.startswith("__write_root__") for name in internal_inputs)
+    assert {
+        name
+        for name, reason in internal_inputs.items()
+        if reason == "managed_write_root"
+    }.isdisjoint(flattened_input_names)
+    assert {
+        name
+        for name, reason in internal_inputs.items()
+        if reason in {"runtime_owned_context", "compatibility_bridge"}
+    }.issubset(flattened_input_names)
+    assert set(internal_inputs.values()) == {
+        "managed_write_root",
+        "runtime_owned_context",
+        "compatibility_bridge",
+    }
+    assert all(
+        name.startswith("__write_root__")
+        for name, reason in internal_inputs.items()
+        if reason == "managed_write_root"
+    )
+
+
+def test_design_delta_plan_phase_boundary_hides_phase_context_and_bridge_inputs(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "plan_phase.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={
+            "providers.plan.draft": "codex",
+            "providers.plan.review": "codex",
+            "providers.plan.fix": "codex",
+        },
+        prompt_externs={
+            "prompts.plan.draft": {
+                "input_file": (
+                    "workflows/library/prompts/"
+                    "lisp_frontend_design_delta_plan_phase/draft_plan.md"
+                )
+            },
+            "prompts.plan.review": {
+                "input_file": (
+                    "workflows/library/prompts/"
+                    "lisp_frontend_design_delta_plan_phase/review_plan.md"
+                )
+            },
+            "prompts.plan.fix": {
+                "input_file": (
+                    "workflows/library/prompts/"
+                    "lisp_frontend_design_delta_plan_phase/revise_plan.md"
+                )
+            },
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    assert result.entry_result.lowering_schema_version == 2
+    entry_result = result.entry_result
+    bundle = entry_result.validated_bundles[
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    ]
+    public_inputs = set(_workflow_public_input_contracts(bundle))
+    runtime_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+
+    assert runtime_context_inputs == {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }
+    assert runtime_context_inputs.isdisjoint(public_inputs)
+    assert "phase-ctx__state-root" not in public_inputs
+
+    lowered = next(
+        workflow
+        for workflow in entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    )
+    runtime_internal_inputs = {
+        item.generated_name
+        for item in lowered.boundary_projection.generated_internal_inputs
+        if item.reason == "runtime_owned_context"
+    }
+    assert "phase-ctx__state-root" in runtime_internal_inputs
+    assert runtime_internal_inputs.issubset(lowered.origin_map.internal_input_spans)
+    assert runtime_internal_inputs.isdisjoint(lowered.origin_map.authored_input_spans)
+
+
+def test_design_delta_work_item_boundary_labels_legacy_state_inputs_as_compatibility_bridge(
+    tmp_path: Path,
+) -> None:
+    _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    assert compile_result.entry_result.lowering_schema_version == 2
+    lowered = _design_delta_work_item_run_work_item_lowered(compile_result)
+    internal_inputs = {
+        item.generated_name: item.reason
+        for item in lowered.boundary_projection.generated_internal_inputs
+    }
+
+    expected_bridge_inputs = {
+        "selection_bundle_path",
+        "manifest_path",
+        "architecture_bundle_path",
+        "progress_ledger_path",
+        "run_state_path",
+    }
+    assert expected_bridge_inputs.issubset(lowered.compatibility_bridge_inputs)
+    assert {internal_inputs[name] for name in expected_bridge_inputs} == {
+        "compatibility_bridge"
+    }
+    assert expected_bridge_inputs.issubset(lowered.origin_map.internal_input_spans)
+    assert expected_bridge_inputs.isdisjoint(lowered.origin_map.authored_input_spans)
 
 
 def test_design_delta_work_item_command_boundary_lineage_records_family_adapters(

@@ -116,6 +116,10 @@ from ..phase import (
     PromotedEntryHiddenContextRequirement,
     RUN_CONTEXT_NAME,
 )
+from ..phase_family_boundary import (
+    apply_phase_family_boundary_classification,
+    record_direct_entry_phase_context_binding,
+)
 from ..macros import collect_macro_catalog, expand_module_forms
 from ..reader import read_sexpr_file
 from ..spans import SourceSpan
@@ -693,6 +697,18 @@ def _lower_one_workflow(
     for hidden_input_name, contract_definition in context.internal_generated_input_contracts.items():
         authored_inputs[hidden_input_name] = dict(contract_definition)
 
+    phase_family_classification = apply_phase_family_boundary_classification(
+        workflow_name=typed_workflow.definition.name,
+        params=typed_workflow.signature.params,
+        boundary_projection=context.boundary_projection,
+        context=context,
+    )
+    record_direct_entry_phase_context_binding(
+        context=context,
+        typed_workflow=typed_workflow,
+        generated_input_names=phase_family_classification.runtime_owned_context_inputs,
+    )
+
     base_allocations = tuple(context.generated_path_allocations)
     for derived_allocation in derive_entrypoint_managed_write_root_allocations(base_allocations):
         source_allocation_id = derived_allocation.projection_hints.get("source_allocation_id")
@@ -888,11 +904,18 @@ def _validate_projection_origin_coverage(
     traced back to frontend source.
     """
 
+    internal_input_names = {
+        item.generated_name for item in boundary_projection.generated_internal_inputs
+    }
     missing = next(
         (
             field.generated_name
             for field in boundary_projection.flattened_inputs
             if field.generated_name not in authored_input_spans
+            and not (
+                field.generated_name in internal_input_names
+                and field.generated_name in internal_input_spans
+            )
         ),
         None,
     )
@@ -1751,6 +1774,12 @@ def _lowered_workflow_dependencies(lowered_workflow: LoweredWorkflow) -> set[str
                 for case in (match.get("cases") or {}).values():
                     if isinstance(case, Mapping):
                         visit(case.get("steps"))
+            if_block = step.get("then")
+            if isinstance(if_block, Mapping):
+                visit(if_block.get("steps"))
+            else_block = step.get("else")
+            if isinstance(else_block, Mapping):
+                visit(else_block.get("steps"))
 
     visit(steps)
     return dependencies

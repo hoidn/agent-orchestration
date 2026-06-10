@@ -24,7 +24,7 @@ from orchestrator.workflow.executable_ir import validate_executable_workflow, wo
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
 from .command_boundaries import CertifiedAdapterInputField, PROMOTED_CALL_REQUIRED_METADATA_FIELDS
-from .contracts import derive_union_workflow_boundary_projection
+from .contracts import derive_union_workflow_boundary_projection, derive_workflow_signature_contracts
 from .definitions import (
     EnumDef,
     PathDef,
@@ -45,6 +45,10 @@ from .diagnostics import (
 )
 from .expression_traversal import walk_expr
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
+from .phase_family_boundary import (
+    classify_phase_family_boundary,
+    is_selected_phase_family_workflow,
+)
 from .effects import EffectSummary, ProcedureCallEdge, merge_effect_summaries
 from .expressions import (
     CommandResultExpr,
@@ -502,10 +506,22 @@ def _collect_stage3_required_lint_diagnostics(
     diagnostics: list[LispFrontendDiagnostic] = []
     for workflow in typed_workflows:
         signature = workflow.signature
-        if any(
-            _type_ref_contains_low_level_state_path(type_ref)
-            for _, type_ref in signature.params
-        ) or _type_ref_contains_low_level_state_path(signature.return_type_ref):
+        if is_selected_phase_family_workflow(signature.name):
+            _inputs, _outputs, boundary_projection = derive_workflow_signature_contracts(signature)
+            classification = classify_phase_family_boundary(
+                workflow_name=signature.name,
+                params=signature.params,
+                flattened_inputs=boundary_projection.flattened_inputs,
+            )
+            exposes_low_level_state_path = bool(
+                classification.unclassified_low_level_inputs
+            ) or _type_ref_contains_low_level_state_path(signature.return_type_ref)
+        else:
+            exposes_low_level_state_path = any(
+                _type_ref_contains_low_level_state_path(type_ref)
+                for _, type_ref in signature.params
+            ) or _type_ref_contains_low_level_state_path(signature.return_type_ref)
+        if exposes_low_level_state_path:
             diagnostics.append(
                 required_lint_diagnostic(
                     "low_level_state_path_in_high_level_module",

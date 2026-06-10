@@ -4,8 +4,8 @@
   (defmodule design_delta_parent_calls_work_item)
   (import lisp_frontend_design_delta/work_item :only (run-work-item))
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc ProgressLedger RunStatePath SelectionBundlePath StateFile StateFileExisting
-      SteeringDoc TargetDesignDoc WorkItemResult))
+    (BaselineDesignDoc PlanDraftResult ProgressLedger RunStatePath SelectionBundlePath StateFile
+      StateFileExisting SteeringDoc TargetDesignDoc WorkItemResult))
   (export run-parent-work-item)
 
   (defworkflow run-parent-work-item

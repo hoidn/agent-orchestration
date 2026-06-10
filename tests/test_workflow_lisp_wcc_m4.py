@@ -466,6 +466,101 @@ def test_wcc_m4_defunctionalizes_loop_recur_to_repeat_until(tmp_path: Path) -> N
     assert any("repeat_until" in step for step in lowered["steps"])
 
 
+def test_wcc_m4_hoists_effectful_match_arm_steps_by_structure_not_workflow_name(tmp_path: Path) -> None:
+    module_path = tmp_path / "generic_effectful_match_arm_route.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule generic_effectful_match_arm_route)",
+                "  (export run)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion Attempt",
+                "    (COMPLETED",
+                "      (report WorkReport))",
+                "    (BLOCKED",
+                "      (reason String)",
+                "      (report WorkReport)))",
+                "  (defrecord Followup",
+                "    (ok Bool)",
+                "    (report WorkReport))",
+                "  (defunion RouteResult",
+                "    (COMPLETED",
+                "      (report WorkReport))",
+                "    (BLOCKED",
+                "      (reason String)",
+                "      (report WorkReport)))",
+                "  (defworkflow run",
+                "    ((seed_report WorkReport))",
+                "    -> RouteResult",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (seed_report)",
+                "               :returns Attempt)))",
+                "      (match attempt",
+                "        ((COMPLETED completed)",
+                "         (let* ((followup",
+                "                  (provider-result providers.execute",
+                "                    :prompt prompts.implementation.execute",
+                "                    :inputs (completed.report)",
+                "                    :returns Followup)))",
+                "           (if followup.ok",
+                "             (variant RouteResult COMPLETED",
+                "               :report followup.report)",
+                "             (variant RouteResult COMPLETED",
+                "               :report completed.report))))",
+                "        ((BLOCKED blocked)",
+                "         (let* ((followup",
+                "                  (provider-result providers.execute",
+                "                    :prompt prompts.implementation.execute",
+                "                    :inputs (blocked.report)",
+                "                    :returns Followup)))",
+                "           (if followup.ok",
+                "             (variant RouteResult BLOCKED",
+                "               :reason blocked.reason",
+                "               :report followup.report)",
+                "             (variant RouteResult BLOCKED",
+                '               :reason "fallback"',
+                "               :report blocked.report))))))",
+                ")",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    steps = result.lowered_workflows[0].authored_mapping["steps"]
+    match_index = next(index for index, step in enumerate(steps) if "match" in step)
+    hoisted_provider_steps = [
+        step
+        for step in steps[:match_index]
+        if step.get("provider") == "fake" and step["name"].endswith("__followup")
+    ]
+
+    assert len(hoisted_provider_steps) == 2
+    assert {step["when"]["compare"]["right"] for step in hoisted_provider_steps} == {
+        "COMPLETED",
+        "BLOCKED",
+    }
+    assert all("requires_variant" not in step for step in hoisted_provider_steps)
+
+
 def test_wcc_m4_loop_emitter_does_not_call_legacy_loop_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from orchestrator.workflow_lisp.lowering import control_loops
 

@@ -29,6 +29,11 @@ from ..expressions import (
     UnionVariantExpr,
 )
 from ..phase_stdlib import ProduceOneOfProducerSpec
+from ..phase_family_boundary import (
+    apply_phase_family_boundary_classification,
+    classify_phase_family_boundary,
+    record_direct_entry_phase_context_binding,
+)
 from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
 from ..typecheck_context import TypedExpr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
@@ -359,6 +364,11 @@ def _lower_one_wcc_workflow(
     origin_inputs = {name: workflow_origin for name in authored_inputs}
     origin_outputs = {name: workflow_origin for name in authored_outputs}
 
+    pre_lowering_phase_family_classification = classify_phase_family_boundary(
+        workflow_name=typed_workflow.definition.name,
+        params=typed_workflow.signature.params,
+        flattened_inputs=boundary_projection.flattened_inputs,
+    )
     context = _LoweringContext(
         workflow_name=typed_workflow.definition.name,
         step_name_prefix=typed_workflow.definition.name,
@@ -400,6 +410,9 @@ def _lower_one_wcc_workflow(
         is_generated_private_workflow=is_generated_private_workflow,
         lowering_schema_version=LOWERING_SCHEMA_WCC if route_schema_version == "wcc_m4" else None,
         wcc_effect_lowerer=_lower_wcc_effect_expr,
+        requires_guarded_case_step_hoist=bool(
+            pre_lowering_phase_family_classification.compatibility_bridge_inputs
+        ),
     )
     workflow_return_types = {
         name: workflow.signature.return_type_ref
@@ -456,6 +469,18 @@ def _lower_one_wcc_workflow(
         context.internal_generated_input_reasons.setdefault(hidden_input_name, reason)
     for hidden_input_name, contract_definition in context.internal_generated_input_contracts.items():
         authored_inputs[hidden_input_name] = dict(contract_definition)
+
+    phase_family_classification = apply_phase_family_boundary_classification(
+        workflow_name=typed_workflow.definition.name,
+        params=typed_workflow.signature.params,
+        boundary_projection=context.boundary_projection,
+        context=context,
+    )
+    record_direct_entry_phase_context_binding(
+        context=context,
+        typed_workflow=typed_workflow,
+        generated_input_names=phase_family_classification.runtime_owned_context_inputs,
+    )
 
     base_allocations = tuple(context.generated_path_allocations)
     for derived_allocation in derive_entrypoint_managed_write_root_allocations(base_allocations):
@@ -607,6 +632,12 @@ def _lower_one_wcc_workflow(
             generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
+        private_exec_context_bindings=tuple(context.private_exec_context_bindings),
+        compatibility_bridge_inputs=tuple(
+            name
+            for name, reason in sorted(context.internal_generated_input_reasons.items())
+            if reason == "compatibility_bridge"
+        ),
         generated_path_allocations=tuple(context.generated_path_allocations),
         private_artifact_ids=tuple(
             name
@@ -821,6 +852,7 @@ def _guard_hoisted_case_steps(
     producer_step_name: str,
     producer_variant_ref: str,
     required_variant: str,
+    include_requires_variant: bool = True,
 ) -> list[dict[str, Any]]:
     outer_when = {
         "compare": {
@@ -843,10 +875,17 @@ def _guard_hoisted_case_steps(
             guarded_step["when"] = {
                 "all_of": [outer_when, existing_when],
             }
-        if "match" not in guarded_step:
+        if include_requires_variant and "match" not in guarded_step:
             guarded_step.setdefault("requires_variant", outer_requires_variant)
         guarded_steps.append(guarded_step)
     return guarded_steps
+
+
+_STRUCTURED_CONTROL_CASE_STEP_KEYS = frozenset({"if"})
+
+
+def _case_steps_require_guarded_hoist(steps: list[dict[str, Any]]) -> bool:
+    return any(_STRUCTURED_CONTROL_CASE_STEP_KEYS.intersection(step) for step in steps)
 
 
 def _match_subject_producer_step_name(binding_terminal: _TerminalResult) -> str | None:
@@ -963,13 +1002,19 @@ def _defunctionalize_case(
                 span=arm.body.metadata.source_span,
                 form_path=arm.body.metadata.form_path,
             )
-        if any("match" in step for step in arm_steps):
+        hoist_effectful_case_steps = bool(arm_steps) and (
+            context.is_generated_private_workflow
+            or context.requires_guarded_case_step_hoist
+            or _case_steps_require_guarded_hoist(arm_steps)
+        )
+        if any("match" in step for step in arm_steps) or hoist_effectful_case_steps:
             hoisted_steps.extend(
                 _guard_hoisted_case_steps(
                     arm_steps,
                     producer_step_name=producer_step_name,
                     producer_variant_ref=producer_variant_ref,
                     required_variant=arm.variant_name,
+                    include_requires_variant=not hoist_effectful_case_steps,
                 )
             )
             arm_steps = []
@@ -1053,6 +1098,10 @@ def _defunctionalize_if(
         scope_analysis=scope_analysis,
         jump_target=jump_target,
     )
+    then_steps = [
+        _rewrite_branch_local_refs_in_value(step, branch_step_prefix=then_step_name)
+        for step in then_steps
+    ]
     else_steps, else_terminal = _defunctionalize_body(
         body.else_body,
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=else_step_name),
@@ -1060,6 +1109,12 @@ def _defunctionalize_if(
         scope_analysis=scope_analysis,
         jump_target=jump_target,
     )
+    else_steps = [
+        _rewrite_branch_local_refs_in_value(step, branch_step_prefix=else_step_name)
+        for step in else_steps
+    ]
+    then_terminal = _with_branch_local_refs(then_terminal, branch_step_prefix=then_step_name)
+    else_terminal = _with_branch_local_refs(else_terminal, branch_step_prefix=else_step_name)
     then_outputs = _conditional_case_outputs(
         then_terminal,
         output_contracts=output_contracts,
@@ -1125,6 +1180,50 @@ def _defunctionalize_if(
         output_kind="if",
         hidden_inputs={**then_terminal.hidden_inputs, **else_terminal.hidden_inputs},
     )
+
+
+def _with_branch_local_refs(
+    terminal: _TerminalResult,
+    *,
+    branch_step_prefix: str,
+) -> _TerminalResult:
+    root_prefix = f"root.steps.{branch_step_prefix}"
+    output_refs = {
+        name: (
+            "self.steps." + ref.removeprefix("root.steps.")
+            if isinstance(ref, str) and ref.startswith(root_prefix)
+            else ref
+        )
+        for name, ref in terminal.output_refs.items()
+    }
+    return replace(terminal, output_refs=output_refs)
+
+
+def _rewrite_branch_local_refs_in_value(value: Any, *, branch_step_prefix: str) -> Any:
+    root_prefix = f"root.steps.{branch_step_prefix}"
+    if isinstance(value, str):
+        if value.startswith(root_prefix):
+            return "self.steps." + value.removeprefix("root.steps.")
+        return value
+    if isinstance(value, list):
+        return [
+            _rewrite_branch_local_refs_in_value(item, branch_step_prefix=branch_step_prefix)
+            for item in value
+        ]
+    if isinstance(value, tuple):
+        return tuple(
+            _rewrite_branch_local_refs_in_value(item, branch_step_prefix=branch_step_prefix)
+            for item in value
+        )
+    if isinstance(value, Mapping):
+        return {
+            key: _rewrite_branch_local_refs_in_value(
+                item,
+                branch_step_prefix=branch_step_prefix,
+            )
+            for key, item in value.items()
+        }
+    return value
 
 
 def _union_variant_fields_are_bundle_unique(result_type: UnionTypeRef) -> bool:

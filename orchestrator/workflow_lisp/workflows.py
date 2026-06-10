@@ -31,7 +31,12 @@ from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import elaborate_expression
 from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
-from .phase import derive_promoted_entry_hidden_context_metadata, PromotedEntryHiddenContextRequirement
+from .phase import (
+    PHASE_CONTEXT_NAME,
+    derive_promoted_entry_hidden_context_metadata,
+    private_exec_context_kind,
+    PromotedEntryHiddenContextRequirement,
+)
 from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
 from .spans import SourceSpan
@@ -389,6 +394,35 @@ class WorkflowBoundaryAnalysis:
     contains_collection: bool
     offending_path: tuple[str, ...] = ()
     offending_type_name: str | None = None
+
+
+def _phase_family_hidden_context_requirements(
+    signature: WorkflowSignature,
+    requirements: Mapping[str, PromotedEntryHiddenContextRequirement],
+) -> Mapping[str, PromotedEntryHiddenContextRequirement]:
+    if not signature.name.startswith("lisp_frontend_design_delta/"):
+        return requirements
+    entry_name = signature.name.rsplit("::", 1)[-1]
+    phase_name = {
+        "run-plan-phase": "plan",
+        "implementation-phase": "implementation",
+        "run-work-item": "work-item",
+    }.get(entry_name)
+    if phase_name is None:
+        return requirements
+
+    updated = dict(requirements)
+    for param_name, type_ref in signature.params:
+        if param_name in updated:
+            continue
+        if private_exec_context_kind(type_ref) != PHASE_CONTEXT_NAME:
+            continue
+        updated[param_name] = PromotedEntryHiddenContextRequirement(
+            param_name=param_name,
+            context_kind=PHASE_CONTEXT_NAME,
+            phase_name=phase_name,
+        )
+    return updated
 
 
 def analyze_workflow_boundary_type(
@@ -1260,6 +1294,10 @@ def typecheck_workflow_definitions(
         elaborated_bodies[workflow_def.name] = body_expr
         hidden_context_requirements, hidden_context_ambiguities = (
             derive_promoted_entry_hidden_context_metadata(signature, body_expr)
+        )
+        hidden_context_requirements = _phase_family_hidden_context_requirements(
+            signature,
+            hidden_context_requirements,
         )
         workflow_catalog.signatures_by_name[workflow_def.name] = WorkflowSignature(
             name=signature.name,

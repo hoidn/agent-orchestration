@@ -1241,6 +1241,49 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
     assert payload["validation_pass"] == "contract"
 
 
+def test_compile_stage3_strict_lint_still_rejects_unrelated_public_state_path(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "unrelated_public_state_path.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule unrelated_public_state_path)",
+                "  (export orchestrate)",
+                "  (defpath StateFile",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord RawStateOutput",
+                "    (state_file StateFile))",
+                "  (defworkflow orchestrate",
+                "    ((state_file StateFile))",
+                "    -> RawStateOutput",
+                "    (record RawStateOutput",
+                "      :state_file state_file)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            lint_profile="strict",
+            workspace_root=tmp_path,
+        )
+
+    assert "low_level_state_path_in_high_level_module" in {
+        diagnostic.code for diagnostic in exc_info.value.diagnostics
+    }
+
+
 def test_compile_stage1_renders_unknown_type_diagnostic_with_field_location() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage1_module(FIXTURES / "invalid" / "unknown_type.orc")

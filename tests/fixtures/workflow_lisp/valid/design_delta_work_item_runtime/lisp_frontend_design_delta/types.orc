@@ -220,7 +220,7 @@
 
   (defpath CheckCommandsPath
     :kind relpath
-    :under "state"
+    :under "docs/plans"
     :must-exist true)
 
   (defpath SelectionBundlePath
@@ -330,11 +330,13 @@
 
   (defunion WorkItemResult
     (COMPLETED
+      (reason String)
       (summary WorkReport))
     (TERMINAL_BLOCKED
       (reason String)
       (summary WorkReport))
     (BLOCKED_RECOVERY
+      (reason String)
       (summary WorkReport)))
 
   (defunion DrainResult

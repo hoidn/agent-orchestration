@@ -94,6 +94,7 @@ class _LoweringContext:
     parent_composition_scope_id: str | None = None
     composition_scope_kind: str | None = None
     composition_scope_owner_step_name: str | None = None
+    requires_guarded_case_step_hoist: bool = False
 
 
 @dataclass(frozen=True)

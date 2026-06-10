@@ -487,6 +487,8 @@ def _assert_design_delta_work_item_candidate_post_ifexpr_boundary_failure(
     assert "union_return_variant_ambiguous" not in diagnostic_codes
     assert "union_return_variant_incompatible" not in diagnostic_codes
     assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
+    assert "low_level_state_path_in_high_level_module" not in diagnostic_codes
+    assert "workflow_boundary_type_invalid" not in diagnostic_codes
     assert not any("unsupported `IfExpr`" in diagnostic.message for diagnostic in diagnostics)
     assert diagnostics, "expected a distinct downstream diagnostic or successful compile"
 
@@ -735,7 +737,7 @@ def _write_design_delta_runtime_inputs(tmp_path: Path) -> None:
         "docs/design/target.md": "# target\n",
         "docs/design/baseline.md": "# baseline\n",
         "docs/plans/plan.md": "# plan\n",
-        "state/check_commands.json": json.dumps(["python -m pytest -q"]) + "\n",
+        "docs/plans/check_commands.json": json.dumps(["python -m pytest -q"]) + "\n",
     }.items():
         target = tmp_path / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -761,16 +763,10 @@ def _nested_runtime_bound_inputs() -> dict[str, str]:
 
 def _design_delta_runtime_bound_inputs(*, attempt_variant: str) -> dict[str, str]:
     return {
-        "phase-ctx__run__run-id": "design-delta-smoke",
-        "phase-ctx__run__state-root": "state/run",
-        "phase-ctx__run__artifact-root": "artifacts/run",
-        "phase-ctx__phase-name": "implementation",
-        "phase-ctx__state-root": "state/implementation",
-        "phase-ctx__artifact-root": "artifacts/implementation",
         "target_design": "docs/design/target.md",
         "baseline_design": "docs/design/baseline.md",
         "plan_path": "docs/plans/plan.md",
-        "check_commands_path": "state/check_commands.json",
+        "check_commands_path": "docs/plans/check_commands.json",
         "execution_report_target_path": "artifacts/work/execution_report.md",
         "progress_report_target_path": "artifacts/work/progress_report.md",
         "checks_report_target_path": "artifacts/checks/checks_report.md",
@@ -1130,11 +1126,12 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "import sys",
                 "from pathlib import Path",
                 "",
-                "payload = json.loads(sys.argv[1])",
-                "selection = json.loads(Path(payload['selection_path']).read_text(encoding='utf-8'))",
+                "payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}",
+                "selection_path = payload.get('selection_path', 'state/selection.json')",
+                "selection = json.loads(Path(selection_path).read_text(encoding='utf-8')) if Path(selection_path).exists() else {}",
                 "work_item_source = selection.get('work_item_source', 'DESIGN_GAP')",
                 "work_item_id = selection.get('work_item_id', 'design-gap-work-item')",
-                "check_commands_path = Path('state/runtime_work_item/check_commands.json')",
+                "check_commands_path = Path('docs/plans/runtime_work_item/check_commands.json')",
                 "check_commands_path.parent.mkdir(parents=True, exist_ok=True)",
                 "check_commands_path.write_text(json.dumps(['python -m pytest -q']) + '\\n', encoding='utf-8')",
                 "context_path = Path('artifacts/work/runtime_work_item_context.md')",
@@ -1170,22 +1167,13 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "import sys",
                 "from pathlib import Path",
                 "",
-                "payload = json.loads(sys.argv[1])",
                 "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
                 "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
-                "if payload.get('plan_review_decision') == 'REVISE':",
-                "    route = 'PLAN_REVIEW_EXHAUSTED'",
-                "    reason = 'plan_review_exhausted'",
-                "elif payload.get('implementation_state') == 'BLOCKED':",
-                "    route = 'IMPLEMENTATION_BLOCKED'",
-                "    reason = 'implementation_blocked'",
-                "elif payload.get('implementation_review_decision') == 'REVISE':",
-                "    route = 'IMPLEMENTATION_REVIEW_EXHAUSTED'",
-                "    reason = 'implementation_review_exhausted'",
+                "if Path('artifacts/work/progress_report.md').exists():",
+                "    payload = {'route': 'IMPLEMENTATION_BLOCKED', 'implementation_blocked': True, 'plan_review_exhausted': False, 'implementation_review_exhausted': False}",
                 "else:",
-                "    route = 'COMPLETE'",
-                "    reason = 'none'",
-                "bundle_path.write_text(json.dumps({'terminal_route': route, 'block_reason': reason}) + '\\n', encoding='utf-8')",
+                "    payload = {'route': 'COMPLETE', 'implementation_blocked': False, 'plan_review_exhausted': False, 'implementation_review_exhausted': False}",
+                "bundle_path.write_text(json.dumps(payload) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
@@ -1199,12 +1187,12 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "import sys",
                 "from pathlib import Path",
                 "",
-                "payload = json.loads(sys.argv[1])",
+                "payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}",
                 "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
                 "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
-                "route = payload.get('blocked_recovery_route', 'TERMINAL_BLOCKED')",
+                "route = payload.get('blocked_recovery_route', 'GAP_DESIGN_REVISION_REQUIRED')",
                 "reason = payload.get('reason', 'implementation_blocked')",
-                "bundle_path.write_text(json.dumps({'blocked_recovery_route': route, 'reason': reason}) + '\\n', encoding='utf-8')",
+                "bundle_path.write_text(json.dumps({'variant': route, 'reason': reason}) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
@@ -1332,7 +1320,7 @@ def _execute_design_delta_work_item_bundle(
     review_sequence: tuple[str, ...] = ("APPROVE",),
 ):
 
-    _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
+    _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
     _write_design_delta_runtime_run_checks_script(tmp_path)
     _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
     _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
@@ -1386,7 +1374,7 @@ def _execute_design_delta_work_item_bundle(
             )
             if plan_variant == "APPROVED":
                 payload = {
-                    "variant": "APPROVED",
+                    "variant": "APPROVE",
                     "review_report": "artifacts/review/plan_review_report.md",
                     "review_decision": "APPROVE",
                     "findings": {
@@ -1547,7 +1535,7 @@ def _execute_design_delta_parent_call_work_item_route(
     bundle = result.entry_result.validated_bundles[
         "design_delta_parent_calls_work_item::run-parent-work-item"
     ]
-    _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
+    _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
     _write_design_delta_runtime_run_checks_script(tmp_path)
     _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
     _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
@@ -2257,18 +2245,46 @@ def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(
     )
 
 
-def test_design_delta_work_item_candidate_is_blocked_by_phase_family_boundary(
+def test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_work_item_entrypoint(tmp_path)
+    workflow_path, result = _compile_design_delta_work_item_runtime_entrypoint(tmp_path)
+    assert workflow_path.name == "work_item.orc"
+    bundle = result.entry_result.validated_bundles[
+        "lisp_frontend_design_delta/work_item::run-work-item"
+    ]
+    public_inputs = set(workflow_public_input_contracts(bundle))
 
-    _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
-        exc_info.value.diagnostics,
+    assert "phase-ctx__state-root" not in public_inputs
+    assert "selection_bundle_path" not in public_inputs
+    assert "manifest_path" not in public_inputs
+    assert "architecture_bundle_path" not in public_inputs
+    assert "progress_ledger_path" not in public_inputs
+    assert "run_state_path" not in public_inputs
+
+
+test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts.design_delta_work_item_candidate_compiles_as_parent_callable_workflow = True
+
+
+def test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result, lowered_by_name = _compile_design_delta_parent_call_work_item_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "design_delta_parent_calls_work_item::run-parent-work-item"
+    ]
+    public_inputs = set(workflow_public_input_contracts(bundle))
+
+    assert "phase-ctx__state-root" not in public_inputs
+    assert "selection_bundle_path" not in public_inputs
+    assert "manifest_path" not in public_inputs
+    assert "architecture_bundle_path" not in public_inputs
+    assert "progress_ledger_path" not in public_inputs
+    assert "run_state_path" not in public_inputs
+    assert any(
+        "lisp_frontend_design_delta/work_item::run-work-item" in name
+        for name in lowered_by_name
     )
-
-
-test_design_delta_work_item_candidate_is_blocked_by_phase_family_boundary.design_delta_work_item_candidate_compiles_as_parent_callable_workflow = True
 
 
 def test_design_delta_work_item_library_module_stays_closure_only(
@@ -2479,45 +2495,125 @@ def test_design_delta_parent_call_implementation_phase_smokes_completed_and_bloc
 def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_work_item_runtime_entrypoint(tmp_path / "completed")
-
-    _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
-        exc_info.value.diagnostics,
+    completed_workspace, completed_state, completed_provider_calls = _execute_design_delta_work_item_route(
+        tmp_path / "completed",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+    blocked_workspace, blocked_state, blocked_provider_calls = _execute_design_delta_work_item_route(
+        tmp_path / "blocked",
+        plan_variant="APPROVED",
+        implementation_variant="BLOCKED",
+        work_item_source="DRAFT_DESIGN_GAP",
     )
 
+    assert completed_state["status"] == "completed"
+    assert completed_provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+    ]
+    assert completed_state["workflow_outputs"]["return__variant"] == "COMPLETED"
+    assert completed_state["workflow_outputs"]["return__summary"] == "artifacts/work/item_summary.json"
+    assert (completed_workspace / "artifacts" / "work" / "execution_report.md").is_file()
+    assert (completed_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert (completed_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
+
+    assert blocked_state["status"] == "completed"
+    assert blocked_provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-work-item-recovery",
+    ]
+    assert blocked_state["workflow_outputs"]["return__variant"] == "BLOCKED_RECOVERY"
+    assert blocked_state["workflow_outputs"]["return__reason"] == "gap_design_revision_required"
+    assert blocked_state["workflow_outputs"]["return__summary"] == "artifacts/work/item_summary.json"
+    assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
+    assert (blocked_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (blocked_workspace / "artifacts" / "review" / "implementation_review_report.md").exists()
 
 def test_design_delta_work_item_candidate_smokes_terminal_blocked_route(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_work_item_runtime_entrypoint(tmp_path / "plan-blocked")
-
-    _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
-        exc_info.value.diagnostics,
+    workspace, state, provider_calls = _execute_design_delta_work_item_route(
+        tmp_path / "plan-blocked",
+        plan_variant="BLOCKED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
     )
 
+    assert state["status"] == "completed"
+    assert provider_calls == ["fake-plan-draft", "fake-plan-review"]
+    assert state["workflow_outputs"]["return__variant"] == "TERMINAL_BLOCKED"
+    assert state["workflow_outputs"]["return__reason"] == "plan_blocked"
+    assert state["workflow_outputs"]["return__summary"] == "artifacts/work/item_summary.json"
+    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
+    assert not (workspace / "artifacts" / "work" / "progress_report.md").exists()
 
 def test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery_routes(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path / "completed")
-
-    _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
-        exc_info.value.diagnostics,
+    completed_workspace, completed_state, completed_provider_calls = (
+        _execute_design_delta_parent_call_work_item_route(
+            tmp_path / "completed",
+            plan_variant="APPROVED",
+            implementation_variant="COMPLETED",
+            work_item_source="DRAFT_DESIGN_GAP",
+        )
+    )
+    blocked_workspace, blocked_state, blocked_provider_calls = (
+        _execute_design_delta_parent_call_work_item_route(
+            tmp_path / "blocked",
+            plan_variant="APPROVED",
+            implementation_variant="BLOCKED",
+            work_item_source="DRAFT_DESIGN_GAP",
+        )
     )
 
+    assert completed_state["status"] == "completed"
+    assert completed_provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+    ]
+    assert completed_state["workflow_outputs"]["return__variant"] == "COMPLETED"
+    assert (completed_workspace / "artifacts" / "work" / "execution_report.md").is_file()
+    assert (completed_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+
+    assert blocked_state["status"] == "completed"
+    assert blocked_provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-work-item-recovery",
+    ]
+    assert blocked_state["workflow_outputs"]["return__variant"] == "BLOCKED_RECOVERY"
+    assert blocked_state["workflow_outputs"]["return__reason"] == "gap_design_revision_required"
+    assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
+    assert (blocked_workspace / "artifacts" / "work" / "item_summary.json").is_file()
 
 def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        _compile_design_delta_parent_call_work_item_entrypoint(tmp_path / "plan-blocked")
-
-    _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
-        exc_info.value.diagnostics,
+    workspace, state, provider_calls = _execute_design_delta_parent_call_work_item_route(
+        tmp_path / "plan-blocked",
+        plan_variant="BLOCKED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
     )
+
+    assert state["status"] == "completed"
+    assert provider_calls == ["fake-plan-draft", "fake-plan-review"]
+    assert state["workflow_outputs"]["return__variant"] == "TERMINAL_BLOCKED"
+    assert state["workflow_outputs"]["return__reason"] == "plan_blocked"
+    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
+    assert not (workspace / "artifacts" / "work" / "progress_report.md").exists()
 
 
 def test_design_delta_migration_nested_same_file_call_with_local_record_compiles(

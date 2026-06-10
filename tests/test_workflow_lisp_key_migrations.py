@@ -904,6 +904,24 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
     tmp_path: Path,
 ) -> None:
     workflow_path = tmp_path / "private_exec_context_phase_entry.orc"
+    script_path = tmp_path / "scripts" / "emit_phase_result.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "_, label, phase_name = sys.argv",
+                "bundle_path = os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']",
+                "with open(bundle_path, 'w', encoding='utf-8') as handle:",
+                "    json.dump({'label': label, 'phase_name': phase_name}, handle)",
+                "    handle.write('\\n')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     workflow_path.write_text(
         "\n".join(
             [
@@ -923,9 +941,7 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
                 "    (artifact-root Path.artifact-root))",
                 "  (defrecord Result",
                 "    (label String)",
-                "    (phase_name Symbol)",
-                "    (phase_state_root Path.state-root)",
-                "    (phase_artifact_root Path.artifact-root))",
+                "    (phase_name String))",
                 "  (defworkflow entry",
                 "    ((label String))",
                 "    -> Result",
@@ -936,11 +952,9 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
                 "     (label String))",
                 "    -> Result",
                 "    (with-phase phase-ctx plan-gate-wrapper",
-                "      (record Result",
-                "        :label label",
-                "        :phase_name phase-ctx.phase-name",
-                "        :phase_state_root phase-ctx.state-root",
-                "        :phase_artifact_root phase-ctx.artifact-root)))",
+                "      (command-result emit_phase_result",
+                "        :argv (\"python\" \"scripts/emit_phase_result.py\" label phase-ctx.phase-name)",
+                "        :returns Result)))",
                 ")",
             ]
         )
@@ -951,6 +965,12 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
     result = compile_stage3_entrypoint(
         workflow_path,
         source_roots=(tmp_path,),
+        command_boundaries={
+            "emit_phase_result": ExternalToolBinding(
+                name="emit_phase_result",
+                stable_command=("python", "scripts/emit_phase_result.py"),
+            ),
+        },
         validate_shared=True,
         workspace_root=tmp_path,
     ).entry_result
@@ -994,8 +1014,6 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
     assert original_state["workflow_outputs"] == {
         "return__label": "selected-item",
         "return__phase_name": "plan-gate-wrapper",
-        "return__phase_state_root": "state/plan-gate-wrapper",
-        "return__phase_artifact_root": "artifacts/plan-gate-wrapper",
     }
     assert stripped_state["workflow_outputs"] == original_state["workflow_outputs"]
     assert stripped_state["bound_inputs"]["phase-ctx__run__run-id"] == "rid-123"
