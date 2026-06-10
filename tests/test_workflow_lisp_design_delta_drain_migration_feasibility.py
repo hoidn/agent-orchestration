@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_context, workflow_public_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -13,6 +20,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "cli"
 WORKFLOW_LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
+CHARACTERIZATION_FIXTURES = WORKFLOW_LISP_FIXTURES / "characterization" / "sources"
 
 
 def _write_module(path: Path, source: str) -> Path:
@@ -23,6 +31,14 @@ def _write_module(path: Path, source: str) -> Path:
 
 def _build_module():
     return importlib.import_module("orchestrator.workflow_lisp.build")
+
+
+def _bind_nested_match_inputs(bundle, workspace: Path) -> dict[str, object]:
+    return bind_workflow_inputs(
+        workflow_public_input_contracts(bundle),
+        {"report": "artifacts/work/input_report.md"},
+        workspace,
+    )
 
 
 def test_design_delta_migration_nested_library_import_layout_compiles(tmp_path: Path) -> None:
@@ -231,6 +247,464 @@ def test_design_delta_migration_union_match_projection_compiles(tmp_path: Path) 
     )
 
     assert result.lowered_workflows[0].typed_workflow.definition.name == "summarize"
+
+
+def test_design_delta_migration_wcc_m3_nested_match_fixture_compiles(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        CHARACTERIZATION_FIXTURES / "wcc_m3_nested_non_tail_match.orc",
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m3",
+    )
+
+    assert result.lowered_workflows[0].typed_workflow.definition.name == "summarize"
+
+
+def test_design_delta_migration_wcc_m3_nested_match_smoke_executes_completed_path(tmp_path: Path) -> None:
+    fixture = CHARACTERIZATION_FIXTURES / "wcc_m3_nested_non_tail_match.orc"
+    module_path = tmp_path / "nested_match_probe.orc"
+    module_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "prompts" / "implementation").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "prompts" / "implementation" / "execute.md").write_text(
+        "Return a structured implementation result.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "work" / "input_report.md").write_text("# input\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m3",
+    )
+    bundle = result.validated_bundles["summarize"]
+    bound_inputs = _bind_nested_match_inputs(bundle, tmp_path)
+    state_manager = StateManager(workspace=tmp_path, run_id="nested-match-smoke")
+    state_manager.initialize(str(module_path), workflow_context(bundle), bound_inputs)
+    provider_counts: dict[str, int] = {}
+
+    def _prepare_invocation(_self, provider_name=None, prompt_content=None, **_kwargs):
+        return type(
+            "ProviderInvocationStub",
+            (),
+            {
+                "input_mode": "stdin",
+                "prompt": prompt_content or "",
+                "provider_name": provider_name,
+            },
+        )(), None
+
+    def _execute(_self, invocation, **_kwargs):
+        payloads = [
+            {
+                "variant": "COMPLETED",
+                "execution_report": "artifacts/work/attempt_report.md",
+            },
+            {
+                "variant": "APPROVED",
+                "execution_report": "artifacts/work/review_report.md",
+            },
+        ]
+        provider_name = getattr(invocation, "provider_name", None)
+        index = provider_counts.get(provider_name, 0)
+        provider_counts[provider_name] = index + 1
+        payload = payloads[index] if index < len(payloads) else payloads[-1]
+        bundle_path = next(
+            Path(line.split("path:", 1)[1].strip())
+            for line in getattr(invocation, "prompt", "").splitlines()
+            if "path:" in line
+        )
+        if not bundle_path.is_absolute():
+            bundle_path = tmp_path / bundle_path
+        for relpath in ("artifacts/work/attempt_report.md", "artifacts/work/review_report.md"):
+            target = tmp_path / relpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"# {target.stem}\n", encoding="utf-8")
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps(payload), encoding="utf-8")
+        return type(
+            "ProviderExecutionStub",
+            (),
+            {
+                "exit_code": 0,
+                "stdout": b"ok",
+                "stderr": b"",
+                "duration_ms": 1,
+                "error": None,
+                "missing_placeholders": None,
+                "invalid_prompt_placeholder": False,
+                "raw_stdout": None,
+                "normalized_stdout": None,
+                "provider_session": None,
+            },
+        )()
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {"return__report": "artifacts/work/review_report.md"}
+    assert provider_counts == {"fake-execute": 2}
+    assert state["steps"]["summarize__summary__match_attempt"]["status"] == "completed"
+    assert state["steps"]["summarize__summary__match_attempt__completed__match_review"]["status"] == "completed"
+
+
+def test_design_delta_migration_wcc_m3_nested_match_keeps_branch_local_effects_inside_selected_arm(
+    tmp_path: Path,
+) -> None:
+    module_path = _write_module(
+        tmp_path / "nested_branch_effect_probe.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule nested_branch_effect_probe)",
+                "  (export summarize)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewDecision",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (REVISE",
+                "      (progress_report WorkReport)))",
+                "  (defunion ImplementationAttempt",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow summarize",
+                "    ((report WorkReport))",
+                "    -> ImplementationSummary",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report)",
+                "               :returns ImplementationAttempt))",
+                "           (summary",
+                "             (match attempt",
+                "               ((COMPLETED completed)",
+                "                (let* ((review",
+                "                         (provider-result providers.execute",
+                "                           :prompt prompts.implementation.execute",
+                "                           :inputs (completed.execution_report)",
+                "                           :returns ReviewDecision)))",
+                "                  (match review",
+                "                    ((APPROVED approved)",
+                "                     (record ImplementationSummary",
+                "                       :report approved.execution_report))",
+                "                    ((REVISE revise)",
+                "                     (record ImplementationSummary",
+                "                       :report revise.progress_report)))))",
+                "               ((BLOCKED blocked)",
+                "                (record ImplementationSummary",
+                "                  :report blocked.progress_report)))))",
+                "      (record ImplementationSummary",
+                "        :report summary.report))))",
+            ]
+        )
+        + "\n",
+    )
+    (tmp_path / "prompts" / "implementation").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "prompts" / "implementation" / "execute.md").write_text(
+        "Return a structured implementation result.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "work" / "input_report.md").write_text("# input\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m3",
+    )
+    bundle = result.validated_bundles["summarize"]
+    bound_inputs = bind_workflow_inputs(
+        workflow_public_input_contracts(bundle),
+        {"report": "artifacts/work/input_report.md"},
+        tmp_path,
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id="nested-branch-effect")
+    state_manager.initialize(str(module_path), workflow_context(bundle), bound_inputs)
+    provider_counts: dict[str, int] = {}
+
+    def _prepare_invocation(_self, provider_name=None, prompt_content=None, **_kwargs):
+        return type(
+            "ProviderInvocationStub",
+            (),
+            {
+                "input_mode": "stdin",
+                "prompt": prompt_content or "",
+                "provider_name": provider_name,
+            },
+        )(), None
+
+    def _execute(_self, invocation, **_kwargs):
+        payloads = [
+            {
+                "variant": "BLOCKED",
+                "progress_report": "artifacts/work/blocked_report.md",
+            },
+            {
+                "variant": "APPROVED",
+                "execution_report": "artifacts/work/review_report.md",
+            },
+        ]
+        provider_name = getattr(invocation, "provider_name", None)
+        index = provider_counts.get(provider_name, 0)
+        provider_counts[provider_name] = index + 1
+        payload = payloads[index] if index < len(payloads) else payloads[-1]
+        bundle_path = next(
+            Path(line.split("path:", 1)[1].strip())
+            for line in getattr(invocation, "prompt", "").splitlines()
+            if "path:" in line
+        )
+        if not bundle_path.is_absolute():
+            bundle_path = tmp_path / bundle_path
+        for relpath in ("artifacts/work/blocked_report.md", "artifacts/work/review_report.md"):
+            target = tmp_path / relpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"# {target.stem}\n", encoding="utf-8")
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps(payload), encoding="utf-8")
+        return type(
+            "ProviderExecutionStub",
+            (),
+            {
+                "exit_code": 0,
+                "stdout": b"ok",
+                "stderr": b"",
+                "duration_ms": 1,
+                "error": None,
+                "missing_placeholders": None,
+                "invalid_prompt_placeholder": False,
+                "raw_stdout": None,
+                "normalized_stdout": None,
+                "provider_session": None,
+            },
+        )()
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {"return__report": "artifacts/work/blocked_report.md"}
+    assert provider_counts == {"fake-execute": 1}
+    assert state["steps"]["summarize__summary__match_attempt__completed__review"]["status"] == "skipped"
+    assert state["steps"]["summarize__summary__match_attempt__completed__match_review"]["status"] == "skipped"
+
+
+def test_design_delta_migration_wcc_m3_triple_nested_match_keeps_outer_branch_guards(
+    tmp_path: Path,
+) -> None:
+    module_path = _write_module(
+        tmp_path / "triple_nested_branch_effect_probe.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule triple_nested_branch_effect_probe)",
+                "  (export summarize)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defunion ReviewDecision",
+                "    (APPROVED",
+                "      (execution_report WorkReport))",
+                "    (REVISE",
+                "      (progress_report WorkReport)))",
+                "  (defunion FinalDecision",
+                "    (FINAL",
+                "      (execution_report WorkReport))",
+                "    (RETRY",
+                "      (progress_report WorkReport)))",
+                "  (defunion ImplementationAttempt",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow summarize",
+                "    ((report WorkReport))",
+                "    -> ImplementationSummary",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report)",
+                "               :returns ImplementationAttempt))",
+                "           (summary",
+                "             (match attempt",
+                "               ((COMPLETED completed)",
+                "                (let* ((review",
+                "                         (provider-result providers.execute",
+                "                           :prompt prompts.implementation.execute",
+                "                           :inputs (completed.execution_report)",
+                "                           :returns ReviewDecision)))",
+                "                  (match review",
+                "                    ((APPROVED approved)",
+                "                     (let* ((final",
+                "                              (provider-result providers.execute",
+                "                                :prompt prompts.implementation.execute",
+                "                                :inputs (approved.execution_report)",
+                "                                :returns FinalDecision)))",
+                "                       (match final",
+                "                         ((FINAL final_decision)",
+                "                          (record ImplementationSummary",
+                "                            :report final_decision.execution_report))",
+                "                         ((RETRY retry)",
+                "                          (record ImplementationSummary",
+                "                            :report retry.progress_report)))))",
+                "                    ((REVISE revise)",
+                "                     (record ImplementationSummary",
+                "                       :report revise.progress_report)))))",
+                "               ((BLOCKED blocked)",
+                "                (record ImplementationSummary",
+                "                  :report blocked.progress_report)))))",
+                "      (record ImplementationSummary",
+                "        :report summary.report))))",
+            ]
+        )
+        + "\n",
+    )
+    (tmp_path / "prompts" / "implementation").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "prompts" / "implementation" / "execute.md").write_text(
+        "Return a structured implementation result.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "artifacts" / "work" / "input_report.md").write_text("# input\n", encoding="utf-8")
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m3",
+    )
+    bundle = result.validated_bundles["summarize"]
+    bound_inputs = _bind_nested_match_inputs(bundle, tmp_path)
+    state_manager = StateManager(workspace=tmp_path, run_id="triple-nested-branch-effect")
+    state_manager.initialize(str(module_path), workflow_context(bundle), bound_inputs)
+    provider_counts: dict[str, int] = {}
+
+    def _prepare_invocation(_self, provider_name=None, prompt_content=None, **_kwargs):
+        return type(
+            "ProviderInvocationStub",
+            (),
+            {
+                "input_mode": "stdin",
+                "prompt": prompt_content or "",
+                "provider_name": provider_name,
+            },
+        )(), None
+
+    def _execute(_self, invocation, **_kwargs):
+        payloads = [
+            {
+                "variant": "BLOCKED",
+                "progress_report": "artifacts/work/blocked_report.md",
+            },
+            {
+                "variant": "APPROVED",
+                "execution_report": "artifacts/work/review_report.md",
+            },
+            {
+                "variant": "FINAL",
+                "execution_report": "artifacts/work/final_report.md",
+            },
+        ]
+        provider_name = getattr(invocation, "provider_name", None)
+        index = provider_counts.get(provider_name, 0)
+        provider_counts[provider_name] = index + 1
+        payload = payloads[index] if index < len(payloads) else payloads[-1]
+        bundle_path = next(
+            Path(line.split("path:", 1)[1].strip())
+            for line in getattr(invocation, "prompt", "").splitlines()
+            if "path:" in line
+        )
+        if not bundle_path.is_absolute():
+            bundle_path = tmp_path / bundle_path
+        for relpath in (
+            "artifacts/work/blocked_report.md",
+            "artifacts/work/review_report.md",
+            "artifacts/work/final_report.md",
+        ):
+            target = tmp_path / relpath
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"# {target.stem}\n", encoding="utf-8")
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps(payload), encoding="utf-8")
+        return type(
+            "ProviderExecutionStub",
+            (),
+            {
+                "exit_code": 0,
+                "stdout": b"ok",
+                "stderr": b"",
+                "duration_ms": 1,
+                "error": None,
+                "missing_placeholders": None,
+                "invalid_prompt_placeholder": False,
+                "raw_stdout": None,
+                "normalized_stdout": None,
+                "provider_session": None,
+            },
+        )()
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {"return__report": "artifacts/work/blocked_report.md"}
+    assert provider_counts == {"fake-execute": 1}
+    assert state["steps"]["summarize__summary__match_attempt__completed__review"]["status"] == "skipped"
+    assert state["steps"]["summarize__summary__match_attempt__completed__match_review"]["status"] == "skipped"
+    assert state["steps"]["summarize__summary__match_attempt__completed__match_review__approved__final"]["status"] == "skipped"
+    assert state["steps"]["summarize__summary__match_attempt__completed__match_review__approved__match_final"]["status"] == "skipped"
+
+
+def test_design_delta_migration_wcc_m3_branch_local_leak_fixture_fails_as_lexical_escape(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            CHARACTERIZATION_FIXTURES / "wcc_m3_branch_local_ref_leak.orc",
+            provider_externs={"providers.execute": "fake-execute"},
+            prompt_externs={
+                "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="wcc_m3",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "name_unknown"
+    assert "completed" in diagnostic.message
 
 
 def test_design_delta_domain_types_import_from_two_candidate_modules(tmp_path: Path) -> None:

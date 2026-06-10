@@ -1118,14 +1118,10 @@ class WorkflowExecutor:
         current_node_id: Optional[str],
     ) -> None:
         """Persist skipped result surfaces for descendants under one skipped branch/case marker."""
-        if (
-            not isinstance(current_node_id, str)
-            or self.executable_ir is None
-            or self.projection is None
-        ):
+        if not isinstance(current_node_id, str) or self.executable_ir is None or self.projection is None:
             return
         node = self.executable_ir.nodes.get(current_node_id)
-        if not isinstance(node, (IfBranchMarkerNode, MatchCaseMarkerNode)):
+        if not isinstance(node, (IfBranchMarkerNode, IfJoinNode, MatchCaseMarkerNode, MatchJoinNode)):
             return
 
         descendant_prefix = f"{current_node_id}."
@@ -2491,6 +2487,7 @@ class WorkflowExecutor:
                             'skipped': True
                         }
                         self._persist_step_result(state, step_name, step, result)
+                        self._persist_skipped_structured_descendants(state, current_node_id)
                         self._record_finalization_settled_result(
                             state,
                             step_index,

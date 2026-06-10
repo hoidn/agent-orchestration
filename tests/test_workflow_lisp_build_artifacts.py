@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import importlib
 import json
-from dataclasses import replace
+from dataclasses import asdict, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 
 import pytest
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
+import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from orchestrator.workflow_lisp.modules import resolve_module_graph
+from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_command_boundary_environment
 
@@ -235,6 +239,48 @@ def _pointer_effects_request(tmp_path: Path):
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def _thaw_source_map_value(value):
+    if isinstance(value, Enum):
+        return value.value
+    if is_dataclass(value):
+        return {key: _thaw_source_map_value(item) for key, item in asdict(value).items()}
+    if isinstance(value, dict):
+        return {key: _thaw_source_map_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_source_map_value(item) for item in value]
+    return value
+
+
+def _same_file_wcc_m3_source_map_payload(
+    tmp_path: Path,
+    *,
+    fixture_path: Path,
+    module_filename: str,
+    selected_name: str,
+) -> dict[str, object]:
+    module_path = tmp_path / module_filename
+    module_path.write_text(fixture_path.read_text(encoding="utf-8"), encoding="utf-8")
+    graph = resolve_module_graph(module_path, source_roots=(tmp_path,))
+    compile_result = workflow_lisp_compiler._compile_stage3_graph(
+        graph,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        },
+        imported_workflow_bundles=None,
+        command_boundaries=None,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=workflow_lisp_compiler.normalize_lowering_route("wcc_m3"),
+    )
+    source_map = build_source_map_document(
+        compile_result,
+        selected_name=selected_name,
+        display_name_resolver=lambda workflow_name: workflow_name.split("::")[-1],
+    )
+    return _thaw_source_map_value(source_map)
 
 
 def _workflow_public_input_contracts(bundle):
@@ -1552,6 +1598,27 @@ def test_build_frontend_bundle_keeps_legacy_default_and_lowering_route_out_of_ar
     assert "wcc_m1" not in source_map_payload
     assert "wcc_m2" not in source_map_payload
     assert "lowering_route" not in source_map_payload
+
+
+def test_same_file_wcc_m3_source_map_keeps_route_names_out_and_preserves_match_join_lineage(
+    tmp_path: Path,
+) -> None:
+    source_map = _same_file_wcc_m3_source_map_payload(
+        tmp_path,
+        fixture_path=FIXTURES / "characterization" / "sources" / "design_delta_union_match_projection.orc",
+        module_filename="union_match_probe.orc",
+        selected_name="union_match_probe::summarize",
+    )
+    source_map_text = json.dumps(source_map, sort_keys=True).replace(str(tmp_path), "")
+    workflow = source_map["workflows"]["union_match_probe::summarize"]
+
+    assert "wcc_m1" not in source_map_text
+    assert "wcc_m2" not in source_map_text
+    assert "wcc_m3" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert any(node["kind"] == "match_join" for node in workflow["executable_nodes"])
+    assert workflow["validation_subjects"]
+    assert workflow["core_nodes"]
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

@@ -198,7 +198,10 @@ def _lower_provider_result_operation(
                 context=context,
                 local_values=local_values,
             )
-            if lowering_core._uses_legacy_phase_prompt_input_prelude(provider_result):
+            if lowering_core._uses_legacy_phase_prompt_input_prelude(
+                provider_result,
+                local_values=local_values,
+            ):
                 use_active_phase_bundle = True
         if use_active_phase_bundle:
             allocation = allocate_generated_result_bundle(
@@ -220,7 +223,10 @@ def _lower_provider_result_operation(
             )
             authored_contract["path"] = allocation.concrete_path_template
             hidden_inputs[allocation.generated_input_name] = lowering_core._origin_from_context_source(context, provider_result)
-        if lowering_core._uses_legacy_phase_prompt_input_prelude(provider_result):
+        if lowering_core._uses_legacy_phase_prompt_input_prelude(
+            provider_result,
+            local_values=local_values,
+        ):
             generated_steps.extend(
                 lowering_core._build_phase_prompt_input_prelude(
                     provider_result,

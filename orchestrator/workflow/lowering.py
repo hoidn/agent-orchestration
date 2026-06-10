@@ -783,6 +783,7 @@ class _IRBuilder:
             statement_name=statement_presentation_name,
             selector_address=selector_address,
             case_outputs=MappingProxyType(dict(case_outputs)),
+            bound_when_predicate=_bind_predicate(step.when_predicate, context),
         )
         self._register_node(node=join, region=region, top_level_region=top_level_region)
         self.projection.register_structured_match(step.step_id, case_projection)

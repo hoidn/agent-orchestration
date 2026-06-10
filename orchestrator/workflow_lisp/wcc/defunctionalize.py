@@ -12,6 +12,7 @@ from ..contracts import GeneratedInternalInput, derive_workflow_signature_contra
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import FieldAccessExpr, LiteralExpr, NameExpr, RecordExpr, UnionVariantExpr
 from ..procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
+from ..typecheck_context import TypedExpr
 from ..type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 from ..workflows import CommandBoundaryEnvironment, ExternEnvironment, TypedWorkflowDef, WorkflowCatalog, WorkflowDef, WorkflowSignature
 from ..workflow_refs import WorkflowCallableSpecialization, specialization_name
@@ -20,17 +21,46 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from ..lowering import core as lowering_core
 from ..lowering.context import _LoweringContext, _TerminalResult, _copy_context_with_phase_scope
 from ..lowering.control_dispatch import _binding_local_value_from_terminal
-from ..lowering.origins import LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _with_origin_key
-from ..lowering.generated_paths import allocation_reason
+from ..lowering.origins import LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
+from ..lowering.generated_paths import allocate_generated_result_bundle, allocation_reason
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
 from ..lowering.values import _resolve_inline_expr_value, _signature_local_values
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation
 from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _resolve_procedure_lowering, _lower_procedure_call
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
-from orchestrator.workflow.state_layout import derive_entrypoint_managed_write_root_allocations
+from orchestrator.workflow.state_layout import GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
 from .anf import normalize_wcc_body_to_anf
 from .elaborate import elaborate_typed_workflow
-from .model import WCC_M2_ROUTE_SCHEMA_VERSION, WccBody, WccCall, WccFieldAccessAtom, WccHalt, WccInject, WccLet, WccLiteralAtom, WccNameAtom, WccPerform, WccPhaseScope, WccRecordAtom, WccValue
+from .model import (
+    WCC_M2_ROUTE_SCHEMA_VERSION,
+    WCC_M3_ROUTE_SCHEMA_VERSION,
+    WccBody,
+    WccCall,
+    WccCase,
+    WccFieldAccessAtom,
+    WccHalt,
+    WccInject,
+    WccJoin,
+    WccJoinParam,
+    WccJump,
+    WccLet,
+    WccLiteralAtom,
+    WccNameAtom,
+    WccPerform,
+    WccPhaseScope,
+    WccPhaseTargetAtom,
+    WccRecordAtom,
+    WccValue,
+)
+from .analysis import WccScopeAnalysis, analyze_wcc_body
+from ..lowering.control_match import (
+    _binding_terminal_for_inline_match,
+    _build_match_projection_anchor_step,
+    _conditional_case_outputs,
+    _conditional_output_refs,
+    _match_arm_local_values,
+    _normalize_union_match_case_terminal,
+)
 
 
 def lower_wcc_m2_workflow_definitions(
@@ -46,6 +76,62 @@ def lower_wcc_m2_workflow_definitions(
     type_env,
 ) -> tuple[lowering_core.LoweredWorkflow, ...]:
     """Lower bounded straight-line workflows through WCC M2."""
+    return _lower_wcc_workflow_definitions(
+        typed_workflows,
+        typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog,
+        workflow_path=workflow_path,
+        workflow_catalog=workflow_catalog,
+        imported_workflow_bundles=imported_workflow_bundles,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        type_env=type_env,
+        route_schema_version=WCC_M2_ROUTE_SCHEMA_VERSION,
+    )
+
+
+def lower_wcc_m3_workflow_definitions(
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    *,
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_catalog: ProcedureCatalog,
+    workflow_path: Path,
+    workflow_catalog: WorkflowCatalog,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    extern_environment: ExternEnvironment,
+    command_boundary_environment: CommandBoundaryEnvironment,
+    type_env,
+) -> tuple[lowering_core.LoweredWorkflow, ...]:
+    """Lower bounded same-file match workflows through WCC M3."""
+
+    return _lower_wcc_workflow_definitions(
+        typed_workflows,
+        typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog,
+        workflow_path=workflow_path,
+        workflow_catalog=workflow_catalog,
+        imported_workflow_bundles=imported_workflow_bundles,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        type_env=type_env,
+        route_schema_version=WCC_M3_ROUTE_SCHEMA_VERSION,
+    )
+
+
+def _lower_wcc_workflow_definitions(
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    *,
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_catalog: ProcedureCatalog,
+    workflow_path: Path,
+    workflow_catalog: WorkflowCatalog,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    extern_environment: ExternEnvironment,
+    command_boundary_environment: CommandBoundaryEnvironment,
+    type_env,
+    route_schema_version: str,
+) -> tuple[lowering_core.LoweredWorkflow, ...]:
+    """Lower WCC workflows through one route-selected normalized program shape."""
 
     resolved_procedures = _resolve_procedure_lowering(
         typed_procedures,
@@ -155,6 +241,7 @@ def lower_wcc_m2_workflow_definitions(
             workflows_by_name=workflows_by_name,
             ensure_workflow_lowered=lower_one,
             specialize_workflow=specialize_workflow,
+            route_schema_version=route_schema_version,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
@@ -196,6 +283,7 @@ def _lower_one_wcc_workflow(
     workflows_by_name: Mapping[str, TypedWorkflowDef],
     ensure_workflow_lowered: Any,
     specialize_workflow: Any,
+    route_schema_version: str,
 ) -> lowering_core.LoweredWorkflow:
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
@@ -261,14 +349,16 @@ def _lower_one_wcc_workflow(
             type_env=type_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
-            route_schema_version=WCC_M2_ROUTE_SCHEMA_VERSION,
+            route_schema_version=route_schema_version,
         )
     )
+    scope_analysis = analyze_wcc_body(wcc_body)
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _defunctionalize_body(
         wcc_body,
         context=context,
         local_values=local_values,
+        scope_analysis=scope_analysis,
     )
     steps, terminal = lowering_core._normalize_top_level_terminal(
         typed_workflow=typed_workflow,
@@ -458,75 +548,119 @@ def _defunctionalize_body(
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
+    scope_analysis: WccScopeAnalysis,
+    jump_target: tuple[str, tuple[WccJoinParam, ...]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    steps: list[dict[str, Any]] = []
-    hidden_inputs: dict[str, Any] = {}
-    local_bindings = dict(local_values)
-    current_context = context
-    current = body
-    while isinstance(current, WccLet):
-        binding_type = current.bound_type_ref
-        if isinstance(current.bound_value, (WccPerform, WccCall)):
+    if isinstance(body, WccLet):
+        binding_type = body.bound_type_ref
+        updated_locals = dict(local_values)
+        binding_steps: list[dict[str, Any]] = []
+        binding_hidden_inputs: dict[str, Any] = {}
+        if isinstance(body.bound_value, (WccPerform, WccCall)):
             binding_context = _context_with_wcc_phase_scope(
-                current_context,
-                phase_scope=current.bound_value.metadata.phase_scope,
-                local_values=local_bindings,
+                context,
+                phase_scope=body.bound_value.metadata.phase_scope,
+                local_values=updated_locals,
             )
             step_context = lowering_core._copy_context_with_step_prefix(
                 binding_context,
-                step_name_prefix=_binding_step_prefix(current_context, current.bound_name),
+                step_name_prefix=_binding_step_prefix(context, body.bound_name),
             )
             binding_steps, binding_terminal = _lower_effectful_binding(
-                current.bound_value,
+                body.bound_value,
                 binding_type=binding_type,
                 context=step_context,
-                local_values=local_bindings,
+                local_values=updated_locals,
             )
-            steps.extend(binding_steps)
-            hidden_inputs.update(binding_terminal.hidden_inputs)
+            binding_hidden_inputs.update(binding_terminal.hidden_inputs)
             local_value = _binding_local_value_from_terminal(
-                current.bound_value,
+                body.bound_value,
                 binding_type=binding_type,
                 binding_terminal=binding_terminal,
             )
             if local_value is not None:
-                local_bindings[current.bound_name] = local_value
+                updated_locals[body.bound_name] = local_value
         else:
-            binding_expr = _frontend_expr_from_wcc_binding_value(current.bound_value)
-            resolved_binding = _resolve_inline_expr_value(binding_expr, local_values=local_bindings)
-            local_bindings[current.bound_name] = resolved_binding
-        current_context = lowering_core._context_with_local_type_binding(
-            current_context,
-            binding_name=current.bound_name,
-            binding_type=binding_type,
+            binding_expr = _frontend_expr_from_wcc_binding_value(body.bound_value)
+            updated_locals[body.bound_name] = _resolve_inline_expr_value(binding_expr, local_values=updated_locals)
+        nested_steps, nested_terminal = _defunctionalize_body(
+            body.body,
+            context=lowering_core._context_with_local_type_binding(
+                context,
+                binding_name=body.bound_name,
+                binding_type=binding_type,
+            ),
+            local_values=updated_locals,
+            scope_analysis=scope_analysis,
+            jump_target=jump_target,
         )
-        current = current.body
+        return [*binding_steps, *nested_steps], replace(
+            nested_terminal,
+            hidden_inputs={**binding_hidden_inputs, **nested_terminal.hidden_inputs},
+        )
 
-    result_expr = _frontend_expr_from_wcc_value(current.result)
+    if isinstance(body, WccCase):
+        return _defunctionalize_case(
+            body,
+            context=context,
+            local_values=local_values,
+            scope_analysis=scope_analysis,
+            jump_target=jump_target,
+        )
+
+    if isinstance(body, WccJoin):
+        return _defunctionalize_join(
+            body,
+            context=context,
+            local_values=local_values,
+            scope_analysis=scope_analysis,
+            jump_target=jump_target,
+        )
+
+    if isinstance(body, WccJump):
+        return _defunctionalize_jump(
+            body,
+            context=context,
+            local_values=local_values,
+            scope_analysis=scope_analysis,
+            jump_target=jump_target,
+        )
+
+    result_expr = _frontend_expr_from_wcc_value(body.result)
+    union_terminal = _lower_resolved_union_variant_terminal(
+        result_expr,
+        type_ref=body.metadata.type_ref,
+        context=context,
+        local_values=local_values,
+        span=body.metadata.source_span,
+        form_path=body.metadata.form_path,
+    )
+    if union_terminal is not None:
+        return union_terminal
     output_refs = lowering_core._inline_output_refs_for_expr(
         result_expr,
-        type_ref=current.metadata.type_ref,
-        local_values=local_bindings,
-        context=current_context,
+        type_ref=body.metadata.type_ref,
+        local_values=local_values,
+        context=context,
     )
     if output_refs is None:
         raise LispFrontendCompileError(
             (
                 LispFrontendDiagnostic(
                     code="workflow_return_not_exportable",
-                    message="WCC M2 defunctionalization could not export the normalized halt value",
-                    span=current.metadata.source_span,
-                    form_path=current.metadata.form_path,
+                    message="WCC defunctionalization could not export the normalized halt value",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
                     phase="lowering",
                 ),
             )
         )
-    return steps, _TerminalResult(
-        step_name=current_context.step_name_prefix,
-        step_id=lowering_core._normalize_generated_step_id(current_context.step_name_prefix),
+    return [], _TerminalResult(
+        step_name=context.step_name_prefix,
+        step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
         output_refs=output_refs,
         output_kind="projection",
-        hidden_inputs=hidden_inputs,
+        hidden_inputs={},
     )
 
 
@@ -552,6 +686,439 @@ def _context_with_wcc_phase_scope(
         local_values=local_values,
     )
     return _copy_context_with_phase_scope(context, resolved_phase_scope)
+
+
+def _guard_hoisted_case_steps(
+    steps: list[dict[str, Any]],
+    *,
+    producer_step_name: str,
+    producer_variant_ref: str,
+    required_variant: str,
+) -> list[dict[str, Any]]:
+    outer_when = {
+        "compare": {
+            "left": {"ref": producer_variant_ref},
+            "op": "eq",
+            "right": required_variant,
+        }
+    }
+    outer_requires_variant = {
+        "step": producer_step_name,
+        "value": required_variant,
+    }
+    guarded_steps: list[dict[str, Any]] = []
+    for step in steps:
+        guarded_step = dict(step)
+        existing_when = guarded_step.get("when")
+        if existing_when is None:
+            guarded_step["when"] = outer_when
+        else:
+            guarded_step["when"] = {
+                "all_of": [outer_when, existing_when],
+            }
+        if "match" not in guarded_step:
+            guarded_step.setdefault("requires_variant", outer_requires_variant)
+        guarded_steps.append(guarded_step)
+    return guarded_steps
+
+
+def _match_subject_producer_step_name(binding_terminal: _TerminalResult) -> str | None:
+    if binding_terminal.step_name:
+        return binding_terminal.step_name
+    variant_ref = binding_terminal.output_refs.get("return__variant")
+    if not isinstance(variant_ref, str):
+        return None
+    for prefix in ("root.steps.", "self.steps."):
+        if not variant_ref.startswith(prefix):
+            continue
+        suffix = variant_ref.removeprefix(prefix)
+        step_name, separator, remainder = suffix.partition(".artifacts.")
+        if separator and step_name and remainder == "variant":
+            return step_name
+    return None
+
+
+def _defunctionalize_case(
+    body: WccCase,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    scope_analysis: WccScopeAnalysis,
+    jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    subject_expr = _frontend_expr_from_wcc_value(body.subject)
+    resolved_subject = _resolve_inline_expr_value(subject_expr, local_values=local_values)
+    binding_terminal = _binding_terminal_for_inline_match(resolved_subject)
+    if binding_terminal is None:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_return_not_exportable",
+                    message="WCC M3 lowering requires case subjects to resolve to structured match bindings",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+
+    binding_name = _match_binding_name(subject_expr)
+    match_step_name = f"{context.step_name_prefix}__match_{binding_name}"
+    match_step_id = lowering_core._normalize_generated_step_id(match_step_name)
+    producer_variant_ref = binding_terminal.output_refs.get("return__variant")
+    output_contracts = lowering_core._output_contracts_for_type(
+        body.metadata.type_ref,
+        context=context,
+        span=body.metadata.source_span,
+        form_path=body.metadata.form_path,
+    )
+    producer_step_name = _match_subject_producer_step_name(binding_terminal)
+    if producer_step_name is None or not isinstance(producer_variant_ref, str):
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="wcc_lowering_route_unsupported",
+                    message="WCC M3 lowering requires case subjects with stable producer step identities",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+    hoisted_steps: list[dict[str, Any]] = []
+    cases: dict[str, Any] = {}
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    shared_union_bundle_allocation = (
+        allocate_generated_result_bundle(
+            context=context,
+            source_expr=_frontend_expr_from_wcc_value(body.subject),
+            step_name=match_step_name,
+            step_id=match_step_id,
+            semantic_role=GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+            stable_target="match_union_projection",
+        )
+        if isinstance(body.metadata.type_ref, UnionTypeRef)
+        and not context.is_generated_private_workflow
+        else None
+    )
+    for arm in body.arms:
+        case_name = f"{match_step_name}__{arm.variant_name.lower()}"
+        arm_context = lowering_core._copy_context_with_step_prefix(context, step_name_prefix=case_name)
+        arm_steps, arm_terminal = _defunctionalize_body(
+            arm.body,
+            context=arm_context,
+            local_values=_match_arm_local_values(
+                local_values=local_values,
+                binding_name=arm.binding_name,
+                binding_terminal=binding_terminal,
+            ),
+            scope_analysis=scope_analysis,
+            jump_target=jump_target,
+        )
+        if isinstance(body.metadata.type_ref, UnionTypeRef) and shared_union_bundle_allocation is not None:
+            target_variant_name = _static_union_variant_name(arm.body)
+        if (
+            isinstance(body.metadata.type_ref, UnionTypeRef)
+            and shared_union_bundle_allocation is not None
+            and target_variant_name is not None
+        ):
+            arm_steps, arm_terminal = _normalize_union_match_case_terminal(
+                case_name=case_name,
+                case_steps=arm_steps,
+                case_terminal=arm_terminal,
+                result_type=body.metadata.type_ref,
+                variant_name=target_variant_name,
+                shared_bundle_input_name=shared_union_bundle_allocation.generated_input_name,
+                shared_bundle_path=shared_union_bundle_allocation.concrete_path_template,
+                context=context,
+                span=arm.body.metadata.source_span,
+                form_path=arm.body.metadata.form_path,
+            )
+        if any("match" in step for step in arm_steps):
+            hoisted_steps.extend(
+                _guard_hoisted_case_steps(
+                    arm_steps,
+                    producer_step_name=producer_step_name,
+                    producer_variant_ref=producer_variant_ref,
+                    required_variant=arm.variant_name,
+                )
+            )
+            arm_steps = []
+            arm_terminal = replace(arm_terminal, step_name="")
+        case_outputs = _conditional_case_outputs(
+            arm_terminal,
+            output_contracts=output_contracts,
+            span=arm.body.metadata.source_span,
+            form_path=arm.body.metadata.form_path,
+        )
+        if not arm_steps:
+            arm_steps.append(
+                _build_match_projection_anchor_step(
+                    match_step_name=match_step_name,
+                    variant_name=arm.variant_name,
+                    case_outputs=case_outputs,
+                    context=context,
+                    span=arm.body.metadata.source_span,
+                )
+            )
+        hidden_inputs.update(arm_terminal.hidden_inputs)
+        cases[arm.variant_name] = {
+            "id": lowering_core._normalize_generated_step_id(case_name),
+            "outputs": case_outputs,
+            "steps": arm_steps,
+        }
+
+    step_origin = LoweringOrigin(
+        span=body.metadata.source_span,
+        form_path=body.metadata.form_path,
+        expansion_stack=body.metadata.expansion_stack,
+    )
+    _record_step_origin(context, step_name=match_step_name, step_id=match_step_id, source=step_origin)
+    match_step = {
+        "name": match_step_name,
+        "id": match_step_id,
+        "match": {
+            "ref": binding_terminal.output_refs["return__variant"],
+            "cases": cases,
+        },
+    }
+    return [*hoisted_steps, match_step], _TerminalResult(
+        step_name=match_step_name,
+        step_id=match_step_id,
+        output_refs=_conditional_output_refs(
+            step_name=match_step_name,
+            output_contracts=output_contracts,
+            result_type=body.metadata.type_ref,
+        ),
+        output_kind="match",
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _defunctionalize_join(
+    body: WccJoin,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    scope_analysis: WccScopeAnalysis,
+    jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    if len(body.params) != 1:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="wcc_lowering_route_unsupported",
+                    message="WCC M3 lowering currently supports one join parameter per join point",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+    param = body.params[0]
+    join_steps, join_terminal = _defunctionalize_body(
+        body.body,
+        context=lowering_core._copy_context_with_step_prefix(
+            context,
+            step_name_prefix=_binding_step_prefix(context, param.name),
+        ),
+        local_values=local_values,
+        scope_analysis=scope_analysis,
+        jump_target=_join_target_from_analysis(body.join_name, body.params, scope_analysis=scope_analysis),
+    )
+    joined_local_values = dict(local_values)
+    joined_local_value = _binding_local_value_from_terminal(
+        NameExpr(
+            name=param.name,
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        ),
+        binding_type=param.type_ref,
+        binding_terminal=join_terminal,
+    )
+    if joined_local_value is not None:
+        joined_local_values[param.name] = joined_local_value
+    continuation_steps, continuation_terminal = _defunctionalize_body(
+        body.continuation,
+        context=lowering_core._context_with_local_type_binding(
+            context,
+            binding_name=param.name,
+            binding_type=param.type_ref,
+        ),
+        local_values=joined_local_values,
+        scope_analysis=scope_analysis,
+        jump_target=jump_target,
+    )
+    return [*join_steps, *continuation_steps], replace(
+        continuation_terminal,
+        hidden_inputs={**join_terminal.hidden_inputs, **continuation_terminal.hidden_inputs},
+    )
+
+
+def _defunctionalize_jump(
+    body: WccJump,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    scope_analysis: WccScopeAnalysis,
+    jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    if jump_target is None or body.join_name != jump_target[0]:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="wcc_lowering_route_unsupported",
+                    message=(
+                        "WCC M3 lowering rejected a branch-local value that escaped its case arm / join scope; "
+                        f"jump `{body.join_name}` could not be transported at this position"
+                    ),
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+    params = jump_target[1]
+    if len(body.args) != len(params):
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="wcc_lowering_route_unsupported",
+                    message=f"WCC M3 jump `{body.join_name}` argument count did not match its join parameters",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+    if len(params) != 1:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="wcc_lowering_route_unsupported",
+                    message="WCC M3 lowering currently supports one join parameter per jump",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+    param = params[0]
+    arg_expr = _frontend_expr_from_wcc_value(body.args[0])
+    union_terminal = _lower_resolved_union_variant_terminal(
+        arg_expr,
+        type_ref=param.type_ref,
+        context=context,
+        local_values=local_values,
+        span=body.metadata.source_span,
+        form_path=body.metadata.form_path,
+    )
+    if union_terminal is not None:
+        return union_terminal
+    output_refs = lowering_core._inline_output_refs_for_expr(
+        arg_expr,
+        type_ref=param.type_ref,
+        local_values=local_values,
+        context=context,
+    )
+    if output_refs is None:
+        resolved_arg = _resolve_inline_expr_value(arg_expr, local_values=local_values)
+        if isinstance(resolved_arg, RecordExpr):
+            output_refs = lowering_core._inline_output_refs_for_expr(
+                resolved_arg,
+                type_ref=param.type_ref,
+                local_values=local_values,
+                context=context,
+            )
+    if output_refs is None:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_return_not_exportable",
+                    message=f"WCC M3 jump `{body.join_name}` could not export join argument `{param.name}`",
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                    phase="lowering",
+                ),
+            )
+        )
+    return [], _TerminalResult(
+        step_name=context.step_name_prefix,
+        step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
+        output_refs=output_refs,
+        output_kind="projection",
+        hidden_inputs={},
+    )
+
+
+def _lower_resolved_union_variant_terminal(
+    expr: Any,
+    *,
+    type_ref: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    span,
+    form_path: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], _TerminalResult] | None:
+    resolved_expr = expr
+    if not isinstance(resolved_expr, UnionVariantExpr):
+        resolved_expr = _resolve_inline_expr_value(expr, local_values=local_values)
+    if not isinstance(resolved_expr, UnionVariantExpr):
+        return None
+    return lowering_core._lower_union_variant_expr(
+        TypedExpr(
+            expr=resolved_expr,
+            type_ref=type_ref,
+            span=span,
+            form_path=form_path,
+        ),
+        context=context,
+        local_values=local_values,
+    )
+
+
+def _static_union_variant_name(body: WccBody) -> str | None:
+    local_variants: dict[str, str] = {}
+
+    def resolve_value(value: WccValue) -> str | None:
+        if isinstance(value, WccInject):
+            return value.variant_name
+        if isinstance(value, WccNameAtom):
+            return local_variants.get(value.name)
+        return None
+
+    current = body
+    while isinstance(current, WccLet):
+        variant_name = resolve_value(current.bound_value)
+        if variant_name is not None:
+            local_variants[current.bound_name] = variant_name
+        current = current.body
+    if isinstance(current, WccHalt):
+        return resolve_value(current.result)
+    if isinstance(current, WccJump) and len(current.args) == 1:
+        return resolve_value(current.args[0])
+    return None
+
+
+def _join_target_from_analysis(
+    join_name: str,
+    fallback_params: tuple[WccJoinParam, ...],
+    *,
+    scope_analysis: WccScopeAnalysis,
+) -> tuple[str, tuple[WccJoinParam, ...]]:
+    join_site = scope_analysis.joins_by_name.get(join_name)
+    if join_site is None:
+        return join_name, fallback_params
+    return join_site.join_name, join_site.params
+
+
+def _match_binding_name(subject_expr: Any) -> str:
+    if isinstance(subject_expr, NameExpr):
+        return subject_expr.name
+    if isinstance(subject_expr, FieldAccessExpr) and isinstance(subject_expr.base, NameExpr):
+        return subject_expr.base.name
+    return "binding"
 
 
 def _lower_effectful_binding(
@@ -639,6 +1206,15 @@ def _frontend_expr_from_wcc_value(value: WccValue):
     if isinstance(value, WccNameAtom):
         return NameExpr(
             name=value.name,
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccPhaseTargetAtom):
+        from ..expressions import PhaseTargetExpr
+
+        return PhaseTargetExpr(
+            target_name=value.target_name,
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,

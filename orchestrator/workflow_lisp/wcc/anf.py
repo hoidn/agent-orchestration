@@ -8,15 +8,20 @@ from dataclasses import dataclass, replace
 
 from .model import (
     WccBody,
+    WccCase,
+    WccCaseArm,
     WccCall,
     WccFieldAccessAtom,
     WccHalt,
     WccIdentityFactory,
     WccInject,
+    WccJoin,
+    WccJump,
     WccLet,
     WccLiteralAtom,
     WccNameAtom,
     WccNodeMetadata,
+    WccPhaseTargetAtom,
     WccPerform,
     WccRecordAtom,
     WccValue,
@@ -27,6 +32,7 @@ _WCC_ATOM_TYPES = (
     WccLiteralAtom,
     WccNameAtom,
     WccFieldAccessAtom,
+    WccPhaseTargetAtom,
     WccRecordAtom,
 )
 
@@ -117,7 +123,40 @@ def _normalize_body(body: WccBody) -> WccBody:
         normalized_body = _normalize_body(body.body)
         let_node = replace(body, bound_value=bound_value, body=normalized_body)
         return _wrap_pending_lets(prefix, let_node)
-
+    if isinstance(body, WccCase):
+        subject_prefix, subject = _normalize_value(body.subject)
+        normalized_arms = tuple(
+            WccCaseArm(
+                variant_name=arm.variant_name,
+                binding_name=arm.binding_name,
+                binding_type_ref=arm.binding_type_ref,
+                body=_normalize_body(arm.body),
+            )
+            for arm in body.arms
+        )
+        if not isinstance(subject, _WCC_ATOM_TYPES):
+            generated = _generated_pending_let(subject, purpose="case:subject")
+            subject = _generated_name_atom(subject.metadata, purpose="case:subject")
+            subject_prefix = (*subject_prefix, generated)
+        return _wrap_pending_lets(subject_prefix, replace(body, subject=subject, arms=normalized_arms))
+    if isinstance(body, WccJoin):
+        return replace(
+            body,
+            body=_normalize_body(body.body),
+            continuation=_normalize_body(body.continuation),
+        )
+    if isinstance(body, WccJump):
+        pending: list[_PendingLet] = []
+        args: list[WccValue] = []
+        for index, arg in enumerate(body.args):
+            arg_prefix, normalized_arg = _normalize_value(arg)
+            pending.extend(arg_prefix)
+            if not _is_atomic_effect_arg(normalized_arg):
+                generated = _generated_pending_let(normalized_arg, purpose=f"jump:{index}")
+                pending.append(generated)
+                normalized_arg = _generated_name_atom(normalized_arg.metadata, purpose=f"jump:{index}")
+            args.append(normalized_arg)
+        return _wrap_pending_lets(tuple(pending), replace(body, args=tuple(args)))
     prefix, result = _normalize_value(body.result)
     if isinstance(result, _WCC_ATOM_TYPES):
         return _wrap_pending_lets(prefix, replace(body, result=result))
@@ -136,7 +175,7 @@ def _normalize_binding_value(value) -> tuple[tuple[_PendingLet, ...], object]:
 
 
 def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue]:
-    if isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom)):
+    if isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom, WccPhaseTargetAtom)):
         return (), value
     if isinstance(value, WccRecordAtom):
         pending: list[_PendingLet] = []

@@ -380,6 +380,7 @@ class MatchJoinNode(ExecutableNodeBase):
     statement_name: str = ""
     selector_address: Optional[BoundAddress] = None
     case_outputs: Mapping[str, Mapping[str, ExecutableContract]] = field(default_factory=empty_frozen_mapping)
+    bound_when_predicate: Any = None
 
 
 @dataclass(frozen=True)

@@ -1120,6 +1120,7 @@ def _build_phase_prompt_input_prelude(
     design_expr, plan_expr, *report_target_exprs = expr.inputs
     target_inputs = _phase_prompt_report_target_inputs(
         report_target_exprs,
+        local_values=local_values,
         span=expr.span,
         form_path=expr.form_path,
     )
@@ -1204,12 +1205,25 @@ def _build_phase_prompt_input_prelude(
     ]
 
 
-def _uses_legacy_phase_prompt_input_prelude(expr: ProviderResultExpr) -> bool:
+def _uses_legacy_phase_prompt_input_prelude(
+    expr: ProviderResultExpr,
+    *,
+    local_values: Mapping[str, Any] | None = None,
+) -> bool:
     """Return whether one phase-scoped provider-result uses the retained four-input surface."""
 
     if len(expr.inputs) != 4:
         return False
-    report_targets = expr.inputs[2:]
+    report_targets = []
+    for target_expr in expr.inputs[2:]:
+        if (
+            local_values is not None
+            and isinstance(target_expr, NameExpr)
+            and isinstance(local_values.get(target_expr.name), PhaseTargetExpr)
+        ):
+            report_targets.append(local_values[target_expr.name])
+            continue
+        report_targets.append(target_expr)
     return {
         target_expr.target_name
         for target_expr in report_targets
@@ -1479,6 +1493,11 @@ def _resolve_phase_prompt_input_source(
 ) -> tuple[dict[str, str], dict[str, LoweringOrigin]]:
     """Resolve a phase prompt input to a materialize_artifacts source node."""
 
+    if isinstance(expr, NameExpr):
+        bound_value = local_values.get(expr.name)
+        if isinstance(bound_value, PhaseTargetExpr):
+            expr = bound_value
+
     if isinstance(expr, PhaseTargetExpr):
         phase_scope = context.phase_scope
         if phase_scope is None:
@@ -1531,6 +1550,7 @@ def _materialize_source_from_ref(ref: str) -> dict[str, str]:
 def _phase_prompt_report_target_inputs(
     exprs: list[Any],
     *,
+    local_values: Mapping[str, Any] | None = None,
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, PhaseTargetExpr]:
@@ -1546,6 +1566,12 @@ def _phase_prompt_report_target_inputs(
 
     inputs_by_artifact: dict[str, PhaseTargetExpr] = {}
     for expr in exprs:
+        if (
+            local_values is not None
+            and isinstance(expr, NameExpr)
+            and isinstance(local_values.get(expr.name), PhaseTargetExpr)
+        ):
+            expr = local_values[expr.name]
         if not isinstance(expr, PhaseTargetExpr):
             raise _compile_error(
                 code="phase_translation_body_invalid",

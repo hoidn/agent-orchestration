@@ -39,7 +39,7 @@ def test_manifest_tags_are_present_exactly_once() -> None:
 
     assert tag_counts["value_only"] == 1
     assert tag_counts["straight_line"] == 3
-    assert tag_counts["match"] == 1
+    assert tag_counts["match"] == 2
     assert tag_counts["loop"] == 1
     assert tag_counts["review_loop"] == 1
     assert tag_counts["module_graph"] == 1
@@ -91,14 +91,34 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
     assert cases["value_only_minimal_module"].dual_compile_routes == ("legacy", "wcc_m1")
     assert cases["wcc_m2_straight_line_effects"].dual_compile_routes == ("legacy", "wcc_m2")
     assert cases["proc_ref_bind_proc_forwarding"].dual_compile_routes == ("legacy", "wcc_m2")
+    assert cases["top_level_match_attempt"].dual_compile_routes == ("legacy", "wcc_m3")
+    assert cases["design_delta_union_match_projection"].dual_compile_routes == ("legacy", "wcc_m3")
     for case_id, case in cases.items():
         if case_id in {
             "value_only_minimal_module",
             "wcc_m2_straight_line_effects",
             "proc_ref_bind_proc_forwarding",
+            "top_level_match_attempt",
+            "design_delta_union_match_projection",
         }:
             continue
         assert case.dual_compile_routes == ()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        case
+        for case in load_characterization_cases()
+        if case.case_id != "wcc_m3_nested_non_tail_match"
+    ],
+    ids=lambda case: case.case_id,
+)
+def test_characterization_structural_cases_match_golden(tmp_path: Path, case) -> None:
+    actual = build_structural_snapshot(case, tmp_path)
+    golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
+
+    assert compare_structural_snapshots(actual, golden, case.declared_rename_map) == "identical"
 
 
 def test_command_bearing_cases_declare_boundaries_and_module_graph_uses_import_manifest() -> None:
@@ -137,14 +157,6 @@ def test_command_bearing_cases_declare_boundaries_and_module_graph_uses_import_m
     )
 
 
-@pytest.mark.parametrize("case", load_characterization_cases(), ids=lambda case: case.case_id)
-def test_characterization_structural_cases_match_golden(tmp_path: Path, case) -> None:
-    actual = build_structural_snapshot(case, tmp_path)
-    golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
-
-    assert compare_structural_snapshots(actual, golden, case.declared_rename_map) == "identical"
-
-
 def test_value_only_minimal_module_dual_compiles_identically_for_legacy_and_wcc_m1(tmp_path: Path) -> None:
     case = {case.case_id: case for case in load_characterization_cases()}["value_only_minimal_module"]
     golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
@@ -181,6 +193,50 @@ def test_wcc_m2_cases_dual_compile_identically_for_legacy_and_wcc_m2(tmp_path: P
     assert wcc_metadata["lowering_route"] == "wcc_m2"
     assert compare_structural_snapshots(legacy_actual, wcc_actual, case.declared_rename_map) == "identical"
     assert compare_structural_snapshots(wcc_actual, golden, case.declared_rename_map) == "identical"
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    ("top_level_match_attempt", "design_delta_union_match_projection"),
+)
+def test_wcc_m3_match_cases_dual_compile_identically_for_legacy_and_wcc_m3(
+    tmp_path: Path,
+    case_id: str,
+) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}[case_id]
+    golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
+
+    legacy_workspace = tmp_path / f"{case_id}.legacy"
+    wcc_workspace = tmp_path / f"{case_id}.wcc_m3"
+    legacy_actual = build_structural_snapshot(case, legacy_workspace, lowering_route="legacy")
+    wcc_actual = build_structural_snapshot(case, wcc_workspace, lowering_route="wcc_m3")
+    legacy_metadata = build_structural_snapshot_metadata(case, legacy_workspace, lowering_route="legacy")
+    wcc_metadata = build_structural_snapshot_metadata(case, wcc_workspace, lowering_route="wcc_m3")
+
+    assert legacy_metadata["lowering_route"] == "legacy"
+    assert wcc_metadata["lowering_route"] == "wcc_m3"
+    assert compare_structural_snapshots(legacy_actual, wcc_actual, case.declared_rename_map) == "identical"
+    assert compare_structural_snapshots(wcc_actual, golden, case.declared_rename_map) == "identical"
+
+
+def test_wcc_m3_nested_match_characterization_case_matches_golden(tmp_path: Path) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}["wcc_m3_nested_non_tail_match"]
+    actual = build_structural_snapshot(case, tmp_path, lowering_route="wcc_m3")
+    metadata = build_structural_snapshot_metadata(case, tmp_path, lowering_route="wcc_m3")
+    golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
+
+    assert metadata["lowering_route"] == "wcc_m3"
+    assert compare_structural_snapshots(actual, golden, case.declared_rename_map) == "identical"
+
+
+def test_wcc_m3_design_delta_union_projection_keeps_record_projection_output_contract(tmp_path: Path) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}["design_delta_union_match_projection"]
+    actual = build_structural_snapshot(case, tmp_path, lowering_route="wcc_m3")
+    authored_mapping = actual["lowered_workflows"][0]["authored_mapping"]
+
+    assert set(authored_mapping["outputs"]) == {"return__report"}
+    assert "return__variant" not in authored_mapping["outputs"]
+    assert set(authored_mapping["steps"][1]["match"]["cases"]) == {"COMPLETED", "BLOCKED"}
 
 
 def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergence() -> None:

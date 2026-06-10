@@ -210,6 +210,10 @@
         "step_labels": {},
         "generated_input_names": {}
       },
+      "dual_compile_routes": [
+        "legacy",
+        "wcc_m3"
+      ],
       "tags": [
         "match"
       ],
@@ -426,10 +430,39 @@
         "step_labels": {},
         "generated_input_names": {}
       },
+      "dual_compile_routes": [
+        "legacy",
+        "wcc_m3"
+      ],
       "tags": [
         "design_delta_leaf"
       ],
       "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/design_delta_union_match_projection.structural.json"
+    },
+    {
+      "case_id": "wcc_m3_nested_non_tail_match",
+      "fixture_kind": "module",
+      "source_path": "tests/fixtures/workflow_lisp/characterization/sources/wcc_m3_nested_non_tail_match.orc",
+      "source_roots": [
+        "tests/fixtures/workflow_lisp/characterization/sources"
+      ],
+      "provider_externs": {
+        "providers.execute": "fake-execute"
+      },
+      "prompt_externs": {
+        "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+      },
+      "command_boundaries": null,
+      "imported_workflow_bundles_path": null,
+      "evidence_mode": "structural_only",
+      "declared_rename_map": {
+        "step_labels": {},
+        "generated_input_names": {}
+      },
+      "tags": [
+        "match"
+      ],
+      "golden_structural": "tests/fixtures/workflow_lisp/characterization/golden/wcc_m3_nested_non_tail_match.structural.json"
     }
   ]
 }

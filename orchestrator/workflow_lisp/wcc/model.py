@@ -13,6 +13,7 @@ from ..type_env import TypeRef
 
 WCC_M1_ROUTE_SCHEMA_VERSION = "wcc_m1"
 WCC_M2_ROUTE_SCHEMA_VERSION = "wcc_m2"
+WCC_M3_ROUTE_SCHEMA_VERSION = "wcc_m3"
 
 
 def _stable_identity_digest(payload: dict[str, object]) -> str:
@@ -210,13 +211,19 @@ class WccFieldAccessAtom:
 
 
 @dataclass(frozen=True)
+class WccPhaseTargetAtom:
+    metadata: WccNodeMetadata
+    target_name: str
+
+
+@dataclass(frozen=True)
 class WccRecordAtom:
     metadata: WccNodeMetadata
     type_name: str
     fields: tuple[tuple[str, "WccValue"], ...]
 
 
-WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccRecordAtom
+WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccPhaseTargetAtom | WccRecordAtom
 
 
 @dataclass(frozen=True)
@@ -253,6 +260,43 @@ WccBindingValue = WccValue | WccPerform | WccCall
 
 
 @dataclass(frozen=True)
+class WccCaseArm:
+    variant_name: str
+    binding_name: str
+    binding_type_ref: TypeRef
+    body: "WccBody"
+
+
+@dataclass(frozen=True)
+class WccCase:
+    metadata: WccNodeMetadata
+    subject: WccAtom
+    arms: tuple[WccCaseArm, ...]
+
+
+@dataclass(frozen=True)
+class WccJoinParam:
+    name: str
+    type_ref: TypeRef
+
+
+@dataclass(frozen=True)
+class WccJoin:
+    metadata: WccNodeMetadata
+    join_name: str
+    params: tuple[WccJoinParam, ...]
+    body: "WccBody"
+    continuation: "WccBody"
+
+
+@dataclass(frozen=True)
+class WccJump:
+    metadata: WccNodeMetadata
+    join_name: str
+    args: tuple[WccValue, ...]
+
+
+@dataclass(frozen=True)
 class WccHalt:
     metadata: WccNodeMetadata
     result: WccValue
@@ -267,5 +311,5 @@ class WccLet:
     body: "WccBody"
 
 
-WccBody = WccLet | WccHalt
+WccBody = WccLet | WccCase | WccJoin | WccJump | WccHalt
 WccProgram = WccBody
