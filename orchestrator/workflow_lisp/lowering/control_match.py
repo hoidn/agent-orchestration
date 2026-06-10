@@ -279,7 +279,11 @@ def _control_lower_match_expr_impl(
                 span=arm.body.span,
                 form_path=arm.body.form_path,
             )
-        if isinstance(result_type, UnionTypeRef) and shared_union_bundle_allocation is not None:
+        if (
+            isinstance(result_type, UnionTypeRef)
+            and shared_union_bundle_allocation is not None
+            and _match_case_requires_union_projection(case_terminal, result_type=result_type)
+        ):
             case_steps, case_terminal = _normalize_union_match_case_terminal(
                 case_name=case_name,
                 case_steps=case_steps,
@@ -339,6 +343,21 @@ def _control_lower_match_expr_impl(
         output_kind="match",
         hidden_inputs=hidden_inputs,
     )
+
+
+def _match_case_requires_union_projection(
+    case_terminal: _TerminalResult,
+    *,
+    result_type: UnionTypeRef,
+) -> bool:
+    passthrough_union_name = getattr(case_terminal, "passthrough_union_type_name", None)
+    if (
+        passthrough_union_name is None
+        and case_terminal.returned_union_variant_name is None
+        and case_terminal.returned_union_type_name is not None
+    ):
+        passthrough_union_name = case_terminal.returned_union_type_name
+    return passthrough_union_name != result_type.name
 
 
 def _normalize_union_match_case_terminal(
@@ -528,6 +547,17 @@ def _resolve_match_return_union_variant(
                 form_path=form_path,
             )
         return explicit_variant_name
+    passthrough_union_name = getattr(case_terminal, "passthrough_union_type_name", None)
+    if passthrough_union_name is not None and passthrough_union_name != result_type.name:
+        raise _compile_error(
+            code="union_return_variant_incompatible",
+            message=(
+                f"match branch for source variant `{source_variant_name}` must return `{result_type.name}`; "
+                f"pass-through union evidence resolved to `{passthrough_union_name}`"
+            ),
+            span=span,
+            form_path=form_path,
+        )
     if subject_union_type is not None and subject_union_type.name == result_type.name:
         return source_variant_name
     subject_union_name = subject_union_type.name if subject_union_type is not None else "<non-union>"
@@ -535,7 +565,7 @@ def _resolve_match_return_union_variant(
         code="union_return_variant_ambiguous",
         message=(
             f"match branch for source variant `{source_variant_name}` must return `{result_type.name}` with "
-            "explicit target-variant evidence; dynamic branch output is ambiguous because the matched subject "
+            "explicit target-variant evidence; opaque dynamic branch output is ambiguous because the matched subject "
             f"union `{subject_union_name}` does not match the target union"
         ),
         span=span,
@@ -787,6 +817,7 @@ def _helper_capture_names(
                 child_bound.add(binding_name)
             walk(node.body, frozenset(child_bound))
             return
+        # schema1_compatibility: legacy branch-local ref analysis walks authored match expressions.
         if isinstance(node, MatchExpr):
             walk(node.subject, bound_names)
             for arm in node.arms:

@@ -255,6 +255,7 @@ def derive_workflow_signature_contracts(
             )
             flattened_inputs.append(flattened_field)
 
+    return_projection: UnionWorkflowBoundaryProjection | None = None
     return_fields = derive_workflow_boundary_fields(
         signature.return_type_ref,
         generated_name="return",
@@ -263,6 +264,11 @@ def derive_workflow_signature_contracts(
         form_path=signature.form_path,
     )
     if isinstance(signature.return_type_ref, UnionTypeRef):
+        return_projection = derive_union_workflow_boundary_projection(
+            signature.return_type_ref,
+            span=signature.span,
+            form_path=signature.form_path,
+        )
         return_fields = _relax_variant_only_relpath_outputs(
             signature.return_type_ref,
             return_fields,
@@ -271,11 +277,18 @@ def derive_workflow_signature_contracts(
         )
 
     for flattened_field in return_fields:
+        definition = dict(flattened_field.contract_definition)
+        if return_projection is not None:
+            definition = _annotate_union_workflow_output_definition(
+                definition,
+                flattened_field=flattened_field,
+                projection=return_projection,
+            )
         outputs[flattened_field.generated_name] = SurfaceContract(
             name=flattened_field.generated_name,
-            kind=flattened_field.contract_definition["kind"],
-            value_type=flattened_field.contract_definition["type"],
-            definition=flattened_field.contract_definition,
+            kind=definition["kind"],
+            value_type=definition["type"],
+            definition=definition,
         )
         flattened_outputs.append(flattened_field)
 
@@ -297,6 +310,40 @@ def derive_workflow_signature_contracts(
             flattened_outputs=tuple(flattened_outputs),
         ),
     )
+
+
+def _annotate_union_workflow_output_definition(
+    definition: dict[str, Any],
+    *,
+    flattened_field: FlattenedContractField,
+    projection: UnionWorkflowBoundaryProjection,
+) -> dict[str, Any]:
+    """Attach active-variant availability to one flattened union output."""
+
+    output_name = flattened_field.generated_name
+    variant_names = tuple(projection.variant_fields)
+    metadata: dict[str, Any] = {
+        "projection_class": "union_workflow_boundary",
+        "return_kind": "union",
+        "union_output_group": "return",
+        "discriminant_output": projection.discriminant_field.generated_name,
+    }
+    if output_name == projection.discriminant_field.generated_name:
+        metadata["field_role"] = "discriminant"
+        metadata["active_variants"] = list(variant_names)
+    elif any(field.generated_name == output_name for field in projection.shared_fields):
+        metadata["field_role"] = "shared"
+        metadata["active_variants"] = list(variant_names)
+    else:
+        active_variants = [
+            variant_name
+            for variant_name, fields in projection.variant_fields.items()
+            if any(field.generated_name == output_name for field in fields)
+        ]
+        metadata["field_role"] = "variant" if active_variants else "unknown"
+        metadata["active_variants"] = active_variants
+    definition["projection"] = metadata
+    return definition
 
 
 def _relax_variant_only_relpath_outputs(

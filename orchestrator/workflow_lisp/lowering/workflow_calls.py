@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
@@ -19,7 +20,7 @@ from ..phase import (
     private_exec_context_kind,
 )
 from ..workflows import PromotedEntryHiddenContextRequirement
-from ..type_env import PrimitiveTypeRef, RecordTypeRef, WorkflowRefTypeRef
+from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRefTypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
 from .generated_paths import allocate_compatibility_binding_bundle, allocate_reusable_call_write_root
@@ -29,6 +30,17 @@ from .values import (
     _resolve_inline_expr_value,
     _resolve_nested_local_value,
 )
+
+
+@dataclass(frozen=True)
+class LowerableWorkflowCall:
+    """Owner-level workflow-call payload shared by frontend and WCC lowering."""
+
+    callee_name: str
+    bindings: tuple[tuple[str, Any], ...]
+    span: Any
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
 
 
 def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tuple[str, ...]:
@@ -389,6 +401,27 @@ def _lower_call_expr(
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], Any]:
     expr = typed_expr.expr
+    return _lower_workflow_call(
+        LowerableWorkflowCall(
+            callee_name=expr.callee_name,
+            bindings=tuple(expr.bindings),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        result_type=typed_expr.type_ref,
+        context=context,
+        local_values=local_values,
+    )
+
+
+def _lower_workflow_call(
+    expr: LowerableWorkflowCall,
+    *,
+    result_type: Any,
+    context: Any,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], Any]:
     signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
     resolved_ref = lowering_core._resolved_workflow_ref_value(
         local_values.get(expr.callee_name),
@@ -534,10 +567,11 @@ def _lower_call_expr(
         step_id=step_id,
         output_refs={
             output_name: f"root.steps.{step_name}.artifacts.{output_name}"
-            for output_name, _ in _flatten_boundary_leaf_paths(typed_expr.type_ref, generated_name="return")
+            for output_name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return")
         },
         output_kind="call",
         hidden_inputs={},
+        returned_union_type_name=result_type.name if isinstance(result_type, UnionTypeRef) else None,
     )
 
 

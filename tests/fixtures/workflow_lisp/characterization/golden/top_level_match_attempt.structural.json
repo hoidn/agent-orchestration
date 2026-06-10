@@ -1,0 +1,620 @@
+{
+  "case_id": "top_level_match_attempt",
+  "compiled_module_names": [
+    "neurips_implementation_attempt"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "artifacts": {
+          "design": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+            "type": "relpath",
+            "under": "docs/design"
+          },
+          "execution_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "plan": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+            "type": "relpath",
+            "under": "docs/plans"
+          },
+          "progress_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "inputs": {
+          "inputs__design": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "docs/design"
+          },
+          "inputs__plan": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "docs/plans"
+          },
+          "phase-ctx__execution_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "phase-ctx__implementation_state_bundle_path": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "phase-ctx__progress_report_target": {
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "run-implementation-attempt",
+        "outputs": {
+          "return__implementation_state": {
+            "allowed": [
+              "COMPLETED",
+              "BLOCKED"
+            ],
+            "from": {
+              "ref": "root.steps.run-implementation-attempt__match_attempt.artifacts.return__implementation_state"
+            },
+            "kind": "scalar",
+            "type": "enum"
+          },
+          "return__implementation_state_bundle_path": {
+            "from": {
+              "ref": "root.steps.run-implementation-attempt__match_attempt.artifacts.return__implementation_state_bundle_path"
+            },
+            "kind": "relpath",
+            "must_exist_target": false,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "id": "MaterializeImplementationAttemptPromptInputs",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "inherit": "source"
+                  },
+                  "name": "design",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt"
+                  },
+                  "source": {
+                    "input": "inputs__design"
+                  }
+                },
+                {
+                  "contract": {
+                    "inherit": "source"
+                  },
+                  "name": "plan",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt"
+                  },
+                  "source": {
+                    "input": "inputs__plan"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "execution_report_target",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt"
+                  },
+                  "source": {
+                    "ref": "inputs.phase-ctx__execution_report_target"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": false,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "progress_report_target",
+                  "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt"
+                  },
+                  "source": {
+                    "ref": "inputs.phase-ctx__progress_report_target"
+                  }
+                }
+              ]
+            },
+            "name": "MaterializeImplementationAttemptPromptInputs",
+            "publishes": [
+              {
+                "artifact": "design",
+                "from": "design"
+              },
+              {
+                "artifact": "plan",
+                "from": "plan"
+              },
+              {
+                "artifact": "execution_report_target",
+                "from": "execution_report_target"
+              },
+              {
+                "artifact": "progress_report_target",
+                "from": "progress_report_target"
+              }
+            ]
+          },
+          {
+            "asset_file": "prompts/implementation/execute.md",
+            "consumes": [
+              {
+                "artifact": "design",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "plan",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "execution_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "progress_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              }
+            ],
+            "id": "run_implementation_attempt__attempt",
+            "inject_output_contract": true,
+            "name": "run-implementation-attempt__attempt",
+            "prompt_consumes": [
+              "design",
+              "plan",
+              "execution_report_target",
+              "progress_report_target"
+            ],
+            "provider": "fake",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.phase-ctx__implementation_state_bundle_path}",
+              "shared_fields": [
+                {
+                  "allowed": [
+                    "COMPLETED",
+                    "BLOCKED"
+                  ],
+                  "json_pointer": "/implementation_state",
+                  "name": "implementation_state",
+                  "type": "enum"
+                }
+              ],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report_path",
+                      "must_exist_target": true,
+                      "name": "progress_report_path",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "json_pointer": "/blocker_class",
+                      "name": "blocker_class",
+                      "type": "enum"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report_path",
+                      "must_exist_target": true,
+                      "name": "execution_report_path",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "run_implementation_attempt__match_attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "run_implementation_attempt__match_attempt__blocked",
+                  "outputs": {
+                    "return__implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "return__implementation_state_bundle_path": {
+                      "from": {
+                        "ref": "inputs.phase-ctx__implementation_state_bundle_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                          }
+                        }
+                      },
+                      "id": "run_implementation_attempt__match_attempt__blocked__projection_anchor",
+                      "name": "run-implementation-attempt__match_attempt__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "run_implementation_attempt__match_attempt__completed",
+                  "outputs": {
+                    "return__implementation_state": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "return__implementation_state_bundle_path": {
+                      "from": {
+                        "ref": "inputs.phase-ctx__implementation_state_bundle_path"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                          }
+                        }
+                      },
+                      "id": "run_implementation_attempt__match_attempt__completed__projection_anchor",
+                      "name": "run-implementation-attempt__match_attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.run-implementation-attempt__attempt.artifacts.variant"
+            },
+            "name": "run-implementation-attempt__match_attempt"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [],
+      "step_labels": [
+        "MaterializeImplementationAttemptPromptInputs",
+        "run-implementation-attempt__attempt",
+        "run-implementation-attempt__match_attempt",
+        "run-implementation-attempt__match_attempt__blocked__projection_anchor",
+        "run-implementation-attempt__match_attempt__completed__projection_anchor"
+      ],
+      "workflow_name": "run-implementation-attempt"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "fa0ed8d2d142121eb2c1dceb184137c5bd1383a4cebcb04314a71069df5b9a7f",
+  "validated_bundles": [
+    {
+      "artifact_keys": [
+        "design",
+        "execution_report_target",
+        "plan",
+        "progress_report_target"
+      ],
+      "generated_input_names": [],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:run-implementation-attempt:provider_result_bundle:2e1ac4cf6a237919",
+          "concrete_path_template": "${inputs.phase-ctx__implementation_state_bundle_path}",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "run-implementation-attempt/run-implementation-attempt__attempt/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:9933c74bd6afd70b",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-implementation-attempt/prompt_inputs/design"
+        },
+        {
+          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:e9154c5d6fa07528",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-implementation-attempt/prompt_inputs/plan"
+        },
+        {
+          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:5e3aa826aca95414",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-implementation-attempt/prompt_inputs/execution_report_target"
+        },
+        {
+          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:f2d8c209e111dd83",
+          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+          "generated_input_name": null,
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "none",
+          "semantic_role": "materialized_value_view",
+          "stable_identity": "run-implementation-attempt/prompt_inputs/progress_report_target"
+        }
+      ],
+      "input_keys": [
+        "inputs__design",
+        "inputs__plan",
+        "phase-ctx__execution_report_target",
+        "phase-ctx__implementation_state_bundle_path",
+        "phase-ctx__progress_report_target"
+      ],
+      "output_keys": [
+        "return__implementation_state",
+        "return__implementation_state_bundle_path"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.run_implementation_attempt__match_attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "run-implementation-attempt__match_attempt.BLOCKED",
+              "marker_step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked",
+              "step_presentation_keys": [
+                "run-implementation-attempt__match_attempt.BLOCKED.run-implementation-attempt__match_attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "run-implementation-attempt__match_attempt.COMPLETED",
+              "marker_step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed",
+              "step_presentation_keys": [
+                "run-implementation-attempt__match_attempt.COMPLETED.run-implementation-attempt__match_attempt__completed__projection_anchor"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "MaterializeImplementationAttemptPromptInputs",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.MaterializeImplementationAttemptPromptInputs",
+            "presentation_key": "MaterializeImplementationAttemptPromptInputs",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.MaterializeImplementationAttemptPromptInputs"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [
+              {
+                "artifact": "design",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "plan",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "execution_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              },
+              {
+                "artifact": "progress_report_target",
+                "freshness": "any",
+                "policy": "latest_successful"
+              }
+            ],
+            "display_name": "run-implementation-attempt__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_implementation_attempt__attempt",
+            "presentation_key": "run-implementation-attempt__attempt",
+            "provider": "fake",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.run_implementation_attempt__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "run-implementation-attempt__match_attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed",
+            "presentation_key": "run-implementation-attempt__match_attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "run-implementation-attempt__match_attempt.COMPLETED.run-implementation-attempt__match_attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed.run_implementation_attempt__match_attempt__completed__projection_anchor",
+            "presentation_key": "run-implementation-attempt__match_attempt.COMPLETED.run-implementation-attempt__match_attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed.run_implementation_attempt__match_attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "run-implementation-attempt__match_attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked",
+            "presentation_key": "run-implementation-attempt__match_attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "run-implementation-attempt__match_attempt.BLOCKED.run-implementation-attempt__match_attempt__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked.run_implementation_attempt__match_attempt__blocked__projection_anchor",
+            "presentation_key": "run-implementation-attempt__match_attempt.BLOCKED.run-implementation-attempt__match_attempt__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked.run_implementation_attempt__match_attempt__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 6,
+            "consumes": [],
+            "display_name": "run-implementation-attempt__match_attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.run_implementation_attempt__match_attempt",
+            "presentation_key": "run-implementation-attempt__match_attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.run_implementation_attempt__match_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.MaterializeImplementationAttemptPromptInputs",
+          "root.run_implementation_attempt__attempt",
+          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed",
+          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed.run_implementation_attempt__match_attempt__completed__projection_anchor",
+          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked",
+          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked.run_implementation_attempt__match_attempt__blocked__projection_anchor",
+          "root.run_implementation_attempt__match_attempt"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "run-implementation-attempt"
+    }
+  ],
+  "workflow_names": [
+    "run-implementation-attempt"
+  ]
+}

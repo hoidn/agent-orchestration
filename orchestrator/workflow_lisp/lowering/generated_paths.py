@@ -20,6 +20,11 @@ def _stable_identity(*parts: str | None) -> str:
     return "/".join(part for part in parts if isinstance(part, str) and part)
 
 
+def _schema_identity_part(context: Any) -> str | None:
+    schema = getattr(context, "lowering_schema_version", None)
+    return f"schema:{schema}" if isinstance(schema, int) else None
+
+
 def _record_allocation(
     *,
     context: Any,
@@ -80,7 +85,12 @@ def allocate_generated_result_bundle(
         semantic_role=semantic_role,
         privacy=privacy,
         resume_scope=resume_scope,
-        stable_identity=_stable_identity(context.workflow_name, step_name, stable_target),
+        stable_identity=_stable_identity(
+            _schema_identity_part(context),
+            context.workflow_name,
+            step_name,
+            stable_target,
+        ),
         generated_input_name=generated_input_name,
         path_template=path_template,
     )
@@ -114,6 +124,7 @@ def allocate_reusable_call_write_root(
             else GeneratedPathResumeScope.CALL_FRAME
         ),
         stable_identity=_stable_identity(
+            _schema_identity_part(context),
             context.workflow_name,
             call_step_name,
             context.iteration_scope,
@@ -149,6 +160,7 @@ def allocate_compatibility_binding_bundle(
         privacy=GeneratedPathPrivacy.COMPATIBILITY_VIEW,
         resume_scope=GeneratedPathResumeScope.LOOP_ITERATION,
         stable_identity=_stable_identity(
+            _schema_identity_part(context),
             context.workflow_name,
             call_step_name,
             context.iteration_scope,
@@ -168,13 +180,19 @@ def allocate_materialized_value_view(
     stable_target: str,
     privacy: GeneratedPathPrivacy = GeneratedPathPrivacy.COMPATIBILITY_VIEW,
 ) -> GeneratedPathAllocation:
+    schema_identity = _schema_identity_part(context)
     return _allocate(
         context=context,
         source_expr=source_expr,
         semantic_role=GeneratedPathSemanticRole.MATERIALIZED_VALUE_VIEW,
         privacy=privacy,
         resume_scope=GeneratedPathResumeScope.NONE,
-        stable_identity=_stable_identity(context.workflow_name, stable_target),
+        stable_identity=_stable_identity(
+            schema_identity,
+            context.workflow_name,
+            context.step_name_prefix if schema_identity is not None else None,
+            stable_target,
+        ),
         path_template=path_template,
     )
 

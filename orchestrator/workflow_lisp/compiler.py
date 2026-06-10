@@ -108,6 +108,7 @@ from .procedure_specialization import (
     procedure_catalog_with_specializations as _procedure_catalog_with_specializations_owner,
 )
 from .reader import read_sexpr_file
+from .spans import SourcePosition, SourceSpan
 from .source_map import build_source_map_document
 from .syntax import (
     WorkflowLispSyntaxModule,
@@ -126,11 +127,16 @@ from .stdlib_contracts import (
 from .type_env import (
     PRELUDE_TYPE_NAMES,
     FrontendTypeEnvironment,
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
     PathTypeRef,
+    PrimitiveTypeRef,
     ProcRefTypeRef,
     RecordTypeRef,
     TypeRef,
     UnionTypeRef,
+    WorkflowRefTypeRef,
 )
 from .type_expressions import (
     ListTypeExpr,
@@ -168,6 +174,21 @@ from .workflows import (
     prompt_extern_legacy_bindings,
     prompt_extern_source_bindings_payload,
     typecheck_workflow_definitions,
+)
+from .wcc.route import (
+    LoweringRoute,
+    lowering_schema_for_route,
+    normalize_lowering_route,
+    validate_wcc_m1_route_supported,
+    validate_wcc_m2_route_supported,
+    validate_wcc_m3_route_supported,
+    validate_wcc_m4_route_supported,
+)
+from .wcc.lower import (
+    lower_wcc_m1_workflow_definitions,
+    lower_wcc_m2_workflow_definitions,
+    lower_wcc_m3_workflow_definitions,
+    lower_wcc_m4_workflow_definitions,
 )
 
 
@@ -336,6 +357,7 @@ def compile_stage3_entrypoint(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -344,6 +366,10 @@ def compile_stage3_entrypoint(
     typechecking, effect inference, lowering to ordinary workflow dictionaries,
     and optional shared validation for every reachable module.
     """
+
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
+    if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
+        _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
 
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
@@ -355,6 +381,7 @@ def compile_stage3_entrypoint(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
+        lowering_route=normalized_lowering_route,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -379,10 +406,14 @@ def compile_stage3_module(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     if _syntax_module_uses_module_graph(path):
+        if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
+            _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
         linked = compile_stage3_entrypoint(
             path,
             provider_externs=provider_externs,
@@ -392,6 +423,7 @@ def compile_stage3_module(
             validate_shared=validate_shared,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
+            lowering_route=normalized_lowering_route,
         )
         return linked.entry_result
 
@@ -404,6 +436,7 @@ def compile_stage3_module(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
+        lowering_route=normalized_lowering_route,
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -421,6 +454,7 @@ def compile_stage3_module(
         lowered_workflows=state.lowered_workflows,
         validated_bundles=state.validated_bundles,
         diagnostics=diagnostics,
+        lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
     )
 
 
@@ -609,7 +643,9 @@ def _run_stage3_entrypoint_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     graph = resolve_module_graph(path, source_roots=source_roots)
     compile_result: LinkedStage3CompileResult | None = None
     selected_workflow_name: str | None = None
@@ -625,6 +661,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             validate_shared=False,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
+            lowering_route=normalized_lowering_route,
         )
         selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
         return replace(
@@ -745,6 +782,107 @@ def _compile_stage1_syntax_module(
     return state.module
 
 
+def _lower_workflows_for_route(
+    *,
+    lowering_route: LoweringRoute,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_catalog: ProcedureCatalog,
+    workflow_path: Path,
+    workflow_catalog,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    extern_environment,
+    command_boundary_environment: CommandBoundaryEnvironment,
+    type_env: FrontendTypeEnvironment,
+):
+    if lowering_route is LoweringRoute.WCC_M1:
+        validate_wcc_m1_route_supported(typed_workflows)
+        return lower_wcc_m1_workflow_definitions(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog,
+            workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
+    if lowering_route is LoweringRoute.WCC_M2:
+        validate_wcc_m2_route_supported(typed_workflows, typed_procedures)
+        return lower_wcc_m2_workflow_definitions(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog,
+            workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
+    if lowering_route is LoweringRoute.WCC_M3:
+        validate_wcc_m3_route_supported(typed_workflows, typed_procedures)
+        return lower_wcc_m3_workflow_definitions(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog,
+            workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
+    if lowering_route is LoweringRoute.WCC_M4:
+        validate_wcc_m4_route_supported(
+            typed_workflows,
+            typed_procedures,
+            workflow_signatures=workflow_catalog.signatures_by_name,
+        )
+        return lower_wcc_m4_workflow_definitions(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog,
+            workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
+    return lower_workflow_definitions(
+        typed_workflows,
+        typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog,
+        workflow_path=workflow_path,
+        workflow_catalog=workflow_catalog,
+        imported_workflow_bundles=imported_workflow_bundles,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        type_env=type_env,
+    )
+
+
+def _raise_wcc_module_graph_unsupported(path: Path, route: LoweringRoute) -> None:
+    span = SourceSpan(
+        start=SourcePosition(path=str(path), line=1, column=1, offset=0),
+        end=SourcePosition(path=str(path), line=1, column=1, offset=0),
+    )
+    route_label = route.value.replace("_", " ").upper()
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="wcc_lowering_route_unsupported",
+                message=f"{route_label} lowering currently supports same-file module compiles only",
+                span=span,
+                form_path=("workflow-lisp",),
+                phase="lowering",
+            ),
+        )
+    )
+
+
 def _run_stage3_validation_pipeline(
     path: Path,
     *,
@@ -755,7 +893,9 @@ def _run_stage3_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
     def parse_pass(state: ValidationPipelineState) -> ValidationPipelineState:
@@ -786,6 +926,7 @@ def _run_stage3_validation_pipeline(
             workflow_defs,
             type_env,
             imported_workflow_bundles=effective_imported_workflow_bundles,
+            allow_collection_boundaries=normalized_lowering_route is LoweringRoute.LEGACY,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
         function_catalog = build_function_catalog(function_defs, type_env=type_env)
@@ -883,8 +1024,9 @@ def _run_stage3_validation_pipeline(
         )
 
     def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        lowered_workflows = lower_workflow_definitions(
-            state.typed_workflows,
+        lowered_workflows = _lower_workflows_for_route(
+            lowering_route=normalized_lowering_route,
+            typed_workflows=state.typed_workflows,
             typed_procedures=state.typed_procedures,
             procedure_catalog=state.procedure_catalog,
             workflow_path=path,
@@ -1290,6 +1432,7 @@ def _compile_stage3_graph(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -1299,6 +1442,7 @@ def _compile_stage3_graph(
     so downstream modules can call them through the existing workflow loader.
     """
 
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -1424,6 +1568,7 @@ def _compile_stage3_graph(
             lookup_aliases=workflow_lookup_aliases,
             imported_workflow_bundles=effective_imported_bundles,
             allow_hidden_context_callers=module_name == graph.entry_module_name,
+            allow_collection_boundaries=normalized_lowering_route is LoweringRoute.LEGACY,
         )
         function_catalog = build_function_catalog(
             function_defs,
@@ -1560,8 +1705,9 @@ def _compile_stage3_graph(
             **typed_procedures_by_name,
             **{procedure.definition.name: procedure for procedure in typed_procedures},
         }
-        lowered_workflows = lower_workflow_definitions(
-            typed_workflows,
+        lowered_workflows = _lower_workflows_for_route(
+            lowering_route=normalized_lowering_route,
+            typed_workflows=typed_workflows,
             typed_procedures=tuple(combined_typed_procedures.values()),
             procedure_catalog=procedure_catalog,
             workflow_path=module_source.path,
@@ -1596,6 +1742,7 @@ def _compile_stage3_graph(
             lowered_workflows=lowered_workflows,
             validated_bundles=validated_exports if validate_shared else {},
             diagnostics=_collect_stage3_required_lint_diagnostics(typed_workflows),
+            lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
         )
         compiled_results_by_name[module_name] = result
         aggregate_diagnostics.extend(result.diagnostics)
@@ -1728,7 +1875,133 @@ def _imported_type_refs(
 ) -> dict[str, TypeRef]:
     """Collect concrete type refs made visible by the import scope."""
 
-    def _canonicalize_type_ref(type_ref: TypeRef, canonical_name: str) -> TypeRef:
+    def _canonical_export_name(module_name: str, type_name: str, exported_names: frozenset[str]) -> str:
+        if "::" in type_name:
+            return type_name
+        module_prefix = f"{module_name}/"
+        if type_name.startswith(module_prefix):
+            type_name = type_name.removeprefix(module_prefix)
+        if type_name in exported_names:
+            return f"{module_name}::{type_name}"
+        return type_name
+
+    def _canonicalize_nested_type_ref(
+        type_ref: TypeRef,
+        *,
+        module_name: str,
+        exported_names: frozenset[str],
+    ) -> TypeRef:
+        if isinstance(type_ref, PrimitiveTypeRef):
+            if not type_ref.allowed_values:
+                return type_ref
+            canonical_name = _canonical_export_name(module_name, type_ref.name, exported_names)
+            return replace(type_ref, name=canonical_name) if canonical_name != type_ref.name else type_ref
+        if isinstance(type_ref, RecordTypeRef):
+            canonical_name = _canonical_export_name(module_name, type_ref.name, exported_names)
+            return replace(
+                type_ref,
+                name=canonical_name,
+                field_types={
+                    field_name: _canonicalize_nested_type_ref(
+                        field_type,
+                        module_name=module_name,
+                        exported_names=exported_names,
+                    )
+                    for field_name, field_type in type_ref.field_types.items()
+                },
+            )
+        if isinstance(type_ref, UnionTypeRef):
+            canonical_name = _canonical_export_name(module_name, type_ref.name, exported_names)
+            return replace(
+                type_ref,
+                name=canonical_name,
+                variant_field_types={
+                    variant_name: {
+                        field_name: _canonicalize_nested_type_ref(
+                            field_type,
+                            module_name=module_name,
+                            exported_names=exported_names,
+                        )
+                        for field_name, field_type in field_types.items()
+                    }
+                    for variant_name, field_types in type_ref.variant_field_types.items()
+                },
+            )
+        if isinstance(type_ref, WorkflowRefTypeRef):
+            return replace(
+                type_ref,
+                param_type_refs=tuple(
+                    _canonicalize_nested_type_ref(
+                        param_type,
+                        module_name=module_name,
+                        exported_names=exported_names,
+                    )
+                    for param_type in type_ref.param_type_refs
+                ),
+                return_type_ref=_canonicalize_nested_type_ref(
+                    type_ref.return_type_ref,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                ),
+            )
+        if isinstance(type_ref, ProcRefTypeRef):
+            return replace(
+                type_ref,
+                param_type_refs=tuple(
+                    _canonicalize_nested_type_ref(
+                        param_type,
+                        module_name=module_name,
+                        exported_names=exported_names,
+                    )
+                    for param_type in type_ref.param_type_refs
+                ),
+                return_type_ref=_canonicalize_nested_type_ref(
+                    type_ref.return_type_ref,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                ),
+            )
+        if isinstance(type_ref, OptionalTypeRef):
+            return replace(
+                type_ref,
+                item_type_ref=_canonicalize_nested_type_ref(
+                    type_ref.item_type_ref,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                ),
+            )
+        if isinstance(type_ref, ListTypeRef):
+            return replace(
+                type_ref,
+                item_type_ref=_canonicalize_nested_type_ref(
+                    type_ref.item_type_ref,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                ),
+            )
+        if isinstance(type_ref, MapTypeRef):
+            return replace(
+                type_ref,
+                key_type_ref=_canonicalize_nested_type_ref(
+                    type_ref.key_type_ref,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                ),
+                value_type_ref=_canonicalize_nested_type_ref(
+                    type_ref.value_type_ref,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                ),
+            )
+        return type_ref
+
+    def _canonicalize_type_ref(type_ref: TypeRef, *, module_name: str, canonical_name: str) -> TypeRef:
+        exported_names = frozenset(exported_type_refs_by_module.get(module_name, {}))
+        type_ref = _canonicalize_nested_type_ref(
+            type_ref,
+            module_name=module_name,
+            exported_names=exported_names,
+        )
         if getattr(type_ref, "name", None) == canonical_name:
             return type_ref
         try:
@@ -1744,7 +2017,11 @@ def _imported_type_refs(
     for binding in seen_bindings.values():
         type_ref = exported_type_refs_by_module.get(binding.module_name, {}).get(binding.member_name)
         if type_ref is not None:
-            imported[binding.canonical_name] = _canonicalize_type_ref(type_ref, binding.canonical_name)
+            imported[binding.canonical_name] = _canonicalize_type_ref(
+                type_ref,
+                module_name=binding.module_name,
+                canonical_name=binding.canonical_name,
+            )
     return imported
 
 

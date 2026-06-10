@@ -14,6 +14,7 @@ from typing import Any, Mapping
 STATE_LAYOUT_SCHEMA_VERSION = "workflow_state_layout.v1"
 WORKSPACE_RELATIVE_PATH_SAFETY = "workspace_relative"
 RUNTIME_RUN_ID_TOKEN = "${runtime.run_id}"
+ENTRYPOINT_MANAGED_WRITE_ROOT_FILENAME_LIMIT = 128
 
 
 def _freeze_value(value: Any) -> Any:
@@ -97,6 +98,27 @@ def _slug_token(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_") or "workflow"
 
 
+def _entrypoint_managed_write_root_filename(request: GeneratedPathAllocationRequest) -> str:
+    token = re.sub(r"[^A-Za-z0-9._-]+", "_", request.generated_input_name or "write_root") or "write_root"
+    filename = f"{token}.json"
+    if len(filename) <= ENTRYPOINT_MANAGED_WRITE_ROOT_FILENAME_LIMIT:
+        return filename
+    digest = hashlib.sha256(
+        "|".join(
+            (
+                STATE_LAYOUT_SCHEMA_VERSION,
+                request.workflow_name,
+                request.stable_identity,
+                request.generated_input_name or "",
+            )
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    suffix = f"__{digest}.json"
+    prefix_limit = ENTRYPOINT_MANAGED_WRITE_ROOT_FILENAME_LIMIT - len(suffix)
+    prefix = token[:prefix_limit].rstrip("._-") or "write_root"
+    return f"{prefix}{suffix}"
+
+
 def _validate_relative_path(value: str) -> str:
     if not isinstance(value, str) or not value:
         raise ValueError("Generated path allocation requires a non-empty relative path")
@@ -138,7 +160,7 @@ def _template_from_request(request: GeneratedPathAllocationRequest) -> str:
                     "entry",
                     RUNTIME_RUN_ID_TOKEN,
                     _slug_token(request.workflow_name),
-                    f"{request.generated_input_name}.json",
+                    _entrypoint_managed_write_root_filename(request),
                 )
             )
         )

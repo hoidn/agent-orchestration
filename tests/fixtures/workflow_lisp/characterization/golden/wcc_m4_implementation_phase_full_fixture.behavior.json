@@ -1,0 +1,234 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "artifacts/review/review_round_1.md": {
+      "sha256": "eeb64f22f5da29e3913357703656dd689e893cc6f3f75c447d6b10584b9ee177",
+      "size": 18
+    },
+    "artifacts/review/review_round_2.md": {
+      "sha256": "e3863cbd31e1c50119fb61df05080c614d565f6db58780dbe7dcab57e150084b",
+      "size": 18
+    },
+    "artifacts/work/checks_report.md": {
+      "sha256": "ca118358a2a2a738d9689ce7fa7293d7378dcdf4835247c7fd1af32323b8e1a5",
+      "size": 17
+    },
+    "artifacts/work/completed_execution_report.md": {
+      "sha256": "f4b23337c3a63d136a9005497e6ff96ee724c8b369617a1af73bd719dd68fc29",
+      "size": 30
+    },
+    "artifacts/work/design-review-prompt.md": {
+      "sha256": "12c991cf7078ee24908a888524cfc2ba403e269b3023f2d74cac105b97278f2d",
+      "size": 15
+    },
+    "artifacts/work/fix-plan-prompt.md": {
+      "sha256": "a6a3adde4dd25eebe019859048fc4cd959cf04d5446a183b4f45de5b1dd5d969",
+      "size": 11
+    },
+    "artifacts/work/fixed_execution_report.md": {
+      "sha256": "c5fdd3dd0df13ce27418b2e4699dba452dc8b65d96bba5738dbab638354141c5",
+      "size": 26
+    },
+    "artifacts/work/implementation_plan.md": {
+      "sha256": "ee71285c87dcec718f57ad6848bb3457230769a9a2dd750c867332554fdf5784",
+      "size": 22
+    },
+    "artifacts/work/review_round_1_findings.json": {
+      "json": {
+        "items": []
+      }
+    },
+    "artifacts/work/review_round_2_findings.json": {
+      "json": {
+        "items": []
+      }
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "provider_sequences": {
+          "fake-execute": [
+            {
+              "execution_report_path": "artifacts/work/completed_execution_report.md",
+              "variant": "COMPLETED"
+            }
+          ],
+          "fake-fix": [
+            {
+              "checks_report_path": "artifacts/work/checks_report.md",
+              "execution_report_path": "artifacts/work/fixed_execution_report.md"
+            }
+          ],
+          "fake-review": [
+            {
+              "findings": {
+                "items_path": "artifacts/work/review_round_1_findings.json",
+                "schema_version": "ReviewFindings.v1"
+              },
+              "review_report": "artifacts/review/review_round_1.md",
+              "revise_review_report": "artifacts/review/review_round_1.md",
+              "variant": "REVISE"
+            },
+            {
+              "checks_report": "artifacts/work/checks_report.md",
+              "findings": {
+                "items_path": "artifacts/work/review_round_2_findings.json",
+                "schema_version": "ReviewFindings.v1"
+              },
+              "review_decision": "APPROVE",
+              "review_report": "artifacts/review/review_round_2.md",
+              "variant": "APPROVE"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
+  "state": {
+    "context": {
+      "workflow_lisp": {
+        "lowering_schema_version": 2
+      }
+    }
+  },
+  "status": "completed",
+  "steps": {
+    "wcc_m4_implementation_phase_full_fixture::run__attempt": {
+      "artifacts": {
+        "execution_report_path": "artifacts/work/completed_execution_report.md",
+        "variant": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt": {
+      "artifacts": {
+        "return__blocker_class": "missing_resource",
+        "return__findings__items_path": "artifacts/work/review_round_2_findings.json",
+        "return__findings__schema_version": "ReviewFindings.v1",
+        "return__last_review_report": "artifacts/review/loop-placeholder.txt",
+        "return__reason": "",
+        "return__review_report": "artifacts/review/review_round_2.md",
+        "return__variant": "APPROVED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt.BLOCKED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt.BLOCKED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__blocked": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt.COMPLETED": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt.COMPLETED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__projection_anchor": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__loop": {
+      "artifacts": {
+        "result__blocker_class": "missing_resource",
+        "result__findings__items_path": "artifacts/work/review_round_2_findings.json",
+        "result__findings__schema_version": "ReviewFindings.v1",
+        "result__last_review_report": "artifacts/review/loop-placeholder.txt",
+        "result__reason": "",
+        "result__review_report": "artifacts/review/review_round_2.md",
+        "result__variant": "APPROVED",
+        "state__completed__checks_report_path": "artifacts/work/checks_report.md",
+        "state__completed__execution_report_path": "artifacts/work/fixed_execution_report.md",
+        "state__inputs__design_review_prompt": "artifacts/work/design-review-prompt.md",
+        "state__inputs__fix_plan_prompt": "artifacts/work/fix-plan-prompt.md",
+        "state__last_review_report": "artifacts/review/review_round_1.md",
+        "state__latest_findings__items_path": "artifacts/work/review_round_1_findings.json",
+        "state__latest_findings__schema_version": "ReviewFindings.v1",
+        "status": "DONE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result": {
+      "artifacts": {
+        "return__blocker_class": "missing_resource",
+        "return__findings__items_path": "artifacts/work/review_round_2_findings.json",
+        "return__findings__schema_version": "ReviewFindings.v1",
+        "return__last_review_report": "artifacts/review/loop-placeholder.txt",
+        "return__reason": "",
+        "return__review_report": "artifacts/review/review_round_2.md",
+        "return__variant": "APPROVED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.APPROVED": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.APPROVED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result__approved__projection_anchor": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.BLOCKED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.BLOCKED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result__blocked__projection_anchor": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.EXHAUSTED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.EXHAUSTED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result__exhausted__projection_anchor": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__seed": {
+      "artifacts": {
+        "state__completed__checks_report_path": "artifacts/work/checks_report.md",
+        "state__completed__execution_report_path": "artifacts/work/completed_execution_report.md",
+        "state__inputs__design_review_prompt": "artifacts/work/design-review-prompt.md",
+        "state__inputs__fix_plan_prompt": "artifacts/work/fix-plan-prompt.md",
+        "state__last_review_report": "artifacts/review/last-review-report.md",
+        "state__latest_findings__items_path": "artifacts/work/review-findings-seed.json",
+        "state__latest_findings__schema_version": "ReviewFindings.v1"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__checks__run_checks": {
+      "artifacts": {
+        "checks_report_path": "artifacts/work/checks_report.md"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "return__findings__items_path": "artifacts/work/review_round_2_findings.json",
+    "return__findings__schema_version": "ReviewFindings.v1",
+    "return__review_report": "artifacts/review/review_round_2.md",
+    "return__variant": "APPROVED"
+  }
+}

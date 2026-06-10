@@ -542,6 +542,7 @@ class _IRBuilder:
             ),
             body_node_ids=tuple(body_node_ids),
             body_entry_node_id=body_node_ids[0] if body_node_ids else None,
+            bound_when_predicate=_bind_predicate(step.when_predicate, context),
             condition=_bind_predicate(step.repeat_until.condition, body_context),
             max_iterations=step.repeat_until.max_iterations,
             output_contracts=_bind_contracts(step.repeat_until.outputs, body_context),
@@ -766,6 +767,7 @@ class _IRBuilder:
                 statement_name=statement_presentation_name,
                 case_name=case_name,
                 selector_address=selector_address,
+                bound_when_predicate=_bind_predicate(step.when_predicate, context),
             )
             self._register_node(node=marker, region=region, top_level_region=top_level_region)
             ordered.append(marker.node_id)
@@ -783,6 +785,7 @@ class _IRBuilder:
             statement_name=statement_presentation_name,
             selector_address=selector_address,
             case_outputs=MappingProxyType(dict(case_outputs)),
+            bound_when_predicate=_bind_predicate(step.when_predicate, context),
         )
         self._register_node(node=join, region=region, top_level_region=top_level_region)
         self.projection.register_structured_match(step.step_id, case_projection)

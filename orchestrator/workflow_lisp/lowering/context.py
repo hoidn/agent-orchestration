@@ -87,6 +87,8 @@ class _LoweringContext:
     is_generated_private_workflow: bool
     phase_scope: _ActivePhaseScope | None = None
     iteration_scope: str | None = None
+    lowering_schema_version: int | None = None
+    wcc_effect_lowerer: Any | None = None
     active_procedure_calls: frozenset[str] = frozenset()
     composition_scope_id: str | None = None
     parent_composition_scope_id: str | None = None

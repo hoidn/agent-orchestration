@@ -371,6 +371,7 @@ class MatchCaseMarkerNode(ExecutableNodeBase):
     statement_name: str = ""
     case_name: str = ""
     selector_address: Optional[BoundAddress] = None
+    bound_when_predicate: Any = None
 
 
 @dataclass(frozen=True)
@@ -380,6 +381,7 @@ class MatchJoinNode(ExecutableNodeBase):
     statement_name: str = ""
     selector_address: Optional[BoundAddress] = None
     case_outputs: Mapping[str, Mapping[str, ExecutableContract]] = field(default_factory=empty_frozen_mapping)
+    bound_when_predicate: Any = None
 
 
 @dataclass(frozen=True)
@@ -388,6 +390,7 @@ class RepeatUntilFrameNode(ExecutableNodeBase):
 
     body_node_ids: tuple[str, ...] = ()
     body_entry_node_id: Optional[str] = None
+    bound_when_predicate: Any = None
     condition: Any = None
     max_iterations: Optional[int] = None
     output_contracts: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)

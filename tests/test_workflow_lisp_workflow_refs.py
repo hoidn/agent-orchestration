@@ -15,6 +15,7 @@ from orchestrator.workflow_lisp.phase_stdlib import (
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
@@ -178,6 +179,7 @@ def test_workflow_ref_same_file_higher_order_calls_compile_and_validate(tmp_path
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     lowered_input_sets = {workflow.typed_workflow.definition.name: set(workflow.authored_mapping["inputs"]) for workflow in result.lowered_workflows}
@@ -232,6 +234,7 @@ def test_workflow_ref_explicit_literal_calls_still_compile_and_validate(tmp_path
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     assert "echo-helper" in result.validated_bundles
@@ -244,6 +247,7 @@ def test_workflow_ref_forwarding_through_defproc_compiles_and_validates(tmp_path
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     assert "echo-helper" in result.validated_bundles
@@ -256,6 +260,7 @@ def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(t
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     specialized_names = {
@@ -275,6 +280,7 @@ def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     assert "workflow_refs/imported_entry::entry" in result.validated_bundles_by_name
@@ -318,6 +324,7 @@ def test_workflow_ref_top_level_param_is_allowed_but_nested_return_transport_is_
             path,
             validate_shared=False,
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
 
     _assert_diagnostic_code(excinfo, "workflow_ref_runtime_transport_forbidden")
@@ -347,6 +354,7 @@ def test_workflow_ref_invalid_contracts_raise_targeted_diagnostics(
             command_boundaries=_command_boundaries(),
             validate_shared=False,
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
 
     _assert_diagnostic_code(excinfo, expected_code)

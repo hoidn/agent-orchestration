@@ -1,0 +1,101 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "artifacts/work/checks_report.md": {
+      "sha256": "ed93702feff741f1d24065e7a5542dce919d5cb366a73555d5af32615fb77ac7",
+      "size": 9
+    },
+    "artifacts/work/execution_report.md": {
+      "sha256": "c59473730463988389125d2beaf21e5e56fc8826436d8ae981ea8b8576019bd0",
+      "size": 12
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "provider_payloads": {
+          "fake": {
+            "execution_report": "artifacts/work/execution_report.md",
+            "variant": "COMPLETED"
+          }
+        }
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
+  "status": "completed",
+  "steps": {
+    "loop-recur-minimal__attempt": {
+      "artifacts": {
+        "execution_report": "artifacts/work/execution_report.md",
+        "variant": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "loop-recur-minimal__loop": {
+      "artifacts": {
+        "result__report": "artifacts/work/execution_report.md",
+        "result__status": "completed",
+        "state__blocker_class": "missing_resource",
+        "state__execution_report": "artifacts/work/execution_report.md",
+        "state__progress_report": "artifacts/work/loop-placeholder.txt",
+        "state__variant": "COMPLETED",
+        "status": "DONE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "loop-recur-minimal__result": {
+      "artifacts": {
+        "return__report": "artifacts/work/execution_report.md",
+        "return__status": "completed"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "loop-recur-minimal__seed": {
+      "artifacts": {
+        "state__blocker_class": "missing_resource",
+        "state__execution_report": "artifacts/work/execution_report.md",
+        "state__progress_report": "artifacts/work/loop-placeholder.txt",
+        "state__variant": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "loop-recur-minimal__seed.BLOCKED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "loop-recur-minimal__seed.BLOCKED.loop-recur-minimal__seed__materialize_blocked": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "loop-recur-minimal__seed.COMPLETED": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "loop-recur-minimal__seed.COMPLETED.loop-recur-minimal__seed__materialize_completed": {
+      "artifacts": {
+        "state__blocker_class": "missing_resource",
+        "state__execution_report": "artifacts/work/execution_report.md",
+        "state__progress_report": "artifacts/work/loop-placeholder.txt",
+        "state__variant": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "return__report": "artifacts/work/execution_report.md",
+    "return__status": "completed"
+  }
+}

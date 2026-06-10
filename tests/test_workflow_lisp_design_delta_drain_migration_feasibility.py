@@ -10,11 +10,18 @@ from unittest.mock import patch
 
 import pytest
 
+from orchestrator.exec.output_capture import CaptureMode, CaptureResult
+from orchestrator.exec.step_executor import ExecutionResult
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
+from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_public_input_contracts
+from orchestrator.workflow.loaded_bundle import (
+    workflow_context,
+    workflow_public_input_contracts,
+)
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.command_boundaries import (
     CertifiedAdapterInputField,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
@@ -28,6 +35,7 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "cli"
 WORKFLOW_LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
+CHARACTERIZATION_FIXTURES = WORKFLOW_LISP_FIXTURES / "characterization" / "sources"
 # This checked-in candidate remains the authoritative proof source for the
 # imported-child prerequisite until the shipping library module lands its
 # separate parent-callable `run-work-item` export.
@@ -66,6 +74,14 @@ def _write_entrypoint_fixture_to_tmp(path: Path, *, tmp_path: Path) -> Path:
     module_path.parent.mkdir(parents=True, exist_ok=True)
     module_path.write_text(source, encoding="utf-8")
     return module_path
+
+
+def _bind_nested_match_inputs(bundle, workspace: Path) -> dict[str, object]:
+    return bind_workflow_inputs(
+        workflow_public_input_contracts(bundle),
+        {"report": "artifacts/work/input_report.md"},
+        workspace,
+    )
 
 
 def _walk_lowered_steps(steps: list[dict[str, object]]):
@@ -452,9 +468,7 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
     try:
         result, lowered_by_name = _compile_design_delta_work_item_entrypoint(tmp_path)
     except LispFrontendCompileError as exc:
-        _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
-            exc.diagnostics,
-        )
+        _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(exc.diagnostics)
         diagnostic_codes = {diagnostic.code for diagnostic in exc.diagnostics}
         assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
         return None, None
@@ -465,62 +479,37 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
     return result, lowered_by_name
 
 
-def _assert_design_delta_work_item_helper_alias_boundary_failure(
+def _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
     diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
-    boundary_messages = [
+    unsupported_messages = [
         diagnostic.message
         for diagnostic in diagnostics
-        if diagnostic.code == "workflow_boundary_type_invalid"
+        if diagnostic.code == "wcc_lowering_route_unsupported"
     ]
 
-    assert "workflow_boundary_type_invalid" in diagnostic_codes
+    assert diagnostic_codes == {"wcc_lowering_route_unsupported"}
     assert "union_return_variant_ambiguous" not in diagnostic_codes
     assert "union_return_variant_incompatible" not in diagnostic_codes
+    assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
     assert any(
-        "unknown import alias" in message
-        and "route-blocked-implementation.v1" in message
-        for message in boundary_messages
-    )
-    assert any(
-        "unknown import alias" in message
-        and "finalize-approved-nonblocked.v1" in message
-        for message in boundary_messages
+        "unsupported `IfExpr`" in message
+        and "lisp_frontend_design_delta/work_item::run-work-item" in message
+        for message in unsupported_messages
     )
 
 
 def _assert_design_delta_work_item_candidate_phase_family_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
-    _assert_design_delta_work_item_helper_alias_boundary_failure(diagnostics)
-    diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
-    low_level_workflows = {
-        match.group(1)
-        for diagnostic in diagnostics
-        if diagnostic.code == "low_level_state_path_in_high_level_module"
-        for match in [re.search(r"workflow `([^`]+)`", diagnostic.message)]
-        if match is not None
-    }
-
-    assert diagnostic_codes == {
-        "workflow_boundary_type_invalid",
-        "low_level_state_path_in_high_level_module",
-    }
-    assert low_level_workflows == {
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        "lisp_frontend_design_delta/work_item::run-work-item",
-    }
+    _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(diagnostics)
 
 
 def _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
-    _assert_design_delta_work_item_helper_alias_boundary_failure(diagnostics)
-    diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
-
-    assert diagnostic_codes == {"workflow_boundary_type_invalid"}
+    _assert_design_delta_work_item_candidate_wcc_ifexpr_boundary_failure(diagnostics)
 
 
 def _compile_design_delta_work_item_runtime_entrypoint(tmp_path: Path):

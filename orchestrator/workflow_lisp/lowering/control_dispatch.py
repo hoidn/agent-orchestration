@@ -156,8 +156,10 @@ def _control_lower_expression_impl(
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
+    # schema1_compatibility: retained legacy direct lowerers for explicit schema-1 builds only.
     if isinstance(expr, CommandResultExpr):
         return _lower_command_result(typed_expr, context=context, local_values=local_values)
+    # schema1_compatibility: retained legacy direct lowerers for explicit schema-1 builds only.
     if isinstance(expr, ProviderResultExpr):
         return _lower_provider_result(
             expr,
@@ -177,6 +179,7 @@ def _control_lower_expression_impl(
         return _lower_finalize_selected_item(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, BacklogDrainExpr):
         return _lower_backlog_drain(typed_expr, context=context, local_values=local_values)
+    # schema1_compatibility: covered loops lower through WCC for promoted schema-2 compiles.
     if isinstance(expr, LoopRecurExpr):
         from .control_loops import _lower_loop_recur
 
@@ -191,6 +194,7 @@ def _control_lower_expression_impl(
         return _lower_union_variant_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, RecordExpr):
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
+    # schema1_compatibility: covered matches lower through WCC for promoted schema-2 compiles.
     if isinstance(expr, MatchExpr):
         from .control_match import _lower_binding_match_expr
 
@@ -255,12 +259,19 @@ def _control_lower_let_star_impl(
         context=body_context,
     )
     if output_refs is not None:
+        resolved_body_value = _resolve_inline_expr_value(body_expr, local_values=local_bindings)
+        returned_union_type_name = (
+            resolved_body_value.get("__lowering_returned_union_type")
+            if isinstance(resolved_body_value, Mapping)
+            else None
+        )
         lowered_steps, terminal = [], _TerminalResult(
             step_name=context.step_name_prefix,
             step_id=_normalize_generated_step_id(context.step_name_prefix),
             output_refs=output_refs,
             output_kind="projection",
             hidden_inputs={},
+            returned_union_type_name=returned_union_type_name,
         )
     else:
         lowered_steps, terminal = _lower_expression(
@@ -376,6 +387,7 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name_prefix=step_name_prefix,
         )
+    # emitter: phase composition reuses the provider-result owner emitter.
     if isinstance(expr, ProviderResultExpr):
         return _lower_provider_result(
             expr,
@@ -384,6 +396,7 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name=step_name_prefix,
         )
+    # schema1_compatibility: retained for explicit legacy composed match lowering.
     if isinstance(expr, MatchExpr):
         from .control_match import _lower_binding_match_expr
 
@@ -417,6 +430,13 @@ def _binding_local_value_from_terminal(
 ) -> Any | None:
     if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
         local_value = _build_output_step_local_value(binding_terminal.output_refs)
+        if (
+            isinstance(binding_type, UnionTypeRef)
+            and binding_terminal.returned_union_type_name is not None
+            and binding_terminal.returned_union_variant_name is None
+        ):
+            local_value["__lowering_returned_union_type"] = binding_terminal.returned_union_type_name
+        # schema1_compatibility: legacy provider-result bindings carry provider bundle identity.
         if isinstance(expr, ProviderResultExpr) and binding_terminal.provider_bundle_identity is not None:
             return attach_provider_bundle_identity(
                 local_value,
