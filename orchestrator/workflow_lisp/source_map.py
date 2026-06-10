@@ -673,15 +673,20 @@ def _generated_semantic_effects_for_workflow(
 ) -> tuple[GeneratedSemanticEffectLineage, ...]:
     entries: list[GeneratedSemanticEffectLineage] = []
     for effect in getattr(lowered.origin_map, "generated_semantic_effects", ()) or ():
+        if effect.effect_kind == "pointer_materialization":
+            entity_kind = "generated_path"
+            subject_name = effect.details.get("pointer_path", effect.step_id)
+        elif effect.effect_kind == "provider_bundle_path_projection":
+            entity_kind = "generated_output"
+            subject_name = effect.details.get("projected_output_name", effect.step_id)
+        else:
+            entity_kind = "step_id"
+            subject_name = effect.step_id
         origin_entry = _entry_from_origin(
             effect.origin,
             workflow_name=workflow_name,
-            entity_kind=(
-                "generated_path"
-                if effect.effect_kind == "pointer_materialization"
-                else "step_id"
-            ),
-            subject_name=effect.details.get("pointer_path", effect.step_id),
+            entity_kind=entity_kind,
+            subject_name=subject_name,
         )
         entries.append(
             GeneratedSemanticEffectLineage(

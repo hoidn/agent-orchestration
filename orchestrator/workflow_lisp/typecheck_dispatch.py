@@ -52,6 +52,7 @@ from .expressions import (
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
     ProcedureCallExpr,
+    ProviderBundlePathExpr,
     ProviderResultExpr,
     ResourceTransitionExpr,
     RecordExpr,
@@ -117,6 +118,7 @@ from .typecheck_effects import (
     is_macro_introduced_effect as _is_macro_introduced_effect,
     typecheck_command_result_expr as _typecheck_command_result_expr,
     typecheck_expected_extern_operand as _typecheck_expected_extern_operand,
+    typecheck_provider_bundle_path_expr as _typecheck_provider_bundle_path_expr,
     typecheck_provider_result_expr as _typecheck_provider_result_expr,
     validate_command_argv as _validate_command_argv,
     validate_semantic_command_adapter_usage as _validate_semantic_command_adapter_usage,
@@ -729,6 +731,7 @@ def _typecheck(
                 binding_expr,
                 value_env=local_env,
                 proc_ref_value_env=local_proc_ref_env,
+                value_expr_env=local_value_expr_env,
             )
             binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
@@ -1953,6 +1956,13 @@ def _typecheck(
         )
     if type(expr) is ProviderResultExpr:
         return _typecheck_provider_result_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+        )
+    if type(expr) is ProviderBundlePathExpr:
+        return _typecheck_provider_bundle_path_expr(
             expr,
             context=context,
             recurse=recurse,

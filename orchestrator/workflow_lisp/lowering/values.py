@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from collections.abc import Mapping
 from typing import Any
 
@@ -20,6 +21,7 @@ from ..expressions import (
     LoopStateUpdateExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProviderBundlePathExpr,
     ProcRefLiteralExpr,
     RecordExpr,
     UnionVariantExpr,
@@ -32,6 +34,41 @@ from . import core as lowering_core
 from .context import _LoweringContext, _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
+
+
+_PROVIDER_BUNDLE_PATH_REF_KEY = "__provider_bundle_path_ref__"
+_PROVIDER_BUNDLE_PROJECTION_KEY = "__provider_bundle_projection__"
+
+
+@dataclass(frozen=True)
+class ProjectedPathRef:
+    """Inline lowered ref plus projection metadata for public output provenance."""
+
+    ref: str
+    projection: Mapping[str, Any]
+
+
+def attach_provider_bundle_identity(
+    local_value: Mapping[str, Any],
+    *,
+    provider_bundle_identity: Mapping[str, Any],
+) -> dict[str, Any]:
+    annotated = dict(local_value)
+    path_ref = provider_bundle_identity.get("bundle_path_ref")
+    if isinstance(path_ref, str):
+        annotated[_PROVIDER_BUNDLE_PATH_REF_KEY] = path_ref
+    annotated[_PROVIDER_BUNDLE_PROJECTION_KEY] = dict(provider_bundle_identity)
+    return annotated
+
+
+def _projected_provider_bundle_ref(value: Any) -> ProjectedPathRef | None:
+    if not isinstance(value, Mapping):
+        return None
+    path_ref = value.get(_PROVIDER_BUNDLE_PATH_REF_KEY)
+    projection = value.get(_PROVIDER_BUNDLE_PROJECTION_KEY)
+    if not isinstance(path_ref, str) or not isinstance(projection, Mapping):
+        return None
+    return ProjectedPathRef(ref=path_ref, projection=dict(projection))
 
 
 def _value_compile_error(*, code: str, message: str, span, form_path: tuple[str, ...]) -> LispFrontendCompileError:
@@ -317,8 +354,14 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
             branch = expr.then_expr if condition_value.value else expr.else_expr
             return _resolve_inline_expr_value(branch, local_values=local_values)
         return expr
+    if isinstance(expr, ProviderBundlePathExpr):
+        source_value = _resolve_inline_expr_value(expr.source_expr, local_values=local_values)
+        projected = _projected_provider_bundle_ref(source_value)
+        if projected is None:
+            return expr
+        return projected
     resolved = _resolve_expr_local_value(expr, local_values=local_values)
-    if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr)):
+    if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr, ProjectedPathRef)):
         return resolved
     if resolved is not None:
         if resolved is expr:
@@ -529,6 +572,8 @@ def _render_existing_output_ref(
             return None
         return context.phase_scope.target_refs.get(expr.target_name)
     value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(value, ProjectedPathRef):
+        return value.ref
     if not isinstance(value, str):
         return None
     if value.startswith(("root.steps.", "self.steps.", "parent.steps.", "inputs.")):
@@ -649,9 +694,18 @@ def _lower_record_expr(
     assert isinstance(record_expr, RecordExpr)
     step_name = context.step_name_prefix
     step_id = _normalize_generated_step_id(step_name)
+    direct_output_refs: dict[str, str] = {}
     values: list[dict[str, Any]] = []
     for field_name in context.return_output_contracts:
+        output_name = f"return__{field_name}"
         value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
+        resolved_value = _resolve_inline_expr_value(value, local_values=local_values)
+        if isinstance(resolved_value, ProjectedPathRef):
+            context.output_projection_metadata[output_name] = {
+                **dict(resolved_value.projection),
+                "projection_id": f"{context.workflow_name}:{output_name}",
+                "projected_output_name": output_name,
+            }
         source_ref = _render_existing_output_ref(value, local_values=local_values, context=context)
         if source_ref is None:
             raise _compile_error(
@@ -663,12 +717,30 @@ def _lower_record_expr(
                 span=record_expr.span,
                 form_path=record_expr.form_path,
             )
+        direct_output_refs[output_name] = source_ref
         values.append(
             {
                 "name": field_name,
                 "source": {"ref": source_ref},
                 "contract": dict(context.return_output_contracts[field_name]),
             }
+        )
+    if all(
+        source_ref.startswith("root.steps.")
+        or (
+            isinstance(context.output_projection_metadata.get(output_name), Mapping)
+            and context.output_projection_metadata[output_name].get("projection_class")
+            == "provider_bundle_path_projection"
+            and context.output_projection_metadata[output_name].get("bundle_path_ref") == source_ref
+        )
+        for output_name, source_ref in direct_output_refs.items()
+    ):
+        return [], _TerminalResult(
+            step_name=step_name,
+            step_id=step_id,
+            output_refs=direct_output_refs,
+            output_kind="projection",
+            hidden_inputs={},
         )
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=record_expr)
     step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)

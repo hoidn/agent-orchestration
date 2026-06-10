@@ -1365,8 +1365,27 @@ def _serialize_workflow_boundary_projection(
                             "generated_name": field.generated_name,
                             "source_path": list(field.source_path),
                             "contract_definition": _json_data(field.contract_definition),
+                            **(
+                                {
+                                    "projection": _json_data(output_definition.get("projection"))
+                                }
+                                if isinstance(
+                                    (lowered.authored_mapping.get("outputs", {}) or {}).get(field.generated_name),
+                                    Mapping,
+                                )
+                                and isinstance(
+                                    (
+                                        (lowered.authored_mapping.get("outputs", {}) or {}).get(field.generated_name)
+                                    ).get("projection"),
+                                    Mapping,
+                                )
+                                else {}
+                            ),
                         }
                         for field in sorted(projection.flattened_outputs, key=lambda field: field.generated_name)
+                        for output_definition in [
+                            (lowered.authored_mapping.get("outputs", {}) or {}).get(field.generated_name, {})
+                        ]
                     ],
                     "generated_internal_inputs": [
                         {

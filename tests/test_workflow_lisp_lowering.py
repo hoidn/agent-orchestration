@@ -79,6 +79,7 @@ LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE = (
 MODULE_FIXTURES = FIXTURES / "modules"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 PROMOTED_ENTRY_BOOTSTRAP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _extern_environment(prompt_binding: PromptExtern | None = None) -> ExternEnvironment:
@@ -126,6 +127,118 @@ def _allocation_field(allocation, field_name: str):
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def _write_provider_bundle_projection_module(
+    tmp_path: Path,
+    *,
+    module_name: str,
+    workflow_name: str,
+    projection_expr: str,
+    phase_scoped: bool,
+    path_under: str,
+) -> Path:
+    if phase_scoped:
+        body = "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                f"  (defmodule {module_name})",
+                f"  (export {workflow_name})",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                "    :kind relpath",
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath SelectionBundlePath",
+                "    :kind relpath",
+                f'    :under "{path_under}"',
+                "    :must-exist false)",
+                "  (defpath ImplementationStateBundlePath",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defpath WorkReportTarget",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root)",
+                "    (implementation_state_bundle_path ImplementationStateBundlePath)",
+                "    (execution_report_target WorkReportTarget)",
+                "    (progress_report_target WorkReportTarget))",
+                "  (defrecord SelectionInputs",
+                "    (design DesignDocPath)",
+                "    (plan PlanDocPath))",
+                "  (defrecord SelectionDecision",
+                "    (selection_status String))",
+                "  (defrecord BundleProjection",
+                "    (selection_bundle_path SelectionBundlePath))",
+                f"  (defworkflow {workflow_name}",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs SelectionInputs))",
+                "    -> BundleProjection",
+                "    (with-phase phase-ctx implementation",
+                "      (let* ((decision",
+                "               (provider-result providers.execute",
+                "                 :prompt prompts.implementation.execute",
+                "                 :inputs (inputs.design inputs.plan)",
+                "                 :returns SelectionDecision)))",
+                "        (record BundleProjection",
+                f"          :selection_bundle_path {projection_expr}))))",
+                ")",
+            ]
+        )
+    else:
+        body = "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                f"  (defmodule {module_name})",
+                f"  (export {workflow_name})",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                "    :kind relpath",
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath SelectionBundlePath",
+                "    :kind relpath",
+                f'    :under "{path_under}"',
+                "    :must-exist false)",
+                "  (defrecord SelectionDecision",
+                "    (selection_status String))",
+                "  (defrecord BundleProjection",
+                "    (selection_bundle_path SelectionBundlePath))",
+                f"  (defworkflow {workflow_name}",
+                "    ((design DesignDocPath)",
+                "     (plan PlanDocPath))",
+                "    -> BundleProjection",
+                "    (let* ((decision",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (design plan)",
+                "               :returns SelectionDecision)))",
+                "      (record BundleProjection",
+                f"        :selection_bundle_path {projection_expr})))",
+                ")",
+            ]
+        )
+    return _write_module(tmp_path / f"{module_name.replace('/', '_')}.orc", body + "\n")
 
 
 def _compile_imported_entrypoint(
@@ -1192,6 +1305,332 @@ def test_provider_result_bundle_allocation_uses_state_layout(tmp_path: Path) -> 
     assert "attempt" in _allocation_field(allocation, "stable_identity")
 
 
+def test_provider_bundle_path_projection_explicit_output_bundle(tmp_path: Path) -> None:
+    workflow_path = _write_provider_bundle_projection_module(
+        tmp_path,
+        module_name="provider_bundle_projection_explicit",
+        workflow_name="project-phase",
+        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
+        phase_scoped=True,
+        path_under="artifacts/work",
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "project-phase"
+    )
+
+    selection_bundle_output = lowered["outputs"]["return__selection_bundle_path"]
+
+    assert selection_bundle_output["kind"] == "relpath"
+    assert selection_bundle_output["type"] == "relpath"
+    assert selection_bundle_output["under"] == "artifacts/work"
+    assert selection_bundle_output["must_exist_target"] is False
+    assert selection_bundle_output["from"] == {"ref": "inputs.phase-ctx__implementation_state_bundle_path"}
+    assert selection_bundle_output["projection"]["projection_class"] == "provider_bundle_path_projection"
+
+
+def test_provider_bundle_path_projection_generated_bundle(tmp_path: Path) -> None:
+    workflow_path = _write_provider_bundle_projection_module(
+        tmp_path,
+        module_name="provider_bundle_projection_generated",
+        workflow_name="project-generated",
+        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
+        phase_scoped=False,
+        path_under="state",
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "project-generated"
+    )
+    output_ref = lowered["outputs"]["return__selection_bundle_path"]["from"]["ref"]
+
+    assert output_ref.startswith("inputs.__write_root__project_generated__decision__result_bundle")
+    assert lowered["outputs"]["return__selection_bundle_path"]["projection"]["generated_input_name"].startswith(
+        "__write_root__project_generated__decision__result_bundle"
+    )
+
+
+def test_provider_bundle_path_projection_rejects_mismatched_output_ref(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
+    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
+
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.selector": "codex"},
+        prompt_externs={
+            "prompts.selector.select-next-work": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    lowered = result.entry_result.lowered_workflows[0]
+    broken_outputs = dict(lowered.authored_mapping["outputs"])
+    broken_selection_bundle = dict(broken_outputs["return__selection_bundle_path"])
+    broken_selection_bundle["from"] = {"ref": "inputs.manifest"}
+    broken_outputs["return__selection_bundle_path"] = broken_selection_bundle
+    broken_workflow = replace(
+        lowered,
+        authored_mapping={**dict(lowered.authored_mapping), "outputs": broken_outputs},
+    )
+    captured_errors: list[ValidationError] = []
+
+    def capture_errors(lowered_workflow, errors):
+        del lowered_workflow
+        captured_errors.extend(errors)
+        raise RuntimeError("captured shared validation errors")
+
+    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
+
+    with pytest.raises(RuntimeError, match="captured shared validation errors"):
+        validate_one(
+            broken_workflow,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+        )
+
+    assert [error.message for error in captured_errors] == [
+        (
+            "outputs.return__selection_bundle_path.from must match "
+            "projection.bundle_path_ref for provider bundle projections"
+        ),
+    ]
+    assert [
+        tuple(
+            (ref.subject_kind, ref.subject_name, ref.workflow_name)
+            for ref in error.subject_refs
+        )
+        for error in captured_errors
+    ] == [
+        (("generated_output", "return__selection_bundle_path", "lisp_frontend_design_delta/selector::select-next-work"),),
+    ]
+
+
+def test_provider_bundle_path_projection_rejects_mismatched_bundle_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering.core")
+    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
+
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.selector": "codex"},
+        prompt_externs={
+            "prompts.selector.select-next-work": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    lowered = result.entry_result.lowered_workflows[0]
+    broken_outputs = dict(lowered.authored_mapping["outputs"])
+    broken_selection_bundle = dict(broken_outputs["return__selection_bundle_path"])
+    broken_projection = dict(broken_selection_bundle["projection"])
+    broken_selection_bundle["from"] = {"ref": "inputs.manifest"}
+    broken_projection["bundle_path_ref"] = "inputs.manifest"
+    broken_selection_bundle["projection"] = broken_projection
+    broken_outputs["return__selection_bundle_path"] = broken_selection_bundle
+    broken_workflow = replace(
+        lowered,
+        authored_mapping={**dict(lowered.authored_mapping), "outputs": broken_outputs},
+    )
+    captured_errors: list[ValidationError] = []
+
+    def capture_errors(lowered_workflow, errors):
+        del lowered_workflow
+        captured_errors.extend(errors)
+        raise RuntimeError("captured shared validation errors")
+
+    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
+
+    with pytest.raises(RuntimeError, match="captured shared validation errors"):
+        validate_one(
+            broken_workflow,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+        )
+
+    assert len(captured_errors) == 1
+    assert "requires bundle_path_ref to match the provider bundle identity" in captured_errors[0].message
+    assert [
+        tuple(
+            (ref.subject_kind, ref.subject_name, ref.workflow_name)
+            for ref in error.subject_refs
+        )
+        for error in captured_errors
+    ] == [
+        (("step_id", "root.lisp_frontend_design_delta_selector_select_next_work__decision", "lisp_frontend_design_delta/selector::select-next-work"),),
+    ]
+
+
+def test_provider_bundle_path_projection_invalid_source(tmp_path: Path) -> None:
+    workflow_path = _write_provider_bundle_projection_module(
+        tmp_path,
+        module_name="provider_bundle_projection_invalid_source",
+        workflow_name="project-invalid-source",
+        projection_expr="(provider-bundle-path design :as SelectionBundlePath)",
+        phase_scoped=False,
+        path_under=".orchestrate/workflow_lisp/entry",
+    )
+
+    with pytest.raises(LispFrontendCompileError):
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+
+def test_provider_bundle_path_projection_missing_as_target(tmp_path: Path) -> None:
+    workflow_path = _write_provider_bundle_projection_module(
+        tmp_path,
+        module_name="provider_bundle_projection_missing_as",
+        workflow_name="project-missing-as",
+        projection_expr="(provider-bundle-path decision)",
+        phase_scoped=False,
+        path_under=".orchestrate/workflow_lisp/entry",
+    )
+
+    with pytest.raises(LispFrontendCompileError):
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+
+def test_provider_bundle_path_projection_non_path_target(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "provider_bundle_projection_non_path_target.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule provider_bundle_projection_non_path_target)",
+                "  (export project-non-path)",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                "    :kind relpath",
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath SelectionBundlePath",
+                "    :kind relpath",
+                '    :under ".orchestrate/workflow_lisp/entry"',
+                "    :must-exist false)",
+                "  (defrecord SelectionDecision",
+                "    (selection_status String))",
+                "  (defrecord BundleProjection",
+                "    (selection_bundle_path SelectionBundlePath))",
+                "  (defworkflow project-non-path",
+                "    ((design DesignDocPath)",
+                "     (plan PlanDocPath))",
+                "    -> BundleProjection",
+                "    (let* ((decision",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (design plan)",
+                "               :returns SelectionDecision)))",
+                "      (record BundleProjection",
+                "        :selection_bundle_path (provider-bundle-path decision :as String))))",
+                ")",
+            ]
+        )
+        + "\n",
+    )
+
+    with pytest.raises(LispFrontendCompileError):
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+
+def test_provider_bundle_path_projection_path_escape(tmp_path: Path) -> None:
+    workflow_path = _write_provider_bundle_projection_module(
+        tmp_path,
+        module_name="provider_bundle_projection_path_escape",
+        workflow_name="project-path-escape",
+        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
+        phase_scoped=False,
+        path_under="../state",
+    )
+
+    with pytest.raises(LispFrontendCompileError):
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+
+def test_provider_bundle_path_projection_rejects_incompatible_target_root(tmp_path: Path) -> None:
+    workflow_path = _write_provider_bundle_projection_module(
+        tmp_path,
+        module_name="provider_bundle_projection_wrong_root",
+        workflow_name="project-wrong-root",
+        projection_expr="(provider-bundle-path decision :as SelectionBundlePath)",
+        phase_scoped=False,
+        path_under="docs",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_boundary_type_invalid"
+    assert "provider bundle projection" in diagnostic.message
+    assert "must remain under `state`" in diagnostic.message
+
+
 def test_variant_projection_bundle_allocation_uses_state_layout(tmp_path: Path) -> None:
     result = compile_stage3_module(
         PHASE_STDLIB_FIXTURE,
@@ -1286,6 +1725,23 @@ def test_validate_lowered_workflows_attach_authored_defaults_to_public_input_con
     assert public_inputs["enabled"]["default"] is True
     assert public_inputs["status"]["default"] == "ready"
     assert public_inputs["report_path"]["default"] == "default.md"
+
+
+def test_compile_stage3_module_materializes_input_backed_record_returns(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        _write_workflow_param_default_module(tmp_path / "workflow_param_defaults.orc"),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "defaults"
+    )
+
+    assert [step["id"] for step in lowered["steps"]] == ["defaults"]
+    assert lowered["outputs"]["return__report"]["from"]["ref"] == "root.steps.defaults.artifacts.report"
 
 
 def test_build_workflow_catalog_reconstructs_imported_workflow_param_defaults_from_bundle(tmp_path: Path) -> None:

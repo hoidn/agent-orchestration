@@ -30,6 +30,7 @@ from .expressions import (
     ProcedureCallExpr,
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
+    ProviderBundlePathExpr,
     ProviderResultExpr,
     RecordExpr,
     ResourceTransitionExpr,
@@ -131,6 +132,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return (expr.binding.local_body, expr.body)
     if isinstance(expr, ProviderResultExpr):
         return (expr.provider, expr.prompt) + expr.inputs
+    if isinstance(expr, ProviderBundlePathExpr):
+        return (expr.source_expr,)
     if isinstance(expr, CommandResultExpr):
         return expr.argv
     if isinstance(expr, ContinueExpr):

@@ -24,6 +24,7 @@ from ..expressions import (
     ProcRefLiteralExpr,
     ProcedureCallExpr,
     ProduceOneOfExpr,
+    ProviderBundlePathExpr,
     ProviderResultExpr,
     RecordExpr,
     ResourceTransitionExpr,
@@ -48,6 +49,7 @@ from .origins import LoweringOrigin, _record_step_origin
 from .values import (
     _build_output_step_local_value,
     _resolve_inline_expr_value,
+    attach_provider_bundle_identity,
 )
 
 
@@ -297,6 +299,7 @@ def _control_is_inline_let_binding_expr_impl(expr: Any) -> bool:
             LoopStateSeedExpr,
             LoopStateUpdateExpr,
             UnionVariantExpr,
+            ProviderBundlePathExpr,
             ProcRefLiteralExpr,
             BindProcExpr,
         ),
@@ -413,7 +416,13 @@ def _binding_local_value_from_terminal(
     binding_terminal: _TerminalResult,
 ) -> Any | None:
     if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
-        return _build_output_step_local_value(binding_terminal.output_refs)
+        local_value = _build_output_step_local_value(binding_terminal.output_refs)
+        if isinstance(expr, ProviderResultExpr) and binding_terminal.provider_bundle_identity is not None:
+            return attach_provider_bundle_identity(
+                local_value,
+                provider_bundle_identity=binding_terminal.provider_bundle_identity,
+            )
+        return local_value
     if isinstance(binding_type, (PathTypeRef, PrimitiveTypeRef)) and "return" in binding_terminal.output_refs:
         return binding_terminal.output_refs["return"]
     if isinstance(expr, LiteralExpr):

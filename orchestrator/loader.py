@@ -598,9 +598,46 @@ class WorkflowLoader:
             ref = binding.get('ref') if isinstance(binding, dict) else None
             if not isinstance(ref, str) or not ref:
                 continue
-            if not ref.startswith('root.steps.'):
+            projection = spec.get('projection')
+            projection_class = projection.get('projection_class') if isinstance(projection, dict) else None
+            if projection_class == 'provider_bundle_path_projection':
+                bundle_path_ref = projection.get('bundle_path_ref') if isinstance(projection, dict) else None
+                if not isinstance(bundle_path_ref, str) or not bundle_path_ref:
+                    self._add_error(
+                        (
+                            f"{context}.projection.bundle_path_ref must be a non-empty string "
+                            "for provider bundle projections"
+                        ),
+                        subject_refs=self._workflow_subject_refs("generated_output", output_name),
+                    )
+                    continue
+                if ref != bundle_path_ref:
+                    self._add_error(
+                        (
+                            f"{context}.from must match projection.bundle_path_ref "
+                            "for provider bundle projections"
+                        ),
+                        subject_refs=self._workflow_subject_refs("generated_output", output_name),
+                    )
+                    continue
+                if not self._validate_provider_bundle_projection_contract(
+                    spec,
+                    projection,
+                    context=context,
+                    output_name=output_name,
+                ):
+                    continue
+            allows_input_projection_ref = (
+                projection_class == 'provider_bundle_path_projection'
+                and ref.startswith('inputs.')
+            )
+            if not ref.startswith('root.steps.') and not allows_input_projection_ref:
                 self._add_error(
-                    f"{context}.from must reference root.steps.*",
+                    (
+                        f"{context}.from must reference root.steps.*"
+                        if projection_class != 'provider_bundle_path_projection'
+                        else f"{context}.from must reference root.steps.* or inputs.*"
+                    ),
                     subject_refs=self._workflow_subject_refs("generated_output", output_name),
                 )
                 continue
@@ -629,6 +666,59 @@ class WorkflowLoader:
                 subject_refs=self._workflow_subject_refs("generated_output", output_name),
             )
 
+    def _validate_provider_bundle_projection_contract(
+        self,
+        spec: dict[str, Any],
+        projection: dict[str, Any],
+        *,
+        context: str,
+        output_name: str,
+    ) -> bool:
+        subject_refs = self._workflow_subject_refs("generated_output", output_name)
+        bundle_under = projection.get('bundle_under')
+        if not isinstance(bundle_under, str) or not bundle_under:
+            self._add_error(
+                (
+                    f"{context}.projection.bundle_under must be a non-empty string "
+                    "for provider bundle projections"
+                ),
+                subject_refs=subject_refs,
+            )
+            return False
+        bundle_must_exist_target = projection.get('bundle_must_exist_target')
+        if not isinstance(bundle_must_exist_target, bool):
+            self._add_error(
+                (
+                    f"{context}.projection.bundle_must_exist_target must be a boolean "
+                    "for provider bundle projections"
+                ),
+                subject_refs=subject_refs,
+            )
+            return False
+
+        declared_under = spec.get('under')
+        if declared_under != bundle_under:
+            self._add_error(
+                (
+                    f"{context} provider bundle projection must remain under `{bundle_under}`; "
+                    f"got `{declared_under}`"
+                ),
+                subject_refs=subject_refs,
+            )
+            return False
+
+        declared_must_exist_target = spec.get('must_exist_target')
+        if bundle_must_exist_target and declared_must_exist_target is not True:
+            self._add_error(
+                (
+                    f"{context} provider bundle projection must preserve "
+                    "`must_exist_target: true` from the provider bundle authority"
+                ),
+                subject_refs=subject_refs,
+            )
+            return False
+        return True
+
     def _validate_workflow_signature_contract(
         self,
         spec: Any,
@@ -654,9 +744,11 @@ class WorkflowLoader:
             'items',
             'keys',
             'values',
+            '__allow_unresolved_source',
         }
         if allow_from:
             allowed_fields.add('from')
+            allowed_fields.add('projection')
         else:
             allowed_fields.update({'required', 'default'})
 

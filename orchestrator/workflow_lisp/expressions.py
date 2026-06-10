@@ -323,6 +323,17 @@ class ProviderResultExpr:
 
 
 @dataclass(frozen=True)
+class ProviderBundlePathExpr:
+    """One typed projection of canonical provider bundle identity to a relpath."""
+
+    source_expr: "ExprNode"
+    target_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class CommandResultExpr:
     """One command result with a typed structured return contract."""
 
@@ -477,6 +488,7 @@ ExprNode = (
     | BindProcExpr
     | LetProcExpr
     | ProviderResultExpr
+    | ProviderBundlePathExpr
     | CommandResultExpr
     | ContinueExpr
     | DoneExpr
@@ -883,6 +895,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "bind_proc": _elaborate_bind_proc,
         "let_proc_guard": _guard_let_proc_route,
         "provider_result": _elaborate_provider_result,
+        "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
         "run_provider_phase": _elaborate_run_provider_phase,
         "produce_one_of": _elaborate_produce_one_of,
@@ -2268,6 +2281,51 @@ def _elaborate_provider_result(
             for item in inputs_node.items
         ),
         returns_type_name=returns_identifier.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_provider_bundle_path(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ProviderBundlePathExpr:
+    if len(datum.items) != 4:
+        _raise_error(
+            "`provider-bundle-path` requires source and :as target type",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    source_expr = _elaborate(
+        datum.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+    keyword = datum.items[2]
+    if not isinstance(keyword, SyntaxKeyword) or keyword.value != ":as":
+        _raise_error(
+            "`provider-bundle-path` requires :as target type",
+            span=keyword.span,
+            form_path=form_path,
+            expansion_stack=keyword.expansion_stack,
+        )
+    target_identifier = syntax_identifier(datum.items[3])
+    if target_identifier is None:
+        _raise_error(
+            "`provider-bundle-path :as` must name a path type",
+            span=datum.items[3].span,
+            form_path=form_path,
+            expansion_stack=datum.items[3].expansion_stack,
+        )
+    return ProviderBundlePathExpr(
+        source_expr=source_expr,
+        target_type_name=target_identifier.resolved_name,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

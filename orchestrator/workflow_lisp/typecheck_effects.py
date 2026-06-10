@@ -9,7 +9,14 @@ from .effects import (
     effect_summary_from_direct,
     merge_effect_summaries,
 )
-from .expressions import CommandResultExpr, ExprNode, LiteralExpr, NameExpr, ProviderResultExpr
+from .expressions import (
+    CommandResultExpr,
+    ExprNode,
+    LiteralExpr,
+    NameExpr,
+    ProviderBundlePathExpr,
+    ProviderResultExpr,
+)
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
 
 
@@ -282,6 +289,60 @@ def typecheck_provider_result_expr(
             *input_summaries,
             provider_summary,
         ),
+    )
+
+
+def typecheck_provider_bundle_path_expr(
+    expr: ProviderBundlePathExpr,
+    *,
+    context,
+    recurse,
+    typed_factory,
+):
+    from . import typecheck as compat
+
+    typed_source = recurse(expr.source_expr)
+    target_type = context.type_env.resolve_type(
+        expr.target_type_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    if not isinstance(target_type, PathTypeRef) or target_type.definition.kind != "relpath":
+        compat._raise_error(
+            "`provider-bundle-path :as` must resolve to a relpath type",
+            code="provider_bundle_path_target_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if ".." in target_type.definition.under.split("/"):
+        compat._raise_error(
+            "`provider-bundle-path :as` may not escape the workspace",
+            code="provider_bundle_path_target_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+    value_expr_env = getattr(context.session_state, "value_expr_env", {})
+    source_expr = None
+    if isinstance(expr.source_expr, NameExpr):
+        source_expr = value_expr_env.get(expr.source_expr.name)
+        while isinstance(source_expr, NameExpr):
+            source_expr = value_expr_env.get(source_expr.name)
+    if not isinstance(source_expr, ProviderResultExpr):
+        compat._raise_error(
+            "`provider-bundle-path` source must resolve to an in-scope provider-result binding",
+            code="provider_bundle_path_source_invalid",
+            span=expr.source_expr.span,
+            form_path=expr.source_expr.form_path,
+            expansion_stack=expr.source_expr.expansion_stack,
+        )
+
+    return typed_factory(
+        expr=expr,
+        type_ref=target_type,
+        effect=typed_source.effect_summary,
     )
 
 

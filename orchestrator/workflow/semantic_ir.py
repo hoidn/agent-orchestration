@@ -27,6 +27,7 @@ from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, Workflow
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
 _PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
 _PROMOTED_GENERATED_EFFECT_KINDS = frozenset({"snapshot_capture", "pointer_materialization"})
+_PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
 
 
 @dataclass(frozen=True)
@@ -445,6 +446,15 @@ def derive_workflow_semantic_ir(
         )
         publication_ref_ids.append(ref_id)
 
+    _promote_output_projection_effects(
+        workflow_name=workflow_name,
+        output_catalog=surface.outputs,
+        statements=statements,
+        statement_ids_by_step_id=statement_ids_by_step_id,
+        statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
+        effects=effects,
+    )
+
     for node_id, node in sorted(runtime_plan.nodes.items()):
         state_layout[_state_layout_id(workflow_name, "presentation", node_id)] = SemanticStateLayoutEntry(
             layout_id=_state_layout_id(workflow_name, "presentation", node_id),
@@ -834,6 +844,13 @@ def validate_workflow_semantic_ir(
                 effect=effect,
                 runtime_snapshot_operations=runtime_snapshot_operations,
             )
+        elif effect.effect_kind == _PROVIDER_BUNDLE_PATH_PROJECTION_KIND:
+            _validate_provider_bundle_path_projection_effect(
+                semantic_ir=semantic_ir,
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+            )
 
     for proof in semantic_ir.proofs.values():
         if proof.statement_id is not None and proof.statement_id not in workflow.statements:
@@ -1068,6 +1085,12 @@ def _step_id_aliases(step_id: str) -> tuple[str, ...]:
     return tuple(aliases)
 
 
+def _bundle_path_ref_from_template(path_template: str) -> str:
+    if path_template.startswith("${") and path_template.endswith("}"):
+        return path_template[2:-1]
+    return path_template
+
+
 def _load_frontend_source_map_workflow_payload(
     workflow_name: str,
     source_map_path: Path,
@@ -1181,6 +1204,71 @@ def _promote_frontend_source_map_effects(
         statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
         effects=effects,
     )
+
+
+def _promote_output_projection_effects(
+    *,
+    workflow_name: str,
+    output_catalog: Mapping[str, SurfaceContract],
+    statements: Mapping[str, SemanticStatement],
+    statement_ids_by_step_id: Mapping[str, str],
+    statement_effect_ids_by_statement_id: Mapping[str, list[str]],
+    effects: dict[str, SemanticEffectEntry],
+) -> None:
+    for output_name, contract in sorted(output_catalog.items()):
+        projection = contract.definition.get("projection")
+        if not isinstance(projection, Mapping):
+            continue
+        projection_class = projection.get("projection_class")
+        if projection_class != _PROVIDER_BUNDLE_PATH_PROJECTION_KIND:
+            continue
+        source_step_id = projection.get("source_step_id")
+        projected_output_name = projection.get("projected_output_name")
+        if not isinstance(source_step_id, str) or not source_step_id:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: output projection for `{output_name}` requires `source_step_id`",
+                workflow_name=workflow_name,
+                subject_refs=(
+                    ValidationSubjectRef(
+                        subject_kind="workflow_output",
+                        subject_name=output_name,
+                        workflow_name=workflow_name,
+                    ),
+                ),
+            )
+        statement_id = statement_ids_by_step_id.get(source_step_id)
+        statement = statements.get(statement_id) if statement_id is not None else None
+        if statement is None:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: output projection for `{output_name}` references unknown statement `{source_step_id}`",
+                workflow_name=workflow_name,
+                subject_refs=(
+                    ValidationSubjectRef(
+                        subject_kind="workflow_output",
+                        subject_name=output_name,
+                        workflow_name=workflow_name,
+                    ),
+                ),
+            )
+        effect_id = f"{_effect_id(workflow_name, source_step_id, projection_class)}:{output_name}"
+        effects[effect_id] = SemanticEffectEntry(
+            effect_id=effect_id,
+            workflow_name=workflow_name,
+            statement_id=statement.statement_id,
+            effect_kind=projection_class,
+            ref_ids=(_ref_id(workflow_name, "output", output_name),),
+            details=MappingProxyType(
+                {
+                    **dict(projection),
+                    "projected_output_name": (
+                        projected_output_name
+                        if isinstance(projected_output_name, str) and projected_output_name
+                        else output_name
+                    ),
+                }
+            ),
+        )
+        statement_effect_ids_by_statement_id[statement.statement_id].append(effect_id)
 
 
 def _promote_frontend_command_boundary_effects(
@@ -1716,6 +1804,193 @@ def _validate_promoted_adapter_effect(
         )
 
 
+def _validate_provider_bundle_path_projection_effect(
+    *,
+    semantic_ir: SemanticWorkflowIR,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    projected_output_name = effect.details.get("projected_output_name")
+    source_step_id = effect.details.get("source_step_id")
+    authority_class = effect.details.get("authority_class")
+    semantic_authority = effect.details.get("semantic_authority")
+    negative_validation_cases = effect.details.get("negative_validation_cases")
+    bundle_path_ref = effect.details.get("bundle_path_ref")
+    path_template = effect.details.get("path_template")
+    generated_input_name = effect.details.get("generated_input_name")
+    allocation_id = effect.details.get("allocation_id")
+    bundle_under = effect.details.get("bundle_under")
+    bundle_must_exist_target = effect.details.get("bundle_must_exist_target")
+    if not isinstance(projected_output_name, str) or projected_output_name not in workflow.output_contract_ids:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` references unknown output",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(source_step_id, str) or source_step_id not in _step_id_aliases(statement.step_id):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` references inconsistent source step",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(bundle_path_ref, str) or not bundle_path_ref:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` requires bundle_path_ref metadata",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    provider_call_effect = next(
+        (
+            semantic_ir.effects[effect_id]
+            for effect_id in statement.effect_ids
+            if effect_id in semantic_ir.effects
+            and semantic_ir.effects[effect_id].effect_kind == "provider_call"
+        ),
+        None,
+    )
+    if provider_call_effect is None or provider_call_effect.statement_id != statement.statement_id:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` requires a matching provider-call effect",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if authority_class != "materialized_view":
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` requires materialized-view projection authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if semantic_authority != "provider_structured_output_bundle":
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` requires structured-output semantic authority",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(negative_validation_cases, tuple) and not isinstance(negative_validation_cases, list):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` requires negative validation coverage",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    output_contract_id = workflow.output_contract_ids[projected_output_name]
+    output_contract = semantic_ir.contracts.get(output_contract_id)
+    output_definition = output_contract.definition if output_contract is not None else {}
+    declared_under = output_definition.get("under")
+    declared_must_exist_target = output_definition.get("must_exist_target")
+    if not isinstance(bundle_under, str) or not bundle_under:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` requires bundle_under metadata",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(bundle_must_exist_target, bool):
+        _raise_semantic_ir_invalid(
+            (
+                f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                "requires bundle_must_exist_target metadata"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if declared_under != bundle_under:
+        _raise_semantic_ir_invalid(
+            (
+                f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                f"requires the projected output to remain under `{bundle_under}`"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if bundle_must_exist_target and declared_must_exist_target is not True:
+        _raise_semantic_ir_invalid(
+            (
+                f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                "requires the projected output to preserve must_exist_target=true"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    output_binding = output_definition.get("from")
+    output_ref = output_binding.get("ref") if isinstance(output_binding, Mapping) else None
+    if not isinstance(output_ref, str) or output_ref != bundle_path_ref:
+        _raise_semantic_ir_invalid(
+            (
+                f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                "requires the projected output ref to match bundle_path_ref"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if isinstance(path_template, str) and path_template:
+        expected_bundle_ref = _bundle_path_ref_from_template(path_template)
+        if bundle_path_ref != expected_bundle_ref:
+            _raise_semantic_ir_invalid(
+                (
+                    f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                    "requires bundle_path_ref to match the provider bundle identity"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+    if isinstance(generated_input_name, str) and generated_input_name:
+        expected_generated_ref = f"inputs.{generated_input_name}"
+        if bundle_path_ref != expected_generated_ref:
+            _raise_semantic_ir_invalid(
+                (
+                    f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                    "requires bundle_path_ref to match the provider bundle identity"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+    if isinstance(allocation_id, str) and allocation_id:
+        allocation_entry = next(
+            (
+                entry
+                for entry in semantic_ir.state_layout.values()
+                if entry.workflow_name == workflow_name
+                and entry.layout_kind == "provider_result_bundle"
+                and entry.details.get("allocation_id") == allocation_id
+            ),
+            None,
+        )
+        if allocation_entry is None:
+            _raise_semantic_ir_invalid(
+                (
+                    f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                    "requires a matching provider-result bundle allocation"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        concrete_path_template = allocation_entry.details.get("concrete_path_template")
+        if isinstance(concrete_path_template, str) and concrete_path_template:
+            expected_bundle_ref = _bundle_path_ref_from_template(concrete_path_template)
+            if bundle_path_ref != expected_bundle_ref:
+                _raise_semantic_ir_invalid(
+                    (
+                        f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                        "requires bundle_path_ref to match the provider bundle identity"
+                    ),
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(workflow_name, statement),
+                )
+        allocation_generated_input_name = allocation_entry.details.get("generated_input_name")
+        if isinstance(allocation_generated_input_name, str) and allocation_generated_input_name:
+            expected_generated_ref = f"inputs.{allocation_generated_input_name}"
+            if bundle_path_ref != expected_generated_ref:
+                _raise_semantic_ir_invalid(
+                    (
+                        f"semantic_ir_invalid: provider bundle projection `{effect.effect_id}` "
+                        "requires bundle_path_ref to match the provider bundle identity"
+                    ),
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(workflow_name, statement),
+                )
+
+
 def _validate_snapshot_capture_effect(
     *,
     workflow: SemanticWorkflow,
@@ -1869,6 +2144,10 @@ def _supported_source_map_subject_keys(
     supported = {("workflow", workflow_name, workflow_name)}
     supported.update(
         ("step_id", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("step_ids"))
+    )
+    supported.update(
+        ("step_id", f"root.{name}", workflow_name)
         for name in _mapping_string_keys(workflow_payload.get("step_ids"))
     )
     supported.update(

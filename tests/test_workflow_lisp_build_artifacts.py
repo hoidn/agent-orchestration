@@ -130,6 +130,40 @@ def _structured_results_request(tmp_path: Path):
     )
 
 
+def _selector_projection_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    providers_path = tmp_path / "selector_providers.json"
+    prompts_path = tmp_path / "selector_prompts.json"
+    providers_path.write_text(
+        json.dumps({"providers.selector": "codex"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    prompts_path.write_text(
+        json.dumps(
+            {
+                "prompts.selector.select-next-work": (
+                    "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+                )
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return request_cls(
+        source_path=REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        entry_workflow="select-next-work",
+        provider_externs_path=providers_path,
+        prompt_externs_path=prompts_path,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
 def _resume_entry_request(tmp_path: Path):
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -1627,6 +1661,94 @@ def test_semantic_ir_emits_generated_path_allocations(tmp_path: Path) -> None:
     assert provider_layout["details"]["generated_input_name"].startswith("__write_root__")
     assert provider_layout["details"]["generated_input_name"].endswith("__result_bundle")
     assert provider_layout["details"]["allocation_id"]
+
+
+def test_provider_bundle_path_projection_boundary_provenance(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_selector_projection_request(tmp_path))
+    projection = json.loads(result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8"))
+    workflow_projection = _workflow_payload_by_suffix(projection, "select-next-work")
+    flattened_outputs = {
+        field["generated_name"]: field
+        for field in workflow_projection["flattened_outputs"]
+    }
+    selection_bundle = flattened_outputs["return__selection_bundle_path"]
+    provenance = selection_bundle["projection"]
+
+    assert selection_bundle["contract_definition"]["under"] == "state"
+    assert provenance["projection_class"] == "provider_bundle_path_projection"
+    assert provenance["authority_class"] == "materialized_view"
+    assert provenance["output_kind"] == "output_bundle"
+    assert provenance["source_step_id"]
+
+
+def test_provider_bundle_path_projection_semantic_ir_lineage(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_selector_projection_request(tmp_path))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    projection_effect = next(
+        effect
+        for effect in semantic_ir["effects"].values()
+        if effect["effect_kind"] == "provider_bundle_path_projection"
+    )
+
+    assert projection_effect["details"]["projection_class"] == "provider_bundle_path_projection"
+    assert projection_effect["details"]["authority_class"] == "materialized_view"
+    assert projection_effect["details"]["projected_output_name"] == "return__selection_bundle_path"
+    assert projection_effect["details"]["semantic_authority"] == "provider_structured_output_bundle"
+
+
+def test_provider_bundle_path_projection_source_map_lineage(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_selector_projection_request(tmp_path))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    workflow_name = next(name for name in source_map["workflows"] if name.endswith("::select-next-work"))
+    workflow = source_map["workflows"][workflow_name]
+    projection_effect = next(
+        effect
+        for effect in workflow["generated_semantic_effects"]
+        if effect["effect_kind"] == "provider_bundle_path_projection"
+    )
+
+    assert projection_effect["details"]["projection_class"] == "provider_bundle_path_projection"
+    assert projection_effect["details"]["authority_class"] == "materialized_view"
+    assert projection_effect["details"]["projected_output_name"] == "return__selection_bundle_path"
+    assert projection_effect["details"]["semantic_authority"] == "provider_structured_output_bundle"
+    assert projection_effect["details"].get("allocation_id") or projection_effect["details"].get("path_template")
+
+
+def test_provider_bundle_path_projection_contract_metadata(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_selector_projection_request(tmp_path))
+    projection = json.loads(result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8"))
+    workflow_projection = _workflow_payload_by_suffix(projection, "select-next-work")
+    flattened_outputs = {
+        field["generated_name"]: field
+        for field in workflow_projection["flattened_outputs"]
+    }
+    provenance = flattened_outputs["return__selection_bundle_path"]["projection"]
+
+    assert provenance["projection_id"]
+    assert provenance["projection_class"] == "provider_bundle_path_projection"
+    assert provenance["authority_class"] == "materialized_view"
+    assert provenance["bundle_under"] == "state"
+    assert provenance["bundle_must_exist_target"] is False
+    assert provenance["negative_validation_cases"] == [
+        "missing_bundle",
+        "stale_input",
+        "schema_mismatch",
+        "path_escape",
+        "pointer_authority_rejected",
+    ]
+    assert provenance.get("path_template") or provenance.get("allocation_id")
 
 
 def test_build_artifacts_emit_entrypoint_managed_write_root_allocations(

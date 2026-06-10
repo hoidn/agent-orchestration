@@ -87,6 +87,7 @@ from ..expressions import (
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
     ProcedureCallExpr,
+    ProviderBundlePathExpr,
     ProviderResultExpr,
     ResourceTransitionExpr,
     RecordExpr,
@@ -628,6 +629,7 @@ def _lower_one_workflow(
         generated_path_spans={},
         generated_path_allocations=[],
         generated_semantic_effects=[],
+        output_projection_metadata={},
         top_level_artifacts={},
         inline_call_counters={},
         origin_notes=workflow_origin.notes,
@@ -744,6 +746,7 @@ def _lower_one_workflow(
             typed_workflow=typed_workflow,
             authored_outputs=authored_outputs,
             terminal=terminal,
+            context=context,
         ),
         "steps": steps,
     }
@@ -945,6 +948,9 @@ def _normalize_top_level_terminal(
     context: _LoweringContext,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     """Ensure public workflow outputs lower from a concrete root step."""
+
+    if terminal.output_kind == "projection":
+        return steps, terminal
 
     if all(
         isinstance(source_ref, str) and source_ref.startswith("root.steps.")
@@ -1376,6 +1382,12 @@ def _infer_inline_binding_type(expr: Any, *, context: _LoweringContext) -> TypeR
         )
     if isinstance(expr, IfExpr):
         return _resolve_lowering_expr_type(expr, context=context)
+    if isinstance(expr, ProviderBundlePathExpr):
+        return context.type_env.resolve_type(
+            expr.target_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     return None
 
 
@@ -1470,6 +1482,12 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
     if isinstance(expr, UnionVariantExpr):
         return context.type_env.resolve_type(
             expr.type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, ProviderBundlePathExpr):
+        return context.type_env.resolve_type(
+            expr.target_type_name,
             span=expr.span,
             form_path=expr.form_path,
         )
@@ -1691,6 +1709,9 @@ def _typed_workflow_dependencies(
             walk(expr.prompt)
             for value in expr.inputs:
                 walk(value)
+            return
+        if isinstance(expr, ProviderBundlePathExpr):
+            walk(expr.source_expr)
             return
         if isinstance(expr, CommandResultExpr):
             for value in expr.argv:

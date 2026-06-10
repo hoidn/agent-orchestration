@@ -206,6 +206,18 @@ def _build_validation_subject_bindings(
     bindings.extend(
         ValidationSubjectBinding(
             subject_ref=ValidationSubjectRef(
+                subject_kind="step_id",
+                subject_name=f"root.{name}",
+                workflow_name=workflow_name,
+            ),
+            origin=origin,
+        )
+        for name, origin in step_spans.items()
+        if not str(name).startswith("root.")
+    )
+    bindings.extend(
+        ValidationSubjectBinding(
+            subject_ref=ValidationSubjectRef(
                 subject_kind="generated_input",
                 subject_name=name,
                 workflow_name=workflow_name,
@@ -311,6 +323,33 @@ def _derive_generated_semantic_effects(
                     ),
                 )
             )
+    for output_name, projection in sorted(context.output_projection_metadata.items()):
+        if not isinstance(projection, Mapping):
+            continue
+        projection_class = projection.get("projection_class")
+        source_step_id = projection.get("source_step_id")
+        if projection_class != "provider_bundle_path_projection":
+            continue
+        if not isinstance(source_step_id, str) or not source_step_id:
+            continue
+        effect_key = projection.get("projection_id")
+        if not isinstance(effect_key, str) or not effect_key:
+            effect_key = f"{projection_class}:{source_step_id}:{output_name}"
+        effect_origin = context.generated_output_spans.get(output_name, workflow_origin)
+        effects.append(
+            GeneratedSemanticEffectBinding(
+                effect_key=effect_key,
+                step_id=source_step_id,
+                effect_kind=projection_class,
+                origin=effect_origin,
+                details=MappingProxyType(
+                    {
+                        **dict(projection),
+                        "projected_output_name": output_name,
+                    }
+                ),
+            )
+        )
     effects.sort(key=lambda effect: (effect.effect_kind, effect.step_id, effect.effect_key))
     return tuple(effects)
 

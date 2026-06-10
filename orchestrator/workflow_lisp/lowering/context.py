@@ -33,6 +33,7 @@ class _TerminalResult:
     output_refs: Mapping[str, str]
     output_kind: str
     hidden_inputs: Mapping[str, LoweringOrigin]
+    provider_bundle_identity: Mapping[str, Any] | None = None
     returned_union_type_name: str | None = None
     returned_union_variant_name: str | None = None
 
@@ -76,6 +77,7 @@ class _LoweringContext:
     generated_path_spans: dict[str, LoweringOrigin]
     generated_path_allocations: list[GeneratedPathAllocation]
     generated_semantic_effects: list[GeneratedSemanticEffectBinding]
+    output_projection_metadata: dict[str, Mapping[str, Any]]
     top_level_artifacts: dict[str, Any]
     inline_call_counters: dict[str, int]
     origin_notes: tuple[str, ...]

@@ -78,6 +78,10 @@ Migration promotion checklist:
   evidence identity. Do not put consumed evidence paths such as `checks_report`
   in provider output contracts unless the provider actually produces that
   artifact; carry them from state or inputs when terminal results need them.
+- When a provider already owns a validated structured-output bundle path, use
+  `provider-bundle-path` to expose a typed relpath view such as
+  `selection_bundle_path`; do not add a helper script or pointer file that only
+  echoes the same bundle identity.
 
 When promotion evidence is evaluated with `python -m orchestrator
 migration-parity`, treat the per-target JSON report as evidence authority only.

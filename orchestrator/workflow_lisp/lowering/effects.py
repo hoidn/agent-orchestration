@@ -9,10 +9,20 @@ from typing import Any
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
 from ..expressions import CommandResultExpr, LiteralExpr, ProviderResultExpr
+from ..phase import IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
 from ..type_env import TypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
+
+
+_PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES = (
+    "missing_bundle",
+    "stale_input",
+    "schema_mismatch",
+    "path_escape",
+    "pointer_authority_rejected",
+)
 
 
 def _lower_command_result(
@@ -150,6 +160,26 @@ def _json_template_for_template(template: str) -> str:
     return "${" + expression + "|json}"
 
 
+def _bundle_path_ref(path_template: str) -> str:
+    if path_template.startswith("${") and path_template.endswith("}"):
+        return path_template[2:-1]
+    return path_template
+
+
+def _provider_bundle_contract_metadata(
+    *,
+    context: Any,
+    use_active_phase_bundle: bool,
+) -> dict[str, Any]:
+    bundle_under = "state"
+    if use_active_phase_bundle and context.phase_scope is not None:
+        bundle_under = IMPLEMENTATION_ATTEMPT_ARTIFACT_ROOT
+    return {
+        "bundle_under": bundle_under,
+        "bundle_must_exist_target": False,
+    }
+
+
 def _lower_provider_result(
     expr: ProviderResultExpr,
     *,
@@ -184,6 +214,10 @@ def _lower_provider_result(
     hidden_inputs: dict[str, Any] = {}
     generated_steps: list[dict[str, Any]] = []
     allocation = None
+    provider_bundle_contract_metadata = _provider_bundle_contract_metadata(
+        context=context,
+        use_active_phase_bundle=False,
+    )
     provider_step: dict[str, Any] = {
         "name": provider_step_name,
         "id": provider_step_id,
@@ -202,6 +236,10 @@ def _lower_provider_result(
             )
             if lowering_core._uses_legacy_phase_prompt_input_prelude(expr):
                 use_active_phase_bundle = True
+        provider_bundle_contract_metadata = _provider_bundle_contract_metadata(
+            context=context,
+            use_active_phase_bundle=use_active_phase_bundle,
+        )
         if use_active_phase_bundle:
             allocation = allocate_generated_result_bundle(
                 context=context,
@@ -280,4 +318,18 @@ def _lower_provider_result(
         output_refs=lowering_core._record_output_refs(provider_step_name, result_type),
         output_kind="step",
         hidden_inputs=hidden_inputs,
+        provider_bundle_identity={
+            "source_step_name": provider_step_name,
+            "source_step_id": provider_step_id,
+            "output_kind": bundle_contract.contract_kind,
+            "bundle_path_ref": _bundle_path_ref(authored_contract["path"]),
+            "path_template": authored_contract["path"],
+            "allocation_id": allocation.allocation_id if allocation is not None else None,
+            "generated_input_name": allocation.generated_input_name if allocation is not None else None,
+            "projection_class": "provider_bundle_path_projection",
+            "authority_class": "materialized_view",
+            "semantic_authority": "provider_structured_output_bundle",
+            "negative_validation_cases": _PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES,
+            **provider_bundle_contract_metadata,
+        },
     )

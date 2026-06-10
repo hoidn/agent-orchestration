@@ -418,6 +418,7 @@ def _lower_workflow_outputs(
     typed_workflow: TypedWorkflowDef,
     authored_outputs: Mapping[str, dict[str, Any]],
     terminal: _TerminalResult,
+    context: _LoweringContext,
 ) -> dict[str, Any]:
     """Connect terminal expression refs to the workflow's declared outputs."""
 
@@ -436,6 +437,10 @@ def _lower_workflow_outputs(
             **definition,
             "from": {"ref": source_ref},
         }
+        if output_name in context.output_projection_metadata:
+            lowered_outputs[output_name]["projection"] = dict(
+                context.output_projection_metadata[output_name]
+            )
     return lowered_outputs
 
 def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tuple[str, ...]:

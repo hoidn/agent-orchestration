@@ -380,6 +380,17 @@ _FORM_SPECS = (
         rationale="Provider effects elaborate through a fixed compiler path.",
     ),
     _spec(
+        "provider-bundle-path",
+        kind=FormKind.CORE_SPECIAL,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_post_foundation_typed_projection",
+        remove_by=None,
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="provider_bundle_path",
+        rationale="Provider bundle-path projection stays a narrow compiler-owned expression surface.",
+    ),
+    _spec(
         "command-result",
         kind=FormKind.CORE_EFFECT,
         owner_module="expressions",

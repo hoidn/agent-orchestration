@@ -51,6 +51,19 @@ def _write_entrypoint_fixture_to_tmp(path: Path, *, tmp_path: Path) -> Path:
     return module_path
 
 
+def _walk_lowered_steps(steps: list[dict[str, object]]):
+    for step in steps:
+        yield step
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            for case in match_block.get("cases", {}).values():
+                if isinstance(case, dict):
+                    yield from _walk_lowered_steps(case.get("steps", []))
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            yield from _walk_lowered_steps(repeat_until.get("steps", []))
+
+
 def _compile_nested_entrypoint_fixture(
     fixture_path: Path,
     *,
@@ -843,6 +856,124 @@ def test_design_delta_selector_candidate_compiles_as_provider_decision(
     assert lowered["version"] == "2.14"
     assert any(step.get("provider") == "codex" for step in lowered["steps"])
     assert "return__selection_status" in lowered["outputs"]
+
+
+def test_design_delta_selector_candidate_exports_selection_bundle_path(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.selector": "codex"},
+        prompt_externs={
+            "prompts.selector.select-next-work": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.entry_result.lowered_workflows[0].authored_mapping
+    all_steps = list(_walk_lowered_steps(lowered["steps"]))
+
+    assert "return__selection_status" in lowered["outputs"]
+    assert "return__selection_bundle_path" in lowered["outputs"]
+    assert not any(
+        "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py" in " ".join(step.get("command", []))
+        for step in all_steps
+        if isinstance(step.get("command"), list)
+    )
+
+
+def test_design_delta_selector_candidate_downstream_consumes_typed_selection_state(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "selector_consumer.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule selector_consumer)",
+                "  (import lisp_frontend_design_delta/selector :only (select-next-work))",
+                "  (import lisp_frontend_design_delta/types :only",
+                "    (BaselineDesignDoc SelectionBundlePath SteeringDoc TargetDesignDoc WorkReport))",
+                "  (export consume-selection)",
+                "  (defrecord SelectionView",
+                "    (selection_status String)",
+                "    (selection_bundle_path SelectionBundlePath))",
+                "  (defworkflow consume-selection",
+                "    ((steering SteeringDoc)",
+                "     (target_design TargetDesignDoc)",
+                "     (baseline_design BaselineDesignDoc)",
+                "     (manifest WorkReport)",
+                "     (progress_ledger WorkReport)",
+                "     (run_state WorkReport))",
+                "    -> SelectionView",
+                "    (let* ((selection",
+                "             (call select-next-work",
+                "               :steering steering",
+                "               :target_design target_design",
+                "               :baseline_design baseline_design",
+                "               :manifest manifest",
+                "               :progress_ledger progress_ledger",
+                "               :run_state run_state)))",
+                "      (record SelectionView",
+                "        :selection_status selection.selection_status",
+                "        :selection_bundle_path selection.selection_bundle_path)))",
+                ")",
+            ]
+        )
+        + "\n",
+    )
+
+    result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(REPO_ROOT / "workflows" / "library", tmp_path),
+        provider_externs={"providers.selector": "codex"},
+        prompt_externs={
+            "prompts.selector.select-next-work": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.entry_result.lowered_workflows[0].authored_mapping
+
+    assert "return__selection_status" in lowered["outputs"]
+    assert "return__selection_bundle_path" in lowered["outputs"]
+    assert all(
+        "selection-bundle-path.json" not in json.dumps(step, sort_keys=True)
+        for step in _walk_lowered_steps(lowered["steps"])
+    )
+
+
+def test_design_delta_selector_candidate_rejects_pointer_authority(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={"providers.selector": "codex"},
+        prompt_externs={
+            "prompts.selector.select-next-work": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.entry_result.lowered_workflows[0].authored_mapping
+    serialized = json.dumps(lowered, sort_keys=True)
+
+    assert "return__selection_bundle_path" in lowered["outputs"]
+    assert "selection-bundle-path.json" not in serialized
+    assert "selection_status.txt" not in serialized
 
 
 def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(

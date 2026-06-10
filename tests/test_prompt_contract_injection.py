@@ -789,6 +789,222 @@ def test_provider_output_bundle_receives_runtime_bundle_env(tmp_path: Path):
     assert captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"] == "state/run-root/test-run/selection.json"
 
 
+def test_provider_output_bundle_schema_mismatch(tmp_path: Path):
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "select.md").write_text("Select a backlog item.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.7",
+        "name": "provider-output-bundle-schema-mismatch",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Select",
+            "provider": "mock_provider",
+            "input_file": "prompts/select.md",
+            "output_bundle": {
+                "path": "${inputs.state_root}/${run.id}/selection.json",
+                "fields": [
+                    {
+                        "name": "selection_decision",
+                        "json_pointer": "/selection_decision",
+                        "type": "enum",
+                        "allowed": ["READY", "NONE_READY"],
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"env": {}}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["env"] = kwargs.get("env") or {}
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        bundle_path = tmp_path / captured["env"]["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(json.dumps({"wrong_field": "READY"}) + "\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    violations = state["steps"]["Select"]["error"]["context"]["violations"]
+
+    assert state["steps"]["Select"]["exit_code"] == 2
+    assert any(violation["type"] == "json_pointer_not_found" for violation in violations)
+
+
+def test_provider_output_bundle_stale_input(tmp_path: Path):
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "select.md").write_text("Select a backlog item.\n", encoding="utf-8")
+    stale_bundle = tmp_path / "state" / "run-root" / "old-run" / "selection.json"
+    stale_bundle.parent.mkdir(parents=True, exist_ok=True)
+    stale_bundle.write_text(
+        json.dumps({"selection_decision": "READY"}) + "\n",
+        encoding="utf-8",
+    )
+
+    workflow = {
+        "version": "2.7",
+        "name": "provider-output-bundle-stale-input",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Select",
+            "provider": "mock_provider",
+            "input_file": "prompts/select.md",
+            "output_bundle": {
+                "path": "${inputs.state_root}/${run.id}/selection.json",
+                "fields": [
+                    {
+                        "name": "selection_decision",
+                        "json_pointer": "/selection_decision",
+                        "type": "enum",
+                        "allowed": ["READY", "NONE_READY"],
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="fresh-run")
+    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    def _prepare_invocation(*args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    violations = state["steps"]["Select"]["error"]["context"]["violations"]
+
+    assert state["steps"]["Select"]["exit_code"] == 2
+    assert any(violation["type"] == "missing_bundle_file" for violation in violations)
+
+
+def test_provider_output_bundle_missing_bundle(tmp_path: Path):
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "select.md").write_text("Select a backlog item.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.7",
+        "name": "provider-output-bundle-missing-bundle",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Select",
+            "provider": "mock_provider",
+            "input_file": "prompts/select.md",
+            "output_bundle": {
+                "path": "${inputs.state_root}/${run.id}/selection.json",
+                "fields": [
+                    {
+                        "name": "selection_decision",
+                        "json_pointer": "/selection_decision",
+                        "type": "enum",
+                        "allowed": ["READY", "NONE_READY"],
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml", bound_inputs={"state_root": "state/run-root"})
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    def _prepare_invocation(*args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content") or ""), None
+
+    def _execute(_invocation, **_kwargs):
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    violations = state["steps"]["Select"]["error"]["context"]["violations"]
+
+    assert state["steps"]["Select"]["exit_code"] == 2
+    assert any(violation["type"] == "missing_bundle_file" for violation in violations)
+
+
 def test_provider_variant_output_shared_fields_render_once(tmp_path: Path) -> None:
     """variant_output shared_fields should render once outside the variant-specific sections."""
     (tmp_path / "prompts").mkdir()
