@@ -46,6 +46,9 @@ Related docs:
 - `docs/design/workflow_command_adapter_contract.md`
 - `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
 - `docs/reports/2026-06-10-wcc-post-foundation-unplanned-architecture-findings.md`
+- `docs/plans/2026-06-09-post-foundation-composition-design-extension-plan.md`
+  (revision provenance folded into this target; not separate implementation
+  authority)
 - `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`
 - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`
 - `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
@@ -110,6 +113,11 @@ Implement the work in these ordered tranches:
 - Tranche 0: current-state inventory, issue map, and readiness labels.
 - Tranche 1 (P0): nested structured-control composition and generic effectful
   normalization on the accepted WCC middle-end route.
+- Tranche 1A (P0 prerequisite before Tranche 3A): the explicit WCC
+  `IfExpr` work-item-route gap
+  (`workflow-lisp-wcc-ifexpr-work-item-route`), so the real
+  `lisp_frontend_design_delta/work_item::run-work-item` route advances past
+  unsupported `IfExpr` before phase-family boundary work is selected.
 - Tranche 2 (P1): union-result normalization and variant-scoped output
   identity.
 - Tranche 3 (P0): private executable context bridge, entrypoint bootstrap,
@@ -125,6 +133,9 @@ Implement the work in these ordered tranches:
   resources.
 - Tranche 8: canonical resume/reuse validation and strict parent-callable
   parity evidence.
+- Tranche 9 (post-promotion): parity-constrained shape simplification after
+  `--require-promotable` passes and the YAML primary is retired
+  (Section 10A.6).
 
 The P0/P1 labels mirror the priority work items in the findings report. The
 three P0 blockers — nested structured control, the private executable context
@@ -139,8 +150,11 @@ smokes as one parent-callable phase under the WCC route. The remaining
 work-item compile blocker has advanced past the old private-workflow and
 phase-family boundary diagnostics to the next explicit compiler gap:
 `work_item.orc` uses `IfExpr`, which is not yet covered by the WCC M4 route.
-That `IfExpr` gap must be drafted before using the work-item or parent drain
-as parent-callable parity evidence.
+That `IfExpr` gap is its own prerequisite tranche and must be selected through
+the existing `workflow-lisp-wcc-ifexpr-work-item-route` gap before Tranche 3A
+phase-family boundary rehabilitation may be treated as the next draftable
+slice or before the work-item or parent drain may be used as parent-callable
+parity evidence.
 
 The target success condition is not "more leaves compile." The target success
 condition is that at least one real workflow family reaches parent-callable
@@ -213,10 +227,10 @@ assessment against this target. Durable evidence:
 - feasibility test module
   `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`;
 - blocked prerequisite evidence from the imported-child returned-variant
-  recovery:
-  `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/10/blocked-progress-report.md`
+  recovery (quarantined with its stale iteration on 2026-06-10):
+  `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations-quarantine/postfound-stale-3plus-20260610T212138Z/10/blocked-progress-report.md`
   and
-  `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/10/blocked-recovery-decision.json`.
+  `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations-quarantine/postfound-stale-3plus-20260610T212138Z/10/blocked-recovery-decision.json`.
 
 The 2026-06-10 WCC reconciliation added a second findings layer:
 
@@ -251,7 +265,7 @@ The 2026-06-10 WCC reconciliation added a second findings layer:
 | Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage |
 | `review-revise-loop` stdlib route | Composes inside the canonical implementation-phase branch through WCC with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions (F8) | Preserve denylist/source-map/resume evidence and extend only through WCC for new nested shapes |
 | Private runtime context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Tranche 3: private executable context bridge and hidden reusable-call binding |
-| Phase-family boundary rehabilitation | Partially implemented: implementation-phase parent-callable fixture now clears boundary and nested-control gates; work-item now blocks on WCC `IfExpr` before later private-context/resource gates (F12) | Draft WCC `IfExpr` first, then continue Tranche 3A boundary rehabilitation for remaining plan/work-item surfaces |
+| Phase-family boundary rehabilitation | Partially implemented: implementation-phase parent-callable fixture now clears boundary and nested-control gates; work-item now blocks on the separate `workflow-lisp-wcc-ifexpr-work-item-route` prerequisite before later private-context/resource gates (F12) | Select and clear the explicit WCC `IfExpr` prerequisite first, then continue Tranche 3A boundary rehabilitation for remaining plan/work-item surfaces |
 | Selector/bundle publication | Selector leaf can model provider decision; publication remains an unclassified script (F7) | Tranche 5: typed projection or certified adapter authority for selection bundle publication |
 | Adapter/resource-transition authority | Adapter contract exists; family scripts still encode workflow semantics (F6, F10) | Tranche 6: classify helpers, certify retained adapters, move recurring state/resource transitions to typed runtime effects where justified |
 | Migration parity gates | Strict gate hardening implemented in foundation; leaf-versus-family distinction relies on prose labels in migration records (F11) | Tranche 8: parent-callable readiness labels; leaf-only evidence insufficient for promotability |
@@ -281,7 +295,7 @@ The 2026-06-10 WCC reconciliation added a second findings layer:
 | UAF-02 tests/examples need explicit route classification | Tranche 0 readiness labels carry route identity; route identity is part of evidence freshness (Tranche 8) |
 | UAF-03 terminal provenance / union pass-through under-specified | Tranche 2 terminal provenance contract |
 | UAF-04 inherited activation guards for control markers | Owned by the WCC design / executable IR docs; referenced by Tranche 1 acceptance |
-| UAF-05 WCC `IfExpr` is the immediate work-item blocker | Tranche 1 / Tranche 3A; already reflected in the work order and inventory |
+| UAF-05 WCC `IfExpr` is the immediate work-item blocker | Tranche 1A explicit prerequisite gate before Tranche 3A; the next selectable gap is `workflow-lisp-wcc-ifexpr-work-item-route` |
 | UAF-06 stdlib provider effects owned by generated callable workflows | Tranche 4 provider-effect ownership rules |
 | UAF-07 pure input-derived outputs need a projection contract | Tranche 5 pure-projection decision |
 | UAF-08 reusable-state diagnostics lost specific causes | Tranche 8 diagnostic taxonomy |
@@ -412,6 +426,10 @@ validated typed provider/command/workflow state
 -> source-mapped state/artifact/resource versions
 ```
 
+Materialized views appear in that flow only when an artifact has a recorded
+justifying requirement per Section 10A.2; typed scoped values are the default
+interchange inside the family.
+
 Migration promotion:
 
 ```text
@@ -503,6 +521,11 @@ leaf .orc compile success
 - Require strict parity evidence that distinguishes leaf candidates,
   parent-callable candidates, non-regressive families, and promotable
   families.
+- Use the WCC expressivity deliberately, not just legally: loop-carried state,
+  scoped values over authored artifacts, lexical context flow,
+  pure-projection glue, and chosen rather than inherited workflow boundaries,
+  with parity-constrained shapes labeled for post-promotion simplification
+  (Section 10A).
 
 ## 9. Non-Goals
 
@@ -586,6 +609,119 @@ leaf .orc compile success
   unstated or wrong is stale evidence, and a pass pinned to an intermediate
   preview route (`WCC_M2`/`WCC_M3`) is not evidence for the `WCC_M4` default
   (UAF-01/UAF-02 lesson).
+- An intermediate value with no public-boundary, parity-comparison,
+  external-consumer, or cross-run durability requirement is a scoped value,
+  not an authored artifact (Section 10A.2).
+- Interior family context flows as ordinary scoped values; bridge machinery
+  appears only at promoted entry boundaries and compatibility boundaries
+  (Section 10A.3).
+- Every workflow boundary in a migrated family records its justification
+  (resume/reuse identity, parity-comparison unit, or genuine public surface);
+  an unjustified boundary is a design defect, and a parity-only boundary is a
+  labeled post-promotion collapse candidate (Section 10A.4).
+
+## 10A. Post-WCC Family Idiom And Expressivity Discipline
+
+The constraints in this document prevent bad shapes. This section prescribes
+good ones. The WCC middle-end makes nested composition, scoped values, and
+join-parameter dataflow legal; without an explicit idiom, a drain will
+implement each tranche by transliterating YAML shapes that now happen to
+compile — legal but YAML-shaped Lisp. Each discipline below distinguishes the
+target idiom from shapes that are temporarily forced by migration parity.
+
+### 10A.1 Loop-carried state over state-file choreography
+
+Loop state flows as typed loop parameters and accumulators (`DrainState`,
+work-item progress, retry counters). Retry is re-entry into the loop with
+updated state; bounded exhaustion is a typed terminal outcome. Durable
+run-state still changes through declared resource transitions, but the
+control flow — what happens next — is decided by the loop and its `match`,
+never by reading back a ledger, pointer file, or state file that a previous
+step wrote. The backlog-drain model in Section 18.3 is the reference shape.
+
+### 10A.2 Values before artifacts
+
+Under WCC, every join crossing persists its typed environment with resume
+identity: a scoped value is already durable within the run. An intermediate
+result becomes an authored artifact only when it needs at least one of:
+
+- public boundary identity;
+- parity comparison against the YAML primary;
+- consumption by an external or legacy surface; or
+- cross-run durability beyond resume.
+
+Otherwise it stays a scoped value flowing through bindings, call arguments,
+and join parameters. Each authored artifact in the family records which
+requirement justifies it; artifacts justified only by parity carry a
+`parity_constrained` label and become collapse candidates after promotion.
+The default interchange between phases inside the family is typed values,
+not bundle paths.
+
+### 10A.3 Context as ordinary scoped data
+
+Bridge machinery — runtime bootstrap, hidden reusable-call binding,
+compatibility carriers — exists only at promoted entry boundaries and YAML
+compatibility boundaries. Inside the family, context is ordinary data:
+`DrainCtx` is constructed once at drain entry; `ItemCtx` is a pure projection
+of `DrainCtx` plus the selection, constructed in the `SELECTED_ITEM` arm's
+scope and passed to the work-item call as an ordinary private argument;
+`RecoveryCtx` is loop-carried state in the recovery arm. Context derivation is
+a `pure_projection`. Threading context through workflow-boundary special
+carriers where a lexical value would do is YAML-shaped and prohibited in new
+family code.
+
+### 10A.4 Boundaries are chosen, not inherited
+
+Typed procedures composed via compile-time `ProcRef` specialization are the
+default unit of composition. A workflow boundary is the exception and must be
+justified by at least one of:
+
+- independent resume identity or `resume-or-start` reuse;
+- a parity-comparison unit against the YAML primary; or
+- a genuine public surface.
+
+The plan/implementation/selector/work-item boundaries inherited from the YAML
+family are parity-comparison units during migration; that is a legitimate
+justification, but it is a migration constraint, not target architecture.
+Each family boundary records its justification in migration records;
+parity-only boundaries are labeled and collapse toward procedures after
+promotion.
+
+### 10A.5 Pure projections are the standard glue
+
+Loop-state seed and update functions, context derivations, default
+construction, and record reshaping are named `pure_projection` nodes — not
+provider or command steps, not helper scripts, not artifact materialization.
+If a piece of family glue has no effect row, it is a pure projection by
+construction and should be authored as one.
+
+### 10A.6 Parity-constrained shapes and post-promotion simplification
+
+During migration, parity legitimately forces YAML-comparable boundaries and
+artifacts. Such shapes carry a `parity_constrained` label in migration
+records, alongside the readiness and route labels. After a family passes
+`--require-promotable` and the YAML primary is retired, a post-promotion
+simplification pass collapses parity-constrained boundaries and artifacts
+toward the idiom above, with ordinary compile/validation/smoke evidence. The
+simplification pass is part of this target, not optional polish: without it,
+the migrated family freezes permanently in transliterated form. Tranche 9
+(Section 19A) owns its execution.
+
+### 10A.7 Propagation to the authoring surface
+
+These disciplines bind acceptance, but drains author against the drafting
+guide and review prompts, not against this section. The disciplines must
+therefore be propagated to where authoring actually happens:
+
+- fold Sections 10A.1-10A.6 into `docs/lisp_workflow_drafting_guide.md` as
+  positive authoring guidance with at least one worked idiomatic family
+  shape (the Section 18.3 drain loop is the seed example); and
+- add the disciplines to the family's review criteria and gap/review prompt
+  contracts so reviewers check idiom, not only legality.
+
+Until that propagation lands, Section 10A is enforced only at acceptance
+review, which catches transliterated shapes after they are drafted instead of
+preventing them.
 
 ## 11. Tranche 0: Current-State Inventory And Readiness Labels
 
@@ -649,6 +785,10 @@ intentionally checks the default route.
   dependency.
 - Mark each helper script as pure projection, certified adapter candidate,
   resource transition candidate, runtime-native candidate, or migration debt.
+- Record the Section 10A classifications: each family workflow boundary's
+  justification (resume/reuse, parity unit, public surface) and each authored
+  artifact's justifying requirement, labeling parity-only boundaries and
+  artifacts `parity_constrained`.
 - Record which parity evidence is leaf-only, parent-callable, family-level,
   non-regressive, or promotable.
 - Repair stale design-index/status entries before new implementation work
@@ -977,6 +1117,14 @@ bridge derives internal context values from runtime execution context and
 source-map/Semantic IR evidence explaining the generated bindings without
 making them public authored inputs.
 
+The bridge is an entry-boundary mechanism (Section 10A.3). Interior family
+context flows as ordinary scoped record values and pure-projection
+derivations — `ItemCtx` built from `DrainCtx` plus the selection inside a
+branch scope and passed as a private call argument is the idiom. Bootstrap,
+hidden-binding, and compatibility-carrier machinery appear only at promoted
+entry boundaries and YAML compatibility boundaries, not as the family's
+internal context transport.
+
 This tranche needs a pre-implementation design before code changes. Parity
 architecture has already exposed missing phase-context binding as a real
 wrapper-promotion failure mode, and synthetic top-level `PhaseCtx` inputs are
@@ -1002,6 +1150,11 @@ Initial private context families:
 
 These are private executable values. They may appear in executable/runtime
 contracts and source maps, but they are not public authored boundary fields.
+
+The families are bootstrapped at promoted entry boundaries; inside the family
+they are ordinary scoped record values per Section 10A.3, constructed and
+derived by pure projection and passed as private call arguments, not carried
+by bridge machinery.
 
 ### 14.3 Hidden reusable-call binding
 
@@ -1043,10 +1196,12 @@ implementation-phase route now has parent-callable compile and smoke evidence
 through WCC. The work-item route advances past the old private-workflow and
 phase-family boundary diagnostics and now stops at a WCC route gap:
 `work_item.orc` uses `IfExpr`, which is outside the migrated WCC M4 subset.
-This slice remains the first executable portion of the private-context bridge
-for the phase-family candidates, but WCC `IfExpr` support is now the immediate
-compiler prerequisite before the work-item route can expose the next boundary
-or resource-transition blocker.
+That WCC `IfExpr` work is a separate prerequisite gap,
+`workflow-lisp-wcc-ifexpr-work-item-route`. Tranche 3A is not selectable until
+that gap lands and the real work-item route advances past unsupported
+`IfExpr`. This subsection therefore defines the post-`IfExpr` acceptance
+surface for phase-family boundary rehabilitation; it is not authority to treat
+`IfExpr` as already complete.
 
 Required behavior:
 
@@ -1056,19 +1211,19 @@ Required behavior:
 - compatibility bridge inputs for legacy YAML `state/` values may remain only
   as explicit private or compatibility-labeled executable bindings with
   provenance, not as promoted high-level boundary fields;
-- generated private-workflow or helper-hoisted branch routes used to realize
-  nested composition must receive phase-context-like values through accepted
-  private or compatibility carriers rather than invalid workflow-boundary field
-  types; and
+- on the WCC route, nested composition uses branch scopes, so phase context
+  flows into nested arms as ordinary scoped values per Section 10A.3 — no
+  special carrier exists or is needed; the carrier rule applies only to
+  legacy/schema-1 helper-hoisted routes retained for compatibility, where
+  generated helper-workflow boundaries must receive phase-context-like values
+  through accepted private or compatibility carriers rather than invalid
+  workflow-boundary field types; and
 - clearing this slice does not relax the lint against low-level state paths;
   it changes the boundary shape so the lint no longer fires on promoted
   phase-family routes.
 
-Tasks:
+Tasks after `workflow-lisp-wcc-ifexpr-work-item-route` is complete:
 
-- draft and implement WCC `IfExpr` support for the work-item route before
-  interpreting work-item compile failure as a private-context or resource
-  transition failure;
 - define the narrow public/private boundary shape for remaining plan and
   work-item candidates before the full family-wide `RunCtx` / `DrainCtx`
   bootstrap lands;
@@ -1079,14 +1234,15 @@ Tasks:
   without `workflow_boundary_type_invalid`; and
 - keep compile/build-artifact fixtures for the real design-delta phase-family
   routes so this prerequisite fails before Tranche 7 if old boundary
-  diagnostics regress or the WCC `IfExpr` blocker is lost.
+  diagnostics regress or the post-`IfExpr` boundary blocker is lost.
 
 Acceptance:
 
 - the real design-delta implementation-phase candidate keeps parent-callable
   compile/smoke evidence under WCC;
-- the real design-delta work-item candidate no longer fails on WCC
-  `IfExpr`;
+- the separate `workflow-lisp-wcc-ifexpr-work-item-route` prerequisite has
+  already cleared the real design-delta work-item candidate past unsupported
+  WCC `IfExpr`;
 - the remaining real design-delta `plan_phase.orc` and `work_item.orc`
   candidates no longer fail parent-callable compilation on
   `low_level_state_path_in_high_level_module`;
@@ -1104,6 +1260,10 @@ Acceptance:
 
 - Define `PrivateExecCtx` and context-family projection into executable
   contracts.
+- Define the entry-versus-interior split explicitly: bootstrap, hidden
+  binding, and compatibility carriers at promoted entry and YAML
+  compatibility boundaries only; interior propagation as ordinary scoped
+  values and pure-projection derivations.
 - Define how runtime creates private context for entry workflows.
 - Define how reusable calls receive hidden context bindings.
 - Define how defaults are represented in Core AST, Semantic IR, and executable
@@ -1139,6 +1299,11 @@ Acceptance:
 - Source maps and Semantic IR identify generated context/default bindings.
 - Module-qualified imported context types are recognized by
   structural/capability contracts, not by short local names alone.
+- A fixture proves interior context flow as ordinary scoped data: a derived
+  context (`ItemCtx`-style) is constructed by pure projection inside a branch
+  scope and passed to a child call as a private argument, with no
+  workflow-boundary special carrier and no entry-bridge machinery on the
+  interior path.
 
 ### 14.7 Normative spec deltas
 
@@ -1251,16 +1416,21 @@ It is a typed relationship between semantic state and a representation needed
 by downstream workflow calls, prompts, compatibility paths, or legacy
 consumers.
 
-Selector and bundle publication should follow this preference order:
+Selector and bundle publication should follow this preference order, derived
+from the value-before-artifact discipline (Section 10A.2):
 
-1. native typed projection (preferred): derive the bundle identity from
-   runtime-known provider output bundle identity and `StateLayout` allocation;
-2. certified adapter (migration bridge only): keep the publication script,
+1. typed selection values (target idiom): downstream callers consume the
+   typed selection result as scoped values; any bundle path stays private to
+   runtime/`StateLayout`. An authored selection-bundle artifact exists only
+   with a recorded justifying requirement (parity comparison or an external/
+   legacy consumer);
+2. native typed projection to a materialized bundle (parity/compatibility
+   shape): derive the bundle identity from runtime-known provider output
+   bundle identity and `StateLayout` allocation; labeled `parity_constrained`
+   when parity is its only justification; or
+3. certified adapter (migration bridge only): keep the publication script,
    certified explicitly as deterministic projection with a recorded
-   native-projection replacement route; or
-3. private context bridge: keep the bundle path private to
-   runtime/`StateLayout` and expose typed selection values to `.orc`, when
-   downstream callers need values rather than paths.
+   native-projection replacement route.
 
 Projections are typed WCC values, not ad hoc opaque expressions (UAF-10).
 Provider bundle references, selection bundle views, compatibility pointer
@@ -1275,6 +1445,12 @@ explicit `pure_projection` node so its outputs remain step-backed under shared
 validation. Pure helpers that are not workflow boundaries stay below
 workflow-boundary validation; what is prohibited is a public workflow output
 with no step-backed producer and no declared projection.
+
+Pure projections are also the family's standard glue, not just an output-edge
+rule (Section 10A.5): loop-state seed and update functions, context
+derivations, default construction, and record reshaping are authored as
+`pure_projection` nodes rather than command steps, helper scripts, or
+artifact materialization.
 
 ### 16.2 Projection authority rules
 
@@ -1300,9 +1476,12 @@ provider-result -> typed SelectionDecision
 -> parent-callable typed selection result
 ```
 
-The preferred route is a native typed projection that derives
-`selection_bundle_path` from runtime-known provider output bundle identity and
-`StateLayout` allocation. If retained as a script,
+Where no parity or external-consumer requirement exists, the target shape
+stops at the typed selection result: the parent consumes selection values in
+scope and no authored bundle artifact is minted. Where a materialized bundle
+is justified, the preferred mechanism is a native typed projection that
+derives `selection_bundle_path` from runtime-known provider output bundle
+identity and `StateLayout` allocation. If retained as a script,
 `publish_lisp_frontend_selection_bundle.py` must be certified as deterministic
 projection, not hidden routing.
 
@@ -1316,6 +1495,9 @@ projection, not hidden routing.
   StateLayout requirements per instance.
 - Add the `pure_projection` lowering for pure input-derived workflow outputs
   so they remain step-backed under shared validation.
+- Add a diagnostic or lint that flags effect-row-free family glue authored as
+  command or provider steps instead of `pure_projection` nodes, so the
+  Section 10A.5 discipline is tool-enforced rather than review-enforced.
 - Add projection contracts for selector bundle publication and other
   deterministic bundle/path materializations.
 - Route projection bundle/view paths through `StateLayout` / `PathAllocator`.
@@ -1347,6 +1529,9 @@ projection, not hidden routing.
 - A pure input-derived workflow output compiles to a visible `pure_projection`
   step and passes shared validation; a public output with no step-backed
   producer and no declared projection is rejected.
+- Effect-row-free glue authored as a command or provider step is flagged by
+  the diagnostic/lint with a fixture proving both the flag and the
+  `pure_projection` rewrite.
 - Parent workflow calls do not need to know the legacy publication script
   path.
 
@@ -1527,8 +1712,11 @@ remains in force until this tranche's prerequisites pass.
 ### 18.2 Parent-callable phase surfaces
 
 Before a parent `.orc` drain can be promoted, each child phase must be
-parent-callable. After Tranche 2 lands, the next mandatory gate is Tranche 3A
-phase-family boundary rehabilitation for the real plan, implementation, and
+parent-callable. After Tranche 2 lands, the next mandatory gate is the
+separate Tranche 1A prerequisite
+`workflow-lisp-wcc-ifexpr-work-item-route`; once that has cleared unsupported
+`IfExpr` from the real work-item route, Tranche 3A phase-family boundary
+rehabilitation becomes the next gate for the real plan, implementation, and
 work-item candidates:
 
 - public inputs match the intended YAML/user boundary;
@@ -1575,6 +1763,12 @@ drain lowerer.
 - Define typed `DrainState`, `WorkItemState`, `SelectionResult`,
   `RecoveryResult`, and `DrainTerminalResult` contracts.
 - Define parent-callable readiness checks for each phase candidate.
+- Record a boundary justification for each family workflow boundary per
+  Section 10A.4; default to typed procedures and argue each workflow boundary
+  explicitly, labeling parity-only boundaries `parity_constrained`.
+- Keep phase-to-phase interchange inside the family as typed values per
+  Section 10A.2; author new artifacts only with a recorded justifying
+  requirement.
 - Replace split-leaf boundaries with single parent-callable phase workflows as
   nested composition permits.
 - Define resource-transition calls for selection, completion, blocked
@@ -1597,7 +1791,12 @@ drain lowerer.
   blocked/recovery path in typed `.orc` without hiding semantics in
   unclassified adapters.
 - Drain terminal results are typed and parity-comparable.
-- Resource transitions and ledger updates are declared and visible.
+- Resource transitions and ledger updates are declared and visible, and no
+  control-flow decision in the drain is made by reading back a ledger,
+  pointer, or state file that a previous step wrote (Section 10A.1).
+- Every family workflow boundary has a recorded justification, and every
+  authored family artifact has a recorded justifying requirement;
+  parity-only boundaries and artifacts carry the `parity_constrained` label.
 - Strict parity evidence distinguishes parent-callable success from family
   non-regression.
 
@@ -1731,6 +1930,48 @@ invalidates route-sensitive evidence for re-gating the affected targets.
 - A real workflow-family `.orc` parity report computes `non_regressive=true`
   only when required parent-callable evidence is complete.
 - Any YAML-primary replacement passes `--require-promotable`.
+
+## 19A. Tranche 9: Post-Promotion Simplification
+
+### 19A.1 Contract
+
+This tranche becomes selectable only after a family passes
+`--require-promotable` and its YAML primary is retired. It collapses the
+family's `parity_constrained` shapes toward the Section 10A idiom: boundaries
+justified only as parity-comparison units collapse into typed procedures via
+compile-time specialization; artifacts justified only by parity comparison
+revert to scoped values; compatibility bridge bindings whose YAML consumers
+are gone are removed.
+
+Simplification is ordinary evidence-backed work: each collapse needs compile,
+shared validation, and dry-run/smoke evidence, plus resume-identity impact
+analysis under the lowering-schema versioning rules. It is part of this
+target's completion, not optional polish.
+
+### 19A.2 Tasks
+
+- Enumerate the family's `parity_constrained` boundaries, artifacts, and
+  bridge bindings from the Tranche 0/7 justification records.
+- Collapse parity-only workflow boundaries into typed procedures, preserving
+  resume-identity policy (a collapse changes generated identity and therefore
+  applies to new runs under the recorded lowering schema, never to in-flight
+  runs).
+- Replace parity-only artifacts with scoped values; retire their authored
+  contracts and any associated materialization steps.
+- Remove compatibility bridge bindings with no remaining consumer.
+- Update migration records, examples, and route/readiness labels to the
+  simplified shapes.
+
+### 19A.3 Acceptance
+
+- No family shape carries a `parity_constrained` label without either a
+  remaining justifying requirement or an open simplification work item.
+- Collapsed boundaries and artifacts have compile/validation/smoke evidence
+  and recorded resume-identity disposition.
+- The simplified family still passes its behavioral fixtures; simplification
+  changes shape, not outcomes.
+- A family migration is recorded as complete against this target only when
+  this tranche is done or explicitly waived with owner and rationale.
 
 ## 20. Design Details
 
@@ -1976,10 +2217,15 @@ available. Union normalization and variant-scoped field identity reduce
 authoring workarounds and make domain types independent from control-state
 internals.
 
-Tranche 3A should land before parent-callable phase compilation. It is the
-next draftable prerequisite surfaced by the imported-child returned-variant
-recovery: until it lands, the real plan/implementation/work-item routes can
-clear the cross-union blocker and still fail on
+Tranche 1A is the next draftable prerequisite surfaced by the imported-child
+returned-variant recovery and by the blocked phase-family revision. Clear the
+explicit `workflow-lisp-wcc-ifexpr-work-item-route` gap before selecting
+Tranche 3A; until it lands, the real work-item route can still fail on
+unsupported `IfExpr` and Tranche 3A is not the active blocker.
+
+Tranche 3A should land before parent-callable phase compilation only after
+Tranche 1A has passed. At that point the real plan/implementation/work-item
+routes can clear the cross-union and `IfExpr` blockers and still fail on
 `low_level_state_path_in_high_level_module` or
 `workflow_boundary_type_invalid`.
 
@@ -2010,6 +2256,11 @@ surfaces at high-level boundaries.
 
 Tranche 8 can proceed in parallel for report schema/readiness labels, but
 promotable family evidence must wait for parent-callable workflows.
+
+Tranche 9 is gated on `--require-promotable` success and YAML-primary
+retirement for the family; it must not start earlier, because collapsing
+parity-constrained shapes before promotion destroys the comparison units the
+gate depends on.
 
 Work that can proceed in parallel:
 
@@ -2186,6 +2437,14 @@ Existing parity reports remain historical. Strict gates may reject old reports
 that lack parent-callable readiness fields, source-map evidence,
 resource-transition parity, or current freshness comparators.
 
+Parity-constrained shapes are temporary by contract. Boundaries and artifacts
+that exist only to keep the family comparable with the YAML primary carry the
+`parity_constrained` label, and a post-promotion simplification pass (Section
+10A.6) collapses them toward the family idiom after `--require-promotable`
+passes and the YAML primary is retired. Migration completion claims that omit
+the simplification pass leave the family frozen in transliterated form and
+are incomplete against this target.
+
 ## 27. Verification Strategy
 
 ### 27.1 Inventory tests
@@ -2360,6 +2619,30 @@ resource-transition parity, or current freshness comparators.
 - Example/fixture route labels exist for representative `.orc` examples, and
   a `stale_needs_update` example is never cited as architecture evidence.
 
+### 27.11 Family idiom tests
+
+- Boundary-justification records exist for every family workflow boundary;
+  a boundary with no recorded justification fails inventory acceptance.
+- Artifact-justification records exist for every authored family artifact;
+  an intermediate exchanged between phases as an authored artifact without a
+  justifying requirement fails review.
+- Interior context flow fixture: a derived context constructed by pure
+  projection inside a branch scope and passed as a private call argument,
+  with no entry-bridge machinery on the interior path.
+- Loop-control negative fixture: a drain-family candidate whose next-step
+  decision is taken by reading back a ledger/pointer/state file written by a
+  previous step is rejected or flagged.
+- Pure-projection glue fixture: loop-state seed/update and a context
+  derivation lower as `pure_projection` nodes, not command steps.
+- `parity_constrained` labels are present on parity-only boundaries and
+  artifacts and are queryable from migration records.
+- The drafting guide and family review criteria carry the Section 10A
+  disciplines (10A.7 propagation), verified by inspection of
+  `docs/lisp_workflow_drafting_guide.md` and the family review prompt
+  contracts.
+- Post-promotion (Tranche 9): no `parity_constrained` shape remains without a
+  justifying requirement or an open simplification work item.
+
 ## 28. Declarative Acceptance Scenarios
 
 ### 28.1 Nested implementation phase
@@ -2501,9 +2784,13 @@ This post-foundation target succeeds when:
 - variant-scoped output identity allows repeated logical field names across
   variants, and runtime output finalization resolves active variants while
   skipping inactive variants' fields;
+- the explicit Tranche 1A prerequisite
+  `workflow-lisp-wcc-ifexpr-work-item-route` clears the real work-item route
+  past unsupported `IfExpr` before phase-family boundary rehabilitation is
+  evaluated;
 - the real implementation-phase candidate keeps parent-callable WCC evidence,
   and the remaining plan/work-item phase-family candidates clear the Tranche
-  3A/WCC `IfExpr` boundary failures while keeping low-level phase-state roots
+  3A post-`IfExpr` boundary failures while keeping low-level phase-state roots
   and synthetic phase contexts out of promoted high-level `.orc` boundaries;
 - promoted `.orc` entrypoints hide private runtime context, generated write
   roots, state roots, and compatibility paths from public boundaries;
@@ -2534,6 +2821,13 @@ This post-foundation target succeeds when:
 - examples, fixtures, and compiler tests carry explicit route/readiness
   classification, so stale or legacy-only `.orc` surfaces cannot masquerade as
   current guidance or architecture evidence;
+- the family uses the WCC idiom rather than transliterated YAML: loop-carried
+  state decides control flow, phase interchange is typed values unless an
+  artifact has a recorded justifying requirement, interior context flows as
+  scoped data with bridge machinery only at entry/compatibility boundaries,
+  glue is pure projections, and every workflow boundary has a recorded
+  justification with parity-only shapes labeled `parity_constrained` and a
+  post-promotion simplification path;
 - at least one real workflow family reaches strict, machine-computed
   `non_regressive=true` through `.orc`; and
 - any YAML-primary replacement also passes `--require-promotable`.
@@ -2553,10 +2847,12 @@ adapters, declared resource transitions, parent-callable family workflows, and
 strict migration evidence.
 
 After the imported-child returned-variant slice, the next draftable
-prerequisite is Tranche 3A phase-family boundary rehabilitation for the real
-plan/implementation/work-item candidates. Until that lands, parent-callable
-work-item and drain work should remain blocked even if the cross-union route
-compiles.
+prerequisite is the explicit Tranche 1A
+`workflow-lisp-wcc-ifexpr-work-item-route` gap. Only after that gap lands does
+Tranche 3A phase-family boundary rehabilitation become the next draftable
+slice for the real plan/implementation/work-item candidates. Until both gates
+land in order, parent-callable work-item and drain work should remain blocked
+even if the cross-union route compiles.
 
 Until the P0 tranches land, the correct migration shape remains compileable
 typed leaves, explicit bridge records, and no parent `.orc` wrapper pretending

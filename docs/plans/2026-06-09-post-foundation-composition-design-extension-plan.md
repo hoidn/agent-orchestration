@@ -131,6 +131,34 @@ pass adds what it did not:
 - ownership routing: guard-inheritance semantics, resume bundle shape, and
   CLI route policy stay with the WCC/runtime/authoring docs respectively.
 
+## Revision (2026-06-10, fifth pass)
+
+Expressivity review: the doc constrained bad shapes but never prescribed
+good ones, so a drain would transliterate YAML shapes that now compile under
+WCC. Added Section 10A (Post-WCC Family Idiom And Expressivity Discipline)
+with six disciplines — loop-carried state over state-file choreography,
+values before artifacts, context as ordinary scoped data, chosen rather than
+inherited workflow boundaries, pure projections as standard glue, and
+parity-constrained labeling with a mandatory post-promotion simplification
+pass — plus wiring: three new invariants, a goal, Tranche 0 classification
+tasks, Tranche 3 bridge-scope narrowing with an interior-context fixture,
+Tranche 5 systematic pure-projection glue, Tranche 7
+boundary/artifact-justification tasks and acceptance, a compatibility
+paragraph making simplification part of the target, verification §27.11, and
+a success criterion. Applied on top of the drain's concurrent Tranche 1A
+(`workflow-lisp-wcc-ifexpr-work-item-route`) rewiring, which was preserved.
+
+Self-audit follow-up (same day): five residuals closed — Tranche 3A carrier
+language reconciled with 10A.3 (carriers are legacy-route compatibility;
+WCC branch scopes need none), Tranche 5 preference order inverted under
+10A.2 (typed selection values first, materialized bundle as
+parity-justified shape, with the §6 diagram annotated), post-promotion
+simplification given an executable home as Tranche 9 (§19A) with work-order
+and sequencing entries, an effect-row-free-glue diagnostic task and
+acceptance added to Tranche 5, and §10A.7 added to propagate the idiom into
+the drafting guide and family review criteria with a §27.11 verification
+item.
+
 Post-pass correction from reviewing merge `ebdc635`: route identity is
 multi-valued (`LoweringRoute.LEGACY`, `WCC_M1`-`WCC_M4`, plus a separate
 lowering schema version), not the binary "WCC schema-2 vs legacy schema-1"
