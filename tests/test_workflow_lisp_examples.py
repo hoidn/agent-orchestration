@@ -232,7 +232,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
     assert "workflow_lisp_compile_time_parametric_specialization.md" not in workflow_source
     assert "workflow_lisp_review_revise_stdlib_parametric_integration.md" not in workflow_source
 
-    result = compile_stage3_module(
+    result = _compile_stage3_module(
         DESIGN_DOCS_REVIEW_EXAMPLE,
         provider_externs={
             "providers.design-docs.review": "codex",
@@ -268,7 +268,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
 
 
 def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Path) -> None:
-    result = compile_stage3_module(
+    result = _compile_stage3_module(
         DESIGN_DOCS_REVIEW_EXAMPLE,
         provider_externs={
             "providers.design-docs.review": "codex",

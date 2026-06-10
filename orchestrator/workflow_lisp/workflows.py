@@ -486,7 +486,19 @@ def analyze_workflow_boundary_type(
                 allow_union=False,
                 allow_top_level_workflow_ref=False,
             )
-            if not analysis.lowerable or analysis.contains_collection:
+            if analysis.contains_collection:
+                return WorkflowBoundaryAnalysis(
+                    lowerable=False,
+                    contains_json=analysis.contains_json,
+                    contains_provider_or_prompt=analysis.contains_provider_or_prompt,
+                    contains_workflow_ref=True,
+                    contains_proc_ref=analysis.contains_proc_ref,
+                    contains_union=analysis.contains_union,
+                    contains_collection=True,
+                    offending_path=analysis.offending_path or source_path,
+                    offending_type_name=analysis.offending_type_name or type_ref.name,
+                )
+            if not analysis.lowerable:
                 return analysis
         return_analysis = analyze_workflow_boundary_type(
             type_ref.return_type_ref,
@@ -494,7 +506,19 @@ def analyze_workflow_boundary_type(
             allow_union=True,
             allow_top_level_workflow_ref=False,
         )
-        if not return_analysis.lowerable or return_analysis.contains_collection:
+        if return_analysis.contains_collection:
+            return WorkflowBoundaryAnalysis(
+                lowerable=False,
+                contains_json=return_analysis.contains_json,
+                contains_provider_or_prompt=return_analysis.contains_provider_or_prompt,
+                contains_workflow_ref=True,
+                contains_proc_ref=return_analysis.contains_proc_ref,
+                contains_union=return_analysis.contains_union,
+                contains_collection=True,
+                offending_path=return_analysis.offending_path or source_path,
+                offending_type_name=return_analysis.offending_type_name or type_ref.name,
+            )
+        if not return_analysis.lowerable:
             return return_analysis
         if allow_top_level_workflow_ref:
             return WorkflowBoundaryAnalysis(
@@ -676,7 +700,8 @@ def build_workflow_catalog(
     lookup_aliases: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
     allow_hidden_context_callers: bool = False,
-    allow_collection_boundaries: bool = False,
+    allow_collection_input_boundaries: bool = False,
+    allow_collection_return_boundaries: bool = False,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
 
@@ -727,7 +752,7 @@ def build_workflow_catalog(
             span=workflow_def.span,
             form_path=workflow_def.form_path,
             expansion_stack=workflow_def.expansion_stack,
-            allow_collection_boundaries=allow_collection_boundaries,
+            allow_collection_boundaries=allow_collection_return_boundaries,
         )
         if return_diagnostic is not None:
             diagnostics.append(return_diagnostic)
@@ -753,7 +778,7 @@ def build_workflow_catalog(
                 span=param.span,
                 form_path=param.form_path,
                 expansion_stack=param.expansion_stack,
-                allow_collection_boundaries=allow_collection_boundaries,
+                allow_collection_boundaries=allow_collection_input_boundaries,
             )
             if param_diagnostic is not None:
                 diagnostics.append(param_diagnostic)
@@ -1395,7 +1420,16 @@ def _boundary_diagnostic(
 ) -> LispFrontendDiagnostic | None:
     """Translate workflow-boundary analysis into a frontend diagnostic."""
 
-    if allow_collection_boundaries and analysis.lowerable and analysis.contains_collection:
+    if (
+        allow_collection_boundaries
+        and analysis.lowerable
+        and analysis.contains_collection
+        and not analysis.contains_json
+        and not analysis.contains_provider_or_prompt
+        and not analysis.contains_workflow_ref
+        and not analysis.contains_proc_ref
+        and not analysis.contains_union
+    ):
         return None
 
     if analysis.lowerable and not (

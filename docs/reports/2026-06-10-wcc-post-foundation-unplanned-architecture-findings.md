@@ -101,6 +101,11 @@ transport boundary error:
 workflow_boundary_collection_unsupported
 ```
 
+Resolution note, 2026-06-10: default WCC now accepts lowerable
+collection-typed workflow inputs, so `review_revise_design_docs.orc` no longer
+requires legacy schema 1 for its `context_docs` input. Collection returns and
+collection-bearing workflow refs remain outside the supported runtime boundary.
+
 `review_revise_parametric_design_docs.orc` failed with a stale macro shape:
 
 ```text

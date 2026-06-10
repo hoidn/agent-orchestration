@@ -1644,7 +1644,6 @@ def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
-            lowering_route=LoweringRoute.LEGACY,
         )
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
@@ -1691,7 +1690,6 @@ def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
-            lowering_route=LoweringRoute.LEGACY,
         )
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))

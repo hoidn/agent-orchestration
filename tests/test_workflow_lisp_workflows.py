@@ -634,15 +634,18 @@ def test_build_workflow_catalog_rejects_type_invalid_workflow_param_defaults(tmp
     assert "default for workflow param `count` must match boundary type `Int`" in excinfo.value.diagnostics[0].message
 
 
-def test_workflow_boundary_rejects_collection_typed_params(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            INVALID_FIXTURES / "workflow_boundary_collection_invalid.orc",
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
+def test_workflow_boundary_accepts_lowerable_collection_typed_params_under_wcc(tmp_path: Path) -> None:
+    del tmp_path
+    path = INVALID_FIXTURES / "workflow_boundary_collection_invalid.orc"
+    module = _compile_definition_module(path)
+    workflow_catalog = build_workflow_catalog(
+        module,
+        elaborate_workflow_definitions(_build_syntax_module(path)),
+        FrontendTypeEnvironment.from_module(module),
+        allow_collection_input_boundaries=True,
+    )
 
-    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
+    assert workflow_catalog.signatures_by_name["entry"].params[0][0] == "attempt_ids"
 
 
 def test_workflow_boundary_rejects_collection_typed_returns(tmp_path: Path) -> None:
@@ -698,7 +701,7 @@ def test_workflow_boundary_rejects_collections_inside_workflow_ref_signatures(tm
             workspace_root=tmp_path,
         )
 
-    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
+    _assert_diagnostic_code(excinfo, "workflow_ref_runtime_transport_forbidden")
 
 
 @pytest.mark.parametrize(
