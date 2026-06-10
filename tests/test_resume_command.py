@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import shutil
+import threading
 import time
 from dataclasses import replace
 from types import SimpleNamespace
@@ -1626,6 +1627,112 @@ def test_repeat_until_resume_preserves_nested_call_frames_and_lowered_match_prog
         "root.review_loop#0.iteration_body.run_review_loop",
         "root.review_loop#1.iteration_body.run_review_loop",
     ]
+
+
+def test_repeat_until_resume_clears_stale_failed_nested_call_result_while_child_reruns(
+    temp_workspace,
+):
+    """Resume should not leave a stale failed nested-call step visible while the child call is active."""
+    run_id = "repeat-until-call-running-resume"
+    library_path = temp_workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_workflow = _build_repeat_until_call_resume_library_workflow()
+    library_workflow["steps"][2]["command"] = [
+        "bash",
+        "-lc",
+        "\n".join(
+            [
+                "mkdir -p \"${inputs.write_root}\"",
+                "count=\"${inputs.iteration}\"",
+                "printf 'write-decision-running-%s\\n' \"$count\" >> state/review-loop/history.log",
+                "while [ ! -f state/allow_finish.txt ]; do sleep 0.05; done",
+                "if [ \"$count\" -ge 2 ]; then",
+                "  printf 'APPROVE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                "else",
+                "  printf 'REVISE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                "fi",
+            ]
+        ),
+    ]
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(
+        yaml.safe_dump(library_workflow, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    workflow_path = temp_workspace / "repeat_until_call_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_repeat_until_call_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    state_dir = temp_workspace / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "allow_finish.txt").write_text("ready\n", encoding="utf-8")
+
+    workflow = WorkflowLoader(temp_workspace).load(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize("repeat_until_call_resume.yaml")
+
+    first_run = WorkflowExecutor(workflow, temp_workspace, state_manager).execute(on_error="stop")
+    assert first_run["status"] == "failed"
+
+    (state_dir / "allow_finish.txt").unlink()
+    (state_dir / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    resume_result: dict[str, object] = {}
+
+    def _resume() -> None:
+        try:
+            resumed_workflow = WorkflowLoader(temp_workspace).load(workflow_path)
+            resume_result["state"] = WorkflowExecutor(
+                resumed_workflow,
+                temp_workspace,
+                StateManager(workspace=temp_workspace, run_id=run_id),
+            ).execute(on_error="stop", resume=True)
+        except BaseException as exc:  # pragma: no cover - surfaced below
+            resume_result["error"] = exc
+
+    thread = threading.Thread(target=_resume, daemon=True)
+    thread.start()
+
+    deadline = time.time() + 10
+    observed_state = None
+    while time.time() < deadline:
+        observed_state = json.loads(
+            (temp_workspace / ".orchestrate" / "runs" / run_id / "state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        child_frame = next(
+            (
+                frame
+                for frame in observed_state.get("call_frames", {}).values()
+                if frame.get("call_step_id") == "root.review_loop#1.iteration_body.run_review_loop"
+            ),
+            None,
+        )
+        child_current = child_frame.get("current_step") if isinstance(child_frame, dict) else None
+        if isinstance(child_current, dict) and child_current.get("name") == "WriteDecision":
+            break
+        time.sleep(0.05)
+    else:
+        (state_dir / "allow_finish.txt").write_text("ready\n", encoding="utf-8")
+        thread.join(timeout=10)
+        pytest.fail("resume never reached the rerunning child WriteDecision step")
+
+    assert observed_state is not None
+    rerun_entry = observed_state["steps"].get("ReviewLoop[1].RunReviewLoop")
+    assert rerun_entry is None or rerun_entry["status"] != "failed"
+
+    (state_dir / "allow_finish.txt").write_text("ready\n", encoding="utf-8")
+    thread.join(timeout=10)
+
+    if "error" in resume_result:
+        raise resume_result["error"]  # type: ignore[misc]
+    assert not thread.is_alive()
+    assert isinstance(resume_result.get("state"), dict)
+    assert resume_result["state"]["status"] == "completed"
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
     second_frame = next(
         frame
         for frame in loaded_state.call_frames.values()

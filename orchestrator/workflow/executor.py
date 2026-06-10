@@ -309,6 +309,10 @@ class _CallFrameStateManager:
         self.state.steps[f"{loop_name}[{index}].{step_name}"] = result
         self._persist()
 
+    def clear_loop_step(self, loop_name: str, index: int, step_name: str) -> None:
+        self.state.steps.pop(f"{loop_name}[{index}].{step_name}", None)
+        self._persist()
+
     def update_loop_results(self, loop_name: str, loop_results: List[Dict[str, Any]]) -> None:
         self.state.steps[loop_name] = loop_results
         self._persist()

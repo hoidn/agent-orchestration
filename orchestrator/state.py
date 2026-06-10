@@ -526,6 +526,16 @@ class StateManager:
             self.state.steps[key] = result
             self._write_state()
 
+    def clear_loop_step(self, loop_name: str, index: int, step_name: str) -> None:
+        """Remove one persisted loop-iteration step result."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            key = f"{loop_name}[{index}].{step_name}"
+            self.state.steps.pop(key, None)
+            self._write_state()
+
     def update_loop_results(self, loop_name: str, loop_results: List[Dict[str, Any]]):
         """Update for_each loop results array.
 

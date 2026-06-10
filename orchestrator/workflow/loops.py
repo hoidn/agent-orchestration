@@ -456,6 +456,21 @@ class LoopExecutor:
 
         return iteration_state, start_nested_index, start_nested_index >= len(body_steps)
 
+    def clear_resumed_iteration_step(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        iteration: int,
+        nested_name: str,
+        iteration_state: Dict[str, Any],
+    ) -> None:
+        """Drop one stale persisted iteration-step result before rerunning it on resume."""
+        iteration_state.pop(nested_name, None)
+        steps_state = state.get("steps")
+        if isinstance(steps_state, dict):
+            steps_state.pop(f"{loop_name}[{iteration}].{nested_name}", None)
+        self.executor.state_manager.clear_loop_step(loop_name, iteration, nested_name)
+
     def resume_for_each_state(
         self,
         state: Dict[str, Any],
@@ -809,6 +824,29 @@ class LoopExecutor:
                     current_iteration,
                     body_steps,
                 )
+            if resume and not body_complete:
+                if typed_body_context is not None and start_node_id is not None:
+                    nested_name = loop_projection.nested_presentation_keys.get(start_node_id)
+                    if isinstance(nested_name, str) and nested_name:
+                        self.clear_resumed_iteration_step(
+                            state,
+                            frame_key,
+                            current_iteration,
+                            nested_name,
+                            iteration_state,
+                        )
+                elif typed_body_context is None and start_nested_index < len(body_steps):
+                    nested_name = body_steps[start_nested_index].get(
+                        "name",
+                        f"nested_{start_nested_index}",
+                    )
+                    self.clear_resumed_iteration_step(
+                        state,
+                        step_name,
+                        current_iteration,
+                        nested_name,
+                        iteration_state,
+                    )
             loop_context = {
                 "loop": {
                     "index": current_iteration,
