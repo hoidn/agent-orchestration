@@ -543,6 +543,24 @@ def _private_workflow_body_exports_step_backed_outputs(
             type_env=type_env,
             active_procedures=active_procedures,
         )
+    if isinstance(expr, IfExpr):
+        return _private_workflow_body_exports_step_backed_outputs(
+            expr.then_expr,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        ) and _private_workflow_body_exports_step_backed_outputs(
+            expr.else_expr,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        )
     if isinstance(expr, (NameExpr, FieldAccessExpr)):
         return _inline_outputs_are_step_backed(
             expr,

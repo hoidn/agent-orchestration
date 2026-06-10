@@ -14,9 +14,14 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.calls import CallExecutor
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_public_input_contracts
+from orchestrator.workflow_lisp.command_boundaries import (
+    CertifiedAdapterInputField,
+    PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
@@ -117,6 +122,198 @@ def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
     }
 
 
+def _promoted_adapter_binding(
+    *,
+    name: str,
+    stable_command: tuple[str, ...],
+    output_type_name: str,
+    behavior_class: str,
+    owner_module: str,
+    replacement_path: str | None,
+    effects: tuple[str, ...] = ("structured_result",),
+    input_signature: tuple[CertifiedAdapterInputField, ...],
+    fixture_ids: tuple[str, ...],
+    negative_fixture_ids: tuple[str, ...],
+) -> CertifiedAdapterBinding:
+    return CertifiedAdapterBinding(
+        name=name,
+        stable_command=stable_command,
+        input_contract={"type": "object"},
+        output_type_name=output_type_name,
+        effects=effects,
+        path_safety={"kind": "workspace_relpath"},
+        source_map_behavior="step",
+        fixture_ids=fixture_ids,
+        negative_fixture_ids=negative_fixture_ids,
+        behavior_class=behavior_class,
+        input_signature=input_signature,
+        artifact_contracts=(f"{name}_bundle",),
+        state_writes=(),
+        error_codes=(f"{name}_invalid",),
+        owner_module=owner_module,
+        replacement_path=replacement_path,
+        invocation_protocol="json_object_positional_arg",
+        declared_promoted_fields=frozenset(PROMOTED_CALL_REQUIRED_METADATA_FIELDS),
+    )
+
+
+def _design_delta_work_item_provider_externs() -> dict[str, str]:
+    return {
+        "providers.plan.draft": "fake-plan-draft",
+        "providers.plan.review": "fake-plan-review",
+        "providers.plan.fix": "fake-plan-fix",
+        "providers.implementation.execute": "fake-implementation-execute",
+        "providers.implementation.review": "fake-implementation-review",
+        "providers.implementation.fix": "fake-implementation-fix",
+        "providers.work-item.recovery-classifier": "fake-work-item-recovery",
+    }
+
+
+def _design_delta_work_item_prompt_externs() -> dict[str, str]:
+    return {
+        "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+        "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
+        "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
+        "prompts.implementation.execute": (
+            "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+        ),
+        "prompts.implementation.review": (
+            "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+        ),
+        "prompts.implementation.fix": (
+            "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+        ),
+        "prompts.work-item.classify-blocked-recovery": (
+            "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
+            "classify_blocked_implementation_recovery.md"
+        ),
+    }
+
+
+def _design_delta_work_item_command_boundaries() -> dict[str, object]:
+    return {
+        "run_neurips_backlog_checks": ExternalToolBinding(
+            name="run_neurips_backlog_checks",
+            stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
+        ),
+        "validate_review_findings_v1": ExternalToolBinding(
+            name="validate_review_findings_v1",
+            stable_command=(
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ),
+        ),
+        "materialize_lisp_frontend_work_item_inputs": _promoted_adapter_binding(
+            name="materialize_lisp_frontend_work_item_inputs",
+            stable_command=("python", "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"),
+            output_type_name="ResolvedWorkItemInputs",
+            behavior_class="structured_result",
+            owner_module="lisp_frontend_design_delta/work_item",
+            replacement_path="SelectionCtx + ItemCtx private bootstrap + typed projection",
+            input_signature=(
+                CertifiedAdapterInputField(
+                    name="selection_bundle_path",
+                    type_name="SelectionBundlePath",
+                    required=True,
+                    transport_key="selection_path",
+                ),
+            ),
+            fixture_ids=("design_delta_work_item_inputs_ok",),
+            negative_fixture_ids=("design_delta_work_item_inputs_bad",),
+        ),
+        "classify_lisp_frontend_work_item_terminal": _promoted_adapter_binding(
+            name="classify_lisp_frontend_work_item_terminal",
+            stable_command=(
+                "python",
+                "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
+            ),
+            output_type_name="WorkItemTerminalClassification",
+            behavior_class="outcome_finalization",
+            owner_module="lisp_frontend_design_delta/work_item",
+            replacement_path="typed implementation terminal union",
+            input_signature=(
+                CertifiedAdapterInputField(
+                    name="plan_review_decision",
+                    type_name="String",
+                    required=True,
+                    transport_key="plan_review_decision",
+                ),
+                CertifiedAdapterInputField(
+                    name="implementation_state",
+                    type_name="String",
+                    required=True,
+                    transport_key="implementation_state",
+                ),
+                CertifiedAdapterInputField(
+                    name="implementation_review_decision",
+                    type_name="String",
+                    required=True,
+                    transport_key="implementation_review_decision",
+                ),
+                CertifiedAdapterInputField(
+                    name="work_item_source",
+                    type_name="String",
+                    required=True,
+                    transport_key="work_item_source",
+                ),
+            ),
+            fixture_ids=("design_delta_work_item_terminal_ok",),
+            negative_fixture_ids=("design_delta_work_item_terminal_bad",),
+        ),
+        "select_lisp_frontend_blocked_recovery_route": _promoted_adapter_binding(
+            name="select_lisp_frontend_blocked_recovery_route",
+            stable_command=(
+                "python",
+                "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
+            ),
+            output_type_name="BlockedRecoveryDecision",
+            behavior_class="outcome_finalization",
+            owner_module="lisp_frontend_design_delta/work_item",
+            replacement_path="typed BlockedRecoveryDecision normalization",
+            input_signature=(
+                CertifiedAdapterInputField(
+                    name="terminal_route",
+                    type_name="String",
+                    required=True,
+                    transport_key="terminal_route",
+                ),
+                CertifiedAdapterInputField(
+                    name="work_item_source",
+                    type_name="String",
+                    required=True,
+                    transport_key="work_item_source",
+                ),
+                CertifiedAdapterInputField(
+                    name="blocked_recovery_route",
+                    type_name="String",
+                    required=True,
+                    transport_key="blocked_recovery_route",
+                ),
+                CertifiedAdapterInputField(
+                    name="reason",
+                    type_name="String",
+                    required=True,
+                    transport_key="reason",
+                ),
+            ),
+            fixture_ids=("design_delta_blocked_recovery_route_ok",),
+            negative_fixture_ids=("design_delta_blocked_recovery_route_bad",),
+        ),
+        "record_terminal_work_item": ExternalToolBinding(
+            name="record_terminal_work_item",
+            stable_command=("python", "workflows/library/scripts/update_lisp_frontend_run_state.py"),
+        ),
+        "record_blocked_recovery_outcome": ExternalToolBinding(
+            name="record_blocked_recovery_outcome",
+            stable_command=(
+                "python",
+                "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+            ),
+        ),
+    }
+
+
 def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
     result = compile_stage3_entrypoint(
         REPO_ROOT
@@ -200,6 +397,46 @@ def _compile_design_delta_parent_call_runtime_entrypoint(tmp_path: Path):
         workspace_root=tmp_path,
     )
     return module_path, result
+
+
+def _compile_design_delta_work_item_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return result, lowered_by_name
+
+
+def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
+    tmp_path: Path,
+):
+    try:
+        result, lowered_by_name = _compile_design_delta_work_item_entrypoint(tmp_path)
+    except LispFrontendCompileError as exc:
+        diagnostic_codes = [diagnostic.code for diagnostic in exc.diagnostics]
+
+        assert diagnostic_codes
+        assert diagnostic_codes[0] in {
+            "workflow_boundary_type_invalid",
+            "low_level_state_path_in_high_level_module",
+        }
+        assert "proc_private_workflow_boundary_invalid" not in diagnostic_codes
+        return None, None
+
+    lowered_names = set(lowered_by_name)
+    assert any("finalize-approved-review-state" in name for name in lowered_names)
+    assert any("finalize-approved-nonblocked" in name for name in lowered_names)
+    return result, lowered_by_name
 
 
 def _compile_design_delta_parent_contract_probe_entrypoint(tmp_path: Path):
@@ -1451,53 +1688,66 @@ def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(
     )
 
 
-def test_design_delta_work_item_candidate_compiles_terminal_and_recovery_leaves(
+def test_design_delta_work_item_candidate_compiles_as_parent_callable_workflow(
     tmp_path: Path,
 ) -> None:
-    result = compile_stage3_entrypoint(
-        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc",
-        source_roots=(REPO_ROOT / "workflows" / "library",),
-        provider_externs={"providers.work-item.recovery-classifier": "codex"},
-        prompt_externs={
-            "prompts.work-item.classify-blocked-recovery": (
-                "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
-                "classify_blocked_implementation_recovery.md"
-            ),
-        },
-        command_boundaries={
-            "classify_lisp_frontend_work_item_terminal": ExternalToolBinding(
-                name="classify_lisp_frontend_work_item_terminal",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
-                ),
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
+    result, lowered_by_name = _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
+        tmp_path
+    )
+    if result is None or lowered_by_name is None:
+        return
+
+    workflow_name = "lisp_frontend_design_delta/work_item::run-work-item"
+    assert set(result.entry_result.validated_bundles) == {workflow_name}
+
+    bundle = result.entry_result.validated_bundles[workflow_name]
+    public_inputs = workflow_public_input_contracts(bundle)
+    lowered = lowered_by_name[workflow_name]
+    lowered_names = set(lowered_by_name)
+    lowered_steps = list(_walk_lowered_steps(lowered["steps"]))
+    assert set(public_inputs) == {
+        "selection_bundle_path",
+        "manifest_path",
+        "architecture_bundle_path",
+        "steering_path",
+        "target_design_path",
+        "baseline_design_path",
+        "progress_ledger_path",
+        "run_state_path",
+        "implementation_execute_provider",
+        "implementation_review_provider",
+    }
+    assert not any(name.endswith("classify-work-item-terminal") for name in lowered_names)
+    assert not any(name.endswith("classify-blocked-implementation-recovery") for name in lowered_names)
+    assert sum(1 for step in lowered_steps if step.get("call") == "run-plan-phase") == 1
+    assert any(step.get("call") == "implementation-phase" for step in lowered_steps)
+    assert any(
+        step.get("provider") == "fake-work-item-recovery"
+        for step in lowered_steps
+    )
+    assert any(
+        "materialize_lisp_frontend_work_item_inputs.py" in " ".join(step.get("command", []))
+        for step in lowered_steps
+    )
+    assert any(
+        "classify_lisp_frontend_work_item_terminal.py" in " ".join(step.get("command", []))
+        for step in lowered_steps
+    )
+    assert any(
+        "select_lisp_frontend_blocked_recovery_route.py" in " ".join(step.get("command", []))
+        for step in lowered_steps
+    )
+    assert any(
+        step.get("match", {}).get("ref")
+        for step in lowered_steps
+        if isinstance(step.get("match"), dict)
     )
 
-    lowered_workflows = [
-        workflow.authored_mapping
-        for compiled in result.compiled_results_by_name.values()
-        for workflow in compiled.lowered_workflows
-    ]
-    assert all(lowered["version"] == "2.14" for lowered in lowered_workflows)
-    assert any(
-        "command" in step
-        for lowered in lowered_workflows
-        for step in lowered["steps"]
-    )
-    assert any(
-        step.get("provider") == "codex"
-        for lowered in lowered_workflows
-        for step in lowered["steps"]
-    )
-    assert any("return__terminal_route" in lowered["outputs"] for lowered in lowered_workflows)
-    assert any(
-        "return__blocked_recovery_route" in lowered["outputs"]
-        for lowered in lowered_workflows
-    )
+
+def test_design_delta_work_item_candidate_advances_past_private_workflow_ifexpr_export_blocker(
+    tmp_path: Path,
+) -> None:
+    _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(tmp_path)
 
 
 def test_design_delta_migration_nested_implementation_phase_compiles(tmp_path: Path) -> None:

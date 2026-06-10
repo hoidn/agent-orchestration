@@ -2497,6 +2497,68 @@ def test_private_workflow_with_phase_binding_exports_step_backed_outputs(tmp_pat
     assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
 
 
+def test_private_workflow_with_top_level_ifexpr_exports_step_backed_outputs(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_top_level_ifexpr_private_workflow.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord AttemptReport",
+            "    (report WorkReport))",
+            "  (defproc private-run",
+            "    ((prefer_first Bool)",
+            "     (report_path WorkReport))",
+            "    -> AttemptReport",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering private-workflow",
+            "    (if prefer_first",
+            "      (let* ((attempt",
+            "               (provider-result providers.execute",
+            "                 :prompt prompts.implementation.execute",
+            "                 :inputs (report_path)",
+            "                 :returns AttemptReport)))",
+            "        (record AttemptReport",
+            "          :report attempt.report))",
+            "      (let* ((attempt",
+            "               (provider-result providers.execute",
+            "                 :prompt prompts.implementation.execute",
+            "                 :inputs (report_path)",
+            "                 :returns AttemptReport)))",
+            "        (record AttemptReport",
+            "          :report attempt.report))))",
+            "  (defworkflow run-private",
+            "    ((prefer_first Bool)",
+            "     (report_path WorkReport))",
+            "    -> AttemptReport",
+            "    (private-run prefer_first report_path)))",
+        ],
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
+    private_names = [name for name in lowered_names if name.endswith(".private-run.v1")]
+
+    assert private_names == ["%procedure_top_level_ifexpr_private_workflow.private-run.v1"]
+    outer_workflow = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "run-private"
+    )
+    assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
+
+
 def test_private_workflow_effectful_match_arms_export_step_backed_outputs(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_effectful_match_private_workflow.orc",
