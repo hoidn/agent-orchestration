@@ -1535,6 +1535,23 @@ def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_proje
     }
 
 
+def test_build_frontend_bundle_keeps_legacy_default_and_wcc_route_out_of_artifacts(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    result = build_frontend_bundle(_build_request(tmp_path))
+
+    manifest_payload = result.manifest_path.read_text(encoding="utf-8")
+    source_map_payload = result.artifact_paths["source_map"].read_text(encoding="utf-8")
+
+    assert result.manifest.shared_validation_status == "validated"
+    assert "wcc_m1" not in manifest_payload
+    assert "lowering_route" not in manifest_payload
+    assert "wcc_m1" not in source_map_payload
+    assert "lowering_route" not in source_map_payload
+
+
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")

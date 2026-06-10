@@ -157,6 +157,7 @@ _LOWERING_SURFACE_CODES = frozenset(
         "lowering_no_backend_for_form",
         "resource_transition_requires_runtime_backend",
         "proc_lowering_cycle",
+        "wcc_lowering_route_unsupported",
         "path_definition_invalid",
         "workflow_boundary_type_invalid",
         "workflow_boundary_collection_unsupported",

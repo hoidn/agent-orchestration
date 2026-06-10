@@ -159,6 +159,13 @@ from .workflows import (
     prompt_extern_source_bindings_payload,
     typecheck_workflow_definitions,
 )
+from .wcc.route import (
+    DEFAULT_LOWERING_ROUTE,
+    LoweringRoute,
+    normalize_lowering_route,
+    validate_wcc_m1_route_supported,
+)
+from .wcc.lower import lower_wcc_m1_workflow_definitions
 
 
 _EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
@@ -326,6 +333,7 @@ def compile_stage3_entrypoint(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str = DEFAULT_LOWERING_ROUTE,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -345,6 +353,7 @@ def compile_stage3_entrypoint(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
+        lowering_route=normalize_lowering_route(lowering_route),
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -369,9 +378,11 @@ def compile_stage3_module(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute | str = DEFAULT_LOWERING_ROUTE,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
+    normalized_lowering_route = normalize_lowering_route(lowering_route)
     if _syntax_module_uses_module_graph(path):
         linked = compile_stage3_entrypoint(
             path,
@@ -382,6 +393,7 @@ def compile_stage3_module(
             validate_shared=validate_shared,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
+            lowering_route=normalized_lowering_route,
         )
         return linked.entry_result
 
@@ -394,6 +406,7 @@ def compile_stage3_module(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
+        lowering_route=normalized_lowering_route,
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -599,6 +612,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute = DEFAULT_LOWERING_ROUTE,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     graph = resolve_module_graph(path, source_roots=source_roots)
     compile_result: LinkedStage3CompileResult | None = None
@@ -615,6 +629,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             validate_shared=False,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
+            lowering_route=lowering_route,
         )
         selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
         return replace(
@@ -735,6 +750,45 @@ def _compile_stage1_syntax_module(
     return state.module
 
 
+def _lower_workflows_for_route(
+    *,
+    lowering_route: LoweringRoute,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_catalog: ProcedureCatalog,
+    workflow_path: Path,
+    workflow_catalog,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+    extern_environment,
+    command_boundary_environment: CommandBoundaryEnvironment,
+    type_env: FrontendTypeEnvironment,
+):
+    if lowering_route is LoweringRoute.WCC_M1:
+        validate_wcc_m1_route_supported(typed_workflows)
+        return lower_wcc_m1_workflow_definitions(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            procedure_catalog=procedure_catalog,
+            workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
+    return lower_workflow_definitions(
+        typed_workflows,
+        typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog,
+        workflow_path=workflow_path,
+        workflow_catalog=workflow_catalog,
+        imported_workflow_bundles=imported_workflow_bundles,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        type_env=type_env,
+    )
+
+
 def _run_stage3_validation_pipeline(
     path: Path,
     *,
@@ -745,6 +799,7 @@ def _run_stage3_validation_pipeline(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute = DEFAULT_LOWERING_ROUTE,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
@@ -873,8 +928,9 @@ def _run_stage3_validation_pipeline(
         )
 
     def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        lowered_workflows = lower_workflow_definitions(
-            state.typed_workflows,
+        lowered_workflows = _lower_workflows_for_route(
+            lowering_route=lowering_route,
+            typed_workflows=state.typed_workflows,
             typed_procedures=state.typed_procedures,
             procedure_catalog=state.procedure_catalog,
             workflow_path=path,
@@ -1263,6 +1319,7 @@ def _compile_stage3_graph(
     validate_shared: bool,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
+    lowering_route: LoweringRoute = DEFAULT_LOWERING_ROUTE,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -1533,8 +1590,9 @@ def _compile_stage3_graph(
             **typed_procedures_by_name,
             **{procedure.definition.name: procedure for procedure in typed_procedures},
         }
-        lowered_workflows = lower_workflow_definitions(
-            typed_workflows,
+        lowered_workflows = _lower_workflows_for_route(
+            lowering_route=lowering_route,
+            typed_workflows=typed_workflows,
             typed_procedures=tuple(combined_typed_procedures.values()),
             procedure_catalog=procedure_catalog,
             workflow_path=module_source.path,

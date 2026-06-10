@@ -4,7 +4,7 @@ For the package map and links to the design diagrams/specs, see
 `README.md`.
 """
 
-from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_module
+from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_entrypoint, compile_stage3_module
 from .conditionals import (
     BoolRefCondition,
     ConditionShape,
@@ -105,6 +105,7 @@ from .workflows import (
     ProviderExtern,
     Stage3CompileResult,
 )
+from .wcc import DEFAULT_LOWERING_ROUTE, LoweringRoute
 
 __all__ = [
     "CallExpr",
@@ -196,6 +197,7 @@ __all__ = [
     "WorkflowLispSyntaxModule",
     "build_syntax_module",
     "compile_stage1_module",
+    "compile_stage3_entrypoint",
     "compile_stage3_module",
     "elaborate_procedure_definitions",
     "elaborate_expression",
@@ -209,4 +211,6 @@ __all__ = [
     "run_validation_pipeline",
     "typecheck_expression",
     "validate_lowered_workflows",
+    "DEFAULT_LOWERING_ROUTE",
+    "LoweringRoute",
 ]

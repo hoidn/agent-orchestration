@@ -9,6 +9,7 @@ from tests.workflow_lisp_characterization import (
     CHARACTERIZATION_MANIFEST_PATH,
     build_behavior_observation,
     build_structural_snapshot,
+    build_structural_snapshot_metadata,
     compare_structural_snapshots,
     load_characterization_cases,
 )
@@ -86,6 +87,16 @@ def test_manifest_declares_empty_rename_maps_for_m0_cases() -> None:
         assert case.declared_rename_map["generated_input_names"] == {}
 
 
+def test_manifest_marks_only_value_only_case_for_wcc_m1_dual_compile() -> None:
+    cases = {case.case_id: case for case in load_characterization_cases()}
+
+    assert cases["value_only_minimal_module"].dual_compile_routes == ("legacy", "wcc_m1")
+    for case_id, case in cases.items():
+        if case_id == "value_only_minimal_module":
+            continue
+        assert case.dual_compile_routes == ()
+
+
 def test_command_bearing_cases_declare_boundaries_and_module_graph_uses_import_manifest() -> None:
     cases = {case.case_id: case for case in load_characterization_cases()}
 
@@ -106,6 +117,23 @@ def test_characterization_structural_cases_match_golden(tmp_path: Path, case) ->
     golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
 
     assert compare_structural_snapshots(actual, golden, case.declared_rename_map) == "identical"
+
+
+def test_value_only_minimal_module_dual_compiles_identically_for_legacy_and_wcc_m1(tmp_path: Path) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}["value_only_minimal_module"]
+    golden = json.loads((Path.cwd() / case.golden_structural).read_text(encoding="utf-8"))
+
+    legacy_workspace = tmp_path / "legacy"
+    wcc_workspace = tmp_path / "wcc"
+    legacy_actual = build_structural_snapshot(case, legacy_workspace, lowering_route="legacy")
+    wcc_actual = build_structural_snapshot(case, wcc_workspace, lowering_route="wcc_m1")
+    legacy_metadata = build_structural_snapshot_metadata(case, legacy_workspace, lowering_route="legacy")
+    wcc_metadata = build_structural_snapshot_metadata(case, wcc_workspace, lowering_route="wcc_m1")
+
+    assert legacy_metadata["lowering_route"] == "legacy"
+    assert wcc_metadata["lowering_route"] == "wcc_m1"
+    assert compare_structural_snapshots(legacy_actual, golden, case.declared_rename_map) == "identical"
+    assert compare_structural_snapshots(wcc_actual, golden, case.declared_rename_map) == "identical"
 
 
 def test_compare_structural_snapshots_distinguishes_identity_rename_and_divergence() -> None:

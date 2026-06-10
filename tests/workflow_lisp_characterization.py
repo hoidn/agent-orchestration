@@ -58,6 +58,7 @@ class CharacterizationCase:
     evidence_mode: str
     behavior_runtime: BehaviorRuntime | None
     declared_rename_map: dict[str, dict[str, str]]
+    dual_compile_routes: tuple[str, ...]
     tags: tuple[str, ...]
     golden_structural: Path
     golden_behavior: Path | None
@@ -160,6 +161,9 @@ def _load_case(payload: dict[str, Any]) -> CharacterizationCase:
     tags = payload.get("tags")
     if not isinstance(tags, list) or not tags or not all(isinstance(tag, str) for tag in tags):
         raise ValueError(f"{case_id}.tags must be a non-empty list of strings")
+    dual_compile_routes = payload.get("dual_compile_routes", [])
+    if not isinstance(dual_compile_routes, list) or not all(isinstance(route, str) for route in dual_compile_routes):
+        raise ValueError(f"{case_id}.dual_compile_routes must be a list of strings")
 
     fixture_kind = str(payload["fixture_kind"])
     if fixture_kind not in {"module", "entrypoint"}:
@@ -194,6 +198,7 @@ def _load_case(payload: dict[str, Any]) -> CharacterizationCase:
         evidence_mode=evidence_mode,
         behavior_runtime=behavior_runtime,
         declared_rename_map=declared_rename_map,
+        dual_compile_routes=tuple(dual_compile_routes),
         tags=tuple(tags),
         golden_structural=_relpath(str(payload["golden_structural"]), field_name=f"{case_id}.golden_structural"),
         golden_behavior=golden_behavior,
@@ -246,7 +251,7 @@ def _resolve_command_boundaries(value: dict[str, Any] | Path | None) -> dict[str
     return bindings
 
 
-def _compile_case(case: CharacterizationCase, workspace: Path) -> dict[str, Any]:
+def _compile_case(case: CharacterizationCase, workspace: Path, *, lowering_route: str = "legacy") -> dict[str, Any]:
     source_path = REPO_ROOT / case.source_path
     source_roots = tuple(REPO_ROOT / root for root in case.source_roots)
     if case.fixture_kind == "module":
@@ -257,6 +262,7 @@ def _compile_case(case: CharacterizationCase, workspace: Path) -> dict[str, Any]
             command_boundaries=_resolve_command_boundaries(case.command_boundaries),
             validate_shared=True,
             workspace_root=workspace,
+            lowering_route=lowering_route,
         )
         return {
             "kind": "module",
@@ -264,7 +270,10 @@ def _compile_case(case: CharacterizationCase, workspace: Path) -> dict[str, Any]
             "compiled_module_names": [result.module.module_name or source_path.stem],
             "imported_workflow_bundles": [],
             "selected_workflow_name": None,
+            "lowering_route": lowering_route,
         }
+    if lowering_route != "legacy":
+        raise ValueError(f"{case.case_id} does not support lowering_route={lowering_route!r} for entrypoint fixtures")
 
     build = __import__("orchestrator.workflow_lisp.build", fromlist=["FrontendBuildRequest", "build_frontend_bundle"])
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -306,6 +315,7 @@ def _compile_case(case: CharacterizationCase, workspace: Path) -> dict[str, Any]
         "compiled_module_names": sorted(build_result.compile_result.compiled_results_by_name),
         "imported_workflow_bundles": build_result.imported_workflow_bundles,
         "selected_workflow_name": build_result.selected_workflow_name,
+        "lowering_route": lowering_route,
     }
 
 
@@ -484,8 +494,13 @@ def _normalize_diagnostic(diagnostic: Any, *, workspace: Path) -> dict[str, Any]
     )
 
 
-def build_structural_snapshot(case: CharacterizationCase, tmp_path: Path) -> dict[str, Any]:
-    compiled = _compile_case(case, tmp_path)
+def build_structural_snapshot(
+    case: CharacterizationCase,
+    tmp_path: Path,
+    *,
+    lowering_route: str = "legacy",
+) -> dict[str, Any]:
+    compiled = _compile_case(case, tmp_path, lowering_route=lowering_route)
     compile_result = compiled["compile_result"]
     diagnostics = [_normalize_diagnostic(item, workspace=tmp_path) for item in compile_result.diagnostics]
     lowered_workflows = [
@@ -519,6 +534,22 @@ def build_structural_snapshot(case: CharacterizationCase, tmp_path: Path) -> dic
         "validated_bundles": validated_bundles,
         "imported_workflow_bundles": imported_workflow_bundles,
         "diagnostics": diagnostics,
+    }
+
+
+def build_structural_snapshot_metadata(
+    case: CharacterizationCase,
+    tmp_path: Path,
+    *,
+    lowering_route: str = "legacy",
+) -> dict[str, Any]:
+    compiled = _compile_case(case, tmp_path, lowering_route=lowering_route)
+    return {
+        "case_id": case.case_id,
+        "fixture_kind": case.fixture_kind,
+        "lowering_route": compiled["lowering_route"],
+        "compiled_module_names": compiled["compiled_module_names"],
+        "selected_workflow_name": compiled["selected_workflow_name"],
     }
 
 

@@ -16,6 +16,10 @@
         "step_labels": {},
         "generated_input_names": {}
       },
+      "dual_compile_routes": [
+        "legacy",
+        "wcc_m1"
+      ],
       "tags": [
         "value_only"
       ],
