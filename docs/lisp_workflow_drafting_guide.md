@@ -1002,14 +1002,18 @@ Bad:
 Better:
 
 ```lisp
-(command-result move-backlog-item
-  :adapter adapters.backlog.move-item
+(command-result normalize-summary
+  :adapter normalize_result
   :inputs
-    ((item selected.active-path)
-     (to Queue.in-progress)
-     (ledger ctx.ledger))
-  :returns ResourceTransitionResult)
+    ((execution_report completed.execution_report)
+     (review_report approved.review_report))
+  :returns ImplementationSummary)
 ```
+
+Use direct `command-result :adapter` only for non-resource, non-resume
+certified adapters with declared typed fields. Queue or ledger movement still
+belongs in `resource-transition`, and reusable-state gating still belongs in
+`resume-or-start`.
 
 ## 10. Pattern Matching And Variant Proof
 

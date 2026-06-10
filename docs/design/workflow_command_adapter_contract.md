@@ -106,6 +106,35 @@ owner module
 replacement path, if temporary
 ```
 
+For promoted Workflow Lisp authoring, certified adapters may also be invoked
+through a typed `command-result` surface instead of raw argv assembly:
+
+```lisp
+(command-result normalize-summary
+  :adapter normalize_result
+  :inputs
+    ((execution_report completed.execution_report)
+     (review_report approved.review_report))
+  :returns ImplementationSummary)
+```
+
+Promoted adapter declarations must carry the metadata that makes that call
+surface typecheckable and lowerable:
+
+- `behavior_class`
+- `input_signature`
+- `artifact_contracts`
+- `state_writes`
+- `error_codes`
+- `owner_module`
+- `replacement_path`
+- `invocation_protocol`
+
+The current promoted invocation protocol is `json_object_positional_arg`:
+the frontend validates typed inputs, renders one JSON object positional
+argument in declared field order, and reuses the existing structured-result
+command bundle path.
+
 The adapter command must be a stable script or executable, not an inline
 `python -c`, `python -`, `bash -c`, heredoc, or nested `subprocess.run` shell.
 
@@ -123,6 +152,13 @@ The workflow compiler or loader should be able to validate:
 - errors map to stable error codes or typed failure outputs;
 - source maps identify the frontend form or workflow step that invoked the
   adapter.
+
+For promoted `command-result :adapter` calls, the frontend must also validate:
+
+- required inputs are present and undeclared inputs are rejected;
+- each authored input expression matches the declared field type;
+- each authored input is projectable into the declared invocation protocol;
+- the declared adapter return type matches `:returns`.
 
 ## Legacy Adapters
 
@@ -193,6 +229,8 @@ Recommended lints:
 - `command_adapter_missing_contract`
 - `legacy_adapter_missing_fixture`
 - `pointer_used_as_semantic_authority`
+- `resource_move_without_transition`
+- `recovery_gate_without_resume_or_start`
 
 Severity policy:
 
@@ -250,6 +288,23 @@ It requires a canonical reusable-state validation contract:
 
 Without that contract, recovery remains a legacy adapter or explicit workflow
 logic.
+
+High-level `.orc` must not bypass this form with direct
+`command-result :adapter` calls to adapters classified as
+`resume_state_reuse`.
+
+## Dedicated High-Level Forms
+
+Certified adapters are not a loophole around established high-level semantic
+forms.
+
+- Resource or queue movement remains `resource-transition`, even if the current
+  lowering path still uses a certified adapter backend.
+- Reusable-state gating remains `resume-or-start`, even if the current
+  implementation still depends on certified adapters behind that surface.
+
+Direct promoted adapter calls for those semantic classes are rejected so the
+authored `.orc` surface keeps the semantic transition visible.
 
 ## Runtime-Native Promotion Criteria
 

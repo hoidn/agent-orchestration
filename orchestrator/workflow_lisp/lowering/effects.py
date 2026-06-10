@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
-from ..expressions import CommandResultExpr, ProviderResultExpr
+from ..expressions import CommandResultExpr, LiteralExpr, ProviderResultExpr
 from ..type_env import TypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
@@ -21,14 +22,16 @@ def _lower_command_result(
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], Any]:
     from ..contracts import derive_structured_result_contract
+    from ..workflows import CertifiedAdapterBinding
 
     expr = typed_expr.expr
     assert isinstance(expr, CommandResultExpr)
-    binding = context.command_boundary_environment.bindings_by_name.get(expr.step_name)
+    binding_name = expr.adapter_name or expr.step_name
+    binding = context.command_boundary_environment.bindings_by_name.get(binding_name)
     if binding is None:
         raise lowering_core._compile_error(
             code="command_result_tool_invalid",
-            message=f"unknown command boundary `{expr.step_name}` during lowering",
+            message=f"unknown command boundary `{binding_name}` during lowering",
             span=expr.span,
             form_path=expr.form_path,
         )
@@ -51,16 +54,34 @@ def _lower_command_result(
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = allocation.concrete_path_template
     lowering_core._record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-    step = {
-        "name": step_name,
-        "id": step_id,
-        "command": [
+    if expr.adapter_name is not None:
+        if not isinstance(binding, CertifiedAdapterBinding):
+            raise lowering_core._compile_error(
+                code="command_result_tool_invalid",
+                message=f"`command-result` adapter `{expr.adapter_name}` is not a certified adapter during lowering",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        command = [
+            *binding.stable_command,
+            _serialize_adapter_payload(
+                expr=expr,
+                binding=binding,
+                local_values=local_values,
+            ),
+        ]
+    else:
+        command = [
             *binding.stable_command,
             *lowering_core._render_argv_tail(
                 expr.argv[len(binding.stable_command) :],
                 local_values=local_values,
             ),
-        ],
+        ]
+    step = {
+        "name": step_name,
+        "id": step_id,
+        "command": command,
         bundle_contract.contract_kind: authored_contract,
     }
     return [step], _TerminalResult(
@@ -72,6 +93,61 @@ def _lower_command_result(
             allocation.generated_input_name: lowering_core._origin_from_context_source(context, expr)
         },
     )
+
+
+def _serialize_adapter_payload(
+    *,
+    expr: CommandResultExpr,
+    binding: Any,
+    local_values: Mapping[str, Any],
+) -> str:
+    authored_inputs = {
+        field_name: value_expr
+        for field_name, value_expr in expr.adapter_inputs
+    }
+    payload_parts: list[str] = []
+    for field in binding.input_signature:
+        if field.name not in authored_inputs:
+            continue
+        payload_parts.append(
+            json.dumps(field.transport_key, separators=(",", ":"))
+            + ":"
+            + _render_adapter_payload_value(
+                authored_inputs[field.name],
+                declared_type_name=field.type_name,
+                local_values=local_values,
+            )
+        )
+    return "{" + ",".join(payload_parts) + "}"
+
+
+def _render_adapter_payload_value(
+    expr: Any,
+    *,
+    declared_type_name: str,
+    local_values: Mapping[str, Any],
+) -> str:
+    _ = declared_type_name
+    resolved_value = lowering_core._resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(resolved_value, LiteralExpr):
+        return json.dumps(resolved_value.value, separators=(",", ":"), ensure_ascii=False)
+    if isinstance(resolved_value, str):
+        return _json_template_for_ref(resolved_value)
+    rendered_scalar = lowering_core._render_argv_tail([expr], local_values=local_values)[0]
+    if rendered_scalar.startswith("${") and rendered_scalar.endswith("}"):
+        return _json_template_for_template(rendered_scalar)
+    return json.dumps(rendered_scalar, separators=(",", ":"), ensure_ascii=False)
+
+
+def _json_template_for_ref(ref: str) -> str:
+    return _json_template_for_template(lowering_core._template_for_ref(ref))
+
+
+def _json_template_for_template(template: str) -> str:
+    if not template.startswith("${") or not template.endswith("}"):
+        raise ValueError(f"expected substitution template, got {template!r}")
+    expression = template[2:-1]
+    return "${" + expression + "|json}"
 
 
 def _lower_provider_result(

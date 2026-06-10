@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
@@ -1065,6 +1066,131 @@ def test_serialize_diagnostic_classifies_missing_command_boundary_as_authority()
     assert payload["phase"] == "lowering"
     assert payload["validation_pass"] == "authority"
     assert payload["authority_layer"] == "frontend"
+
+
+def test_serialize_diagnostic_preserves_command_result_adapter_invalid_phase(tmp_path: Path) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    path = tmp_path / "command_result_adapter_invalid.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow normalize",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (command-result normalize_result",
+                '      :argv ("python" "scripts/normalize_result.py" report_path)',
+                "      :adapter normalize_result",
+                "      :inputs ((execution_report report_path))",
+                "      :returns ImplementationSummary)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+
+    assert payload["code"] == "command_result_adapter_invalid"
+    assert payload["phase"] == "read"
+
+
+def test_serialize_diagnostic_classifies_command_adapter_input_not_projectable(tmp_path: Path) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    path = tmp_path / "command_adapter_not_projectable.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Wrapper",
+                "    (payload WorkReport))",
+                "  (defrecord ApprovedResult",
+                "    (review_report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow normalize",
+                "    ((completed Wrapper)",
+                "     (approved ApprovedResult))",
+                "    -> ImplementationSummary",
+                "    (command-result wrap_result",
+                "      :adapter wrap_result",
+                "      :inputs",
+                "        ((completed completed)",
+                "         (review_report approved.review_report))",
+                "      :returns ImplementationSummary)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            command_boundaries=_parse_command_boundaries_manifest(
+                {
+                    "wrap_result": {
+                        "kind": "certified_adapter",
+                        "stable_command": ["python", "scripts/wrap_result.py"],
+                        "input_contract": {"type": "object"},
+                        "output_type_name": "ImplementationSummary",
+                        "effects": ["structured_result"],
+                        "path_safety": {"kind": "workspace_relpath"},
+                        "source_map_behavior": "step",
+                        "fixture_ids": ["wrap_result_ok"],
+                        "negative_fixture_ids": ["wrap_result_bad"],
+                        "behavior_class": "structured_result",
+                        "input_signature": [
+                            {
+                                "name": "completed",
+                                "type_name": "Wrapper",
+                                "required": True,
+                                "transport_key": "completed",
+                            },
+                            {
+                                "name": "review_report",
+                                "type_name": "WorkReport",
+                                "required": True,
+                                "transport_key": "review_report",
+                            },
+                        ],
+                        "artifact_contracts": ["implementation_summary_report"],
+                        "state_writes": [],
+                        "error_codes": ["wrap_result_invalid_payload"],
+                        "owner_module": "std/phase",
+                        "replacement_path": None,
+                        "invocation_protocol": "json_object_positional_arg",
+                    }
+                },
+                manifest_path=None,
+            ),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+
+    assert payload["code"] == "command_adapter_input_not_projectable"
+    assert payload["phase"] == "typecheck"
 
 
 def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(tmp_path: Path) -> None:

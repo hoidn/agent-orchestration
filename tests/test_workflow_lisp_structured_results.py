@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
@@ -28,6 +29,8 @@ from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
     ExternalToolBinding,
     WorkflowSignature,
+    _flattened_boundary_contracts,
+    _normalize_boundary_contract_definition,
     build_command_boundary_environment,
     build_workflow_catalog,
     elaborate_workflow_definitions,
@@ -38,6 +41,7 @@ from orchestrator.workflow_lisp.workflows import (
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
+VALID_CERTIFIED_ADAPTER_FIXTURE = FIXTURES / "valid" / "certified_adapter_call.orc"
 
 
 def _build_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
@@ -116,6 +120,46 @@ def _typecheck_fixture(path: Path, *, types_path: Path = TYPE_FIXTURE, **typeche
             type_env,
         ),
         **typecheck_kwargs,
+    )
+
+
+def _promoted_adapter_command_boundaries():
+    return _parse_command_boundaries_manifest(
+        {
+            "normalize_result": {
+                "kind": "certified_adapter",
+                "stable_command": ["python", "scripts/normalize_result.py"],
+                "input_contract": {"type": "object"},
+                "output_type_name": "ImplementationSummary",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": ["normalize_result_ok"],
+                "negative_fixture_ids": ["normalize_result_bad"],
+                "behavior_class": "structured_result",
+                "input_signature": [
+                    {
+                        "name": "execution_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "execution_report",
+                    },
+                    {
+                        "name": "review_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "review_report",
+                    },
+                ],
+                "artifact_contracts": ["implementation_summary_report"],
+                "state_writes": [],
+                "error_codes": ["normalize_result_invalid_payload"],
+                "owner_module": "std/phase",
+                "replacement_path": None,
+                "invocation_protocol": "json_object_positional_arg",
+            }
+        },
+        manifest_path=None,
     )
 
 
@@ -636,6 +680,19 @@ def test_typecheck_command_result_rejects_missing_semantic_adapter_metadata(tmp_
     }
 
 
+def test_typecheck_command_result_accepts_promoted_certified_adapter_bindings(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_CERTIFIED_ADAPTER_FIXTURE,
+        command_boundaries=_promoted_adapter_command_boundaries(),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert [workflow.definition.name for workflow in result.typed_workflows] == [
+        "normalize-summary",
+    ]
+
+
 def test_command_adapter_missing_contract_serializes_as_authority_validation_pass(
     tmp_path: Path,
 ) -> None:
@@ -1109,12 +1166,14 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
         "type": "relpath",
         "under": "artifacts/work",
         "must_exist_target": False,
+        "__allow_unresolved_source": True,
     }
     assert outputs["return__progress_report"].definition == {
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
         "must_exist_target": False,
+        "__allow_unresolved_source": True,
     }
     assert outputs["return__blocker_class"].definition == {
         "kind": "scalar",
@@ -1127,6 +1186,43 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
             "user_decision_required",
             "unrecoverable_after_fix_attempt",
         ],
+        "__allow_unresolved_source": True,
+    }
+
+
+def test_normalized_union_output_contracts_match_authored_boundary_shape() -> None:
+    type_env = _build_type_env()
+    syntax_module = _build_syntax_module(TYPE_FIXTURE)
+    implementation_state = type_env.resolve_type(
+        "ImplementationState",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "contract-test"),
+    )
+    work_report = type_env.resolve_type(
+        "WorkReport",
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "contract-test"),
+    )
+
+    assert isinstance(implementation_state, UnionTypeRef)
+    signature = WorkflowSignature(
+        name="provider_attempt",
+        params=(("report_path", work_report),),
+        return_type_ref=implementation_state,
+        span=syntax_module.span,
+        form_path=("workflow-lisp", "defworkflow", "provider_attempt"),
+    )
+
+    _, outputs, _ = derive_workflow_signature_contracts(signature)
+
+    assert _flattened_boundary_contracts(
+        implementation_state,
+        generated_name="return",
+        span=syntax_module.span,
+        form_path=signature.form_path,
+    ) == {
+        name: _normalize_boundary_contract_definition(contract.definition)
+        for name, contract in outputs.items()
     }
 
 

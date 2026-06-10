@@ -423,6 +423,191 @@ def test_build_fingerprint_changes_when_command_boundary_manifest_changes(tmp_pa
     assert original.manifest.fingerprint != alternate.manifest.fingerprint
 
 
+def test_parse_command_boundary_manifest_accepts_promoted_certified_adapter_metadata() -> None:
+    build = _build_module()
+    parse_manifest = getattr(build, "_parse_command_boundaries_manifest")
+
+    bindings = parse_manifest(
+        {
+            "normalize_result": {
+                "kind": "certified_adapter",
+                "stable_command": ["python", "scripts/normalize_result.py"],
+                "input_contract": {"type": "object"},
+                "output_type_name": "ImplementationSummary",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": ["normalize_result_ok"],
+                "negative_fixture_ids": ["normalize_result_bad"],
+                "behavior_class": "structured_result",
+                "input_signature": [
+                    {
+                        "name": "execution_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "execution_report",
+                    },
+                    {
+                        "name": "review_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "review_report",
+                    },
+                ],
+                "artifact_contracts": ["implementation_summary_report"],
+                "state_writes": [],
+                "error_codes": ["normalize_result_invalid_payload"],
+                "owner_module": "std/phase",
+                "replacement_path": None,
+                "invocation_protocol": "json_object_positional_arg",
+            }
+        },
+        manifest_path=None,
+    )
+
+    binding = bindings["normalize_result"]
+
+    assert binding.behavior_class == "structured_result"
+    assert binding.invocation_protocol == "json_object_positional_arg"
+    assert tuple(field.transport_key for field in binding.input_signature) == (
+        "execution_report",
+        "review_report",
+    )
+
+
+def test_parse_command_boundary_manifest_keeps_legacy_certified_adapter_argv_compatibility() -> None:
+    build = _build_module()
+    parse_manifest = getattr(build, "_parse_command_boundaries_manifest")
+
+    bindings = parse_manifest(
+        {
+            "normalize_result": {
+                "kind": "certified_adapter",
+                "stable_command": ["python", "scripts/normalize_result.py"],
+                "input_contract": {"type": "object"},
+                "output_type_name": "ImplementationSummary",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": ["normalize_result_ok"],
+                "negative_fixture_ids": ["normalize_result_bad"],
+            }
+        },
+        manifest_path=None,
+    )
+
+    binding = bindings["normalize_result"]
+
+    assert binding.output_type_name == "ImplementationSummary"
+    assert binding.stable_command == ("python", "scripts/normalize_result.py")
+
+
+def test_build_fingerprint_changes_when_promoted_adapter_metadata_changes(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    first_manifest = tmp_path / "commands.promoted.first.json"
+    second_manifest = tmp_path / "commands.promoted.second.json"
+    first_manifest.write_text(
+        json.dumps(
+            {
+                "run_checks": {
+                    "kind": "external_tool",
+                    "stable_command": ["python", "scripts/run_checks.py"],
+                },
+                "normalize_result": {
+                    "kind": "certified_adapter",
+                    "stable_command": ["python", "scripts/normalize_result.py"],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "ImplementationSummary",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["normalize_result_ok"],
+                    "negative_fixture_ids": ["normalize_result_bad"],
+                    "behavior_class": "structured_result",
+                    "input_signature": [
+                        {
+                            "name": "execution_report",
+                            "type_name": "WorkReport",
+                            "required": True,
+                            "transport_key": "execution_report",
+                        }
+                    ],
+                    "artifact_contracts": ["implementation_summary_report"],
+                    "state_writes": [],
+                    "error_codes": ["normalize_result_invalid_payload"],
+                    "owner_module": "std/phase",
+                    "replacement_path": None,
+                    "invocation_protocol": "json_object_positional_arg",
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    second_manifest.write_text(
+        json.dumps(
+            {
+                "run_checks": {
+                    "kind": "external_tool",
+                    "stable_command": ["python", "scripts/run_checks.py"],
+                },
+                "normalize_result": {
+                    "kind": "certified_adapter",
+                    "stable_command": ["python", "scripts/normalize_result.py"],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "ImplementationSummary",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["normalize_result_ok"],
+                    "negative_fixture_ids": ["normalize_result_bad"],
+                    "behavior_class": "structured_result",
+                    "input_signature": [
+                        {
+                            "name": "execution_report",
+                            "type_name": "WorkReport",
+                            "required": True,
+                            "transport_key": "execution_report_path",
+                        }
+                    ],
+                    "artifact_contracts": ["implementation_summary_report"],
+                    "state_writes": [],
+                    "error_codes": ["normalize_result_invalid_payload"],
+                    "owner_module": "std/phase",
+                    "replacement_path": None,
+                    "invocation_protocol": "json_object_positional_arg",
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    first_request = _build_request(tmp_path)
+    first_request = type(first_request)(
+        **{
+            **first_request.__dict__,
+            "command_boundaries_path": first_manifest,
+        }
+    )
+    second_request = _build_request(tmp_path)
+    second_request = type(second_request)(
+        **{
+            **second_request.__dict__,
+            "command_boundaries_path": second_manifest,
+        }
+    )
+
+    first = build_frontend_bundle(first_request)
+    second = build_frontend_bundle(second_request)
+
+    assert first.manifest.fingerprint != second.manifest.fingerprint
+
+
 def test_build_accepts_compiled_imported_workflow_bundles_manifest_and_public_runtime_input_projections(
     tmp_path: Path,
 ) -> None:

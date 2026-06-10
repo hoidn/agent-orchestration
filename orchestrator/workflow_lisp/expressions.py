@@ -328,6 +328,8 @@ class CommandResultExpr:
 
     step_name: str
     argv: tuple["ExprNode", ...]
+    adapter_name: str | None
+    adapter_inputs: tuple[tuple[str, "ExprNode"], ...]
     returns_type_name: str
     span: SourceSpan
     form_path: tuple[str, ...]
@@ -2281,7 +2283,7 @@ def _elaborate_command_result(
 ) -> CommandResultExpr:
     if len(datum.items) < 5:
         _raise_error(
-            "`command-result` requires a step name plus :argv and :returns",
+            "`command-result` requires a step name plus either :argv or :adapter/:inputs and :returns",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -2297,20 +2299,17 @@ def _elaborate_command_result(
         )
     sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`command-result`")
     argv_node = sections.get(":argv")
+    adapter_node = sections.get(":adapter")
+    inputs_node = sections.get(":inputs")
     returns_node = sections.get(":returns")
-    if argv_node is None or returns_node is None:
+    uses_raw_argv = argv_node is not None
+    uses_adapter = adapter_node is not None or inputs_node is not None
+    if returns_node is None:
         _raise_error(
-            "`command-result` requires :argv and :returns",
+            "`command-result` requires :returns",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
-        )
-    if not isinstance(argv_node, SyntaxList):
-        _raise_error(
-            "`command-result :argv` must be a list",
-            span=argv_node.span,
-            form_path=form_path,
-            expansion_stack=argv_node.expansion_stack,
         )
     returns_identifier = syntax_identifier(returns_node)
     if returns_identifier is None:
@@ -2320,17 +2319,111 @@ def _elaborate_command_result(
             form_path=form_path,
             expansion_stack=returns_node.expansion_stack,
         )
+    if uses_raw_argv and uses_adapter:
+        _raise_error(
+            "`command-result` must use exactly one of :argv or :adapter/:inputs",
+            code="command_result_adapter_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if uses_raw_argv:
+        if not isinstance(argv_node, SyntaxList):
+            _raise_error(
+                "`command-result :argv` must be a list",
+                span=argv_node.span,
+                form_path=form_path,
+                expansion_stack=argv_node.expansion_stack,
+            )
+        return CommandResultExpr(
+            step_name=step_identifier.resolved_name,
+            argv=tuple(
+                _elaborate(
+                    item,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                )
+                for item in argv_node.items
+            ),
+            adapter_name=None,
+            adapter_inputs=(),
+            returns_type_name=returns_identifier.resolved_name,
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if adapter_node is None or inputs_node is None:
+        _raise_error(
+            "`command-result` adapter mode requires both :adapter and :inputs",
+            code="command_result_adapter_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    adapter_identifier = syntax_identifier(adapter_node)
+    if adapter_identifier is None:
+        _raise_error(
+            "`command-result :adapter` must be a symbol",
+            code="command_result_adapter_invalid",
+            span=adapter_node.span,
+            form_path=form_path,
+            expansion_stack=adapter_node.expansion_stack,
+        )
+    if not isinstance(inputs_node, SyntaxList):
+        _raise_error(
+            "`command-result :inputs` must be a list of (field expr) pairs",
+            code="command_result_adapter_invalid",
+            span=inputs_node.span,
+            form_path=form_path,
+            expansion_stack=inputs_node.expansion_stack,
+        )
+    seen_input_names: set[str] = set()
+    adapter_inputs: list[tuple[str, ExprNode]] = []
+    for item in inputs_node.items:
+        if not isinstance(item, SyntaxList) or len(item.items) != 2:
+            _raise_error(
+                "`command-result :inputs` entries must be (field expr) pairs",
+                code="command_result_adapter_invalid",
+                span=item.span if isinstance(item, SyntaxList) else inputs_node.span,
+                form_path=form_path,
+                expansion_stack=getattr(item, "expansion_stack", inputs_node.expansion_stack),
+            )
+        field_identifier = syntax_identifier(item.items[0])
+        if field_identifier is None:
+            _raise_error(
+                "`command-result :inputs` field names must be symbols",
+                code="command_result_adapter_invalid",
+                span=item.items[0].span,
+                form_path=form_path,
+                expansion_stack=item.items[0].expansion_stack,
+            )
+        field_name = field_identifier.resolved_name
+        if field_name in seen_input_names:
+            _raise_error(
+                f"`command-result :inputs` duplicates field `{field_name}`",
+                code="command_result_adapter_invalid",
+                span=item.items[0].span,
+                form_path=form_path,
+                expansion_stack=item.items[0].expansion_stack,
+            )
+        seen_input_names.add(field_name)
+        adapter_inputs.append(
+            (
+                field_name,
+                _elaborate(
+                    item.items[1],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            )
+        )
     return CommandResultExpr(
         step_name=step_identifier.resolved_name,
-        argv=tuple(
-            _elaborate(
-                item,
-                form_path=form_path,
-                bound_names=bound_names,
-                procedure_names=procedure_names,
-            )
-            for item in argv_node.items
-        ),
+        argv=(),
+        adapter_name=adapter_identifier.resolved_name,
+        adapter_inputs=tuple(adapter_inputs),
         returns_type_name=returns_identifier.resolved_name,
         span=datum.span,
         form_path=form_path,

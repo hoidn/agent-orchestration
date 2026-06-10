@@ -23,6 +23,7 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
+from .command_boundaries import CertifiedAdapterInputField, PROMOTED_CALL_REQUIRED_METADATA_FIELDS
 from .contracts import derive_union_workflow_boundary_projection
 from .definitions import (
     EnumDef,
@@ -108,7 +109,16 @@ from .procedure_specialization import (
 )
 from .reader import read_sexpr_file
 from .source_map import build_source_map_document
-from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
+from .syntax import (
+    WorkflowLispSyntaxModule,
+    SyntaxKeyword,
+    SyntaxList,
+    SyntaxNode,
+    build_syntax_module,
+    syntax_head_name,
+    syntax_identifier,
+    syntax_node_datum,
+)
 from .stdlib_contracts import (
     STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
     STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES,
@@ -1196,6 +1206,23 @@ def _command_boundary_fingerprint_payload(
                 "effects": list(binding.effects),
                 "path_safety": dict(binding.path_safety),
                 "source_map_behavior": binding.source_map_behavior,
+                "behavior_class": binding.behavior_class,
+                "input_signature": [
+                    {
+                        "name": field.name,
+                        "type_name": field.type_name,
+                        "required": field.required,
+                        "transport_key": field.transport_key,
+                    }
+                    for field in binding.input_signature
+                ],
+                "artifact_contracts": list(binding.artifact_contracts),
+                "state_writes": list(binding.state_writes),
+                "error_codes": list(binding.error_codes),
+                "owner_module": binding.owner_module,
+                "replacement_path": binding.replacement_path,
+                "invocation_protocol": binding.invocation_protocol,
+                "declared_promoted_fields": sorted(binding.declared_promoted_fields),
             }
         )
     else:
@@ -1996,6 +2023,9 @@ def _augment_resume_command_boundaries(
             source_map_behavior="step",
             fixture_ids=(f"resume_state_load_{return_type_name}",),
             negative_fixture_ids=("resume_state_loader_schema_invalid",),
+            behavior_class="resume_state_reuse",
+            owner_module="std/phase",
+            replacement_path="resume-or-start",
         )
     return build_command_boundary_environment(bindings)
 
@@ -2018,6 +2048,9 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
                 "resume_state_contract_fingerprint_mismatch",
                 "resume_state_bundle_schema_invalid",
             ),
+            behavior_class="resume_state_reuse",
+            owner_module="std/phase",
+            replacement_path="resume-or-start",
         ),
         "write_reusable_phase_state_v1": CertifiedAdapterBinding(
             name="write_reusable_phase_state_v1",
@@ -2032,6 +2065,9 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
                 "resume_state_path_unsafe",
                 "resume_state_required_artifact_missing",
             ),
+            behavior_class="resume_state_reuse",
+            owner_module="std/phase",
+            replacement_path="resume-or-start",
         ),
     }
 
@@ -2058,6 +2094,46 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
         source_map_behavior="step",
         fixture_ids=("resource_transition_ok",),
         negative_fixture_ids=("resource_transition_bad",),
+        behavior_class="resource_transition",
+        input_signature=(
+            CertifiedAdapterInputField(
+                name="resource_id",
+                type_name="String",
+                required=True,
+                transport_key="resource_id",
+            ),
+            CertifiedAdapterInputField(
+                name="from",
+                type_name="Queue",
+                required=True,
+                transport_key="from",
+            ),
+            CertifiedAdapterInputField(
+                name="to",
+                type_name="Queue",
+                required=True,
+                transport_key="to",
+            ),
+            CertifiedAdapterInputField(
+                name="new_path",
+                type_name="BacklogInProgressPath",
+                required=True,
+                transport_key="new_path",
+            ),
+            CertifiedAdapterInputField(
+                name="transition_id",
+                type_name="String",
+                required=True,
+                transport_key="transition_id",
+            ),
+        ),
+        artifact_contracts=("resource_transition_result",),
+        state_writes=("state/resource-ledger.json",),
+        error_codes=("resource_transition_bad",),
+        owner_module="std/resource",
+        replacement_path="resource-transition",
+        invocation_protocol="json_object_positional_arg",
+        declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
     )
     return build_command_boundary_environment(bindings)
 
@@ -2098,11 +2174,19 @@ def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:
         if head_name in STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES:
             binding_names.update(STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES[head_name])
         if head_name == "command-result":
-            binding_identifier = (
-                syntax_identifier(expr.items[1])
-                if len(expr.items) >= 2
-                else None
-            )
+            binding_identifier = None
+            for index, item in enumerate(expr.items[2:], start=2):
+                if not isinstance(item, SyntaxKeyword) or item.value != ":adapter":
+                    continue
+                if index + 1 < len(expr.items):
+                    binding_identifier = syntax_identifier(expr.items[index + 1])
+                break
+            if binding_identifier is None:
+                binding_identifier = (
+                    syntax_identifier(expr.items[1])
+                    if len(expr.items) >= 2
+                    else None
+                )
             if (
                 binding_identifier is not None
                 and binding_identifier.resolved_name in STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
@@ -2118,10 +2202,10 @@ def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:
         return frozenset(binding_names)
     try:
         return frozenset(
-            node.step_name
+            (node.adapter_name or node.step_name)
             for node in walk_expr(expr)
             if isinstance(node, CommandResultExpr)
-            and node.step_name in STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
+            and (node.adapter_name or node.step_name) in STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
         )
     except TypeError:
         return frozenset()

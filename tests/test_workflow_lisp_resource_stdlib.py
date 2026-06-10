@@ -5,6 +5,7 @@ from textwrap import dedent
 
 import pytest
 
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
@@ -36,6 +37,7 @@ VALID_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_selected
 INVALID_ITEM_CTX_FIXTURE = FIXTURES / "invalid" / "item_ctx_contract_invalid.orc"
 INVALID_DRAIN_CTX_FIXTURE = FIXTURES / "invalid" / "drain_ctx_contract_invalid.orc"
 INVALID_UNCERTIFIED_FIXTURE = FIXTURES / "invalid" / "resource_transition_uncertified_adapter.orc"
+INVALID_CERTIFIED_ADAPTER_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
 
 
 def _build_syntax_module(path: Path):
@@ -538,6 +540,76 @@ def test_compile_stage3_module_auto_registers_resource_transition_adapter(tmp_pa
         "orchestrator.workflow_lisp.adapters.apply_resource_transition",
     )
     assert binding.output_type_name == "ResourceTransitionResult"
+
+
+def test_command_boundaries_reject_direct_resource_transition_certified_adapter_call(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            INVALID_CERTIFIED_ADAPTER_BYPASS_FIXTURE,
+            command_boundaries=_parse_command_boundaries_manifest(
+                {
+                    "apply_resource_transition": {
+                        "kind": "certified_adapter",
+                        "stable_command": [
+                            "python",
+                            "-m",
+                            "orchestrator.workflow_lisp.adapters.apply_resource_transition",
+                        ],
+                        "input_contract": {"type": "object"},
+                        "output_type_name": "ResourceTransitionResult",
+                        "effects": ["resource_transition", "ledger_update"],
+                        "path_safety": {"kind": "workspace_relpath"},
+                        "source_map_behavior": "step",
+                        "fixture_ids": ["resource_transition_ok"],
+                        "negative_fixture_ids": ["resource_transition_bad"],
+                        "behavior_class": "resource_transition",
+                        "input_signature": [
+                            {
+                                "name": "resource_id",
+                                "type_name": "String",
+                                "required": True,
+                                "transport_key": "resource_id",
+                            },
+                            {
+                                "name": "from",
+                                "type_name": "Queue",
+                                "required": True,
+                                "transport_key": "from",
+                            },
+                            {
+                                "name": "to",
+                                "type_name": "Queue",
+                                "required": True,
+                                "transport_key": "to",
+                            },
+                            {
+                                "name": "new_path",
+                                "type_name": "BacklogInProgressPath",
+                                "required": True,
+                                "transport_key": "new_path",
+                            },
+                            {
+                                "name": "transition_id",
+                                "type_name": "String",
+                                "required": True,
+                                "transport_key": "transition_id",
+                            },
+                        ],
+                        "artifact_contracts": ["resource_transition_result"],
+                        "state_writes": ["state/resource-ledger.json"],
+                        "error_codes": ["resource_transition_invalid"],
+                        "owner_module": "std/resource",
+                        "replacement_path": "resource-transition",
+                        "invocation_protocol": "json_object_positional_arg",
+                    }
+                },
+                manifest_path=None,
+            ),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "resource_move_without_transition"
 
 
 def test_typecheck_rejects_invalid_resource_transition_queue_and_event_symbols(tmp_path: Path) -> None:

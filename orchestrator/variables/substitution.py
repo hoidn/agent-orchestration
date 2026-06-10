@@ -6,6 +6,7 @@ Per specs/variables.md.
 
 import re
 from typing import Any, Dict, List, Optional, Set, Union
+import json
 
 
 class VariableSubstitutor:
@@ -84,13 +85,16 @@ class VariableSubstitutor:
         text = text.replace('$$', '\x00')  # Use null byte as temporary marker
 
         def replace_var(match):
-            var_path = match.group(1)
+            expression = match.group(1)
+            var_path, filters = self._parse_variable_expression(expression)
             value = self._resolve_variable(var_path, variables)
 
             if value is None:
-                self.undefined_vars.add(var_path)
+                self.undefined_vars.add(expression)
                 # Return original for now, error will be raised later if tracking
                 return match.group(0)
+
+            value = self._apply_filters(value, filters)
 
             # Convert to string
             if isinstance(value, bool):
@@ -101,7 +105,6 @@ class VariableSubstitutor:
                 return value
             else:
                 # Complex types get JSON representation
-                import json
                 return json.dumps(value)
 
         result = self.VAR_PATTERN.sub(replace_var, text)
@@ -162,6 +165,21 @@ class VariableSubstitutor:
         else:
             # Unknown namespace
             return None
+
+    @staticmethod
+    def _parse_variable_expression(expression: str) -> tuple[str, tuple[str, ...]]:
+        parts = expression.split("|")
+        return parts[0], tuple(part for part in parts[1:] if part)
+
+    @staticmethod
+    def _apply_filters(value: Any, filters: tuple[str, ...]) -> Any:
+        filtered = value
+        for filter_name in filters:
+            if filter_name == "json":
+                filtered = json.dumps(filtered, separators=(",", ":"), ensure_ascii=False)
+                continue
+            raise ValueError(f"Unsupported variable filter: {filter_name}")
+        return filtered
 
     def _resolve_path(self, obj: Any, path: List[str]) -> Optional[Any]:
         """

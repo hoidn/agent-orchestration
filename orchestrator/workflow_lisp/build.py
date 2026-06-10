@@ -20,6 +20,12 @@ from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workf
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
+from .command_boundaries import (
+    CertifiedAdapterBinding,
+    CertifiedAdapterInputField,
+    ExternalToolBinding,
+    PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+)
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
@@ -27,8 +33,6 @@ from .lints import LINT_PROFILE_DEFAULT
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
 from .workflows import (
-    CertifiedAdapterBinding,
-    ExternalToolBinding,
     normalize_public_prompt_extern_binding,
     prompt_extern_source_bindings_payload,
     prompt_extern_source_payload,
@@ -716,6 +720,11 @@ def _parse_command_boundaries_manifest(
             bindings[name] = ExternalToolBinding(name=name, stable_command=stable_command)
             continue
         if kind == "certified_adapter":
+            declared_promoted_fields = frozenset(
+                key
+                for key in PROMOTED_CALL_REQUIRED_METADATA_FIELDS
+                if key in raw_entry
+            )
             bindings[name] = CertifiedAdapterBinding(
                 name=name,
                 stable_command=stable_command,
@@ -761,6 +770,54 @@ def _parse_command_boundaries_manifest(
                     binding_name=name,
                     manifest_path=manifest_path,
                 ),
+                behavior_class=_require_optional_string_field(
+                    raw_entry.get("behavior_class"),
+                    field_name="behavior_class",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                input_signature=_require_input_signature(
+                    raw_entry.get("input_signature", ()),
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                artifact_contracts=_require_string_array(
+                    raw_entry.get("artifact_contracts", ()),
+                    field_name="artifact_contracts",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                state_writes=_require_string_array(
+                    raw_entry.get("state_writes", ()),
+                    field_name="state_writes",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                error_codes=_require_string_array(
+                    raw_entry.get("error_codes", ()),
+                    field_name="error_codes",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                owner_module=_require_optional_string_field(
+                    raw_entry.get("owner_module"),
+                    field_name="owner_module",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                replacement_path=_require_optional_string_field(
+                    raw_entry.get("replacement_path"),
+                    field_name="replacement_path",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                invocation_protocol=_require_optional_string_field(
+                    raw_entry.get("invocation_protocol"),
+                    field_name="invocation_protocol",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                declared_promoted_fields=declared_promoted_fields,
             )
             continue
         raise LispFrontendCompileError(
@@ -833,6 +890,96 @@ def _require_string_field(
             )
         )
     return value
+
+
+def _require_optional_string_field(
+    value: object,
+    *,
+    field_name: str,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`{field_name}` for `{binding_name}` must be a string or null",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    return value
+
+
+def _require_input_signature(
+    value: object,
+    *,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> tuple[CertifiedAdapterInputField, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`input_signature` for `{binding_name}` must be an array of objects",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    fields: list[CertifiedAdapterInputField] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="command_boundary_manifest_invalid",
+                        message=f"`input_signature[{index}]` for `{binding_name}` must be a JSON object",
+                        path=manifest_path or Path(binding_name),
+                    ),
+                )
+            )
+        name = _require_string_field(
+            item.get("name", ""),
+            field_name=f"input_signature[{index}].name",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        )
+        type_name = _require_string_field(
+            item.get("type_name", ""),
+            field_name=f"input_signature[{index}].type_name",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        )
+        required = item.get("required", True)
+        if not isinstance(required, bool):
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="command_boundary_manifest_invalid",
+                        message=f"`input_signature[{index}].required` for `{binding_name}` must be a boolean",
+                        path=manifest_path or Path(binding_name),
+                    ),
+                )
+            )
+        transport_key = _require_string_field(
+            item.get("transport_key", ""),
+            field_name=f"input_signature[{index}].transport_key",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        )
+        fields.append(
+            CertifiedAdapterInputField(
+                name=name,
+                type_name=type_name,
+                required=required,
+                transport_key=transport_key,
+            )
+        )
+    return tuple(fields)
 
 
 def _select_entry_workflow(

@@ -455,6 +455,8 @@ def _infer_validation_pass(code: str, phase: str | None) -> str:
         return "macro"
     if code.startswith("frontend_parse"):
         return "parse"
+    if code == "command_result_adapter_invalid":
+        return "parse"
     if code in _MODULE_CODES or code.startswith("module_"):
         return "module"
     if code in _AUTHORITY_CODES:

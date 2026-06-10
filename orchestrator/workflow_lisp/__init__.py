@@ -5,6 +5,10 @@ For the package map and links to the design diagrams/specs, see
 """
 
 from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_module
+from .command_boundaries import (
+    CertifiedAdapterInputField,
+    CertifiedAdapterInvocationProtocol,
+)
 from .conditionals import (
     BoolRefCondition,
     ConditionShape,
@@ -109,6 +113,8 @@ from .workflows import (
 __all__ = [
     "CallExpr",
     "CertifiedAdapterBinding",
+    "CertifiedAdapterInputField",
+    "CertifiedAdapterInvocationProtocol",
     "CommandBoundaryEnvironment",
     "CommandResultExpr",
     "ConditionShape",

@@ -18,6 +18,7 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
 )
+from .command_boundaries import CertifiedAdapterInputField, PROMOTED_CALL_REQUIRED_METADATA_FIELDS
 from .workflows import CertifiedAdapterBinding
 
 
@@ -285,6 +286,22 @@ STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME: Mapping[str, CertifiedAdapterBinding]
                 "review_findings_pointer_authority_forbidden",
                 "review_findings_bundle_schema_invalid",
             ),
+            behavior_class="structured_result",
+            input_signature=(
+                CertifiedAdapterInputField(
+                    name="items_path",
+                    type_name="ReviewFindingsJsonPath",
+                    required=True,
+                    transport_key="items_path",
+                ),
+            ),
+            artifact_contracts=("review_findings_bundle",),
+            state_writes=(),
+            error_codes=("review_findings_bundle_schema_invalid",),
+            owner_module="std/phase",
+            replacement_path=None,
+            invocation_protocol="json_object_positional_arg",
+            declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
         ),
     }
 )

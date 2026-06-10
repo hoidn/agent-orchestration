@@ -10,7 +10,7 @@ from .effects import (
     merge_effect_summaries,
 )
 from .expressions import CommandResultExpr, ExprNode, LiteralExpr, NameExpr, ProviderResultExpr
-from .type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef
+from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
 
 
 def typecheck_expected_extern_operand(
@@ -129,7 +129,11 @@ def validate_semantic_command_adapter_usage(
     from . import typecheck as compat
 
     effects = set(binding.effects)
-    if "resource_transition" in effects or "ledger_update" in effects:
+    if (
+        "resource_transition" in effects
+        or "ledger_update" in effects
+        or binding.behavior_class == "resource_transition"
+    ):
         compat._raise_error(
             "resource movement must use `resource-transition` instead of a raw `command-result` adapter call",
             code="resource_move_without_transition",
@@ -137,7 +141,7 @@ def validate_semantic_command_adapter_usage(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    if "resume_state_reuse" in effects:
+    if "resume_state_reuse" in effects or binding.behavior_class == "resume_state_reuse":
         compat._raise_error(
             "reusable-state gating must use `resume-or-start` instead of a raw `command-result` adapter call",
             code="recovery_gate_without_resume_or_start",
@@ -289,7 +293,10 @@ def typecheck_command_result_expr(
     typed_factory,
 ):
     from . import typecheck as compat
-    from .workflows import CertifiedAdapterBinding
+    from .command_boundaries import (
+        CertifiedAdapterBinding,
+        certified_adapter_supports_promoted_calls,
+    )
 
     if is_macro_introduced_effect(expr.span, expr.expansion_stack):
         compat._raise_required_lint(
@@ -299,24 +306,6 @@ def typecheck_command_result_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    arg_summaries = []
-    for arg_expr in expr.argv:
-        typed_arg = recurse(arg_expr)
-        arg_summaries.append(typed_arg.effect_summary)
-    command_binding = None
-    if context.command_boundary_environment is not None:
-        command_binding = context.command_boundary_environment.bindings_by_name.get(expr.step_name)
-        if command_binding is None:
-            compat._raise_error(
-                f"`command-result` `{expr.step_name}` is missing command boundary metadata",
-                code="command_adapter_missing_contract",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-        validate_command_argv(expr, command_binding)
-    else:
-        validate_command_argv(expr, None)
     return_type = context.type_env.resolve_type(
         expr.returns_type_name,
         span=expr.span,
@@ -330,7 +319,30 @@ def typecheck_command_result_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    if isinstance(command_binding, CertifiedAdapterBinding):
+    command_binding = None
+    if context.command_boundary_environment is not None:
+        binding_name = expr.adapter_name or expr.step_name
+        command_binding = context.command_boundary_environment.bindings_by_name.get(binding_name)
+        if command_binding is None:
+            compat._raise_error(
+                f"`command-result` `{binding_name}` is missing command boundary metadata",
+                code="command_adapter_missing_contract",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+    arg_summaries = []
+    if expr.adapter_name is not None:
+        if not isinstance(command_binding, CertifiedAdapterBinding) or not certified_adapter_supports_promoted_calls(
+            command_binding
+        ):
+            compat._raise_error(
+                f"`command-result` adapter `{expr.adapter_name}` is missing promoted declaration metadata",
+                code="command_adapter_missing_contract",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         validate_semantic_command_adapter_usage(expr, command_binding)
         if command_binding.output_type_name != expr.returns_type_name:
             compat._raise_error(
@@ -340,6 +352,71 @@ def typecheck_command_result_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
+        typed_inputs = {
+            field_name: recurse(value_expr)
+            for field_name, value_expr in expr.adapter_inputs
+        }
+        arg_summaries.extend(typed_input.effect_summary for typed_input in typed_inputs.values())
+        expected_fields = {field.name: field for field in command_binding.input_signature}
+        missing_fields = tuple(
+            field.name
+            for field in command_binding.input_signature
+            if field.required and field.name not in typed_inputs
+        )
+        if missing_fields:
+            compat._raise_error(
+                f"`command-result` adapter `{expr.adapter_name}` is missing required inputs: {', '.join(missing_fields)}",
+                code="command_result_adapter_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        extra_fields = tuple(name for name in typed_inputs if name not in expected_fields)
+        if extra_fields:
+            compat._raise_error(
+                f"`command-result` adapter `{expr.adapter_name}` declares unknown inputs: {', '.join(extra_fields)}",
+                code="command_result_adapter_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        for field_name, typed_input in typed_inputs.items():
+            declared_field = expected_fields[field_name]
+            expected_type = context.type_env.resolve_type(
+                declared_field.type_name,
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+            if not type_refs_compatible(expected_type, typed_input.type_ref):
+                compat._raise_error(
+                    f"`command-result` adapter `{expr.adapter_name}` input `{field_name}` must resolve to `{declared_field.type_name}`",
+                    code="type_mismatch",
+                    span=typed_input.expr.span,
+                    form_path=typed_input.expr.form_path,
+                    expansion_stack=typed_input.expr.expansion_stack,
+                )
+            _validate_adapter_input_projectable(
+                field_name=field_name,
+                typed_input=typed_input,
+            )
+    else:
+        for arg_expr in expr.argv:
+            typed_arg = recurse(arg_expr)
+            arg_summaries.append(typed_arg.effect_summary)
+        if command_binding is not None:
+            validate_command_argv(expr, command_binding)
+        else:
+            validate_command_argv(expr, None)
+        if isinstance(command_binding, CertifiedAdapterBinding):
+            validate_semantic_command_adapter_usage(expr, command_binding)
+            if command_binding.output_type_name != expr.returns_type_name:
+                compat._raise_error(
+                    f"`command-result` `{expr.step_name}` must return `{command_binding.output_type_name}`",
+                    code="command_result_return_type_invalid",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
     command_summary = effect_summary_from_direct(
         direct_effects=(UsesCommandEffect(subject=(expr.step_name,)),)
     )
@@ -347,4 +424,24 @@ def typecheck_command_result_expr(
         expr=expr,
         type_ref=return_type,
         effect=merge_effect_summaries(*arg_summaries, command_summary),
+    )
+
+
+def _validate_adapter_input_projectable(*, field_name: str, typed_input) -> None:
+    from . import typecheck as compat
+
+    if isinstance(typed_input.type_ref, PathTypeRef):
+        return
+    if isinstance(typed_input.type_ref, PrimitiveTypeRef) and typed_input.type_ref.name not in {
+        "Json",
+        "Provider",
+        "Prompt",
+    }:
+        return
+    compat._raise_error(
+        f"`command-result` adapter input `{field_name}` cannot lower through `json_object_positional_arg`",
+        code="command_adapter_input_not_projectable",
+        span=typed_input.expr.span,
+        form_path=typed_input.expr.form_path,
+        expansion_stack=typed_input.expr.expansion_stack,
     )

@@ -19,6 +19,12 @@ from typing import TYPE_CHECKING, Literal
 
 from orchestrator.workflow.loaded_bundle import workflow_output_contracts, workflow_public_input_contracts
 
+from .command_boundaries import (
+    CertifiedAdapterBinding,
+    CommandBoundaryEnvironment,
+    ExternalToolBinding,
+    build_command_boundary_environment,
+)
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
@@ -261,52 +267,6 @@ def _coerce_prompt_extern_source(
     if not isinstance(path, str) or not path.strip():
         raise ValueError(f"`{source_kind}` values must be non-empty strings")
     return source_kind, path
-
-
-@dataclass(frozen=True)
-class ExternalToolBinding:
-    """Named command that can be invoked from Workflow Lisp.
-
-    This is for deterministic tools whose behavior is outside the frontend but
-    whose command prefix is stable. Unlike a certified adapter, it does not
-    declare typed workflow semantics beyond the command invocation itself.
-    """
-
-    name: str
-    stable_command: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class CertifiedAdapterBinding:
-    """Command boundary with explicit typed workflow semantics.
-
-    A certified adapter is still a command, but it declares input/output
-    contracts, effects, path-safety rules, and fixtures. That makes it suitable
-    for temporary legacy behavior such as resource movement without hiding that
-    behavior inside inline Python or shell.
-    """
-
-    name: str
-    stable_command: tuple[str, ...]
-    input_contract: Mapping[str, object]
-    output_type_name: str
-    effects: tuple[str, ...]
-    path_safety: Mapping[str, object]
-    source_map_behavior: str
-    fixture_ids: tuple[str, ...]
-    negative_fixture_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class CommandBoundaryEnvironment:
-    """Named commands available to `command-result` forms.
-
-    The frontend resolves a command name in `.orc` source through this mapping
-    before lowering it to an ordinary workflow command step.
-    """
-
-    bindings_by_name: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]
-
 
 @dataclass(frozen=True)
 class WorkflowParam:
@@ -1082,17 +1042,29 @@ def _flattened_boundary_contracts(
 ) -> Mapping[str, Mapping[str, object]]:
     """Flatten a frontend boundary type into shared workflow contract fields."""
 
-    from .contracts import derive_workflow_boundary_fields
+    from .contracts import (
+        _relax_variant_only_relpath_outputs,
+        derive_workflow_boundary_fields,
+    )
 
-    return {
-        field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
-        for field in derive_workflow_boundary_fields(
+    fields = derive_workflow_boundary_fields(
+        type_ref,
+        generated_name=generated_name,
+        source_path=(generated_name,),
+        span=span,
+        form_path=form_path,
+    )
+    if generated_name == "return" and isinstance(type_ref, UnionTypeRef):
+        fields = _relax_variant_only_relpath_outputs(
             type_ref,
-            generated_name=generated_name,
-            source_path=(generated_name,),
+            fields,
             span=span,
             form_path=form_path,
         )
+
+    return {
+        field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
+        for field in fields
     }
 
 
@@ -1216,7 +1188,7 @@ def _normalize_boundary_contract_definition(definition: Mapping[str, object]) ->
     return {
         str(key): value
         for key, value in dict(definition).items()
-        if key not in {"default", "from"}
+        if key not in {"default", "from", "__allow_unresolved_source"}
     }
 
 
@@ -1666,75 +1638,3 @@ def build_extern_environment(
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
     return ExternEnvironment(bindings_by_name=bindings)
-
-
-def build_command_boundary_environment(
-    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
-) -> CommandBoundaryEnvironment:
-    """Validate named command bindings supplied by the build caller."""
-
-    diagnostics: list[LispFrontendDiagnostic] = []
-    bindings: dict[str, ExternalToolBinding | CertifiedAdapterBinding] = {}
-
-    for name, binding in (command_boundaries or {}).items():
-        if not isinstance(name, str) or not name.strip():
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message="command boundary bindings require non-empty names",
-                    span=_environment_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        if not binding.stable_command or not all(isinstance(token, str) and token for token in binding.stable_command):
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=f"command boundary `{name}` must declare a non-empty stable command",
-                    span=_environment_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        if isinstance(binding, CertifiedAdapterBinding):
-            if (
-                not binding.input_contract
-                or not binding.output_type_name
-                or not binding.effects
-                or not binding.path_safety
-                or not binding.source_map_behavior
-            ):
-                diagnostics.append(
-                    LispFrontendDiagnostic(
-                        code="command_adapter_missing_contract",
-                        message=f"certified adapter `{name}` is missing required contract metadata",
-                        span=_environment_span(),
-                        phase="typecheck",
-                    )
-                )
-                continue
-            if not binding.fixture_ids or not binding.negative_fixture_ids:
-                diagnostics.append(
-                    LispFrontendDiagnostic(
-                        code="command_adapter_missing_contract",
-                        message=f"certified adapter `{name}` requires positive and negative fixtures",
-                        span=_environment_span(),
-                        phase="typecheck",
-                    )
-                )
-                continue
-        bindings[name] = binding
-
-    if diagnostics:
-        raise LispFrontendCompileError(tuple(diagnostics))
-    return CommandBoundaryEnvironment(bindings_by_name=bindings)
-
-
-def _environment_span() -> SourceSpan:
-    """Return a synthetic span for build-environment validation errors."""
-
-    from .spans import SourcePosition
-
-    position = SourcePosition(path="<stage3-environment>", line=1, column=1, offset=0)
-    return SourceSpan(start=position, end=position)
