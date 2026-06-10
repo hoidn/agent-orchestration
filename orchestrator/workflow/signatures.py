@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping
+from typing import Any, Callable, Dict, Mapping, Sequence
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 
@@ -94,8 +94,18 @@ def resolve_workflow_outputs(
 
     resolver = ReferenceResolver()
     resolved_outputs: Dict[str, Any] = {}
+    active_union_variants = _resolve_workflow_output_discriminants(
+        specs,
+        state,
+        workspace,
+        resolver=resolver,
+        resolve_source=resolve_source,
+    )
     for name, spec in specs.items():
         validation_spec: Any = spec.definition if isinstance(spec, ExecutableContract) else spec
+        boundary = _workflow_boundary_metadata(validation_spec)
+        if _is_inactive_union_variant_output(boundary, active_union_variants):
+            continue
         binding = validation_spec.get("from") if isinstance(validation_spec, Mapping) else None
         ref = binding.get("ref") if isinstance(binding, Mapping) else None
         source = spec.source_address if isinstance(spec, ExecutableContract) else None
@@ -143,3 +153,77 @@ def resolve_workflow_outputs(
             ) from exc
 
     return resolved_outputs
+
+
+def _workflow_boundary_metadata(validation_spec: Any) -> Mapping[str, Any]:
+    if not isinstance(validation_spec, Mapping):
+        return {}
+    metadata = validation_spec.get("workflow_boundary")
+    if isinstance(metadata, Mapping):
+        return metadata
+    metadata = validation_spec.get("projection")
+    if (
+        isinstance(metadata, Mapping)
+        and metadata.get("projection_class") == "union_workflow_boundary"
+    ):
+        return metadata
+    return metadata if isinstance(metadata, Mapping) else {}
+
+
+def _resolve_workflow_output_discriminants(
+    specs: Mapping[str, Any],
+    state: Dict[str, Any],
+    workspace: Path,
+    *,
+    resolver: ReferenceResolver,
+    resolve_source: Callable[[Any, Dict[str, Any]], Any] | None,
+) -> Dict[str, Any]:
+    """Resolve flattened union discriminants before variant field exports."""
+
+    active_variants: Dict[str, Any] = {}
+    for name, spec in specs.items():
+        validation_spec: Any = spec.definition if isinstance(spec, ExecutableContract) else spec
+        boundary = _workflow_boundary_metadata(validation_spec)
+        if boundary.get("field_role") != "discriminant":
+            continue
+        group = str(boundary.get("union_output_group") or name)
+        binding = validation_spec.get("from") if isinstance(validation_spec, Mapping) else None
+        ref = binding.get("ref") if isinstance(binding, Mapping) else None
+        source = spec.source_address if isinstance(spec, ExecutableContract) else None
+        if source is None and isinstance(ref, str) and ref:
+            source = {"ref": ref}
+        if source is None:
+            continue
+        try:
+            if resolve_source is not None:
+                raw_value = resolve_source(source, state)
+            else:
+                raw_value = resolver.resolve(ref, state).value
+            active_variants[group] = validate_contract_value(
+                raw_value,
+                validation_spec,
+                workspace=workspace,
+            )
+        except (ReferenceResolutionError, OutputContractError):
+            # The main export loop will report the discriminant failure with the
+            # normal workflow-output diagnostic context.
+            continue
+    return active_variants
+
+
+def _is_inactive_union_variant_output(
+    boundary: Mapping[str, Any],
+    active_union_variants: Mapping[str, Any],
+) -> bool:
+    if boundary.get("return_kind") != "union":
+        return False
+    if boundary.get("field_role") != "variant":
+        return False
+    group = str(boundary.get("union_output_group") or "")
+    active_variant = active_union_variants.get(group)
+    if not isinstance(active_variant, str):
+        return False
+    active_variants = boundary.get("active_variants")
+    if not isinstance(active_variants, Sequence) or isinstance(active_variants, (str, bytes)):
+        return False
+    return active_variant not in {variant for variant in active_variants if isinstance(variant, str)}

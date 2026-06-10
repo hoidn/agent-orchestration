@@ -1,0 +1,333 @@
+{
+  "case_id": "design_delta_union_match_projection",
+  "compiled_module_names": [
+    "union_match_probe"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "__write_root__summarize__attempt__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "report": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "summarize",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.summarize__match_attempt.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+            "id": "summarize__attempt",
+            "inject_output_contract": true,
+            "name": "summarize__attempt",
+            "provider": "fake-execute",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.__write_root__summarize__attempt__result_bundle}",
+              "shared_fields": [],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report",
+                      "must_exist_target": true,
+                      "name": "progress_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report",
+                      "must_exist_target": true,
+                      "name": "execution_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "summarize__match_attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "summarize__match_attempt__blocked",
+                  "outputs": {
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.summarize__attempt.artifacts.progress_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.summarize__attempt.artifacts.progress_report"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.summarize__attempt.artifacts.progress_report"
+                          }
+                        }
+                      },
+                      "id": "summarize__match_attempt__blocked__projection_anchor",
+                      "name": "summarize__match_attempt__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "summarize__match_attempt__completed",
+                  "outputs": {
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.summarize__attempt.artifacts.execution_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.summarize__attempt.artifacts.execution_report"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.summarize__attempt.artifacts.execution_report"
+                          }
+                        }
+                      },
+                      "id": "summarize__match_attempt__completed__projection_anchor",
+                      "name": "summarize__match_attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.summarize__attempt.artifacts.variant"
+            },
+            "name": "summarize__match_attempt"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__write_root__summarize__attempt__result_bundle"
+      ],
+      "step_labels": [
+        "summarize__attempt",
+        "summarize__match_attempt",
+        "summarize__match_attempt__blocked__projection_anchor",
+        "summarize__match_attempt__completed__projection_anchor"
+      ],
+      "workflow_name": "summarize"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "167d02aa283f78ad81897ae0173465ef4858b2f9dc01b4bbb8c4927c010eac7c",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [
+        "__write_root__summarize__attempt__result_bundle"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:summarize:provider_result_bundle:7db7baf5cac5220e",
+          "concrete_path_template": "${inputs.__write_root__summarize__attempt__result_bundle}",
+          "generated_input_name": "__write_root__summarize__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "summarize/summarize__attempt/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:summarize:entrypoint_managed_write_root:36fd23d2e62545fe",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/summarize/__write_root__summarize__attempt__result_bundle.json",
+          "generated_input_name": "__write_root__summarize__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "summarize/summarize__attempt/result_bundle/entry"
+        }
+      ],
+      "input_keys": [
+        "__write_root__summarize__attempt__result_bundle",
+        "report"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.summarize__match_attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "summarize__match_attempt.BLOCKED",
+              "marker_step_id": "root.summarize__match_attempt.summarize__match_attempt__blocked",
+              "step_presentation_keys": [
+                "summarize__match_attempt.BLOCKED.summarize__match_attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "summarize__match_attempt.COMPLETED",
+              "marker_step_id": "root.summarize__match_attempt.summarize__match_attempt__completed",
+              "step_presentation_keys": [
+                "summarize__match_attempt.COMPLETED.summarize__match_attempt__completed__projection_anchor"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "summarize__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__attempt",
+            "presentation_key": "summarize__attempt",
+            "provider": "fake-execute",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.summarize__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "summarize__match_attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__match_attempt.summarize__match_attempt__completed",
+            "presentation_key": "summarize__match_attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.summarize__match_attempt.summarize__match_attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "summarize__match_attempt.COMPLETED.summarize__match_attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__match_attempt.summarize__match_attempt__completed.summarize__match_attempt__completed__projection_anchor",
+            "presentation_key": "summarize__match_attempt.COMPLETED.summarize__match_attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.summarize__match_attempt.summarize__match_attempt__completed.summarize__match_attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "summarize__match_attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__match_attempt.summarize__match_attempt__blocked",
+            "presentation_key": "summarize__match_attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.summarize__match_attempt.summarize__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "summarize__match_attempt.BLOCKED.summarize__match_attempt__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__match_attempt.summarize__match_attempt__blocked.summarize__match_attempt__blocked__projection_anchor",
+            "presentation_key": "summarize__match_attempt.BLOCKED.summarize__match_attempt__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.summarize__match_attempt.summarize__match_attempt__blocked.summarize__match_attempt__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "summarize__match_attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__match_attempt",
+            "presentation_key": "summarize__match_attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.summarize__match_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.summarize__attempt",
+          "root.summarize__match_attempt.summarize__match_attempt__completed",
+          "root.summarize__match_attempt.summarize__match_attempt__completed.summarize__match_attempt__completed__projection_anchor",
+          "root.summarize__match_attempt.summarize__match_attempt__blocked",
+          "root.summarize__match_attempt.summarize__match_attempt__blocked.summarize__match_attempt__blocked__projection_anchor",
+          "root.summarize__match_attempt"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "summarize"
+    }
+  ],
+  "workflow_names": [
+    "summarize"
+  ]
+}

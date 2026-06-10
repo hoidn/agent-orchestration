@@ -1,9 +1,9 @@
 # Workflow Lisp Core Calculus And Compiler Middle-End
 
-Status: draft design
-Kind: architecture decision / future-direction compilation architecture
+Status: accepted architecture / implemented for the M0-M5 migrated route subset
+Kind: architecture decision / compiler architecture
 Created: 2026-06-09
-Updated: 2026-06-09
+Updated: 2026-06-10
 Scope: re-founding Workflow Lisp lowering on a minimal workflow core calculus
 with a real compiler middle-end — ANF normalization, second-class join-point
 control, scope/effect/proof analysis, and defunctionalization into the
@@ -17,7 +17,7 @@ Authority:
   pipeline, not its language surface or authority rule.
 - `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
   owns the near-term migration tranches; this document is the structural
-  architecture its Tranche 1 should be implemented against once accepted.
+  architecture its Tranche 1 must use for compiler-lane nested-control work.
 - Normative DSL/runtime behavior remains in `specs/`.
 - Shared validation and the existing runtime remain the execution authority;
   this document changes how lowered output is produced, not what validates or
@@ -104,10 +104,12 @@ explicitly deferred, and the calculus is designed so that route remains
 reachable later without rework: WCC is exactly the representation such a
 runtime would execute.
 
-The migration is incremental and oracle-checked. The legacy per-form lowering
-route remains the default until each construct class passes dual-compile
-equivalence; per-form lowerers are deleted only after the generic route
-covers them and a denylist prevents their return.
+The migration is incremental and oracle-checked. As of 2026-06-10, the WCC
+schema-2 route is the default for new Workflow Lisp compiles for the migrated
+M0-M5 route subset, including the post-foundation nested implementation-phase
+fixture. The legacy schema-1 route remains for compatibility and resume of
+historical runs; per-form lowerers are deleted only after the generic route
+covers their construct class and a denylist prevents their return.
 
 ## 3. Relationship To The Post-Foundation Target
 
@@ -139,9 +141,11 @@ Concretely:
 - The composition-regularity invariant added to the post-foundation target is
   the theorem this architecture is designed to make true mechanically.
 
-If this document is not accepted, the post-foundation target stands alone and
-its Tranche 1 may choose either route. If this document is accepted, it
-becomes the required implementation architecture for that tranche.
+This document is now the accepted implementation architecture for
+post-foundation Tranche 1. New compiler-lane gap designs for nested structured
+control, stdlib review/revise composition, loops, and returned-variant
+normalization must target the WCC route rather than adding a second bespoke
+scope graph.
 
 ## 4. Authority And Dependency Direction
 
@@ -521,8 +525,10 @@ step_identity = (workflow/module id,
 
 ## 12. Incremental Migration Tranches
 
-Each tranche is flag-gated (`WCC route` off by default until its acceptance
-passes), oracle-checked, and individually shippable.
+Each tranche is oracle-checked and individually shippable. Historical notes
+below describe the flag-gated sequence used to land the route. The current
+checkout uses WCC schema 2 as the default for new compiles in the migrated
+route subset, while preserving the legacy schema-1 route for compatibility.
 
 ### 12.1 Tranche M0: characterization oracle
 
@@ -604,13 +610,14 @@ Acceptance:
 
 ### 12.6 Tranche M5: route flip and lowerer deletion
 
-Contract: make the WCC route the default for new compiles; delete per-form
-flat-step lowerers whose construct classes are covered; add architectural
-denylist tests preventing direct surface-to-step lowering from returning.
+Contract: make the WCC route the default for new compiles; retire or confine
+per-form flat-step lowerers whose construct classes are covered; add
+architectural denylist tests preventing direct surface-to-step lowering from
+returning as the promoted route.
 
 Acceptance:
 
-- full corpus green under the new route as default;
+- full migrated corpus green under the new route as default;
 - each deleted lowerer has a corresponding passing generic-route fixture and
   a denylist test;
 - legacy schema-1 resume still works for pre-existing runs; mixed-schema
@@ -815,14 +822,13 @@ Explicitly not blocked by this document:
 - A typechecked program rejected by elaboration/normalization being treated
   as a language restriction rather than a defect.
 - WCC metadata observed in runtime state, artifacts, or outputs.
-- Route-flip (M5) justified while any corpus fixture still requires the
-  legacy route.
+- Route-flip (M5) justified for a construct class while fixtures in that
+  construct class still require the legacy route.
 
 ## 19. Compatibility And Migration
 
-- Existing `.orc` workflows are unaffected until M5, and after M5 compile to
-  equivalent-or-better lowered output under schema 2; their surface source
-  does not change.
+- Existing `.orc` workflows keep their surface source. New compiles for the
+  migrated subset use equivalent-or-better lowered output under schema 2.
 - Existing YAML workflows are untouched; YAML does not pass through the
   middle-end.
 - In-flight and historical runs resume under their recorded lowering schema.
@@ -933,12 +939,12 @@ state.
   rejected after typecheck.
 - The post-foundation Tranche 1 acceptance fixture, nested
   `match`-in-`match`, loops under branches, and stdlib review loops in
-  branches all compile, validate, and smoke through the single generic
-  route.
+  branches all compile, validate, and smoke through the single generic route
+  for the migrated route subset.
 - Cross-union translation and variant-scoped binding identity hold by
   construction on the new route.
-- Per-form flat-step lowerers for migrated classes are deleted and
-  denylisted.
+- Per-form flat-step lowerers for migrated classes are deleted or confined to
+  schema-1 compatibility and denylisted from the promoted route.
 - Dual-compile equivalence evidence exists for every migrated fixture class;
   the route flip is recorded with that evidence.
 - Resume identity is schema-versioned with same-schema continuation and

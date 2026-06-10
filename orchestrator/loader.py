@@ -2161,7 +2161,7 @@ class WorkflowLoader:
             )
             return
 
-        allowed_fields = {'name', 'id', 'repeat_until'}
+        allowed_fields = {'name', 'id', 'repeat_until', 'requires_variant', 'when'}
         for field_name in step.keys():
             if field_name not in allowed_fields:
                 self._add_error(

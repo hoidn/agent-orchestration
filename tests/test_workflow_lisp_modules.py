@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage1_module, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage1_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import CallExpr
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -19,6 +20,12 @@ INVALID_PROC_REF_FIXTURES = INVALID_FIXTURES / "proc_refs"
 
 def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
+
+
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
+
 
 def _compile_stage1_entrypoint(path: Path, *, source_root: Path):
     compile_fn = getattr(_compiler_module(), "compile_stage1_entrypoint", None)
@@ -41,6 +48,7 @@ def _compile_stage3_entrypoint(
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
         imported_workflow_bundles=imported_workflow_bundles,
+        lowering_route="legacy",
         command_boundaries={
             "run_checks": ExternalToolBinding(
                 name="run_checks",
@@ -345,6 +353,7 @@ def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -371,6 +380,7 @@ def test_compile_stage3_entrypoint_resolves_imported_proc_refs_to_canonical_keys
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        lowering_route="legacy",
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -526,7 +536,8 @@ def test_compile_stage3_entrypoint_specializes_imported_parametric_proc_defs(tmp
 
     assert "parametric/helper::apply-runner" in result.entry_result.procedure_catalog.signatures_by_name
     assert len(specialized) == 1
-    assert specialized[0].definition.name.startswith("%parametric-call.parametric.helper.apply_runner.")
+    assert specialized[0].definition.name.startswith("%proc-ref-call.%parametric_call.parametric.helper.apply_runner.")
+    assert set(specialized[0].specialization.proc_ref_bindings) == {"runner"}
     assert specialized[0].signature.type_params == ()
 
 
@@ -540,6 +551,7 @@ def test_compile_stage3_entrypoint_rejects_private_imported_proc_refs(tmp_path: 
         compile_fn(
             path,
             source_roots=(INVALID_PROC_REF_FIXTURES,),
+            lowering_route="legacy",
             validate_shared=False,
             workspace_root=tmp_path,
         )
@@ -641,6 +653,7 @@ def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_pat
             source_roots=(source_root,),
             provider_externs={"providers.execute": "test-provider"},
             prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            lowering_route="legacy",
             validate_shared=True,
             workspace_root=tmp_path,
         )
@@ -650,6 +663,7 @@ def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_pat
         source_roots=(source_root,),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        lowering_route="legacy",
         validate_shared=False,
         workspace_root=tmp_path,
     )

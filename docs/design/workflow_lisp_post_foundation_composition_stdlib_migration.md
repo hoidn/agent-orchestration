@@ -18,6 +18,8 @@ Authority:
 - Normative DSL/runtime behavior remains in `specs/`.
 - `docs/design/workflow_lisp_frontend_specification.md` remains the umbrella
   Workflow Lisp frontend contract.
+- `docs/design/workflow_lisp_core_calculus_middle_end.md` is the accepted
+  compiler architecture for Tranche 1 nested structured-control composition.
 - `docs/design/workflow_lisp_state_layout.md` owns state/path layout
   principles and context-derived path namespaces.
 - `docs/design/workflow_command_adapter_contract.md` owns adapter
@@ -30,6 +32,7 @@ Authority:
 Related docs:
 
 - `docs/design/workflow_lisp_runtime_migration_foundation.md`
+- `docs/design/workflow_lisp_core_calculus_middle_end.md`
 - `docs/design/workflow_lisp_frontend_specification.md`
 - `docs/design/workflow_lisp_unified_frontend_design.md`
 - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
@@ -103,7 +106,7 @@ Implement the work in these ordered tranches:
 
 - Tranche 0: current-state inventory, issue map, and readiness labels.
 - Tranche 1 (P0): nested structured-control composition and generic effectful
-  normalization.
+  normalization on the accepted WCC middle-end route.
 - Tranche 2 (P1): union-result normalization and variant-scoped output
   identity.
 - Tranche 3 (P0): private executable context bridge, entrypoint bootstrap,
@@ -127,13 +130,14 @@ migration for the drain family. Until they land, migrations of that family
 must continue as typed leaf candidates plus explicit bridge records, with YAML
 remaining primary.
 
-The 2026-06-10 blocked recovery for the imported-child returned-variant slice
-showed the next draftable prerequisite inside the private-context blocker:
-after the cross-union work-item route is repaired, the real plan,
-implementation, and work-item candidates still fail parent-callable
-compilation on `low_level_state_path_in_high_level_module` and
-`workflow_boundary_type_invalid` until their phase-family boundary contracts
-are rehabilitated.
+The 2026-06-10 WCC reconciliation changed the compiler-lane baseline. The
+nested implementation-phase acceptance fixture now compiles, validates, and
+smokes as one parent-callable phase under the WCC route. The remaining
+work-item compile blocker has advanced past the old private-workflow and
+phase-family boundary diagnostics to the next explicit compiler gap:
+`work_item.orc` uses `IfExpr`, which is not yet covered by the WCC M4 route.
+That `IfExpr` gap must be drafted before using the work-item or parent drain
+as parent-callable parity evidence.
 
 The target success condition is not "more leaves compile." The target success
 condition is that at least one real workflow family reaches parent-callable
@@ -219,14 +223,14 @@ assessment against this target. Durable evidence:
 | Design Delta Drain leaf candidates | Leaf candidates compile for plan, implementation pieces, selector, design-gap architect, and work-item pieces | Do not mistake leaf compile evidence for parent-callable parity |
 | Parent drain | Intentionally blocked before implementation; blocker record in force | Unblock only after nested composition, private context, typed projection, resource transitions, and parent-callable evidence exist |
 | Imported `PhaseCtx` recognition | Fixed frontend bug (F1) from name-local to structural/provenance-aware recognition | Preserve as invariant for future stdlib/context forms; keep regression coverage |
-| Generic effectful composition | Partial/implemented across existing lowering and stdlib fixtures; design-delta drain proved top-level shapes work | Harden nested `match`, nested `repeat_until`, stdlib calls in branches, branch-local refs, proof scopes, and shared validation |
-| Nested structured control | Gap; structured `match` / `repeat_until` accepted only top-level, branch-local generated refs invisible to shared validation (F2) | Tranche 1: nested structured-control composition and branch-scope shared validation |
-| Union-to-union result translation | Partial/implemented; the returned-variant route now clears the real imported-child work-item prerequisite, including same-target union pass-through from helper/imported child calls (F3) | Keep returned-variant normalization authoritative and finish the remaining Tranche 2 work such as variant-scoped identity and diagnostic hardening |
+| Generic effectful composition | Implemented for the migrated WCC M0-M5 subset; design-delta implementation-phase parent-callable fixture compiles and smokes through WCC | Continue new compiler-lane work on WCC; do not add a second helper-hoisting route |
+| Nested structured control | Implemented for the canonical implementation-phase shape through WCC; still incomplete for non-migrated surface forms such as work-item `IfExpr` (F2) | Draft the WCC `IfExpr` gap before parent-callable work-item/drain parity |
+| Union-to-union result translation | Implemented on the WCC route and preserved on the legacy route where required; returned variants, not matched source cases, control target identity (F3) | Keep returned-variant normalization authoritative and finish remaining diagnostic hardening |
 | Variant output field identity | Gap, mitigated by verbose variant-specific field naming (F4) | Tranche 2: variant-scoped identity, or an explicit documented restriction |
 | Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage |
-| `review-revise-loop` stdlib route | First route exists through `stdlib_modules/std/phase.orc` with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions; works for leaf/top-level patterns only (F8) | Prove it composes under nested branches and promoted routes without name-special compiler behavior |
+| `review-revise-loop` stdlib route | Composes inside the canonical implementation-phase branch through WCC with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions (F8) | Preserve denylist/source-map/resume evidence and extend only through WCC for new nested shapes |
 | Private runtime context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Tranche 3: private executable context bridge and hidden reusable-call binding |
-| Phase-family boundary rehabilitation | Gap newly isolated by the imported-child returned-variant recovery: `plan_phase.orc`, `implementation_phase.orc`, and `work_item.orc` still fail parent-callable compilation on `low_level_state_path_in_high_level_module` or `workflow_boundary_type_invalid` after the cross-union blocker is cleared (F12) | Tranche 3A: rehabilitate high-level phase boundaries, compatibility bridge labeling, and helper/private-workflow phase bindings before Tranche 7 |
+| Phase-family boundary rehabilitation | Partially implemented: implementation-phase parent-callable fixture now clears boundary and nested-control gates; work-item now blocks on WCC `IfExpr` before later private-context/resource gates (F12) | Draft WCC `IfExpr` first, then continue Tranche 3A boundary rehabilitation for remaining plan/work-item surfaces |
 | Selector/bundle publication | Selector leaf can model provider decision; publication remains an unclassified script (F7) | Tranche 5: typed projection or certified adapter authority for selection bundle publication |
 | Adapter/resource-transition authority | Adapter contract exists; family scripts still encode workflow semantics (F6, F10) | Tranche 6: classify helpers, certify retained adapters, move recurring state/resource transitions to typed runtime effects where justified |
 | Migration parity gates | Strict gate hardening implemented in foundation; leaf-versus-family distinction relies on prose labels in migration records (F11) | Tranche 8: parent-callable readiness labels; leaf-only evidence insufficient for promotability |
@@ -236,11 +240,11 @@ assessment against this target. Durable evidence:
 | Finding | Type | Target response | Promotion consequence |
 | --- | --- | --- | --- |
 | F1 imported `PhaseCtx` recognition | Fixed frontend bug | Preserve structural/capability recognition across module boundaries | Regression blocks stdlib/context promotion |
-| F2 nested structured control | P0 frontend/runtime design gap | Tranche 1: nested structured-control composition and branch-scope shared validation | Parent implementation phase remains split until fixed |
-| F3 union-to-union result mapping | P1 lowering bug/design gap, partially implemented | Tranche 2: returned variant controls target union normalization; same-target imported-child pass-through is now required route evidence | Domain result types must not be shaped by inner control names |
+| F2 nested structured control | P0 frontend/runtime design gap, implemented for the migrated WCC subset | Tranche 1: WCC-owned nested structured-control composition and branch-scope shared validation | Parent implementation phase no longer needs split-leaf workaround; work-item still needs WCC `IfExpr` |
+| F3 union-to-union result mapping | P1 lowering bug/design gap, implemented for WCC and preserved for legacy compatibility | Tranche 2: returned variant controls target union normalization; same-target imported-child pass-through is route evidence | Domain result types must not be shaped by inner control names |
 | F4 variant output field uniqueness | P1 ergonomics/shared-validation issue | Tranche 2: variant-scoped output field identity; documented restriction is interim mitigation only | Variant-specific field-name workarounds remain compatibility only |
 | F5 private context and StateLayout | P0 frontend/runtime design gap | Tranche 3: private executable context bridge and entrypoint bootstrap | Public state roots or fake `PhaseCtx` inputs are not parity evidence |
-| F12 parent-callable phase-family boundaries | P0 frontend/runtime design gap | Tranche 3A: parent-callable phase-boundary rehabilitation for plan, implementation, and work-item, including private/helper boundary types and compatibility path labeling | Leaf candidates remain non-parent-callable and fail on `low_level_state_path_in_high_level_module` / `workflow_boundary_type_invalid` until fixed |
+| F12 parent-callable phase-family boundaries | P0 frontend/runtime design gap, partially implemented | Tranche 3A: parent-callable phase-boundary rehabilitation for plan, implementation, and work-item, including private/helper boundary types and compatibility path labeling | Implementation phase has parent-callable smoke evidence; work-item remains non-parent-callable until WCC `IfExpr` and later private/resource gates land |
 | F6 certified adapters and resources | P0 runtime/adapter authority gap | Tranche 6: certified adapter/resource-transition ownership | Hidden state mutation blocks family promotion |
 | F7 selector/bundle publication | P1 projection/materialization gap | Tranche 5: typed projection and materialized bundle views | Selector leaves remain non-parity candidates until publication is authoritative |
 | F8 review loop first-class composition | P0 stdlib composition gap | Tranches 1 and 4: stdlib review loops compose wherever effectful procedures are valid | Review-loop leaves are insufficient if nested branches fail |
@@ -593,13 +597,14 @@ calls, provider-result steps, command-result steps, and typed projections to
 appear inside branch scopes and reusable procedures while still passing shared
 validation.
 
-The selected target is a composition-normalized structured control graph
-between typed Workflow Lisp expressions and Core/executable projection. The
-graph may render to validation-compatible top-level step graphs or to an
-executable IR layer that preserves nested control, but either route must make
-branch scopes, loop frames, proof tokens, source maps, and generated path
-allocation explicit before shared validation. The implementation architecture
-for this tranche must choose one rendering route and defend it.
+The selected target is the accepted WCC middle-end route from
+`workflow_lisp_core_calculus_middle_end.md`: typed Workflow Lisp expressions
+elaborate into WCC, normalize through ANF/join-point structure, and
+defunctionalize into the existing validated Core/executable projection. The
+route must make branch scopes, loop frames, proof tokens, source maps, and
+generated path allocation explicit before shared validation. New
+post-foundation compiler-lane gaps must extend WCC rather than introduce a
+second composition graph.
 
 Representative normalization:
 
@@ -914,14 +919,15 @@ into private context. That bridge must be:
 
 ### 14.4A Phase-Family Boundary Rehabilitation Prerequisite
 
-The imported-child returned-variant recovery showed that there is a narrower,
-immediately draftable prerequisite inside this tranche. After the cross-union
-work-item route is repaired, the real design-delta `plan_phase.orc`,
-`implementation_phase.orc`, and `work_item.orc` candidates still fail
-parent-callable compilation on `low_level_state_path_in_high_level_module` and
-`workflow_boundary_type_invalid`. This slice is the first executable portion of
-the private-context bridge for those phase-family candidates; it does not
-replace the broader `PrivateExecCtx` / entrypoint-bootstrap target.
+The WCC reconciliation narrowed this prerequisite. The real design-delta
+implementation-phase route now has parent-callable compile and smoke evidence
+through WCC. The work-item route advances past the old private-workflow and
+phase-family boundary diagnostics and now stops at a WCC route gap:
+`work_item.orc` uses `IfExpr`, which is outside the migrated WCC M4 subset.
+This slice remains the first executable portion of the private-context bridge
+for the phase-family candidates, but WCC `IfExpr` support is now the immediate
+compiler prerequisite before the work-item route can expose the next boundary
+or resource-transition blocker.
 
 Required behavior:
 
@@ -941,22 +947,29 @@ Required behavior:
 
 Tasks:
 
-- define the narrow public/private boundary shape for plan, implementation,
-  and work-item candidates before the full family-wide `RunCtx` / `DrainCtx`
+- draft and implement WCC `IfExpr` support for the work-item route before
+  interpreting work-item compile failure as a private-context or resource
+  transition failure;
+- define the narrow public/private boundary shape for remaining plan and
+  work-item candidates before the full family-wide `RunCtx` / `DrainCtx`
   bootstrap lands;
 - define which existing YAML `state/` path inputs, if any, survive only as
   compatibility bridge bindings and how build artifacts/parity reports label
   them;
 - define how generated helper/private workflow boundaries carry phase context
   without `workflow_boundary_type_invalid`; and
-- add compile/build-artifact fixtures for the real design-delta phase-family
-  routes so this prerequisite fails before Tranche 7 if those diagnostics
-  regress.
+- keep compile/build-artifact fixtures for the real design-delta phase-family
+  routes so this prerequisite fails before Tranche 7 if old boundary
+  diagnostics regress or the WCC `IfExpr` blocker is lost.
 
 Acceptance:
 
-- the real design-delta `plan_phase.orc`, `implementation_phase.orc`, and
-  `work_item.orc` candidates no longer fail parent-callable compilation on
+- the real design-delta implementation-phase candidate keeps parent-callable
+  compile/smoke evidence under WCC;
+- the real design-delta work-item candidate no longer fails on WCC
+  `IfExpr`;
+- the remaining real design-delta `plan_phase.orc` and `work_item.orc`
+  candidates no longer fail parent-callable compilation on
   `low_level_state_path_in_high_level_module`;
 - the approved-arm helper/private-workflow route introduced by the
   imported-child returned-variant recovery no longer fails on
@@ -2264,9 +2277,10 @@ This post-foundation target succeeds when:
   source cases;
 - variant-scoped output identity allows repeated logical field names across
   variants;
-- the real plan/implementation/work-item phase-family candidates clear the
-  Tranche 3A boundary failures, keeping low-level phase-state roots and
-  synthetic phase contexts out of promoted high-level `.orc` boundaries;
+- the real implementation-phase candidate keeps parent-callable WCC evidence,
+  and the remaining plan/work-item phase-family candidates clear the Tranche
+  3A/WCC `IfExpr` boundary failures while keeping low-level phase-state roots
+  and synthetic phase contexts out of promoted high-level `.orc` boundaries;
 - promoted `.orc` entrypoints hide private runtime context, generated write
   roots, state roots, and compatibility paths from public boundaries;
 - hidden reusable-call binding supplies internal `RunCtx`, `PhaseCtx`,

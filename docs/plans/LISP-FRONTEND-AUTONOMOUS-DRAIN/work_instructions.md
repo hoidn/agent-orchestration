@@ -33,6 +33,7 @@ Use these documents as the primary source material:
 - target design: `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
 - unchanged baseline design: `docs/design/workflow_lisp_frontend_specification.md`
 - `docs/design/workflow_lisp_runtime_migration_foundation.md`
+- `docs/design/workflow_lisp_core_calculus_middle_end.md`
 - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
 - `docs/design/workflow_lisp_stdlib_lowering.md`
 - `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`
@@ -41,6 +42,7 @@ Use these documents as the primary source material:
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
 - `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
+- `docs/plans/2026-06-10-wcc-post-foundation-gap-reconciliation.md`
 - `specs/io.md`
 - `specs/dsl.md`
 - `specs/providers.md`
@@ -67,6 +69,9 @@ gaps are context, not fresh work.
 1. Prefer the P0 gaps called out by the target design: nested structured
    control, private executable context, and run-state/resource-transition
    ownership.
+   Compiler-lane nested-control work must extend the accepted WCC route; the
+   immediate known compiler prerequisite is WCC `IfExpr` support for the
+   work-item route.
 2. Treat the design-delta drain findings report as concrete evidence of what
    blocks parent-callable `.orc` workflow-family migration.
 3. Preserve public authored-YAML compatibility unless a versioned spec change
@@ -80,14 +85,25 @@ gaps are context, not fresh work.
    Workflow Lisp, runtime, provider, adapter, state/resource, or
    migration-promotion behavior.
 
-## Temporary Reconciliation Gate
+## Compiler-Lane Route Rule
 
-- Do not select new gaps that modify Workflow Lisp lowering, WCC, control
-  dispatch, match/loop lowering, phase scope, procedure lowering, or workflow
-  call lowering until `feat/wcc-middle-end` is integrated with this branch.
-- If a selected gap requires those files, stop and select the WCC/post-foundation
-  reconciliation work first.
-- Orthogonal lanes may continue only when they avoid compiler/lowering files.
+- Read
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`
+  before selecting post-foundation gaps.
+- WCC schema 2 is the accepted route for new Workflow Lisp nested-control,
+  loop, stdlib review/revise, and returned-variant composition work.
+- Do not add a second helper-hoisting or bespoke lowering path for new
+  compiler-lane gaps.
+- Do not select gaps marked `superseded_by_wcc`, and do not select
+  `implemented_by_wcc` gaps as fresh work unless the item is explicitly a
+  regression or retirement-evidence item.
+- If a selected gap touches Workflow Lisp lowering, WCC, control dispatch,
+  match/loop lowering, phase scope, procedure lowering, or workflow-call
+  lowering, its design must state how it extends or preserves the WCC route.
+- The next known compiler-lane blocker is WCC `IfExpr` support for
+  `lisp_frontend_design_delta/work_item::run-work-item`; after that clears,
+  resume private-context, typed-projection, certified-adapter,
+  resource-transition, and parent-drain parity gaps.
 
 ## Constraints
 

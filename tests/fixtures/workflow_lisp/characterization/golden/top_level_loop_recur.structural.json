@@ -1,0 +1,1322 @@
+{
+  "case_id": "top_level_loop_recur",
+  "compiled_module_names": [
+    "loop_recur_minimal"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "__write_root__loop_recur_minimal__attempt__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "input__report": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "input__status": {
+            "kind": "scalar",
+            "type": "string"
+          },
+          "report_path": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "loop-recur-minimal",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.loop-recur-minimal__result.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "return__status": {
+            "from": {
+              "ref": "root.steps.loop-recur-minimal__result.artifacts.return__status"
+            },
+            "kind": "scalar",
+            "type": "string"
+          }
+        },
+        "steps": [
+          {
+            "asset_file": "prompts/implementation/execute.md",
+            "id": "loop_recur_minimal__attempt",
+            "inject_output_contract": true,
+            "name": "loop-recur-minimal__attempt",
+            "provider": "fake",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.__write_root__loop_recur_minimal__attempt__result_bundle}",
+              "shared_fields": [],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report",
+                      "must_exist_target": true,
+                      "name": "progress_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "json_pointer": "/blocker_class",
+                      "name": "blocker_class",
+                      "type": "enum"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report",
+                      "must_exist_target": true,
+                      "name": "execution_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "loop_recur_minimal__seed",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "loop_recur_minimal__seed__blocked",
+                  "outputs": {
+                    "state__blocker_class": {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_blocked.artifacts.state__blocker_class"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "state__execution_report": {
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_blocked.artifacts.state__execution_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "state__progress_report": {
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_blocked.artifacts.state__progress_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "state__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_blocked.artifacts.state__variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "id": "loop_recur_minimal__seed__blocked__materialize",
+                      "materialize_artifacts": {
+                        "values": [
+                          {
+                            "contract": {
+                              "allowed": [
+                                "COMPLETED",
+                                "BLOCKED"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "state__variant",
+                            "source": {
+                              "literal": "BLOCKED"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "relpath",
+                              "must_exist_target": false,
+                              "type": "relpath",
+                              "under": "artifacts/work"
+                            },
+                            "name": "state__execution_report",
+                            "source": {
+                              "literal": "artifacts/work/loop-placeholder.txt"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "relpath",
+                              "must_exist_target": true,
+                              "type": "relpath",
+                              "under": "artifacts/work"
+                            },
+                            "name": "state__progress_report",
+                            "source": {
+                              "ref": "root.steps.loop-recur-minimal__attempt.artifacts.progress_report"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "allowed": [
+                                "missing_resource",
+                                "unavailable_hardware",
+                                "roadmap_conflict",
+                                "external_dependency_outside_authority",
+                                "user_decision_required",
+                                "unrecoverable_after_fix_attempt"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "state__blocker_class",
+                            "source": {
+                              "ref": "root.steps.loop-recur-minimal__attempt.artifacts.blocker_class"
+                            }
+                          }
+                        ]
+                      },
+                      "name": "loop-recur-minimal__seed__materialize_blocked"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "loop_recur_minimal__seed__completed",
+                  "outputs": {
+                    "state__blocker_class": {
+                      "allowed": [
+                        "missing_resource",
+                        "unavailable_hardware",
+                        "roadmap_conflict",
+                        "external_dependency_outside_authority",
+                        "user_decision_required",
+                        "unrecoverable_after_fix_attempt"
+                      ],
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_completed.artifacts.state__blocker_class"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    },
+                    "state__execution_report": {
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_completed.artifacts.state__execution_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "state__progress_report": {
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_completed.artifacts.state__progress_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": false,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    },
+                    "state__variant": {
+                      "allowed": [
+                        "COMPLETED",
+                        "BLOCKED"
+                      ],
+                      "from": {
+                        "ref": "self.steps.loop-recur-minimal__seed__materialize_completed.artifacts.state__variant"
+                      },
+                      "kind": "scalar",
+                      "type": "enum"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "id": "loop_recur_minimal__seed__completed__materialize",
+                      "materialize_artifacts": {
+                        "values": [
+                          {
+                            "contract": {
+                              "allowed": [
+                                "COMPLETED",
+                                "BLOCKED"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "state__variant",
+                            "source": {
+                              "literal": "COMPLETED"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "relpath",
+                              "must_exist_target": true,
+                              "type": "relpath",
+                              "under": "artifacts/work"
+                            },
+                            "name": "state__execution_report",
+                            "source": {
+                              "ref": "root.steps.loop-recur-minimal__attempt.artifacts.execution_report"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "kind": "relpath",
+                              "must_exist_target": false,
+                              "type": "relpath",
+                              "under": "artifacts/work"
+                            },
+                            "name": "state__progress_report",
+                            "source": {
+                              "literal": "artifacts/work/loop-placeholder.txt"
+                            }
+                          },
+                          {
+                            "contract": {
+                              "allowed": [
+                                "missing_resource",
+                                "unavailable_hardware",
+                                "roadmap_conflict",
+                                "external_dependency_outside_authority",
+                                "user_decision_required",
+                                "unrecoverable_after_fix_attempt"
+                              ],
+                              "kind": "scalar",
+                              "type": "enum"
+                            },
+                            "name": "state__blocker_class",
+                            "source": {
+                              "literal": "missing_resource"
+                            }
+                          }
+                        ]
+                      },
+                      "name": "loop-recur-minimal__seed__materialize_completed"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.loop-recur-minimal__attempt.artifacts.variant"
+            },
+            "name": "loop-recur-minimal__seed"
+          },
+          {
+            "id": "loop_recur_minimal__loop",
+            "name": "loop-recur-minimal__loop",
+            "repeat_until": {
+              "condition": {
+                "compare": {
+                  "left": {
+                    "ref": "self.outputs.status"
+                  },
+                  "op": "eq",
+                  "right": "DONE"
+                }
+              },
+              "id": "loop_recur_minimal__loop__iteration",
+              "max_iterations": 3,
+              "outputs": {
+                "result__report": {
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.result__report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "result__status": {
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.result__status"
+                  },
+                  "kind": "scalar",
+                  "type": "string"
+                },
+                "state__blocker_class": {
+                  "allowed": [
+                    "missing_resource",
+                    "unavailable_hardware",
+                    "roadmap_conflict",
+                    "external_dependency_outside_authority",
+                    "user_decision_required",
+                    "unrecoverable_after_fix_attempt"
+                  ],
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.state__blocker_class"
+                  },
+                  "kind": "scalar",
+                  "type": "enum"
+                },
+                "state__execution_report": {
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.state__execution_report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "state__progress_report": {
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.state__progress_report"
+                  },
+                  "kind": "relpath",
+                  "must_exist_target": false,
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                },
+                "state__variant": {
+                  "allowed": [
+                    "COMPLETED",
+                    "BLOCKED"
+                  ],
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.state__variant"
+                  },
+                  "kind": "scalar",
+                  "type": "enum"
+                },
+                "status": {
+                  "allowed": [
+                    "CONTINUE",
+                    "DONE"
+                  ],
+                  "from": {
+                    "ref": "self.steps.loop-recur-minimal__body.artifacts.status"
+                  },
+                  "kind": "scalar",
+                  "type": "enum"
+                }
+              },
+              "steps": [
+                {
+                  "id": "loop_recur_minimal__body__state__seed_marker",
+                  "materialize_artifacts": {
+                    "values": [
+                      {
+                        "contract": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "name": "seed_iteration",
+                        "source": {
+                          "literal": "seed"
+                        }
+                      }
+                    ]
+                  },
+                  "name": "loop-recur-minimal__body__state__seed_marker",
+                  "when": {
+                    "equals": {
+                      "left": "${loop.index}",
+                      "right": "0"
+                    }
+                  }
+                },
+                {
+                  "else": {
+                    "id": "loop_recur_minimal__body__state__seed",
+                    "outputs": {
+                      "state__blocker_class": {
+                        "allowed": [
+                          "missing_resource",
+                          "unavailable_hardware",
+                          "roadmap_conflict",
+                          "external_dependency_outside_authority",
+                          "user_decision_required",
+                          "unrecoverable_after_fix_attempt"
+                        ],
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_seed_state.artifacts.state__blocker_class"
+                        },
+                        "kind": "scalar",
+                        "type": "enum"
+                      },
+                      "state__execution_report": {
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_seed_state.artifacts.state__execution_report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "state__progress_report": {
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_seed_state.artifacts.state__progress_report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "state__variant": {
+                        "allowed": [
+                          "COMPLETED",
+                          "BLOCKED"
+                        ],
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_seed_state.artifacts.state__variant"
+                        },
+                        "kind": "scalar",
+                        "type": "enum"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "loop_recur_minimal__body__state__seed",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "allowed": [
+                                  "COMPLETED",
+                                  "BLOCKED"
+                                ],
+                                "kind": "scalar",
+                                "type": "enum"
+                              },
+                              "name": "state__variant",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__seed.artifacts.state__variant"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__execution_report",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__seed.artifacts.state__execution_report"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__progress_report",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__seed.artifacts.state__progress_report"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "allowed": [
+                                  "missing_resource",
+                                  "unavailable_hardware",
+                                  "roadmap_conflict",
+                                  "external_dependency_outside_authority",
+                                  "user_decision_required",
+                                  "unrecoverable_after_fix_attempt"
+                                ],
+                                "kind": "scalar",
+                                "type": "enum"
+                              },
+                              "name": "state__blocker_class",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__seed.artifacts.state__blocker_class"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "loop-recur-minimal__body__state__use_seed_state"
+                      }
+                    ]
+                  },
+                  "id": "loop_recur_minimal__body__state",
+                  "if": {
+                    "compare": {
+                      "left": {
+                        "ref": "self.steps.loop-recur-minimal__body__state__seed_marker.outcome.class"
+                      },
+                      "op": "eq",
+                      "right": "skipped"
+                    }
+                  },
+                  "name": "loop-recur-minimal__body__state",
+                  "then": {
+                    "id": "loop_recur_minimal__body__state__carry",
+                    "outputs": {
+                      "state__blocker_class": {
+                        "allowed": [
+                          "missing_resource",
+                          "unavailable_hardware",
+                          "roadmap_conflict",
+                          "external_dependency_outside_authority",
+                          "user_decision_required",
+                          "unrecoverable_after_fix_attempt"
+                        ],
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_carried_state.artifacts.state__blocker_class"
+                        },
+                        "kind": "scalar",
+                        "type": "enum"
+                      },
+                      "state__execution_report": {
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_carried_state.artifacts.state__execution_report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "state__progress_report": {
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_carried_state.artifacts.state__progress_report"
+                        },
+                        "kind": "relpath",
+                        "must_exist_target": false,
+                        "type": "relpath",
+                        "under": "artifacts/work"
+                      },
+                      "state__variant": {
+                        "allowed": [
+                          "COMPLETED",
+                          "BLOCKED"
+                        ],
+                        "from": {
+                          "ref": "self.steps.loop-recur-minimal__body__state__use_carried_state.artifacts.state__variant"
+                        },
+                        "kind": "scalar",
+                        "type": "enum"
+                      }
+                    },
+                    "steps": [
+                      {
+                        "id": "loop_recur_minimal__body__state__carry",
+                        "materialize_artifacts": {
+                          "values": [
+                            {
+                              "contract": {
+                                "allowed": [
+                                  "COMPLETED",
+                                  "BLOCKED"
+                                ],
+                                "kind": "scalar",
+                                "type": "enum"
+                              },
+                              "name": "state__variant",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__loop.artifacts.state__variant"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__execution_report",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__loop.artifacts.state__execution_report"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "kind": "relpath",
+                                "must_exist_target": false,
+                                "type": "relpath",
+                                "under": "artifacts/work"
+                              },
+                              "name": "state__progress_report",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__loop.artifacts.state__progress_report"
+                              }
+                            },
+                            {
+                              "contract": {
+                                "allowed": [
+                                  "missing_resource",
+                                  "unavailable_hardware",
+                                  "roadmap_conflict",
+                                  "external_dependency_outside_authority",
+                                  "user_decision_required",
+                                  "unrecoverable_after_fix_attempt"
+                                ],
+                                "kind": "scalar",
+                                "type": "enum"
+                              },
+                              "name": "state__blocker_class",
+                              "source": {
+                                "ref": "root.steps.loop-recur-minimal__loop.artifacts.state__blocker_class"
+                              }
+                            }
+                          ]
+                        },
+                        "name": "loop-recur-minimal__body__state__use_carried_state"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "loop_recur_minimal__body",
+                  "match": {
+                    "cases": {
+                      "BLOCKED": {
+                        "id": "loop_recur_minimal__body__blocked",
+                        "outputs": {
+                          "result__report": {
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__blocked.artifacts.result__report"
+                            },
+                            "kind": "relpath",
+                            "must_exist_target": false,
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          "result__status": {
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__blocked.artifacts.result__status"
+                            },
+                            "kind": "scalar",
+                            "type": "string"
+                          },
+                          "state__blocker_class": {
+                            "allowed": [
+                              "missing_resource",
+                              "unavailable_hardware",
+                              "roadmap_conflict",
+                              "external_dependency_outside_authority",
+                              "user_decision_required",
+                              "unrecoverable_after_fix_attempt"
+                            ],
+                            "from": {
+                              "ref": "parent.steps.loop-recur-minimal__body__state.artifacts.state__blocker_class"
+                            },
+                            "kind": "scalar",
+                            "type": "enum"
+                          },
+                          "state__execution_report": {
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__blocked.artifacts.state__execution_report"
+                            },
+                            "kind": "relpath",
+                            "must_exist_target": false,
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          "state__progress_report": {
+                            "from": {
+                              "ref": "parent.steps.loop-recur-minimal__body__state.artifacts.state__progress_report"
+                            },
+                            "kind": "relpath",
+                            "must_exist_target": false,
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          "state__variant": {
+                            "allowed": [
+                              "COMPLETED",
+                              "BLOCKED"
+                            ],
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__blocked.artifacts.state__variant"
+                            },
+                            "kind": "scalar",
+                            "type": "enum"
+                          },
+                          "status": {
+                            "allowed": [
+                              "CONTINUE",
+                              "DONE"
+                            ],
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__blocked.artifacts.status"
+                            },
+                            "kind": "scalar",
+                            "type": "enum"
+                          }
+                        },
+                        "steps": [
+                          {
+                            "id": "loop_recur_minimal__body__blocked",
+                            "materialize_artifacts": {
+                              "values": [
+                                {
+                                  "contract": {
+                                    "allowed": [
+                                      "CONTINUE",
+                                      "DONE"
+                                    ],
+                                    "kind": "scalar",
+                                    "type": "enum"
+                                  },
+                                  "name": "status",
+                                  "source": {
+                                    "literal": "CONTINUE"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "allowed": [
+                                      "COMPLETED",
+                                      "BLOCKED"
+                                    ],
+                                    "kind": "scalar",
+                                    "type": "enum"
+                                  },
+                                  "name": "state__variant",
+                                  "source": {
+                                    "literal": "BLOCKED"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "kind": "relpath",
+                                    "must_exist_target": false,
+                                    "type": "relpath",
+                                    "under": "artifacts/work"
+                                  },
+                                  "name": "state__execution_report",
+                                  "source": {
+                                    "literal": "artifacts/work/loop-placeholder.txt"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "kind": "scalar",
+                                    "type": "string"
+                                  },
+                                  "name": "result__status",
+                                  "source": {
+                                    "literal": ""
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "kind": "relpath",
+                                    "must_exist_target": false,
+                                    "type": "relpath",
+                                    "under": "artifacts/work"
+                                  },
+                                  "name": "result__report",
+                                  "source": {
+                                    "literal": "artifacts/work/loop-placeholder.txt"
+                                  }
+                                }
+                              ]
+                            },
+                            "name": "loop-recur-minimal__body__blocked"
+                          }
+                        ]
+                      },
+                      "COMPLETED": {
+                        "id": "loop_recur_minimal__body__completed",
+                        "outputs": {
+                          "result__report": {
+                            "from": {
+                              "ref": "parent.steps.loop-recur-minimal__body__state.artifacts.state__execution_report"
+                            },
+                            "kind": "relpath",
+                            "must_exist_target": false,
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          "result__status": {
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__completed.artifacts.result__status"
+                            },
+                            "kind": "scalar",
+                            "type": "string"
+                          },
+                          "state__blocker_class": {
+                            "allowed": [
+                              "missing_resource",
+                              "unavailable_hardware",
+                              "roadmap_conflict",
+                              "external_dependency_outside_authority",
+                              "user_decision_required",
+                              "unrecoverable_after_fix_attempt"
+                            ],
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__completed.artifacts.state__blocker_class"
+                            },
+                            "kind": "scalar",
+                            "type": "enum"
+                          },
+                          "state__execution_report": {
+                            "from": {
+                              "ref": "parent.steps.loop-recur-minimal__body__state.artifacts.state__execution_report"
+                            },
+                            "kind": "relpath",
+                            "must_exist_target": false,
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          "state__progress_report": {
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__completed.artifacts.state__progress_report"
+                            },
+                            "kind": "relpath",
+                            "must_exist_target": false,
+                            "type": "relpath",
+                            "under": "artifacts/work"
+                          },
+                          "state__variant": {
+                            "allowed": [
+                              "COMPLETED",
+                              "BLOCKED"
+                            ],
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__completed.artifacts.state__variant"
+                            },
+                            "kind": "scalar",
+                            "type": "enum"
+                          },
+                          "status": {
+                            "allowed": [
+                              "CONTINUE",
+                              "DONE"
+                            ],
+                            "from": {
+                              "ref": "self.steps.loop-recur-minimal__body__completed.artifacts.status"
+                            },
+                            "kind": "scalar",
+                            "type": "enum"
+                          }
+                        },
+                        "steps": [
+                          {
+                            "id": "loop_recur_minimal__body__completed",
+                            "materialize_artifacts": {
+                              "values": [
+                                {
+                                  "contract": {
+                                    "allowed": [
+                                      "CONTINUE",
+                                      "DONE"
+                                    ],
+                                    "kind": "scalar",
+                                    "type": "enum"
+                                  },
+                                  "name": "status",
+                                  "source": {
+                                    "literal": "DONE"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "allowed": [
+                                      "COMPLETED",
+                                      "BLOCKED"
+                                    ],
+                                    "kind": "scalar",
+                                    "type": "enum"
+                                  },
+                                  "name": "state__variant",
+                                  "source": {
+                                    "literal": "COMPLETED"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "kind": "relpath",
+                                    "must_exist_target": false,
+                                    "type": "relpath",
+                                    "under": "artifacts/work"
+                                  },
+                                  "name": "state__progress_report",
+                                  "source": {
+                                    "literal": "artifacts/work/loop-placeholder.txt"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "allowed": [
+                                      "missing_resource",
+                                      "unavailable_hardware",
+                                      "roadmap_conflict",
+                                      "external_dependency_outside_authority",
+                                      "user_decision_required",
+                                      "unrecoverable_after_fix_attempt"
+                                    ],
+                                    "kind": "scalar",
+                                    "type": "enum"
+                                  },
+                                  "name": "state__blocker_class",
+                                  "source": {
+                                    "literal": "missing_resource"
+                                  }
+                                },
+                                {
+                                  "contract": {
+                                    "kind": "scalar",
+                                    "type": "string"
+                                  },
+                                  "name": "result__status",
+                                  "source": {
+                                    "literal": "completed"
+                                  }
+                                }
+                              ]
+                            },
+                            "name": "loop-recur-minimal__body__completed"
+                          }
+                        ]
+                      }
+                    },
+                    "ref": "self.steps.loop-recur-minimal__body__state.artifacts.state__variant"
+                  },
+                  "name": "loop-recur-minimal__body"
+                }
+              ]
+            }
+          },
+          {
+            "id": "loop_recur_minimal__result",
+            "materialize_artifacts": {
+              "values": [
+                {
+                  "contract": {
+                    "kind": "scalar",
+                    "type": "string"
+                  },
+                  "name": "return__status",
+                  "source": {
+                    "ref": "root.steps.loop-recur-minimal__loop.artifacts.result__status"
+                  }
+                },
+                {
+                  "contract": {
+                    "kind": "relpath",
+                    "must_exist_target": true,
+                    "type": "relpath",
+                    "under": "artifacts/work"
+                  },
+                  "name": "return__report",
+                  "source": {
+                    "ref": "root.steps.loop-recur-minimal__loop.artifacts.result__report"
+                  }
+                }
+              ]
+            },
+            "name": "loop-recur-minimal__result"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__write_root__loop_recur_minimal__attempt__result_bundle"
+      ],
+      "step_labels": [
+        "loop-recur-minimal__attempt",
+        "loop-recur-minimal__seed",
+        "loop-recur-minimal__seed__materialize_blocked",
+        "loop-recur-minimal__seed__materialize_completed",
+        "loop-recur-minimal__loop",
+        "loop-recur-minimal__body__state__seed_marker",
+        "loop-recur-minimal__body__state",
+        "loop-recur-minimal__body__state__use_seed_state",
+        "loop-recur-minimal__body__state__use_carried_state",
+        "loop-recur-minimal__body",
+        "loop-recur-minimal__body__blocked",
+        "loop-recur-minimal__body__completed",
+        "loop-recur-minimal__result"
+      ],
+      "workflow_name": "loop-recur-minimal"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "a86b117e97770274f31da9ef1c0568271dfb153a218e83cab104d60ecd218152",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [
+        "__write_root__loop_recur_minimal__attempt__result_bundle"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:loop-recur-minimal:provider_result_bundle:b474d29e7f289b35",
+          "concrete_path_template": "${inputs.__write_root__loop_recur_minimal__attempt__result_bundle}",
+          "generated_input_name": "__write_root__loop_recur_minimal__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "loop-recur-minimal/loop-recur-minimal__attempt/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:loop-recur-minimal:entrypoint_managed_write_root:fd6a81d17dc5f2eb",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/loop-recur-minimal/__write_root__loop_recur_minimal__attempt__result_bundle.json",
+          "generated_input_name": "__write_root__loop_recur_minimal__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "loop-recur-minimal/loop-recur-minimal__attempt/result_bundle/entry"
+        }
+      ],
+      "input_keys": [
+        "__write_root__loop_recur_minimal__attempt__result_bundle",
+        "input__report",
+        "input__status",
+        "report_path"
+      ],
+      "output_keys": [
+        "return__report",
+        "return__status"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body": {
+            "BLOCKED": {
+              "marker_presentation_key": "loop-recur-minimal__body.BLOCKED",
+              "marker_step_id": "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked",
+              "step_presentation_keys": [
+                "loop-recur-minimal__body.BLOCKED.loop-recur-minimal__body__blocked"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "loop-recur-minimal__body.COMPLETED",
+              "marker_step_id": "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed",
+              "step_presentation_keys": [
+                "loop-recur-minimal__body.COMPLETED.loop-recur-minimal__body__completed"
+              ]
+            }
+          },
+          "root.loop_recur_minimal__seed": {
+            "BLOCKED": {
+              "marker_presentation_key": "loop-recur-minimal__seed.BLOCKED",
+              "marker_step_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked",
+              "step_presentation_keys": [
+                "loop-recur-minimal__seed.BLOCKED.loop-recur-minimal__seed__materialize_blocked"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "loop-recur-minimal__seed.COMPLETED",
+              "marker_step_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed",
+              "step_presentation_keys": [
+                "loop-recur-minimal__seed.COMPLETED.loop-recur-minimal__seed__materialize_completed"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__attempt",
+            "presentation_key": "loop-recur-minimal__attempt",
+            "provider": "fake",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.loop_recur_minimal__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__seed.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed",
+            "presentation_key": "loop-recur-minimal__seed.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__seed.COMPLETED.loop-recur-minimal__seed__materialize_completed",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed.loop_recur_minimal__seed__completed__materialize",
+            "presentation_key": "loop-recur-minimal__seed.COMPLETED.loop-recur-minimal__seed__materialize_completed",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed.loop_recur_minimal__seed__completed__materialize"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__seed.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked",
+            "presentation_key": "loop-recur-minimal__seed.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__seed.BLOCKED.loop-recur-minimal__seed__materialize_blocked",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked.loop_recur_minimal__seed__blocked__materialize",
+            "presentation_key": "loop-recur-minimal__seed.BLOCKED.loop-recur-minimal__seed__materialize_blocked",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked.loop_recur_minimal__seed__blocked__materialize"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__seed",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__seed",
+            "presentation_key": "loop-recur-minimal__seed",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.loop_recur_minimal__seed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 6,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__loop",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__loop",
+            "presentation_key": "loop-recur-minimal__loop",
+            "provider": null,
+            "region": "body",
+            "report_kind": "repeat_until",
+            "step_id": "root.loop_recur_minimal__loop"
+          },
+          {
+            "command": null,
+            "compatibility_index": 7,
+            "consumes": [],
+            "display_name": "loop-recur-minimal__result",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.loop_recur_minimal__result",
+            "presentation_key": "loop-recur-minimal__result",
+            "provider": null,
+            "region": "body",
+            "report_kind": "materialize_artifacts",
+            "step_id": "root.loop_recur_minimal__result"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.loop_recur_minimal__attempt",
+          "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed",
+          "root.loop_recur_minimal__seed.loop_recur_minimal__seed__completed.loop_recur_minimal__seed__completed__materialize",
+          "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked",
+          "root.loop_recur_minimal__seed.loop_recur_minimal__seed__blocked.loop_recur_minimal__seed__blocked__materialize",
+          "root.loop_recur_minimal__seed",
+          "root.loop_recur_minimal__loop",
+          "root.loop_recur_minimal__result"
+        ],
+        "repeat_until_nodes": {
+          "root.loop_recur_minimal__loop": {
+            "frame_key": "loop-recur-minimal__loop",
+            "nested_presentation_keys": {
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body": "loop-recur-minimal__body",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked": "loop-recur-minimal__body.BLOCKED",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked.loop_recur_minimal__body__blocked": "loop-recur-minimal__body.BLOCKED.loop-recur-minimal__body__blocked",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed": "loop-recur-minimal__body.COMPLETED",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed.loop_recur_minimal__body__completed": "loop-recur-minimal__body.COMPLETED.loop-recur-minimal__body__completed",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state": "loop-recur-minimal__body__state",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__carry": "loop-recur-minimal__body__state.then",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__carry.loop_recur_minimal__body__state__carry": "loop-recur-minimal__body__state.then.loop-recur-minimal__body__state__use_carried_state",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__seed": "loop-recur-minimal__body__state.else",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__seed.loop_recur_minimal__body__state__seed": "loop-recur-minimal__body__state.else.loop-recur-minimal__body__state__use_seed_state",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state__seed_marker": "loop-recur-minimal__body__state__seed_marker"
+            },
+            "nested_step_id_suffixes": {
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked.loop_recur_minimal__body__blocked": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__blocked.loop_recur_minimal__body__blocked",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed.loop_recur_minimal__body__completed": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body.loop_recur_minimal__body__completed.loop_recur_minimal__body__completed",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__carry": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__carry",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__carry.loop_recur_minimal__body__state__carry": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__carry.loop_recur_minimal__body__state__carry",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__seed": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__seed",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__seed.loop_recur_minimal__body__state__seed": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state.loop_recur_minimal__body__state__seed.loop_recur_minimal__body__state__seed",
+              "root.loop_recur_minimal__loop.loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state__seed_marker": "loop_recur_minimal__loop__iteration.loop_recur_minimal__body__state__seed_marker"
+            },
+            "node_id": "root.loop_recur_minimal__loop"
+          }
+        }
+      },
+      "workflow_name": "loop-recur-minimal"
+    }
+  ],
+  "workflow_names": [
+    "loop-recur-minimal"
+  ]
+}

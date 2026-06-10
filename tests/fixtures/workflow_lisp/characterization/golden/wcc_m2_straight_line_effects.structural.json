@@ -1,0 +1,440 @@
+{
+  "case_id": "wcc_m2_straight_line_effects",
+  "compiled_module_names": [
+    "wcc_m2_straight_line_effects"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "__write_root__command_checks__run_checks__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "report_path": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "command-checks",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.command-checks__run_checks.artifacts.report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "return__status": {
+            "from": {
+              "ref": "root.steps.command-checks__run_checks.artifacts.status"
+            },
+            "kind": "scalar",
+            "type": "string"
+          }
+        },
+        "steps": [
+          {
+            "command": [
+              "python",
+              "scripts/run_checks.py",
+              "${inputs.report_path}"
+            ],
+            "id": "command_checks__run_checks",
+            "name": "command-checks__run_checks",
+            "output_bundle": {
+              "fields": [
+                {
+                  "json_pointer": "/status",
+                  "name": "status",
+                  "type": "string"
+                },
+                {
+                  "json_pointer": "/report",
+                  "must_exist_target": true,
+                  "name": "report",
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                }
+              ],
+              "path": "${inputs.__write_root__command_checks__run_checks__result_bundle}"
+            }
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__write_root__command_checks__run_checks__result_bundle"
+      ],
+      "step_labels": [
+        "command-checks__run_checks"
+      ],
+      "workflow_name": "command-checks"
+    },
+    {
+      "authored_mapping": {
+        "inputs": {
+          "report_path": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "orchestrate",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.orchestrate__call_provider-attempt.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "call": "command-checks",
+            "id": "orchestrate__checks__call_command_checks",
+            "name": "orchestrate__checks__call_command-checks",
+            "with": {
+              "__write_root__command_checks__run_checks__result_bundle": ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__checks__call_command-checks/command-checks/__write_root__command_checks__run_checks__result_bundle.json",
+              "report_path": {
+                "ref": "inputs.report_path"
+              }
+            }
+          },
+          {
+            "call": "provider-attempt",
+            "id": "orchestrate__call_provider_attempt",
+            "name": "orchestrate__call_provider-attempt",
+            "with": {
+              "__write_root__provider_attempt__result__result_bundle": ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__call_provider-attempt/provider-attempt/__write_root__provider_attempt__result__result_bundle.json",
+              "input__report": {
+                "ref": "root.steps.orchestrate__checks__call_command-checks.artifacts.return__report"
+              },
+              "input__status": {
+                "ref": "root.steps.orchestrate__checks__call_command-checks.artifacts.return__status"
+              },
+              "report_path": {
+                "ref": "inputs.report_path"
+              }
+            }
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [],
+      "step_labels": [
+        "orchestrate__checks__call_command-checks",
+        "orchestrate__call_provider-attempt"
+      ],
+      "workflow_name": "orchestrate"
+    },
+    {
+      "authored_mapping": {
+        "inputs": {
+          "__write_root__provider_attempt__result__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "input__report": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          },
+          "input__status": {
+            "kind": "scalar",
+            "type": "string"
+          },
+          "report_path": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "provider-attempt",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.provider-attempt__result.artifacts.report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "asset_file": "prompts/implementation/execute.md",
+            "id": "provider_attempt__result",
+            "inject_output_contract": true,
+            "name": "provider-attempt__result",
+            "output_bundle": {
+              "fields": [
+                {
+                  "json_pointer": "/report",
+                  "must_exist_target": true,
+                  "name": "report",
+                  "type": "relpath",
+                  "under": "artifacts/work"
+                }
+              ],
+              "path": "${inputs.__write_root__provider_attempt__result__result_bundle}"
+            },
+            "provider": "fake"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__write_root__provider_attempt__result__result_bundle"
+      ],
+      "step_labels": [
+        "provider-attempt__result"
+      ],
+      "workflow_name": "provider-attempt"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "4350de92012812378e4c09897741d4b25e0be19b094c508e01542ccc05e6feb9",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [
+        "__write_root__command_checks__run_checks__result_bundle"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:command-checks:command_result_bundle:d4bae4b5ffa37c23",
+          "concrete_path_template": "${inputs.__write_root__command_checks__run_checks__result_bundle}",
+          "generated_input_name": "__write_root__command_checks__run_checks__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "command_result_bundle",
+          "stable_identity": "command-checks/command-checks__run_checks/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:command-checks:entrypoint_managed_write_root:85c0a3b9f8802d64",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/command-checks/__write_root__command_checks__run_checks__result_bundle.json",
+          "generated_input_name": "__write_root__command_checks__run_checks__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "command-checks/command-checks__run_checks/result_bundle/entry"
+        }
+      ],
+      "input_keys": [
+        "__write_root__command_checks__run_checks__result_bundle",
+        "report_path"
+      ],
+      "output_keys": [
+        "return__report",
+        "return__status"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {},
+        "node_summaries": [
+          {
+            "command": [
+              "python",
+              "scripts/run_checks.py",
+              "${inputs.report_path}"
+            ],
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "command-checks__run_checks",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.command_checks__run_checks",
+            "presentation_key": "command-checks__run_checks",
+            "provider": null,
+            "region": "body",
+            "report_kind": "command",
+            "step_id": "root.command_checks__run_checks"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.command_checks__run_checks"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "command-checks"
+    },
+    {
+      "artifact_keys": [],
+      "generated_input_names": [],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:orchestrate:reusable_call_write_root:379a0dc21fe13d81",
+          "concrete_path_template": ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__checks__call_command-checks/command-checks/__write_root__command_checks__run_checks__result_bundle.json",
+          "generated_input_name": "__write_root__command_checks__run_checks__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "call_frame",
+          "semantic_role": "reusable_call_write_root",
+          "stable_identity": "orchestrate/orchestrate__checks__call_command-checks/command-checks/__write_root__command_checks__run_checks__result_bundle"
+        },
+        {
+          "allocation_id": "alloc:orchestrate:reusable_call_write_root:be4bd54ec953b019",
+          "concrete_path_template": ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__call_provider-attempt/provider-attempt/__write_root__provider_attempt__result__result_bundle.json",
+          "generated_input_name": "__write_root__provider_attempt__result__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "compatibility_view",
+          "resume_scope": "call_frame",
+          "semantic_role": "reusable_call_write_root",
+          "stable_identity": "orchestrate/orchestrate__call_provider-attempt/provider-attempt/__write_root__provider_attempt__result__result_bundle"
+        }
+      ],
+      "input_keys": [
+        "report_path"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {
+          "root.orchestrate__call_provider_attempt": {
+            "iteration_owner_node_id": null,
+            "iteration_step_id_suffix": null,
+            "node_id": "root.orchestrate__call_provider_attempt",
+            "presentation_key": "orchestrate__call_provider-attempt",
+            "step_id": "root.orchestrate__call_provider_attempt"
+          },
+          "root.orchestrate__checks__call_command_checks": {
+            "iteration_owner_node_id": null,
+            "iteration_step_id_suffix": null,
+            "node_id": "root.orchestrate__checks__call_command_checks",
+            "presentation_key": "orchestrate__checks__call_command-checks",
+            "step_id": "root.orchestrate__checks__call_command_checks"
+          }
+        },
+        "for_each_nodes": {},
+        "match_cases": {},
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "orchestrate__checks__call_command-checks",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.orchestrate__checks__call_command_checks",
+            "presentation_key": "orchestrate__checks__call_command-checks",
+            "provider": null,
+            "region": "body",
+            "report_kind": "call",
+            "step_id": "root.orchestrate__checks__call_command_checks"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "orchestrate__call_provider-attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.orchestrate__call_provider_attempt",
+            "presentation_key": "orchestrate__call_provider-attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "call",
+            "step_id": "root.orchestrate__call_provider_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.orchestrate__checks__call_command_checks",
+          "root.orchestrate__call_provider_attempt"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "orchestrate"
+    },
+    {
+      "artifact_keys": [],
+      "generated_input_names": [
+        "__write_root__provider_attempt__result__result_bundle"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:provider-attempt:provider_result_bundle:b8af03075abc4544",
+          "concrete_path_template": "${inputs.__write_root__provider_attempt__result__result_bundle}",
+          "generated_input_name": "__write_root__provider_attempt__result__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "provider-attempt/provider-attempt__result/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:provider-attempt:entrypoint_managed_write_root:0020dc06f7dce65b",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/provider-attempt/__write_root__provider_attempt__result__result_bundle.json",
+          "generated_input_name": "__write_root__provider_attempt__result__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "provider-attempt/provider-attempt__result/result_bundle/entry"
+        }
+      ],
+      "input_keys": [
+        "__write_root__provider_attempt__result__result_bundle",
+        "input__report",
+        "input__status",
+        "report_path"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {},
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "provider-attempt__result",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.provider_attempt__result",
+            "presentation_key": "provider-attempt__result",
+            "provider": "fake",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.provider_attempt__result"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.provider_attempt__result"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "provider-attempt"
+    }
+  ],
+  "workflow_names": [
+    "command-checks",
+    "orchestrate",
+    "provider-attempt"
+  ]
+}

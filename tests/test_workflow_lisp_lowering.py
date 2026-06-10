@@ -13,8 +13,8 @@ from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inpu
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
-    compile_stage3_entrypoint,
-    compile_stage3_module,
+    compile_stage3_entrypoint as _compile_stage3_entrypoint,
+    compile_stage3_module as _compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
@@ -80,6 +80,16 @@ MODULE_FIXTURES = FIXTURES / "modules"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 PROMOTED_ENTRY_BOOTSTRAP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_promoted_entry_bootstrap.orc"
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def compile_stage3_entrypoint(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_entrypoint(*args, **kwargs)
+
+
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
 
 
 def _extern_environment(prompt_binding: PromptExtern | None = None) -> ExternEnvironment:
@@ -869,6 +879,11 @@ def test_typecheck_does_not_import_review_loop_expr() -> None:
 
 
 def test_lowering_does_not_import_review_loop_expr() -> None:
+    assert not _module_mentions_symbol(_lowering_source_path(), "ReviewReviseLoopExpr")
+
+
+def test_lowering_denylist_keeps_review_loop_expr_out_of_legacy_owner_sinks() -> None:
+    assert not _module_mentions_symbol(_typecheck_source_path(), "ReviewReviseLoopExpr")
     assert not _module_mentions_symbol(_lowering_source_path(), "ReviewReviseLoopExpr")
 
 
@@ -1999,7 +2014,8 @@ def test_lowering_loop_recur_emits_repeat_until_on_exhausted_outputs(tmp_path: P
     repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
 
     assert repeat_step["repeat_until"]["on_exhausted"]["outputs"] == {
-        "result__status": "exhausted"
+        "result__status": "exhausted",
+        "status": "DONE",
     }
     assert "result__report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
 
@@ -3553,6 +3569,7 @@ def test_compile_stage3_entrypoint_omits_imported_defaulted_call_bindings(tmp_pa
         source_roots=(tmp_path,),
         validate_shared=False,
         workspace_root=tmp_path,
+        lowering_route="legacy",
     )
 
     lowered = next(

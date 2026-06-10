@@ -1,0 +1,14 @@
+{
+  "case_id": "value_only_minimal_module",
+  "compiled_module_names": [
+    "minimal_module"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "a0a3fac6c23d680ee6fee13c4aef10e598dc28f7d8849c2477d78312b8fbdf7b",
+  "validated_bundles": [],
+  "workflow_names": []
+}

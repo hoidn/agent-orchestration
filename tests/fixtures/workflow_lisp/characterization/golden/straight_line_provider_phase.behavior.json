@@ -1,0 +1,81 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "artifacts/work/execution_report.md": {
+      "sha256": "169447e615a009c0deff7eac3dad9f4e21fa27679db0032d68cb9f640cb70361",
+      "size": 20
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "provider_payloads": {
+          "fake": {
+            "execution_report_path": "artifacts/work/execution_report.md",
+            "implementation_state": "COMPLETED",
+            "variant": "COMPLETED"
+          }
+        }
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
+  "status": "completed",
+  "steps": {
+    "run-provider-phase-demo__attempt": {
+      "artifacts": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED",
+        "variant": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "run-provider-phase-demo__attempt__prompt_inputs": {
+      "artifacts": {
+        "design": "docs/design/workflow_lisp_frontend_specification.md",
+        "execution_report_target": "artifacts/work/execution_report.md",
+        "plan": "docs/plans/implementation_plan.md",
+        "progress_report_target": "artifacts/work/progress_report.md"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "run-provider-phase-demo__match_attempt": {
+      "artifacts": {
+        "return__implementation_state": "COMPLETED",
+        "return__report_path": "artifacts/work/execution_report.md"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "run-provider-phase-demo__match_attempt.BLOCKED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "run-provider-phase-demo__match_attempt.COMPLETED": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "return__implementation_state": "COMPLETED",
+    "return__report_path": "artifacts/work/execution_report.md"
+  }
+}

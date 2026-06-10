@@ -4,7 +4,7 @@ import importlib
 
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -24,6 +24,11 @@ DESIGN_DOCS_REVIEW_PROMPT = (
 DESIGN_DOCS_FIX_PROMPT = (
     REPO_ROOT / "prompts" / "workflows" / "review_revise_design_docs" / "fix.md"
 )
+
+
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
 
 
 def _write_module(path: Path, body: str) -> Path:
@@ -74,7 +79,7 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
         for workflow in result.lowered_workflows
     }
 
-    assert set(lowered_by_name) == {"kiss_backlog_item::run-backlog-item"}
+    assert "kiss_backlog_item::run-backlog-item" in lowered_by_name
     lowered = lowered_by_name["kiss_backlog_item::run-backlog-item"]
     assert lowered["version"] == "2.14"
     assert "return__summary_path" in lowered["outputs"]
@@ -88,7 +93,11 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
                 for case in step["match"].get("cases", {}).values():
                     yield from walk_steps(case.get("steps", []))
 
-    all_steps = list(walk_steps(lowered["steps"]))
+    all_steps = [
+        step
+        for workflow in result.lowered_workflows
+        for step in walk_steps(workflow.authored_mapping["steps"])
+    ]
     assert sum(1 for step in all_steps if "repeat_until" in step) == 2
     assert {step.get("provider") for step in all_steps if step.get("provider")} == {
         "fake-plan",
@@ -237,7 +246,11 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
         workspace_root=tmp_path,
     )
 
-    [lowered] = result.lowered_workflows
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
+    )
     assert lowered.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
     assert lowered.private_artifact_ids == ("context_docs",)
     context_docs_contract = lowered.authored_mapping["inputs"]["context_docs"]
@@ -269,8 +282,13 @@ def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Pat
         workspace_root=tmp_path,
     )
 
-    workflow_name = result.lowered_workflows[0].typed_workflow.definition.name
-    lowered_mapping = result.lowered_workflows[0].authored_mapping
+    workflow_name = "review_revise_design_docs::review-revise-design-docs"
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == workflow_name
+    )
+    lowered_mapping = lowered.authored_mapping
     bundle = result.validated_bundles[workflow_name]
     (tmp_path / "workflow.yaml").write_text("version: '2.14'\nsteps: []\n", encoding="utf-8")
     state_manager = StateManager(workspace=tmp_path, run_id="private-lane-runtime")
@@ -303,6 +321,20 @@ def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Pat
             "review_report_target_path": [{
                 "version": 1,
                 "value": "artifacts/review/review.md",
+                "producer": "root.seed",
+                "producer_name": "Seed",
+                "step_index": 0,
+            }],
+            "revision_report_target_path": [{
+                "version": 1,
+                "value": "artifacts/review/revision.md",
+                "producer": "root.seed",
+                "producer_name": "Seed",
+                "step_index": 0,
+            }],
+            "items_path": [{
+                "version": 1,
+                "value": "artifacts/work/findings.json",
                 "producer": "root.seed",
                 "producer_name": "Seed",
                 "step_index": 0,
@@ -404,6 +436,7 @@ def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Pa
             command_boundaries_path=Path("tests/fixtures/workflow_lisp/cli/commands.json"),
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route="legacy",
         )
     )
 

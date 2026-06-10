@@ -53,7 +53,7 @@ from .syntax import (
     syntax_node_datum,
     syntax_resolved_name,
 )
-from .type_env import FrontendTypeEnvironment, TypeRef
+from .type_env import FrontendTypeEnvironment, TypeRef, type_refs_compatible
 from .typecheck import TypedExpr, typecheck_expression
 
 if TYPE_CHECKING:
@@ -229,7 +229,7 @@ def typecheck_function_definitions(
             procedure_catalog=procedure_catalog,
             function_catalog=function_catalog,
         )
-        if typed_body.type_ref != signature.return_type_ref:
+        if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(

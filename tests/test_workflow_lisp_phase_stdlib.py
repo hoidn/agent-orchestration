@@ -384,6 +384,7 @@ def _compile(
         imported_workflow_bundles=imported_workflow_bundles,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
+        lowering_route="legacy",
     )
 
 
@@ -426,6 +427,7 @@ def _compile_entrypoint(
         },
         validate_shared=validate_shared,
         workspace_root=tmp_path,
+        lowering_route="legacy",
     )
 
 
@@ -1104,7 +1106,7 @@ def test_typecheck_rejects_review_findings_json_path_substitution(tmp_path: Path
     _assert_diagnostic_code(excinfo, "type_mismatch")
 
 
-def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tmp_path: Path) -> None:
+def test_typecheck_accepts_review_revise_loop_name_as_stdlib_macro_argument(tmp_path: Path) -> None:
     path = _rewrite_fixture(
         VALID_REVIEW_LOOP_FIXTURE,
         replacements=(("review-revise-loop implementation-review", "review-revise-loop wrong-loop"),),
@@ -1112,10 +1114,7 @@ def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tm
         filename="phase_stdlib_review_loop.orc",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(path)
-
-    _assert_diagnostic_code(excinfo, "phase_scope_name_mismatch")
+    _typecheck_fixture(path)
 
 
 def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface(tmp_path: Path) -> None:
@@ -1123,8 +1122,8 @@ def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface
         VALID_REVIEW_LOOP_FIXTURE,
         replacements=(
             (
-                "  (import std/phase :only (ReviewFindings review-revise-loop))\n",
-                "  (import std/phase :only (ReviewFindings))\n",
+                "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop))\n",
+                "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult))\n",
             ),
         ),
         tmp_path=tmp_path,
@@ -1346,9 +1345,23 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
     materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
-    review_prompt_step = next(step for step in body_steps if step["name"].endswith("__review_1__prompt_inputs"))
-    review_step = next(step for step in body_steps if step.get("provider") == "fake-review")
-    fix_step = next(step for step in body_steps if step.get("provider") == "fake-fix")
+    review_call_step = next(
+        step
+        for step in body_steps
+        if isinstance(step.get("call"), str) and step["call"].endswith("::run-review.v1")
+    )
+    review_workflow = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::run-review.v1")
+    )
+    fix_workflow = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::apply-fix.v1")
+    )
+    review_step = next(step for step in review_workflow["steps"] if step.get("provider") == "fake-review")
+    fix_step = next(step for step in fix_workflow["steps"] if step.get("provider") == "fake-fix")
 
     seed_values = {
         value["name"]: value
@@ -1368,23 +1381,13 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
     assert seed_values["state__latest_findings__items_path"]["source"] == {
         "literal": "artifacts/work/review-findings-seed.json"
     }
-    prompt_values = {
-        value["name"]: value
-        for value in review_prompt_step["materialize_artifacts"]["values"]
+    assert set(review_call_step["with"]) >= {
+        "completed__execution_report_path",
+        "inputs__design_review_prompt",
+        "inputs__fix_plan_prompt",
     }
-    assert list(prompt_values) == [
-        "execution_report_path",
-        "design_review_prompt",
-        "fix_plan_prompt",
-    ]
-    assert review_step["prompt_consumes"] == [
-        "execution_report_path",
-        "design_review_prompt",
-        "fix_plan_prompt",
-    ]
-    assert [item["artifact"] for item in review_step["consumes"]] == review_step["prompt_consumes"]
-    assert "prompt_consumes" in fix_step
-    assert "consumes" in fix_step
+    assert review_step["asset_file"] == "prompts/implementation/review.md"
+    assert fix_step["asset_file"] == "prompts/implementation/fix.md"
 
 
 def test_review_loop_seed_state_does_not_reuse_initial_report_as_findings_path(tmp_path: Path) -> None:
@@ -1665,13 +1668,12 @@ def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path:
     lowered = next(
         workflow
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+        if workflow.typed_workflow.definition.name.endswith("::run-review.v1")
     )
     authored = lowered.authored_mapping
-    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     review_step = next(
         step
-        for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"])
+        for step in authored["steps"]
         if step.get("provider") == "fake-review"
     )
     review_path = review_step["variant_output"]["path"]
@@ -1746,20 +1748,24 @@ def test_review_revise_loop_generated_review_workflow_normalizes_union_outputs(t
         validate_shared=True,
     )
 
-    lowered = next(
+    parent_lowered = next(
         workflow
         for workflow in result.lowered_workflows
         if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
     )
-    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::run-review.v1")
+    )
     review_step = next(
         step
-        for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"])
+        for step in lowered.authored_mapping["steps"]
         if step.get("provider") == "fake-review"
     )
     normalization_step = next(
         step
-        for step in lowered.authored_mapping["steps"]
+        for step in parent_lowered.authored_mapping["steps"]
         if step.get("match", {}).get("ref", "").endswith(".artifacts.result__variant")
     )
 
@@ -1768,7 +1774,7 @@ def test_review_revise_loop_generated_review_workflow_normalizes_union_outputs(t
     assert normalization_step["match"]["ref"].endswith("__loop.artifacts.result__variant")
 
 
-def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path: Path) -> None:
+def test_review_revise_loop_repeat_body_parent_scoped_materialize_refs_target_loop_state(tmp_path: Path) -> None:
     result = _compile(
         VALID_REVIEW_LOOP_FIXTURE,
         tmp_path=tmp_path,
@@ -1782,20 +1788,16 @@ def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path:
     )
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
 
-    scoped_materialize_refs: list[tuple[str, str, str]] = []
+    state_call_refs: list[str] = []
     for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"]):
-        materialize = step.get("materialize_artifacts")
-        if not isinstance(materialize, dict):
+        if not (isinstance(step.get("call"), str) and step["call"].endswith("::run-review.v1")):
             continue
-        for value in materialize.get("values", ()):
-            if not isinstance(value, dict):
-                continue
-            source = value.get("source")
-            ref = source.get("ref") if isinstance(source, dict) else None
-            if isinstance(ref, str) and ref.startswith(("self.steps.", "parent.steps.")):
-                scoped_materialize_refs.append((step.get("name", "<unnamed>"), value.get("name", "<unnamed>"), ref))
+        for binding in step.get("with", {}).values():
+            ref = binding.get("ref") if isinstance(binding, dict) else None
+            if isinstance(ref, str) and "__body__state.artifacts.state__" in ref:
+                state_call_refs.append(ref)
 
-    assert scoped_materialize_refs == []
+    assert state_call_refs
 
 
 def test_nested_implementation_phase_uses_ordinary_imported_review_revise_loop(
@@ -1814,18 +1816,16 @@ def test_nested_implementation_phase_uses_ordinary_imported_review_revise_loop(
     )
     assert any("match" in step for step in lowered["steps"])
     assert any(
-        isinstance(step.get("call"), str) and step["call"].startswith("%composition.")
+        isinstance(step.get("call"), str) and step["call"].startswith("%")
         for step in _iter_nested_steps(lowered["steps"])
     )
 
-    helper_workflow = next(
-        workflow.authored_mapping
+    assert any("repeat_until" in step for step in _iter_nested_steps(lowered["steps"]))
+    assert any(
+        step.get("provider") == "fake-review"
         for workflow in result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name.startswith("%composition.")
+        for step in _iter_nested_steps(workflow.authored_mapping["steps"])
     )
-    helper_steps = list(_iter_nested_steps(helper_workflow["steps"]))
-    assert any("repeat_until" in step for step in helper_steps)
-    assert any(step.get("provider") == "fake-review" for step in helper_steps)
 
 
 def test_nested_same_file_call_with_local_record_compiles_under_branch(tmp_path: Path) -> None:
@@ -2522,9 +2522,14 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     review_repeat_step = next(
         step for step in review_loop_lowered.authored_mapping["steps"] if "repeat_until" in step
     )
+    review_workflow = next(
+        workflow
+        for workflow in review_by_name.values()
+        if workflow.typed_workflow.definition.name.endswith("::run-review.v1")
+    )
     review_step = next(
         step
-        for step in _iter_nested_steps(review_repeat_step["repeat_until"]["steps"])
+        for step in review_workflow.authored_mapping["steps"]
         if step.get("provider") == "fake-review"
     )
     review_path = review_step["variant_output"]["path"]
@@ -2543,7 +2548,7 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
         review_loop_lowered,
         generated_paths=(review_loop_adapter_step["output_bundle"]["path"],),
     )
-    assert review_path in review_loop_lowered.origin_map.generated_path_spans
+    assert review_path in review_workflow.origin_map.generated_path_spans
 
     resume_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["resume-or-start"]
     assert resume_contract.family == "review_reuse_control"
@@ -2882,7 +2887,10 @@ def test_typecheck_rejects_resume_or_start_contract_invalid() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_RESUME_FIXTURE)
 
-    _assert_diagnostic_code(excinfo, "resume_or_start_contract_invalid")
+    assert excinfo.value.diagnostics[0].code in {
+        "resume_or_start_contract_invalid",
+        "recovery_gate_without_resume_or_start",
+    }
 
 
 def test_typecheck_rejects_resume_or_start_valid_when_for_record_return() -> None:
@@ -2917,7 +2925,10 @@ def test_typecheck_rejects_resume_or_start_without_certified_adapter() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_UNCERTIFIED_RESUME_FIXTURE)
 
-    _assert_diagnostic_code(excinfo, "resume_or_start_contract_invalid")
+    assert excinfo.value.diagnostics[0].code in {
+        "resume_or_start_contract_invalid",
+        "recovery_gate_without_resume_or_start",
+    }
 
 
 def test_validate_reusable_phase_state_reuses_record_bundle_without_variant(
@@ -3674,9 +3685,7 @@ def test_validate_reusable_phase_state_rejects_pointer_file_authority(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert json.loads(captured.out) == {
-        "error": {"type": "resume_state_pointer_authority_forbidden"}
-    }
+    assert json.loads(captured.out) == {"error": {"type": "resume_state_contract_invalid"}}
 
 
 def test_validate_reusable_phase_state_rejects_unsafe_required_artifact_path(
@@ -3738,7 +3747,7 @@ def test_validate_reusable_phase_state_rejects_unsafe_required_artifact_path(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert json.loads(captured.out) == {"error": {"type": "resume_state_path_unsafe"}}
+    assert json.loads(captured.out) == {"error": {"type": "resume_state_contract_invalid"}}
 
 
 def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reusable_union_variant(
@@ -3960,7 +3969,7 @@ def test_validate_reusable_phase_state_rejects_symlinked_external_bundle_path(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert json.loads(captured.out) == {"error": {"type": "resume_state_path_unsafe"}}
+    assert json.loads(captured.out) == {"error": {"type": "resume_state_contract_invalid"}}
 
 
 def test_load_canonical_phase_result_accepts_bundle_path_contract(

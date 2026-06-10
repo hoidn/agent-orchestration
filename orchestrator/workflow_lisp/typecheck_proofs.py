@@ -16,6 +16,7 @@ from .type_env import (
     TypeParamRef,
     UnionTypeRef,
     VariantCaseTypeRef,
+    type_refs_compatible,
 )
 
 
@@ -235,7 +236,7 @@ def typecheck_match_expr(
                 span=arm.body.span,
                 form_path=arm.body.form_path,
             )
-        if typed_body.type_ref != arm_result_type:
+        if not type_refs_compatible(arm_result_type, typed_body.type_ref):
             compat._raise_error(
                 f"match arm for `{arm.variant_name}` returned `{compat._type_label(typed_body.type_ref)}`"
                 f" but expected `{compat._type_label(arm_result_type)}`",

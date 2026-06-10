@@ -358,6 +358,7 @@ def _elaborate_step(
             step_id=str(step.get("step_id", "")),
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
+            when_predicate=when_predicate,
             match_ref=selector_ref,
             match_cases=MappingProxyType(match_cases),
         )
@@ -374,6 +375,7 @@ def _elaborate_step(
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
             common=common,
+            when_predicate=when_predicate,
             repeat_until=repeat_until,
         )
 

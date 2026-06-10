@@ -452,6 +452,8 @@ def _flatten_inline_output_refs(local_value: Any) -> dict[str, str]:
     def visit(value: Any, *, path: tuple[str, ...]) -> None:
         if isinstance(value, Mapping):
             for key, item in value.items():
+                if key == "__lowering_returned_union_type":
+                    continue
                 if isinstance(key, str):
                     visit(item, path=path + (key,))
             return

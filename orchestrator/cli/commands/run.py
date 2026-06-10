@@ -28,6 +28,7 @@ from orchestrator.runtime_observability import record_compiled_frontend_provenan
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
 
 
 logger = logging.getLogger(__name__)
@@ -417,6 +418,11 @@ def run_workflow(args: Namespace) -> int:
 
         # Parse context
         context = parse_context(args, workflow_context=dict(workflow_context(workflow)))
+        if frontend_build is not None:
+            context = workflow_lisp_context_with_lowering_schema(
+                context,
+                frontend_build.manifest.lowering_schema_version,
+            )
 
         observability = build_observability_config(args)
 

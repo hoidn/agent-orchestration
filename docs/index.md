@@ -261,13 +261,13 @@ document owns the answer.
 **Use this when:** Auditing or extending the implemented runtime foundation beneath `.orc` promotion, especially structured-output binding, private value transport, strict parity gates, prompt externs, or generated path ownership.
 
 ### [Workflow Lisp Post-Foundation Composition And Stdlib Migration](design/workflow_lisp_post_foundation_composition_stdlib_migration.md)
-**Description:** Follow-up target design after the runtime foundation, focused on nested structured-control composition, typed result translation, generic effectful composition, imported/std `.orc` reuse, `review-revise-loop` stdlib convergence, private executable context bridging, certified adapter/state-transition ownership, typed bundle-publication projection, entrypoint bootstrap/defaults, canonical `resume-or-start` validation, and parent-callable parity promotion.
+**Description:** Active post-foundation roadmap after the runtime foundation, now consuming WCC as the accepted compiler substrate for nested-control composition and focused on remaining typed result translation, private executable context bridging, certified adapter/state-transition ownership, typed bundle-publication projection, entrypoint bootstrap/defaults, canonical `resume-or-start` validation, and parent-callable parity promotion.
 **Keywords:** lisp-frontend, post-foundation, stdlib, composition, nested-control, private-context, certified-adapters, backlog-drain, parity
 
 ### [Workflow Lisp Core Calculus And Compiler Middle-End](design/workflow_lisp_core_calculus_middle_end.md)
-**Description:** Future-direction compilation architecture that re-founds Workflow Lisp lowering on a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization into the existing validated flat runtime — so effectful composition holds by construction and per-form lowerers are retired through flag-gated, dual-compile-checked migration tranches.
+**Description:** Accepted compiler architecture for Workflow Lisp lowering in the migrated subset: a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization into the existing validated flat runtime — with WCC schema 2 default for new compiles and legacy schema 1 retained for compatibility.
 **Keywords:** lisp-frontend, core-calculus, middle-end, anf, join-points, defunctionalization, composition, lowering
-**Use this when:** Planning the next Workflow Lisp drain after the runtime migration foundation is complete.
+**Use this when:** Planning or reviewing compiler-lane post-foundation work, especially nested structured control, loops, stdlib review/revise composition, returned-variant lowering, route compatibility, or WCC evidence.
 
 ### [Lisp Migrate Key Workflows Execution Plan](plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md)
 **Description:** Approved execution-ready plan for the first migration tranche converting `cycle_guard_demo` and the `design_plan_impl_review_stack_v2_call` family to additive Workflow Lisp `.orc` surfaces with compile/dry-run/parity evidence.

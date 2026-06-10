@@ -80,6 +80,21 @@ class LoopLoweringPlan:
     result_normalization_step_name: str
 
 
+@dataclass(frozen=True)
+class RepeatUntilEmitterInput:
+    """Route-neutral input for emitting the existing `repeat_until` runtime shape."""
+
+    max_iterations_expr: "ExprNode"
+    initial_state_expr: "ExprNode"
+    binding_name: str
+    body_expr: "ExprNode"
+    result_type_ref: TypeRef
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    on_exhausted_result_expr: "ExprNode | None" = None
+    source_expr: Any | None = None
+
+
 def ensure_loop_projectable_type(
     type_ref: TypeRef,
     *,
@@ -107,6 +122,13 @@ def ensure_loop_projectable_type(
         _raise_loop_error(
             code=code,
             message=f"`{type_ref.name}` cannot be carried across `loop/recur` outputs",
+            span=span,
+            form_path=form_path,
+        )
+    if isinstance(type_ref, (ListTypeRef, MapTypeRef, OptionalTypeRef)):
+        _raise_loop_error(
+            code=code,
+            message=f"`{type_ref}` cannot be carried across `loop/recur` outputs",
             span=span,
             form_path=form_path,
         )

@@ -7,8 +7,8 @@ import pytest
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint as _compile_stage3_entrypoint
+from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
@@ -30,6 +30,16 @@ INVALID_IF_NOT_PROJECTABLE_FIXTURE = FIXTURES / "invalid" / "if_condition_not_pr
 
 def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
+
+
+def compile_stage3_entrypoint(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_entrypoint(*args, **kwargs)
+
+
+def compile_stage3_module(*args, **kwargs):
+    kwargs.setdefault("lowering_route", "legacy")
+    return _compile_stage3_module(*args, **kwargs)
 
 
 def test_render_diagnostic_includes_location_and_form_path() -> None:

@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import importlib
 import json
-from dataclasses import replace
+from dataclasses import asdict, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 
 import pytest
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
+import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from orchestrator.workflow_lisp.modules import resolve_module_graph
+from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_command_boundary_environment
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -443,18 +448,22 @@ def _compile_design_delta_work_item_without_shared_validation(tmp_path: Path):
     return request, command_boundary_manifest, compile_result
 
 
-def _assert_design_delta_work_item_build_blocked_by_phase_family_boundary(
-    request,
+def _assert_design_delta_work_item_blocked_by_wcc_ifexpr(
+    diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
-    build = _build_module()
-    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    diagnostic_codes = {diagnostic.code for diagnostic in diagnostics}
+    messages = [
+        diagnostic.message
+        for diagnostic in diagnostics
+        if diagnostic.code == "wcc_lowering_route_unsupported"
+    ]
 
-    with pytest.raises(LispFrontendCompileError) as exc_info:
-        build_frontend_bundle(request)
-
-    diagnostic_codes = {diagnostic.code for diagnostic in exc_info.value.diagnostics}
-    assert "workflow_boundary_type_invalid" in diagnostic_codes
-    assert "low_level_state_path_in_high_level_module" in diagnostic_codes
+    assert diagnostic_codes == {"wcc_lowering_route_unsupported"}
+    assert any(
+        "unsupported `IfExpr`" in message
+        and "lisp_frontend_design_delta/work_item::run-work-item" in message
+        for message in messages
+    )
 
 
 def _resume_entry_request(tmp_path: Path):
@@ -527,6 +536,7 @@ def _workflow_param_default_request(tmp_path: Path):
         command_boundaries_path=None,
         emit_debug_yaml=False,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
 
@@ -562,6 +572,117 @@ def _pointer_effects_request(tmp_path: Path):
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def _thaw_source_map_value(value):
+    if isinstance(value, Enum):
+        return value.value
+    if is_dataclass(value):
+        return {key: _thaw_source_map_value(item) for key, item in asdict(value).items()}
+    if isinstance(value, dict):
+        return {key: _thaw_source_map_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_source_map_value(item) for item in value]
+    return value
+
+
+def _same_file_wcc_m3_source_map_payload(
+    tmp_path: Path,
+    *,
+    fixture_path: Path,
+    module_filename: str,
+    selected_name: str,
+) -> dict[str, object]:
+    module_path = tmp_path / module_filename
+    module_path.write_text(fixture_path.read_text(encoding="utf-8"), encoding="utf-8")
+    graph = resolve_module_graph(module_path, source_roots=(tmp_path,))
+    compile_result = workflow_lisp_compiler._compile_stage3_graph(
+        graph,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        },
+        imported_workflow_bundles=None,
+        command_boundaries=None,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=workflow_lisp_compiler.normalize_lowering_route("wcc_m3"),
+    )
+    source_map = build_source_map_document(
+        compile_result,
+        selected_name=selected_name,
+        display_name_resolver=lambda workflow_name: workflow_name.split("::")[-1],
+    )
+    return _thaw_source_map_value(source_map)
+
+
+def _route_neutral_wcc_m4_source_map_payload(tmp_path: Path) -> dict[str, object]:
+    fixture_path = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
+    module_text = fixture_path.read_text(encoding="utf-8").replace(
+        '  (:target-dsl "2.14")\n',
+        '  (:target-dsl "2.14")\n'
+        "  (defmodule route_neutral_loop)\n"
+        "  (export loop-recur-on-exhausted-union)\n",
+        1,
+    )
+    module_path = tmp_path / "route_neutral_loop.orc"
+    module_path.write_text(module_text, encoding="utf-8")
+    graph = resolve_module_graph(module_path, source_roots=(tmp_path,))
+    compile_result = workflow_lisp_compiler._compile_stage3_graph(
+        graph,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+        },
+        imported_workflow_bundles=None,
+        command_boundaries=None,
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route=workflow_lisp_compiler.normalize_lowering_route("wcc_m4"),
+    )
+    source_map = build_source_map_document(
+        compile_result,
+        selected_name="route_neutral_loop::loop-recur-on-exhausted-union",
+        display_name_resolver=lambda workflow_name: workflow_name.split("::")[-1],
+    )
+    return _thaw_source_map_value(source_map)
+
+
+def _wcc_m4_full_fixture_source_map_payload(tmp_path: Path) -> dict[str, object]:
+    fixture_path = FIXTURES / "characterization" / "sources" / "wcc_m4_implementation_phase_full_fixture.orc"
+    compile_result = compile_stage3_entrypoint(
+        fixture_path,
+        source_roots=(fixture_path.parent,),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+    source_map = build_source_map_document(
+        compile_result,
+        selected_name="wcc_m4_implementation_phase_full_fixture::run",
+        display_name_resolver=lambda workflow_name: workflow_name.split("::")[-1],
+    )
+    return _thaw_source_map_value(source_map)
 
 
 def _workflow_public_input_contracts(bundle):
@@ -1504,6 +1625,7 @@ def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
@@ -1550,6 +1672,7 @@ def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
@@ -1660,6 +1783,7 @@ def test_build_artifacts_preserve_statement_taxonomy_facet_lineage(tmp_path: Pat
             command_boundaries_path=None,
             emit_debug_yaml=False,
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
     )
     resource_core = json.loads(resource_result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))
@@ -2088,47 +2212,20 @@ def test_build_artifacts_emit_entrypoint_managed_write_root_allocations(
 def test_design_delta_work_item_runtime_context_inputs_stay_internal(
     tmp_path: Path,
 ) -> None:
-    request, _command_boundary_manifest, compile_result = (
+    with pytest.raises(LispFrontendCompileError) as exc_info:
         _compile_design_delta_work_item_without_shared_validation(tmp_path)
-    )
-    lowered = next(
-        workflow
-        for workflow in compile_result.entry_result.lowered_workflows
-        if workflow.typed_workflow.definition.name
-        == "lisp_frontend_design_delta/work_item::run-work-item"
-    )
-    lowered_inputs = lowered.authored_mapping["inputs"]
 
-    assert {
-        "selection_bundle_path",
-        "manifest_path",
-        "architecture_bundle_path",
-        "steering_path",
-        "target_design_path",
-        "baseline_design_path",
-        "progress_ledger_path",
-        "run_state_path",
-        "implementation_execute_provider",
-        "implementation_review_provider",
-    }.issubset(lowered_inputs)
-    assert {
-        "phase-ctx__run__run-id",
-        "phase-ctx__run__state-root",
-        "phase-ctx__run__artifact-root",
-        "phase-ctx__phase-name",
-        "phase-ctx__state-root",
-        "phase-ctx__artifact-root",
-    }.issubset(lowered_inputs)
-    assert any(name.startswith("__write_root__") for name in lowered_inputs)
-
-    _assert_design_delta_work_item_build_blocked_by_phase_family_boundary(request)
+    _assert_design_delta_work_item_blocked_by_wcc_ifexpr(exc_info.value.diagnostics)
 
 
 def test_design_delta_work_item_command_boundary_lineage_records_family_adapters(
     tmp_path: Path,
 ) -> None:
-    request, command_boundary_manifest, _compile_result = (
-        _compile_design_delta_work_item_without_shared_validation(tmp_path)
+    request = _design_delta_work_item_request(tmp_path)
+    build = _build_module()
+    resolved_request = getattr(build, "_resolve_request")(request)
+    command_boundary_manifest = getattr(build, "_load_command_boundaries_manifest_payload")(
+        resolved_request.command_boundaries_path,
     )
     boundary_names = set(command_boundary_manifest)
 
@@ -2138,7 +2235,10 @@ def test_design_delta_work_item_command_boundary_lineage_records_family_adapters
         "select_lisp_frontend_blocked_recovery_route",
     }.issubset(boundary_names)
 
-    _assert_design_delta_work_item_build_blocked_by_phase_family_boundary(request)
+    with pytest.raises(LispFrontendCompileError) as exc_info:
+        _compile_design_delta_work_item_without_shared_validation(tmp_path)
+
+    _assert_design_delta_work_item_blocked_by_wcc_ifexpr(exc_info.value.diagnostics)
 
 
 def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(
@@ -2248,6 +2348,7 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
             source_roots=(tmp_path,),
             entry_workflow="entry",
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
     )
     result = built.compile_result.entry_result
@@ -2347,6 +2448,7 @@ def test_boundary_projection_serializer_uses_typed_bundle_compatibility_split(
             source_roots=(tmp_path,),
             entry_workflow="entry",
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
     )
 
@@ -2444,6 +2546,7 @@ def test_boundary_projection_serializer_preserves_lowered_compatibility_inputs_w
             source_roots=(tmp_path,),
             entry_workflow="entry",
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
     )
     entry_result = built.compile_result.entry_result
@@ -2480,6 +2583,118 @@ def test_boundary_projection_serializer_preserves_lowered_compatibility_inputs_w
     assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == [
         "compatibility__legacy_state_root"
     ]
+
+
+def test_build_frontend_bundle_keeps_wcc_default_schema_and_lowering_route_out_of_artifacts(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    result = build_frontend_bundle(_build_request(tmp_path))
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    manifest_payload = json.dumps(manifest, sort_keys=True)
+    source_map_payload = result.artifact_paths["source_map"].read_text(encoding="utf-8")
+
+    assert result.manifest.shared_validation_status == "validated"
+    assert manifest["lowering_schema_version"] == 2
+    assert "wcc_m1" not in manifest_payload
+    assert "wcc_m2" not in manifest_payload
+    assert "wcc_m4" not in manifest_payload
+    assert "lowering_route" not in manifest_payload
+    assert "wcc_m1" not in source_map_payload
+    assert "wcc_m2" not in source_map_payload
+    assert "wcc_m4" not in source_map_payload
+    assert "lowering_route" not in source_map_payload
+
+
+def test_build_frontend_bundle_keeps_wcc_candidate_schema_and_lowering_route_out_of_artifacts(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request = _build_request(tmp_path)
+    result = build_frontend_bundle(
+        type(request)(
+            **{
+                **request.__dict__,
+                "lowering_route": LoweringRoute.WCC_M4,
+            }
+        )
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    manifest_text = json.dumps(manifest, sort_keys=True)
+    source_map_text = result.artifact_paths["source_map"].read_text(encoding="utf-8")
+
+    assert result.manifest.shared_validation_status == "validated"
+    assert manifest["lowering_schema_version"] == 2
+    assert "wcc_m4" not in manifest_text
+    assert "lowering_route" not in manifest_text
+    assert "wcc_m4" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
+
+
+def test_same_file_wcc_m3_source_map_keeps_route_names_out_and_preserves_match_join_lineage(
+    tmp_path: Path,
+) -> None:
+    source_map = _same_file_wcc_m3_source_map_payload(
+        tmp_path,
+        fixture_path=FIXTURES / "characterization" / "sources" / "design_delta_union_match_projection.orc",
+        module_filename="union_match_probe.orc",
+        selected_name="union_match_probe::summarize",
+    )
+    source_map_text = json.dumps(source_map, sort_keys=True).replace(str(tmp_path), "")
+    workflow = source_map["workflows"]["union_match_probe::summarize"]
+
+    assert "wcc_m1" not in source_map_text
+    assert "wcc_m2" not in source_map_text
+    assert "wcc_m3" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert any(node["kind"] == "match_join" for node in workflow["executable_nodes"])
+    assert workflow["validation_subjects"]
+    assert workflow["core_nodes"]
+
+
+def test_wcc_m4_source_map_keeps_route_names_out_and_preserves_repeat_until_lineage(
+    tmp_path: Path,
+) -> None:
+    source_map = _route_neutral_wcc_m4_source_map_payload(tmp_path)
+    source_map_text = json.dumps(source_map, sort_keys=True).replace(str(tmp_path), "")
+    workflow = source_map["workflows"]["route_neutral_loop::loop-recur-on-exhausted-union"]
+
+    assert "wcc_m4" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
+    assert "Wcc" not in source_map_text
+    assert any(node["step_kind"] == "repeat_until" for node in workflow["core_nodes"])
+    assert any(node["kind"] == "repeat_until_frame" for node in workflow["executable_nodes"])
+    assert {"return__variant", "return__reason", "return__report"}.issubset(workflow["generated_outputs"])
+    assert workflow["generated_outputs"]["return__reason"]["generated_name_origin"] == "return__reason"
+    assert workflow["validation_subjects"]
+
+
+def test_wcc_m4_full_fixture_source_map_records_review_loop_and_command_lineage(
+    tmp_path: Path,
+) -> None:
+    source_map = _wcc_m4_full_fixture_source_map_payload(tmp_path)
+    source_map_text = json.dumps(source_map, sort_keys=True)
+    workflow = source_map["workflows"]["wcc_m4_implementation_phase_full_fixture::run"]
+
+    command_names = {boundary["command_name"] for boundary in workflow["command_boundaries"]}
+    assert {"run_checks", "validate_review_findings_v1"}.issubset(command_names)
+    assert any(node["step_kind"] == "repeat_until" for node in workflow["core_nodes"])
+    assert any(node["kind"] == "repeat_until_frame" for node in workflow["executable_nodes"])
+    assert {"return__variant", "return__review_report", "return__findings__items_path"}.issubset(
+        workflow["generated_outputs"]
+    )
+    assert any(
+        allocation["semantic_role"] == "command_result_bundle" and "run_checks" in allocation["stable_identity"]
+        for allocation in workflow["generated_path_allocations"]
+    )
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

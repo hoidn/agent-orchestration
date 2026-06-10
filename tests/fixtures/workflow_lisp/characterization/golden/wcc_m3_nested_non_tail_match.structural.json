@@ -1,0 +1,600 @@
+{
+  "case_id": "wcc_m3_nested_non_tail_match",
+  "compiled_module_names": [
+    "nested_match_probe"
+  ],
+  "diagnostics": [],
+  "imported_workflow_bundles": [],
+  "lowered_workflows": [
+    {
+      "authored_mapping": {
+        "inputs": {
+          "__write_root__summarize__attempt__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "__write_root__summarize__review__result_bundle": {
+            "kind": "relpath",
+            "type": "relpath"
+          },
+          "report": {
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "name": "summarize",
+        "outputs": {
+          "return__report": {
+            "from": {
+              "ref": "root.steps.summarize__summary__match_attempt.artifacts.return__report"
+            },
+            "kind": "relpath",
+            "must_exist_target": true,
+            "type": "relpath",
+            "under": "artifacts/work"
+          }
+        },
+        "steps": [
+          {
+            "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+            "id": "summarize__attempt",
+            "inject_output_contract": true,
+            "name": "summarize__attempt",
+            "provider": "fake-execute",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "COMPLETED",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.__write_root__summarize__attempt__result_bundle}",
+              "shared_fields": [],
+              "variants": {
+                "BLOCKED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report",
+                      "must_exist_target": true,
+                      "name": "progress_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report",
+                      "must_exist_target": true,
+                      "name": "execution_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "asset_file": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+            "id": "summarize__review",
+            "inject_output_contract": true,
+            "name": "summarize__review",
+            "provider": "fake-execute",
+            "variant_output": {
+              "discriminant": {
+                "allowed": [
+                  "APPROVED",
+                  "REVISE"
+                ],
+                "json_pointer": "/variant",
+                "name": "variant",
+                "type": "enum"
+              },
+              "path": "${inputs.__write_root__summarize__review__result_bundle}",
+              "shared_fields": [],
+              "variants": {
+                "APPROVED": {
+                  "fields": [
+                    {
+                      "json_pointer": "/execution_report",
+                      "must_exist_target": true,
+                      "name": "execution_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                },
+                "REVISE": {
+                  "fields": [
+                    {
+                      "json_pointer": "/progress_report",
+                      "must_exist_target": true,
+                      "name": "progress_report",
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "summarize__summary__match_attempt__completed__match_review",
+            "match": {
+              "cases": {
+                "APPROVED": {
+                  "id": "summarize__summary__match_attempt__completed__match_review__approved",
+                  "outputs": {
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.summarize__review.artifacts.execution_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.summarize__review.artifacts.execution_report"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.summarize__review.artifacts.execution_report"
+                          }
+                        }
+                      },
+                      "id": "summarize__summary__match_attempt__completed__match_review__approved__projection_anchor",
+                      "name": "summarize__summary__match_attempt__completed__match_review__approved__projection_anchor"
+                    }
+                  ]
+                },
+                "REVISE": {
+                  "id": "summarize__summary__match_attempt__completed__match_review__revise",
+                  "outputs": {
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.summarize__review.artifacts.progress_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.summarize__review.artifacts.progress_report"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.summarize__review.artifacts.progress_report"
+                          }
+                        }
+                      },
+                      "id": "summarize__summary__match_attempt__completed__match_review__revise__projection_anchor",
+                      "name": "summarize__summary__match_attempt__completed__match_review__revise__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.summarize__review.artifacts.variant"
+            },
+            "name": "summarize__summary__match_attempt__completed__match_review",
+            "when": {
+              "compare": {
+                "left": {
+                  "ref": "root.steps.summarize__attempt.artifacts.variant"
+                },
+                "op": "eq",
+                "right": "COMPLETED"
+              }
+            }
+          },
+          {
+            "id": "summarize__summary__match_attempt",
+            "match": {
+              "cases": {
+                "BLOCKED": {
+                  "id": "summarize__summary__match_attempt__blocked",
+                  "outputs": {
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.summarize__attempt.artifacts.progress_report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.summarize__attempt.artifacts.progress_report"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.summarize__attempt.artifacts.progress_report"
+                          }
+                        }
+                      },
+                      "id": "summarize__summary__match_attempt__blocked__projection_anchor",
+                      "name": "summarize__summary__match_attempt__blocked__projection_anchor"
+                    }
+                  ]
+                },
+                "COMPLETED": {
+                  "id": "summarize__summary__match_attempt__completed",
+                  "outputs": {
+                    "return__report": {
+                      "from": {
+                        "ref": "root.steps.summarize__summary__match_attempt__completed__match_review.artifacts.return__report"
+                      },
+                      "kind": "relpath",
+                      "must_exist_target": true,
+                      "type": "relpath",
+                      "under": "artifacts/work"
+                    }
+                  },
+                  "steps": [
+                    {
+                      "assert": {
+                        "compare": {
+                          "left": {
+                            "ref": "root.steps.summarize__summary__match_attempt__completed__match_review.artifacts.return__report"
+                          },
+                          "op": "eq",
+                          "right": {
+                            "ref": "root.steps.summarize__summary__match_attempt__completed__match_review.artifacts.return__report"
+                          }
+                        }
+                      },
+                      "id": "summarize__summary__match_attempt__completed__projection_anchor",
+                      "name": "summarize__summary__match_attempt__completed__projection_anchor"
+                    }
+                  ]
+                }
+              },
+              "ref": "root.steps.summarize__attempt.artifacts.variant"
+            },
+            "name": "summarize__summary__match_attempt"
+          }
+        ],
+        "version": "2.14"
+      },
+      "generated_input_names": [
+        "__write_root__summarize__attempt__result_bundle",
+        "__write_root__summarize__review__result_bundle"
+      ],
+      "step_labels": [
+        "summarize__attempt",
+        "summarize__review",
+        "summarize__summary__match_attempt__completed__match_review",
+        "summarize__summary__match_attempt__completed__match_review__approved__projection_anchor",
+        "summarize__summary__match_attempt__completed__match_review__revise__projection_anchor",
+        "summarize__summary__match_attempt",
+        "summarize__summary__match_attempt__blocked__projection_anchor",
+        "summarize__summary__match_attempt__completed__projection_anchor"
+      ],
+      "workflow_name": "summarize"
+    }
+  ],
+  "schema_version": "workflow_lisp.characterization.v1",
+  "selected_workflow_name": null,
+  "source_digest": "75ae6b3022fc21213772cf349596ae3aa74416627d09c279b5880449be4f48bb",
+  "validated_bundles": [
+    {
+      "artifact_keys": [],
+      "generated_input_names": [
+        "__write_root__summarize__attempt__result_bundle",
+        "__write_root__summarize__review__result_bundle"
+      ],
+      "generated_paths": [
+        {
+          "allocation_id": "alloc:summarize:provider_result_bundle:7db7baf5cac5220e",
+          "concrete_path_template": "${inputs.__write_root__summarize__attempt__result_bundle}",
+          "generated_input_name": "__write_root__summarize__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "summarize/summarize__attempt/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:summarize:provider_result_bundle:19455ea5122b72e6",
+          "concrete_path_template": "${inputs.__write_root__summarize__review__result_bundle}",
+          "generated_input_name": "__write_root__summarize__review__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "step_visit",
+          "semantic_role": "provider_result_bundle",
+          "stable_identity": "summarize/summarize__review/result_bundle"
+        },
+        {
+          "allocation_id": "alloc:summarize:entrypoint_managed_write_root:36fd23d2e62545fe",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/summarize/__write_root__summarize__attempt__result_bundle.json",
+          "generated_input_name": "__write_root__summarize__attempt__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "summarize/summarize__attempt/result_bundle/entry"
+        },
+        {
+          "allocation_id": "alloc:summarize:entrypoint_managed_write_root:07e7fe5dc8071535",
+          "concrete_path_template": ".orchestrate/workflow_lisp/entry/${runtime.run_id}/summarize/__write_root__summarize__review__result_bundle.json",
+          "generated_input_name": "__write_root__summarize__review__result_bundle",
+          "path_safety_policy": "workspace_relative",
+          "privacy": "private_generated",
+          "resume_scope": "run",
+          "semantic_role": "entrypoint_managed_write_root",
+          "stable_identity": "summarize/summarize__review/result_bundle/entry"
+        }
+      ],
+      "input_keys": [
+        "__write_root__summarize__attempt__result_bundle",
+        "__write_root__summarize__review__result_bundle",
+        "report"
+      ],
+      "output_keys": [
+        "return__report"
+      ],
+      "projection": {
+        "call_boundaries": {},
+        "for_each_nodes": {},
+        "match_cases": {
+          "root.summarize__summary__match_attempt": {
+            "BLOCKED": {
+              "marker_presentation_key": "summarize__summary__match_attempt.BLOCKED",
+              "marker_step_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked",
+              "step_presentation_keys": [
+                "summarize__summary__match_attempt.BLOCKED.summarize__summary__match_attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker_presentation_key": "summarize__summary__match_attempt.COMPLETED",
+              "marker_step_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed",
+              "step_presentation_keys": [
+                "summarize__summary__match_attempt.COMPLETED.summarize__summary__match_attempt__completed__projection_anchor"
+              ]
+            }
+          },
+          "root.summarize__summary__match_attempt__completed__match_review": {
+            "APPROVED": {
+              "marker_presentation_key": "summarize__summary__match_attempt__completed__match_review.APPROVED",
+              "marker_step_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved",
+              "step_presentation_keys": [
+                "summarize__summary__match_attempt__completed__match_review.APPROVED.summarize__summary__match_attempt__completed__match_review__approved__projection_anchor"
+              ]
+            },
+            "REVISE": {
+              "marker_presentation_key": "summarize__summary__match_attempt__completed__match_review.REVISE",
+              "marker_step_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise",
+              "step_presentation_keys": [
+                "summarize__summary__match_attempt__completed__match_review.REVISE.summarize__summary__match_attempt__completed__match_review__revise__projection_anchor"
+              ]
+            }
+          }
+        },
+        "node_summaries": [
+          {
+            "command": null,
+            "compatibility_index": 0,
+            "consumes": [],
+            "display_name": "summarize__attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__attempt",
+            "presentation_key": "summarize__attempt",
+            "provider": "fake-execute",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.summarize__attempt"
+          },
+          {
+            "command": null,
+            "compatibility_index": 1,
+            "consumes": [],
+            "display_name": "summarize__review",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__review",
+            "presentation_key": "summarize__review",
+            "provider": "fake-execute",
+            "region": "body",
+            "report_kind": "provider",
+            "step_id": "root.summarize__review"
+          },
+          {
+            "command": null,
+            "compatibility_index": 2,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt__completed__match_review.APPROVED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved",
+            "presentation_key": "summarize__summary__match_attempt__completed__match_review.APPROVED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved"
+          },
+          {
+            "command": null,
+            "compatibility_index": 3,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt__completed__match_review.APPROVED.summarize__summary__match_attempt__completed__match_review__approved__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved.summarize__summary__match_attempt__completed__match_review__approved__projection_anchor",
+            "presentation_key": "summarize__summary__match_attempt__completed__match_review.APPROVED.summarize__summary__match_attempt__completed__match_review__approved__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved.summarize__summary__match_attempt__completed__match_review__approved__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 4,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt__completed__match_review.REVISE",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise",
+            "presentation_key": "summarize__summary__match_attempt__completed__match_review.REVISE",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise"
+          },
+          {
+            "command": null,
+            "compatibility_index": 5,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt__completed__match_review.REVISE.summarize__summary__match_attempt__completed__match_review__revise__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise.summarize__summary__match_attempt__completed__match_review__revise__projection_anchor",
+            "presentation_key": "summarize__summary__match_attempt__completed__match_review.REVISE.summarize__summary__match_attempt__completed__match_review__revise__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise.summarize__summary__match_attempt__completed__match_review__revise__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 6,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt__completed__match_review",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt__completed__match_review",
+            "presentation_key": "summarize__summary__match_attempt__completed__match_review",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.summarize__summary__match_attempt__completed__match_review"
+          },
+          {
+            "command": null,
+            "compatibility_index": 7,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt.COMPLETED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed",
+            "presentation_key": "summarize__summary__match_attempt.COMPLETED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed"
+          },
+          {
+            "command": null,
+            "compatibility_index": 8,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt.COMPLETED.summarize__summary__match_attempt__completed__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed.summarize__summary__match_attempt__completed__projection_anchor",
+            "presentation_key": "summarize__summary__match_attempt.COMPLETED.summarize__summary__match_attempt__completed__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed.summarize__summary__match_attempt__completed__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 9,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt.BLOCKED",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked",
+            "presentation_key": "summarize__summary__match_attempt.BLOCKED",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_case",
+            "step_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked"
+          },
+          {
+            "command": null,
+            "compatibility_index": 10,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt.BLOCKED.summarize__summary__match_attempt__blocked__projection_anchor",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked.summarize__summary__match_attempt__blocked__projection_anchor",
+            "presentation_key": "summarize__summary__match_attempt.BLOCKED.summarize__summary__match_attempt__blocked__projection_anchor",
+            "provider": null,
+            "region": "body",
+            "report_kind": "assert",
+            "step_id": "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked.summarize__summary__match_attempt__blocked__projection_anchor"
+          },
+          {
+            "command": null,
+            "compatibility_index": 11,
+            "consumes": [],
+            "display_name": "summarize__summary__match_attempt",
+            "expected_outputs": [],
+            "finalization_index": null,
+            "max_visits": null,
+            "node_id": "root.summarize__summary__match_attempt",
+            "presentation_key": "summarize__summary__match_attempt",
+            "provider": null,
+            "region": "body",
+            "report_kind": "structured_match_join",
+            "step_id": "root.summarize__summary__match_attempt"
+          }
+        ],
+        "ordered_node_ids": [
+          "root.summarize__attempt",
+          "root.summarize__review",
+          "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved",
+          "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__approved.summarize__summary__match_attempt__completed__match_review__approved__projection_anchor",
+          "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise",
+          "root.summarize__summary__match_attempt__completed__match_review.summarize__summary__match_attempt__completed__match_review__revise.summarize__summary__match_attempt__completed__match_review__revise__projection_anchor",
+          "root.summarize__summary__match_attempt__completed__match_review",
+          "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed",
+          "root.summarize__summary__match_attempt.summarize__summary__match_attempt__completed.summarize__summary__match_attempt__completed__projection_anchor",
+          "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked",
+          "root.summarize__summary__match_attempt.summarize__summary__match_attempt__blocked.summarize__summary__match_attempt__blocked__projection_anchor",
+          "root.summarize__summary__match_attempt"
+        ],
+        "repeat_until_nodes": {}
+      },
+      "workflow_name": "summarize"
+    }
+  ],
+  "workflow_names": [
+    "summarize"
+  ]
+}

@@ -7,7 +7,7 @@ imports:
   work_item: ../library/lisp_frontend_design_delta_work_item.v214.yaml
 
 context:
-  workflow_model: "gpt-5.4"
+  workflow_model: "gpt-5.5"
   workflow_effort: "high"
 
 inputs:

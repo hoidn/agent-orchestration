@@ -26,6 +26,7 @@ from ..loops import (
     LOOP_STATUS_OUTPUT_NAME,
     LoopLoweringPlan,
     LoopValueProjection,
+    RepeatUntilEmitterInput,
     build_loop_lowering_plan,
     internal_loop_contract,
     projection_relpath_fields,
@@ -96,10 +97,48 @@ def _control_lower_loop_recur_impl(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step
+    return _emit_repeat_until_from_loop_recur_expr(
+        typed_expr,
+        context=context,
+        local_values=local_values,
+    )
 
+
+def _emit_repeat_until_from_loop_recur_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
     assert isinstance(expr, LoopRecurExpr)
+    return _emit_repeat_until_from_emitter_input(
+        RepeatUntilEmitterInput(
+            max_iterations_expr=expr.max_iterations_expr,
+            initial_state_expr=expr.initial_state_expr,
+            binding_name=expr.binding_name,
+            body_expr=expr.body_expr,
+            result_type_ref=typed_expr.type_ref,
+            span=expr.span,
+            form_path=expr.form_path,
+            on_exhausted_result_expr=expr.on_exhausted_result_expr,
+            source_expr=expr,
+        ),
+        context=context,
+        local_values=local_values,
+    )
+
+
+def _emit_repeat_until_from_emitter_input(
+    emitter_input: RepeatUntilEmitterInput,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step
+
+    expr = emitter_input
+    source_expr = emitter_input.source_expr or emitter_input
     state_type = _resolve_lowering_expr_type(expr.initial_state_expr, context=context)
     if state_type is None:
         raise _compile_error(
@@ -108,7 +147,7 @@ def _control_lower_loop_recur_impl(
             span=expr.initial_state_expr.span,
             form_path=expr.initial_state_expr.form_path,
         )
-    result_type = typed_expr.type_ref
+    result_type = emitter_input.result_type_ref
     if not isinstance(result_type, (RecordTypeRef, UnionTypeRef, PathTypeRef, PrimitiveTypeRef)):
         raise _compile_error(
             code="workflow_return_not_exportable",
@@ -152,7 +191,7 @@ def _control_lower_loop_recur_impl(
         local_values=local_values,
         initial_state_value=initial_state_value,
     )
-    _record_step_origin(context, step_name=plan.seed_step_name, step_id=seed_step_id, source=expr)
+    _record_step_origin(context, step_name=plan.seed_step_name, step_id=seed_step_id, source=source_expr)
     current_state_step_name = f"{plan.body_projection_step_name}__state"
     current_state_step_id = _normalize_generated_step_id(current_state_step_name)
     current_state_steps = _build_loop_current_state_steps(
@@ -163,7 +202,7 @@ def _control_lower_loop_recur_impl(
         expr=expr,
         context=context,
     )
-    _record_step_origin(context, step_name=current_state_step_name, step_id=current_state_step_id, source=expr)
+    _record_step_origin(context, step_name=current_state_step_name, step_id=current_state_step_id, source=source_expr)
     current_state_terminal = _TerminalResult(
         step_name=current_state_step_name,
         step_id=current_state_step_id,
@@ -277,7 +316,7 @@ def _control_lower_loop_recur_impl(
                 loop_binding_name=expr.binding_name,
             )
         }
-    _record_step_origin(context, step_name=plan.repeat_step_name, step_id=repeat_step_id, source=expr)
+    _record_step_origin(context, step_name=plan.repeat_step_name, step_id=repeat_step_id, source=source_expr)
 
     normalized_result_fields = lowering_core.derive_workflow_boundary_fields(
         result_type,
@@ -384,7 +423,7 @@ def _control_lower_loop_recur_impl(
         context,
         step_name=plan.result_normalization_step_name,
         step_id=result_step_id,
-        source=expr,
+        source=source_expr,
     )
     _record_loop_on_exhausted_origins(
         context=context,
@@ -656,6 +695,7 @@ def _lower_loop_body_expr(
             output_kind=body_terminal.output_kind,
             hidden_inputs=hidden_inputs,
         )
+    # schema1_compatibility: legacy loop body match lowering retained outside promoted WCC.
     if isinstance(expr, MatchExpr):
         if not isinstance(expr.subject, NameExpr):
             raise _compile_error(
@@ -1112,7 +1152,11 @@ def _loop_projection_materialize_values(
     values: list[dict[str, Any]] = []
     if active_variant_name is not None and projection.union_projection is not None:
         projected_variant_name = (
-            expr.variant_name if isinstance(expr, UnionVariantExpr) else active_variant_name
+            resolved_value.variant_name
+            if isinstance(resolved_value, UnionVariantExpr)
+            else expr.variant_name
+            if isinstance(expr, UnionVariantExpr)
+            else active_variant_name
         )
         active_variant_fields = {
             field.generated_name
