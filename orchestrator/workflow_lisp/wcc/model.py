@@ -311,6 +311,15 @@ class WccCase:
 
 
 @dataclass(frozen=True)
+class WccIf:
+    metadata: WccNodeMetadata
+    condition: WccValue
+    condition_shape: object
+    then_body: "WccBody"
+    else_body: "WccBody"
+
+
+@dataclass(frozen=True)
 class WccJoinParam:
     name: str
     type_ref: TypeRef
@@ -378,5 +387,5 @@ class WccLet:
     body: "WccBody"
 
 
-WccBody = WccLet | WccCase | WccJoin | WccJump | WccLoopContinue | WccLoopDone | WccRecJoin | WccHalt
+WccBody = WccLet | WccCase | WccIf | WccJoin | WccJump | WccLoopContinue | WccLoopDone | WccRecJoin | WccHalt
 WccProgram = WccBody

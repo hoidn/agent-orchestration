@@ -16,6 +16,7 @@ from ..expressions import (
     DoneExpr,
     FieldAccessExpr,
     GeneratedRelpathSeedExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
@@ -709,6 +710,26 @@ def _validate_wcc_m4_expr_supported(
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,
             )
+        return
+    if isinstance(expr, IfExpr):
+        _validate_wcc_m4_expr_supported(
+            expr.condition_expr,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
+        _validate_wcc_m4_expr_supported(
+            expr.then_expr,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
+        _validate_wcc_m4_expr_supported(
+            expr.else_expr,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
         return
     if isinstance(expr, WithPhaseExpr):
         _validate_wcc_m4_expr_supported(

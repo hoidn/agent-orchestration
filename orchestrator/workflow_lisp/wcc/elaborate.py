@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
+from ..conditionals import classify_condition_expr
 from ..diagnostics import LispFrontendCompileError
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expressions import (
@@ -15,6 +16,7 @@ from ..expressions import (
     DoneExpr,
     FieldAccessExpr,
     GeneratedRelpathSeedExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
     LoopStateSeedExpr,
@@ -55,6 +57,7 @@ from .model import (
     WccFieldAccessAtom,
     WccHalt,
     WccIdentityFactory,
+    WccIf,
     WccInject,
     WccJoin,
     WccJoinParam,
@@ -206,6 +209,19 @@ def _elaborate_expr_to_body(
         )
     if isinstance(expr, MatchExpr):
         return _elaborate_match_to_body(
+            expr,
+            scope=scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+    if isinstance(expr, IfExpr):
+        return _elaborate_if_to_body(
             expr,
             scope=scope,
             type_env=type_env,
@@ -483,6 +499,37 @@ def _elaborate_let_star(
                 active_phase_scope=active_phase_scope,
             )
 
+        if isinstance(binding_expr, IfExpr):
+            tail = build(
+                index + 1,
+                next_env,
+                local_scope.child_scope("body", authored_binding_name=binding_name),
+                local_compile_time_bindings,
+            )
+            binding_scope = local_scope.child_scope("if", authored_binding_name=binding_name)
+            binding_body = _elaborate_if_to_body(
+                binding_expr,
+                scope=binding_scope,
+                type_env=type_env,
+                value_env=local_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=local_compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            return _elaborate_control_binding_to_body(
+                binding_name=binding_name,
+                binding_type=binding_type,
+                binding_expr=binding_expr,
+                binding_body=binding_body,
+                continuation=tail,
+                scope=binding_scope,
+                effect_summary=effect_summary,
+                active_phase_scope=active_phase_scope,
+            )
+
         binding_scope = local_scope.child_scope("binding", authored_binding_name=binding_name)
         binding_body = _elaborate_expr_to_body(
             binding_expr,
@@ -654,6 +701,12 @@ def _retarget_loop_continue(body: WccBody, *, loop_name: str) -> WccBody:
                 )
                 for arm in body.arms
             ),
+        )
+    if isinstance(body, WccIf):
+        return replace(
+            body,
+            then_body=_retarget_loop_continue(body.then_body, loop_name=loop_name),
+            else_body=_retarget_loop_continue(body.else_body, loop_name=loop_name),
         )
     return body
 
@@ -1188,6 +1241,82 @@ def _elaborate_match_case_with_subject(
     )
 
 
+def _elaborate_if_to_body(
+    expr: IfExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> WccBody:
+    result_type = _infer_expr_type(
+        expr,
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+    )
+    condition_prefix, condition = _elaborate_expr_to_value(
+        expr.condition_expr,
+        scope=scope.child_scope("if-condition"),
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+    condition_shape = classify_condition_expr(
+        expr.condition_expr,
+        type_ref=PrimitiveTypeRef(name="Bool"),
+    )
+    if_body = WccIf(
+        metadata=scope.body_metadata(
+            role="if",
+            type_ref=result_type,
+            source_span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            effect_summary=effect_summary,
+            phase_scope=active_phase_scope,
+        ),
+        condition=condition,
+        condition_shape=condition_shape,
+        then_body=_elaborate_expr_to_body(
+            expr.then_expr,
+            scope=scope.child_scope("if-then"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        ),
+        else_body=_elaborate_expr_to_body(
+            expr.else_expr,
+            scope=scope.child_scope("if-else"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        ),
+    )
+    return _wrap_prefix_lets(condition_prefix, if_body)
+
+
 def _elaborate_case_arm(
     match_expr: MatchExpr,
     arm,
@@ -1321,6 +1450,22 @@ def _replace_halts_with_jump(
                     ),
                 )
                 for arm in body.arms
+            ),
+        )
+    if isinstance(body, WccIf):
+        return replace(
+            body,
+            then_body=_replace_halts_with_jump(
+                body.then_body,
+                join_name=join_name,
+                result_type=result_type,
+                scope=scope.child_scope("if-then"),
+            ),
+            else_body=_replace_halts_with_jump(
+                body.else_body,
+                join_name=join_name,
+                result_type=result_type,
+                scope=scope.child_scope("if-else"),
             ),
         )
     if isinstance(body, WccJoin):
@@ -2098,6 +2243,32 @@ def _infer_expr_type(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
+    if isinstance(expr, IfExpr):
+        then_type = _infer_expr_type(
+            expr.then_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        else_type = _infer_expr_type(
+            expr.else_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        if isinstance(then_type, LoopControlTypeRef) and isinstance(else_type, LoopControlTypeRef):
+            if not type_refs_compatible(then_type.state_type_ref, else_type.state_type_ref):
+                raise TypeError("if loop-control branch state types must match during WCC inference")
+            result_type_ref = then_type.result_type_ref or else_type.result_type_ref
+            return LoopControlTypeRef(
+                state_type_ref=then_type.state_type_ref,
+                result_type_ref=result_type_ref,
+            )
+        if not type_refs_compatible(then_type, else_type):
+            raise TypeError("if branch types must match during WCC inference")
+        return then_type
     if isinstance(expr, MatchExpr):
         subject_type = _infer_expr_type(
             expr.subject,
