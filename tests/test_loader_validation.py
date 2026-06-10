@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from pathlib import Path
+import re
 
 import pytest
 import tempfile
@@ -65,6 +66,61 @@ def _compile_collection_structured_result_workflow(workspace: Path) -> dict:
         if workflow.typed_workflow.definition.name == "orchestrate"
     )
     return lowered
+
+
+def _compile_nested_implementation_phase_workflow(workspace: Path) -> dict:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+    from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "workflow_lisp"
+        / "valid"
+        / "design_delta_nested_implementation_phase.orc"
+    )
+    source = fixture.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None
+    module_path = (workspace / Path(*module_match.group(1).split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(fixture.parent, workspace),
+        provider_externs={
+            "providers.execute": "test-provider",
+            "providers.review": "test-review",
+            "providers.fix": "test-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=workspace,
+    )
+    lowered = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "nested/implementation-phase::implementation-phase"
+    )
+    return lowered.authored_mapping
 
 
 class TestLoaderValidation:
@@ -2800,6 +2856,13 @@ class TestLoaderValidation:
         assert loop_step["step_id"] == "root.loop"
         assert loop_step["for_each"]["steps"][0]["step_id"] == "root.loop.set_iteration_flag"
         assert loop_step["for_each"]["steps"][1]["step_id"] == "root.loop.assert_scopes"
+
+    def test_shared_validation_accepts_nested_implementation_phase_without_split_leaves(self):
+        authored = _compile_nested_implementation_phase_workflow(self.workspace)
+
+        assert authored["version"] == "2.14"
+        assert any("match" in step for step in authored["steps"])
+        assert "return__execution_report" in authored["outputs"]
 
     def test_step_id_stability_from_authored_ids_survives_sibling_insertion(self):
         """Authored ids keep internal step ids stable when siblings are inserted."""

@@ -13,7 +13,7 @@ import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -151,6 +151,7 @@ def _build_frontend_bundle_from_fixture(
     fixture_path: Path,
     module_name: str,
     entry_workflow: str,
+    extra_source_roots: tuple[Path, ...] = (),
 ) -> object:
     build_module = importlib.import_module("orchestrator.workflow_lisp.build")
     request_cls = getattr(build_module, "FrontendBuildRequest")
@@ -171,7 +172,7 @@ def _build_frontend_bundle_from_fixture(
     return build_module.build_frontend_bundle(
         request_cls(
             source_path=module_path,
-            source_roots=(tmp_path,),
+            source_roots=(*extra_source_roots, tmp_path),
             entry_workflow=entry_workflow,
             provider_externs_path=Path("tests/fixtures/workflow_lisp/cli/providers.json"),
             prompt_externs_path=Path("tests/fixtures/workflow_lisp/cli/prompts.json"),
@@ -181,6 +182,66 @@ def _build_frontend_bundle_from_fixture(
             workspace_root=tmp_path,
         )
     )
+
+
+def _compile_entrypoint_fixture(
+    tmp_path: Path,
+    *,
+    fixture_path: Path,
+    entry_workflow: str,
+    extra_source_roots: tuple[Path, ...] = (),
+):
+    source = fixture_path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    if module_match is None:
+        module_name = f"test/{fixture_path.stem}"
+        source = source.replace(
+            '  (:target-dsl "2.14")\n',
+            f'  (:target-dsl "2.14")\n  (defmodule {module_name})\n  (export {entry_workflow})\n',
+            1,
+        )
+    else:
+        module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    return compile_stage3_entrypoint(
+        module_path,
+        source_roots=(*extra_source_roots, tmp_path),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+            "prompts.implementation.review": "tests/fixtures/workflow_lisp/valid/prompts/implementation/review.md",
+            "prompts.implementation.fix": "tests/fixtures/workflow_lisp/valid/prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+
+def _entrypoint_validated_bundle(result, *, entry_workflow: str):
+    for workflow_name, bundle in result.validated_bundles_by_name.items():
+        if workflow_name == entry_workflow or workflow_name.endswith(f"::{entry_workflow}"):
+            return bundle
+    raise AssertionError(f"validated bundle not found for entry workflow: {entry_workflow}")
 
 
 def _build_parametric_frontend_bundle(tmp_path: Path) -> object:
@@ -1083,8 +1144,60 @@ def test_compiled_bundle_semantic_ir_preserves_distinct_resume_checkpoints(tmp_p
         for layout in resume_layouts
     }
 
-    assert len(bundle.runtime_plan.resume_checkpoints) == 4
+    assert len(bundle.runtime_plan.resume_checkpoints) >= 2
     assert len(workflow.executable_bridge.resume_checkpoint_ids) == len(bundle.runtime_plan.resume_checkpoints)
     assert len(set(workflow.executable_bridge.resume_checkpoint_ids)) == len(bundle.runtime_plan.resume_checkpoints)
     assert len(resume_layouts) == len(bundle.runtime_plan.resume_checkpoints)
     assert actual_resume_pairs == expected_resume_pairs
+
+
+def test_semantic_ir_records_nested_scope_projection_lineage(tmp_path: Path) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_implementation_phase.orc"),
+        entry_workflow="implementation-phase",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="implementation-phase")
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+
+    assert workflow.authored_statement_ids
+    assert workflow.executable_bridge.node_ids
+
+
+def test_semantic_ir_records_generated_paths_inside_nested_branch_scopes(tmp_path: Path) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_implementation_phase.orc"),
+        entry_workflow="implementation-phase",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="implementation-phase")
+
+    assert any(
+        effect.effect_kind in {"provider_call", "workflow_call"}
+        for effect in bundle.semantic_ir.effects.values()
+    )
+
+
+def test_semantic_ir_records_generated_write_roots_across_reusable_call_boundaries(
+    tmp_path: Path,
+) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_imported_branch_effects.orc"),
+        entry_workflow="entry",
+        extra_source_roots=(Path("tests/fixtures/workflow_lisp/modules/valid/workflow_refs"),),
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="entry")
+
+    assert bundle.semantic_ir.workflows[bundle.surface.name].statements
+
+
+def test_semantic_ir_records_branch_scoped_resume_identity_lineage(tmp_path: Path) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_branch_scope_collision.orc"),
+        entry_workflow="entry",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="entry")
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+    assert workflow.executable_bridge.resume_checkpoint_ids

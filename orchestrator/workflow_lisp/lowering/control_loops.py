@@ -36,6 +36,7 @@ from ..typecheck import TypedExpr
 from . import core as lowering_core
 from .context import (
     _context_with_local_type_binding,
+    _copy_context_with_composition_scope,
     _copy_context_with_iteration_scope,
     _LoweringContext,
     _TerminalResult,
@@ -193,6 +194,7 @@ def _control_lower_loop_recur_impl(
         state_projection=plan.state_projection,
         result_projection=plan.result_projection,
         result_type=result_type,
+        on_exhausted_result_expr=expr.on_exhausted_result_expr,
         context=loop_body_context,
         local_values=loop_local_values,
         binding_terminal=_binding_terminal_for_inline_match(loop_local_values[expr.binding_name])
@@ -591,6 +593,7 @@ def _lower_loop_body_expr(
     state_projection: LoopValueProjection,
     result_projection: LoopValueProjection,
     result_type: TypeRef,
+    on_exhausted_result_expr: Any | None,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     binding_terminal: _TerminalResult,
@@ -631,6 +634,7 @@ def _lower_loop_body_expr(
             state_projection=state_projection,
             result_projection=result_projection,
             result_type=result_type,
+            on_exhausted_result_expr=on_exhausted_result_expr,
             context=_context_with_local_type_binding(
                 context,
                 binding_name=binding_name,
@@ -678,6 +682,7 @@ def _lower_loop_body_expr(
             result_projection=result_projection,
         )
         cases: dict[str, Any] = {}
+        subject_type = context.local_type_bindings.get(expr.subject.name)
         for arm in expr.arms:
             arm_local_values = {
                 name: _loop_parent_scope_value(value)
@@ -685,13 +690,32 @@ def _lower_loop_body_expr(
             }
             arm_local_values[arm.binding_name] = _loop_parent_scope_value(local_values.get(expr.subject.name))
             next_loop_binding_name = arm.binding_name if expr.subject.name == loop_binding_name else loop_binding_name
+            arm_context = _copy_context_with_composition_scope(
+                context,
+                scope_id=f"{body_step_name}__{arm.variant_name.lower()}",
+                parent_scope_id=context.composition_scope_id,
+                scope_kind="match_case",
+                owner_step_name=body_step_name,
+            )
+            if isinstance(subject_type, UnionTypeRef):
+                arm_context = _context_with_local_type_binding(
+                    arm_context,
+                    binding_name=arm.binding_name,
+                    binding_type=context.type_env.union_variant(
+                        subject_type,
+                        arm.variant_name,
+                        span=expr.subject.span,
+                        form_path=expr.subject.form_path,
+                    ),
+                )
             arm_steps, arm_terminal = _lower_loop_body_expr(
                 arm.body,
                 loop_binding_name=next_loop_binding_name,
                 state_projection=state_projection,
                 result_projection=result_projection,
                 result_type=result_type,
-                context=context,
+                on_exhausted_result_expr=on_exhausted_result_expr,
+                context=arm_context,
                 local_values=arm_local_values,
                 binding_terminal=match_terminal,
                 body_step_name=f"{body_step_name}__{arm.variant_name.lower()}",
@@ -747,6 +771,7 @@ def _lower_loop_body_expr(
             state_projection=state_projection,
             result_projection=result_projection,
             result_type=result_type,
+            on_exhausted_result_expr=on_exhausted_result_expr,
             context=context,
             local_values=branch_local_values,
             binding_terminal=binding_terminal,
@@ -759,6 +784,7 @@ def _lower_loop_body_expr(
             state_projection=state_projection,
             result_projection=result_projection,
             result_type=result_type,
+            on_exhausted_result_expr=on_exhausted_result_expr,
             context=context,
             local_values=branch_local_values,
             binding_terminal=binding_terminal,
@@ -835,10 +861,12 @@ def _lower_loop_body_expr(
             status_value="CONTINUE",
             state_expr=expr.state_expr,
             result_expr=None,
+            on_exhausted_result_expr=on_exhausted_result_expr,
             binding_terminal=binding_terminal,
             state_projection=state_projection,
             result_projection=result_projection,
             result_type=result_type,
+            loop_binding_name=loop_binding_name,
             context=context,
             local_values=local_values,
             active_variant_name=active_variant_name,
@@ -855,10 +883,12 @@ def _lower_loop_body_expr(
                 expansion_stack=getattr(expr, "expansion_stack", ()),
             ),
             result_expr=expr.result_expr,
+            on_exhausted_result_expr=None,
             binding_terminal=binding_terminal,
             state_projection=state_projection,
             result_projection=result_projection,
             result_type=result_type,
+            loop_binding_name=loop_binding_name,
             context=context,
             local_values=local_values,
             active_variant_name=active_variant_name,
@@ -878,10 +908,12 @@ def _lower_loop_terminal_expr(
     status_value: str,
     state_expr: Any,
     result_expr: Any | None,
+    on_exhausted_result_expr: Any | None,
     binding_terminal: _TerminalResult,
     state_projection: LoopValueProjection,
     result_projection: LoopValueProjection,
     result_type: TypeRef,
+    loop_binding_name: str,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     active_variant_name: str | None,
@@ -908,12 +940,32 @@ def _lower_loop_terminal_expr(
         )
     )
     if result_expr is None:
-        projected_values.extend(
-            _loop_placeholder_values(
-                result_projection,
-                allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+        if on_exhausted_result_expr is None:
+            projected_values.extend(
+                _loop_placeholder_values(
+                    result_projection,
+                    allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+                )
             )
-        )
+        else:
+            exhaustion_local_values = dict(local_values)
+            exhaustion_local_values[loop_binding_name] = _resolve_inline_expr_value(
+                state_expr,
+                local_values=local_values,
+            )
+            projected_values.extend(
+                _loop_projection_materialize_values(
+                    on_exhausted_result_expr,
+                    projection=result_projection,
+                    local_values=exhaustion_local_values,
+                    context=context,
+                    active_variant_name=active_variant_name,
+                    allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+                    allow_missing_active_fields=(
+                        active_variant_name is None and result_projection.union_projection is not None
+                    ),
+                )
+            )
     else:
         projected_values.extend(
             _loop_projection_materialize_values(
@@ -992,6 +1044,12 @@ def _loop_output_contracts(
         }
     )
     return outputs
+
+
+def _canonicalize_loop_materialize_scope_refs(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compatibility shim retained for staged refactoring; returns steps unchanged."""
+
+    return steps
 
 
 def _loop_repeat_outputs_from_terminal(
@@ -1185,7 +1243,7 @@ def _loop_on_exhausted_outputs(
     loop_binding_name: str,
 ) -> dict[str, Any]:
     active_variant_name = expr.variant_name if isinstance(expr, UnionVariantExpr) else None
-    outputs: dict[str, Any] = {}
+    outputs: dict[str, Any] = {LOOP_STATUS_OUTPUT_NAME: "DONE"}
     result_fields_by_name = {field.generated_name: field for field in plan.result_projection.flattened_fields}
     for value in _loop_projection_materialize_values(
         expr,

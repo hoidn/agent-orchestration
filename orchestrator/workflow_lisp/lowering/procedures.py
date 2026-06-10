@@ -449,7 +449,33 @@ def _lower_procedure_call_expr(
             typed_procedures=context.typed_procedures,
         ),
     )
-    if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+    resolved_lowering_mode = procedure.resolved_lowering_mode
+    generated_workflow_name = procedure.generated_workflow_name
+    if (
+        resolved_lowering_mode == ProcedureLoweringMode.INLINE
+        and context.iteration_scope is not None
+        and not context.workflow_name.startswith("%composition.")
+    ):
+        from ..procedure_specialization import (
+            _procedure_private_body_valid,
+            _procedure_private_boundary_valid,
+        )
+
+        if _procedure_private_boundary_valid(procedure) and _procedure_private_body_valid(
+            procedure,
+            typed_procedures_by_name=context.typed_procedures,
+            type_env=context.type_env,
+        ):
+            resolved_lowering_mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+            generated_workflow_name = procedure.generated_workflow_name or (
+                f"%{Path(procedure.definition.span.start.path).stem}.{procedure.signature.name}.v1"
+            )
+            procedure = replace(
+                procedure,
+                resolved_lowering_mode=resolved_lowering_mode,
+                generated_workflow_name=generated_workflow_name,
+            )
+    if resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
         context.origin_notes = procedure_notes
         assert procedure.generated_workflow_name is not None
         if procedure.generated_workflow_name not in context.workflows_by_name:

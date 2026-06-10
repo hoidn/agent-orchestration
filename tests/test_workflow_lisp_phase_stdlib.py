@@ -4,6 +4,7 @@ import ast
 import hashlib
 import importlib
 import json
+import re
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
@@ -61,12 +62,34 @@ VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_ma
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
 VALID_RESUME_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start.orc"
 VALID_RESUME_WRAPPER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_reusable_wrapper.orc"
+VALID_NESTED_IMPLEMENTATION_PHASE_FIXTURE = FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
+VALID_NESTED_SAME_FILE_CALL_FIXTURE = (
+    FIXTURES / "valid" / "design_delta_nested_same_file_call_local_record.orc"
+)
+VALID_NESTED_IMPORTED_BRANCH_EFFECTS_FIXTURE = (
+    FIXTURES / "valid" / "design_delta_nested_imported_branch_effects.orc"
+)
+VALID_NESTED_BRANCH_SCOPE_COLLISION_FIXTURE = (
+    FIXTURES / "valid" / "design_delta_nested_branch_scope_collision.orc"
+)
 INVALID_PHASE_CTX_FIXTURE = FIXTURES / "invalid" / "phase_ctx_contract_invalid.orc"
 INVALID_LEGACY_BRIDGE_FIXTURE = FIXTURES / "invalid" / "phase_ctx_legacy_bridge_misuse.orc"
 INVALID_PHASE_TARGET_FIXTURE = FIXTURES / "invalid" / "phase_target_unknown_generic.orc"
 INVALID_REVIEW_LOOP_FIXTURE = FIXTURES / "invalid" / "review_loop_findings_contract_invalid.orc"
 INVALID_REVIEW_LOOP_LEGACY_OPERANDS_FIXTURE = (
     FIXTURES / "invalid" / "review_loop_legacy_bridge_operands_invalid.orc"
+)
+INVALID_NESTED_INVALID_PROOF_USE_FIXTURE = (
+    FIXTURES / "invalid" / "design_delta_nested_invalid_proof_use.orc"
+)
+INVALID_NESTED_BRANCH_REF_LEAK_FIXTURE = (
+    FIXTURES / "invalid" / "design_delta_nested_branch_ref_leak.orc"
+)
+INVALID_NESTED_MISSING_PROJECTION_FIXTURE = (
+    FIXTURES / "invalid" / "design_delta_nested_missing_projection.orc"
+)
+INVALID_NESTED_UNSUPPORTED_SHAPE_FIXTURE = (
+    FIXTURES / "invalid" / "design_delta_nested_unsupported_shape.orc"
 )
 INVALID_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_contract_invalid.orc"
 INVALID_RESUME_POINTER_FIXTURE = FIXTURES / "invalid" / "resume_or_start_pointer_authority_invalid.orc"
@@ -398,6 +421,64 @@ def _compile_entrypoint(
                     "python",
                     "-m",
                     "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        validate_shared=validate_shared,
+        workspace_root=tmp_path,
+    )
+
+
+def _compile_module_fixture(
+    path: Path,
+    *,
+    tmp_path: Path,
+    extra_source_roots: tuple[Path, ...] = (),
+    validate_shared: bool = False,
+):
+    source = path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None, f"fixture is missing defmodule: {path}"
+    resolved_module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    return compile_stage3_entrypoint(
+        module_path,
+        source_roots=(*extra_source_roots, tmp_path),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
                 ),
             ),
         },
@@ -1226,9 +1307,20 @@ def test_lowering_review_loop_carries_last_review_report_through_loop_outputs(tm
     assert repeat_step["repeat_until"]["steps"]
 
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
-    assert any(step.get("provider") == "fake-review" for step in body_steps)
-    assert any(step.get("provider") == "fake-fix" for step in body_steps)
+    assert any(
+        isinstance(step.get("call"), str) and step["call"].endswith("::run-review.v1")
+        for step in body_steps
+    )
+    assert any(
+        isinstance(step.get("call"), str) and step["call"].endswith("::apply-fix.v1")
+        for step in body_steps
+    )
     assert any("match" in step for step in body_steps)
+    assert any(
+        any(step.get("provider") == provider for step in workflow.authored_mapping.get("steps", ()))
+        for provider in ("fake-review", "fake-fix")
+        for workflow in result.lowered_workflows
+    )
 
     normalization_step = next(
         step
@@ -1704,6 +1796,154 @@ def test_review_revise_loop_repeat_body_avoids_scoped_materialize_refs(tmp_path:
                 scoped_materialize_refs.append((step.get("name", "<unnamed>"), value.get("name", "<unnamed>"), ref))
 
     assert scoped_materialize_refs == []
+
+
+def test_nested_implementation_phase_uses_ordinary_imported_review_revise_loop(
+    tmp_path: Path,
+) -> None:
+    result = _compile_module_fixture(
+        VALID_NESTED_IMPLEMENTATION_PHASE_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "nested/implementation-phase::implementation-phase"
+    )
+    assert any("match" in step for step in lowered["steps"])
+    assert any(
+        isinstance(step.get("call"), str) and step["call"].startswith("%composition.")
+        for step in _iter_nested_steps(lowered["steps"])
+    )
+
+    helper_workflow = next(
+        workflow.authored_mapping
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.startswith("%composition.")
+    )
+    helper_steps = list(_iter_nested_steps(helper_workflow["steps"]))
+    assert any("repeat_until" in step for step in helper_steps)
+    assert any(step.get("provider") == "fake-review" for step in helper_steps)
+
+
+def test_nested_same_file_call_with_local_record_compiles_under_branch(tmp_path: Path) -> None:
+    result = _compile(
+        VALID_NESTED_SAME_FILE_CALL_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    assert {
+        workflow.typed_workflow.definition.name
+        for workflow in result.lowered_workflows
+    } == {"summarize-completed", "echo-helper", "entry"}
+
+
+def test_nested_imported_procedure_with_provider_command_workflow_effects_compiles_under_branch(
+    tmp_path: Path,
+) -> None:
+    result = _compile_module_fixture(
+        VALID_NESTED_IMPORTED_BRANCH_EFFECTS_FIXTURE,
+        tmp_path=tmp_path,
+        extra_source_roots=(FIXTURES / "modules" / "valid" / "workflow_refs",),
+        validate_shared=True,
+    )
+
+    nested_steps = list(
+        _iter_nested_steps(
+            [
+                step
+                for compiled in result.compiled_results_by_name.values()
+                for workflow in compiled.lowered_workflows
+                for step in workflow.authored_mapping.get("steps", ())
+            ]
+        )
+    )
+
+    assert any(step.get("provider") == "fake-execute" for step in nested_steps)
+    assert any(
+        isinstance(step.get("call"), str) and step["call"].endswith("echo-helper")
+        for step in nested_steps
+    )
+    assert any(step.get("command", [])[:2] == ["python", "scripts/run_checks.py"] for step in nested_steps)
+
+
+def test_branch_scoped_generated_step_ids_are_unique_across_repeated_branches_and_loop_iterations(
+    tmp_path: Path,
+) -> None:
+    result = _compile(
+        VALID_NESTED_BRANCH_SCOPE_COLLISION_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    lowered = next(workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
+    step_ids = [step.get("id") for step in _iter_nested_steps(lowered["steps"]) if isinstance(step.get("id"), str)]
+    assert len(step_ids) == len(set(step_ids))
+
+
+def test_branch_scoped_generated_step_resume_identity_is_stable(tmp_path: Path) -> None:
+    first_result = _compile(
+        VALID_NESTED_BRANCH_SCOPE_COLLISION_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+    second_result = _compile(
+        VALID_NESTED_BRANCH_SCOPE_COLLISION_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    first_checkpoint_ids = tuple(first_result.validated_bundles["entry"].runtime_plan.resume_checkpoints)
+    second_checkpoint_ids = tuple(second_result.validated_bundles["entry"].runtime_plan.resume_checkpoints)
+    assert first_checkpoint_ids
+    assert first_checkpoint_ids == second_checkpoint_ids
+
+
+def test_nested_implementation_phase_rejects_branch_local_ref_leak(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            INVALID_NESTED_BRANCH_REF_LEAK_FIXTURE,
+            tmp_path=tmp_path,
+            validate_shared=True,
+        )
+
+    assert excinfo.value.diagnostics
+
+
+def test_nested_implementation_phase_rejects_missing_projection(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            INVALID_NESTED_MISSING_PROJECTION_FIXTURE,
+            tmp_path=tmp_path,
+            validate_shared=True,
+        )
+
+    assert excinfo.value.diagnostics
+
+
+def test_nested_control_rejects_unsupported_shape_before_invalid_lowering(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            INVALID_NESTED_UNSUPPORTED_SHAPE_FIXTURE,
+            tmp_path=tmp_path,
+            validate_shared=True,
+        )
+
+    assert excinfo.value.diagnostics
+
+
+def test_nested_control_rejects_invalid_proof_use(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(
+            INVALID_NESTED_INVALID_PROOF_USE_FIXTURE,
+            tmp_path=tmp_path,
+            validate_shared=True,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "variant_ref_unproved"
 
 
 def test_lowering_resume_or_start_registers_generated_loader_binding(tmp_path: Path) -> None:

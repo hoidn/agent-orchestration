@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import re
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.diagnostics import serialize_diagnostic
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -62,6 +63,75 @@ def _build_source_map_document(
         display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
     )
     return source_map_module, document, canonical_name
+
+
+def _build_entrypoint_source_map_document(
+    path: Path,
+    *,
+    tmp_path: Path,
+    selected_name: str,
+    extra_source_roots: tuple[Path, ...] = (),
+    validate_shared: bool = False,
+):
+    source = path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    if module_match is None:
+        module_name = f"test/{path.stem}"
+        source = source.replace(
+            '  (:target-dsl "2.14")\n',
+            f'  (:target-dsl "2.14")\n  (defmodule {module_name})\n  (export {selected_name})\n',
+            1,
+        )
+    else:
+        module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(*extra_source_roots, tmp_path),
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+            "prompts.implementation.review": "tests/fixtures/workflow_lisp/valid/prompts/implementation/review.md",
+            "prompts.implementation.fix": "tests/fixtures/workflow_lisp/valid/prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "validate_review_findings_v1": ExternalToolBinding(
+                name="validate_review_findings_v1",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+            ),
+        },
+        validate_shared=validate_shared,
+        workspace_root=tmp_path,
+    )
+    workflow_name = next(
+        name
+        for name in result.validated_bundles_by_name
+        if name == selected_name or name.endswith(f"::{selected_name}")
+    )
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name=result.compiled_results_by_name,
+            validated_bundles_by_name=result.validated_bundles_by_name,
+        ),
+        selected_name=workflow_name,
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+    return source_map_module, document, workflow_name
 
 
 def _write_parametric_source_map_module(path: Path) -> Path:
@@ -374,3 +444,56 @@ def test_formatting_only_source_changes_preserve_allocation_identity(tmp_path: P
         (allocation["semantic_role"], allocation["stable_identity"])
         for allocation in formatted_allocations
     }
+
+
+def test_source_map_records_nested_scope_projection_lineage(tmp_path: Path) -> None:
+    _, document, workflow_name = _build_entrypoint_source_map_document(
+        Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_implementation_phase.orc"),
+        tmp_path=tmp_path,
+        selected_name="implementation-phase",
+        validate_shared=True,
+    )
+    workflow = document.workflows[workflow_name]
+
+    assert workflow.step_ids
+    assert workflow.executable_nodes
+
+
+def test_source_map_records_generated_paths_inside_nested_branch_scopes(tmp_path: Path) -> None:
+    _, document, workflow_name = _build_entrypoint_source_map_document(
+        Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_implementation_phase.orc"),
+        tmp_path=tmp_path,
+        selected_name="implementation-phase",
+        validate_shared=True,
+    )
+    workflow = document.workflows[workflow_name]
+
+    assert workflow.generated_paths
+
+
+def test_source_map_records_generated_write_roots_across_reusable_call_boundaries(
+    tmp_path: Path,
+) -> None:
+    _, document, workflow_name = _build_entrypoint_source_map_document(
+        Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_imported_branch_effects.orc"),
+        tmp_path=tmp_path,
+        selected_name="entry",
+        extra_source_roots=(Path("tests/fixtures/workflow_lisp/modules/valid/workflow_refs"),),
+        validate_shared=True,
+    )
+    workflow = document.workflows[workflow_name]
+
+    assert any("/calls/" in path for path in workflow.generated_paths)
+    assert any(mapped_workflow.command_boundaries for mapped_workflow in document.workflows.values())
+
+
+def test_source_map_records_branch_scoped_resume_identity_lineage(tmp_path: Path) -> None:
+    _, document, workflow_name = _build_entrypoint_source_map_document(
+        Path("tests/fixtures/workflow_lisp/valid/design_delta_nested_branch_scope_collision.orc"),
+        tmp_path=tmp_path,
+        selected_name="entry",
+        validate_shared=True,
+    )
+    workflow = document.workflows[workflow_name]
+
+    assert workflow.executable_nodes

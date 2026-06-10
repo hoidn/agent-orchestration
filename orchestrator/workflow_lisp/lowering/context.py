@@ -82,6 +82,10 @@ class _LoweringContext:
     phase_scope: _ActivePhaseScope | None = None
     iteration_scope: str | None = None
     active_procedure_calls: frozenset[str] = frozenset()
+    composition_scope_id: str | None = None
+    parent_composition_scope_id: str | None = None
+    composition_scope_kind: str | None = None
+    composition_scope_owner_step_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -140,3 +144,22 @@ def _copy_context_with_iteration_scope(
     """Clone context state while changing the active loop-iteration scope."""
 
     return replace(context, iteration_scope=iteration_scope)
+
+
+def _copy_context_with_composition_scope(
+    context: _LoweringContext,
+    *,
+    scope_id: str,
+    parent_scope_id: str | None,
+    scope_kind: str,
+    owner_step_name: str | None,
+) -> _LoweringContext:
+    """Clone context state while setting lowering-time composition scope metadata."""
+
+    return replace(
+        context,
+        composition_scope_id=scope_id,
+        parent_composition_scope_id=parent_scope_id,
+        composition_scope_kind=scope_kind,
+        composition_scope_owner_step_name=owner_step_name,
+    )

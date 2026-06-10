@@ -2,17 +2,30 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from typing import Any
 
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
 from ..contracts import derive_structured_result_contract, derive_workflow_boundary_fields
+from ..definitions import RecordDef, RecordField
+from ..effects import EMPTY_EFFECT_SUMMARY
+from ..expression_traversal import iter_child_exprs
 from ..expressions import FieldAccessExpr, MatchExpr, NameExpr
 from ..spans import SourceSpan
-from ..type_env import TypeRef, UnionTypeRef
+from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef, render_type_ref
+from ..typecheck import TypedExpr
+from ..workflows import TypedWorkflowDef, WorkflowDef, WorkflowParam, WorkflowSignature
 from . import core as lowering_core
-from .context import _copy_context_with_step_prefix, _LoweringContext, _TerminalResult
+from .composition_graph import CompositionScope, build_fragment, fragment_requires_helper_boundary
+from .context import (
+    _copy_context_with_composition_scope,
+    _copy_context_with_step_prefix,
+    _context_with_local_type_binding,
+    _LoweringContext,
+    _TerminalResult,
+)
 from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _record_step_origin
 from .values import (
@@ -205,19 +218,66 @@ def _control_lower_match_expr_impl(
         and not context.is_generated_private_workflow
         else None
     )
+    subject_type = context.local_type_bindings.get(binding_name)
     for arm in match_expr.arms:
         case_name = f"{match_step_name}__{arm.variant_name.lower()}"
+        arm_context = _copy_context_with_composition_scope(
+            context,
+            scope_id=case_name,
+            parent_scope_id=context.composition_scope_id,
+            scope_kind="match_case",
+            owner_step_name=match_step_name,
+        )
+        if isinstance(subject_type, UnionTypeRef):
+            arm_context = _context_with_local_type_binding(
+                arm_context,
+                binding_name=arm.binding_name,
+                binding_type=context.type_env.union_variant(
+                    subject_type,
+                    arm.variant_name,
+                    span=match_expr.subject.span,
+                    form_path=match_expr.subject.form_path,
+                ),
+            )
         case_steps, case_terminal = _lower_conditional_branch_expr(
             arm.body,
             result_type=result_type,
             step_name=case_name,
-            context=context,
+            context=arm_context,
             local_values=_match_arm_local_values(
                 local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
             ),
         )
+        case_fragment = build_fragment(
+            emitted_steps=case_steps,
+            scope=CompositionScope(
+                scope_id=case_name,
+                parent_scope_id=context.composition_scope_id,
+                kind="match_case",
+                owner_step_name=match_step_name,
+                resume_identity_hint=case_name,
+            ),
+            output_refs=case_terminal.output_refs,
+            hidden_inputs=case_terminal.hidden_inputs,
+            leaf_terminal=case_terminal,
+        )
+        if fragment_requires_helper_boundary(case_fragment):
+            case_steps, case_terminal = _hoist_match_case_fragment_to_helper(
+                match_expr=match_expr,
+                branch_expr=arm.body,
+                result_type=result_type,
+                case_name=case_name,
+                context=arm_context,
+                local_values=_match_arm_local_values(
+                    local_values=local_values,
+                    binding_name=arm.binding_name,
+                    binding_terminal=binding_terminal,
+                ),
+                span=arm.body.span,
+                form_path=arm.body.form_path,
+            )
         if isinstance(result_type, UnionTypeRef) and shared_union_bundle_allocation is not None:
             case_steps, case_terminal = _normalize_union_match_case_terminal(
                 case_name=case_name,
@@ -452,3 +512,279 @@ def _match_subject_scope_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {name: _match_subject_scope_value(item) for name, item in value.items()}
     return value
+
+
+def _hoist_match_case_fragment_to_helper(
+    *,
+    match_expr: MatchExpr,
+    branch_expr: Any,
+    result_type: TypeRef,
+    case_name: str,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    from ..workflows import analyze_workflow_boundary_type
+    from .workflow_calls import (
+        _managed_write_root_binding_step,
+        _managed_write_root_requirements_for_callable,
+        _render_call_binding_ref,
+        _render_record_call_bindings,
+    )
+
+    capture_names = _helper_capture_names(branch_expr, context=context)
+    helper_params: list[tuple[str, TypeRef]] = []
+    helper_param_defs: list[WorkflowParam] = []
+    for capture_name in capture_names:
+        capture_type = context.local_type_bindings.get(capture_name)
+        if capture_type is None:
+            raise _compile_error(
+                code="nested_structured_control_unsupported",
+                message=f"helper-hoisted branch capture `{capture_name}` does not have a lowering-time type binding",
+                span=span,
+                form_path=form_path,
+            )
+        boundary_type = _helper_capture_boundary_type(
+            capture_name,
+            capture_type,
+            context=context,
+            span=span,
+            form_path=form_path,
+        )
+        analysis = analyze_workflow_boundary_type(
+            boundary_type,
+            source_path=(capture_name,),
+            allow_top_level_workflow_ref=True,
+        )
+        if not analysis.lowerable:
+            raise _compile_error(
+                code="nested_structured_control_unsupported",
+                message=(
+                    f"nested structured control cannot hoist branch capture `{capture_name}` "
+                    "through the current shared workflow boundary"
+                ),
+                span=span,
+                form_path=form_path,
+            )
+        helper_params.append((capture_name, boundary_type))
+        helper_param_defs.append(
+            WorkflowParam(
+                name=capture_name,
+                type_name=render_type_ref(boundary_type),
+                span=span,
+                form_path=form_path,
+                expansion_stack=getattr(branch_expr, "expansion_stack", ()),
+            )
+        )
+
+    helper_name = _generated_helper_workflow_name(
+        workflow_name=context.workflow_name,
+        case_name=case_name,
+        span=span,
+    )
+    helper_workflow = TypedWorkflowDef(
+        definition=WorkflowDef(
+            name=helper_name,
+            params=tuple(helper_param_defs),
+            return_type_name=render_type_ref(result_type),
+            body=branch_expr,
+            span=span,
+            form_path=form_path,
+            expansion_stack=getattr(branch_expr, "expansion_stack", ()),
+        ),
+        signature=WorkflowSignature(
+            name=helper_name,
+            params=tuple(helper_params),
+            return_type_ref=result_type,
+            span=span,
+            form_path=form_path,
+        ),
+        typed_body=TypedExpr(
+            expr=branch_expr,
+            type_ref=result_type,
+            span=span,
+            form_path=form_path,
+        ),
+        effect_summary=EMPTY_EFFECT_SUMMARY,
+    )
+    if isinstance(context.workflows_by_name, dict):
+        context.workflows_by_name.setdefault(helper_name, helper_workflow)
+    if isinstance(context.workflow_catalog.signatures_by_name, dict):
+        context.workflow_catalog.signatures_by_name.setdefault(helper_name, helper_workflow.signature)
+    if isinstance(context.workflow_catalog.definitions_by_name, dict):
+        context.workflow_catalog.definitions_by_name.setdefault(helper_name, helper_workflow.definition)
+    lowered_helper = context.lowered_callees.get(helper_name)
+    if lowered_helper is None:
+        lowered_helper = context.ensure_workflow_lowered(helper_name)
+    if lowered_helper is None:
+        raise _compile_error(
+            code="nested_structured_control_unsupported",
+            message=f"generated helper workflow `{helper_name}` could not be lowered",
+            span=span,
+            form_path=form_path,
+        )
+
+    step_name = f"{case_name}__helper_call"
+    step_id = _normalize_generated_step_id(step_name)
+    with_bindings: dict[str, Any] = {}
+    for param_name, param_type in helper_workflow.signature.params:
+        capture_expr = NameExpr(
+            name=param_name,
+            span=span,
+            form_path=form_path,
+            expansion_stack=getattr(branch_expr, "expansion_stack", ()),
+        )
+        if isinstance(param_type, RecordTypeRef):
+            with_bindings.update(
+                _render_record_call_bindings(
+                    param_name,
+                    param_type,
+                    capture_expr,
+                    local_values=local_values,
+                )
+            )
+            continue
+        with_bindings[param_name] = _render_call_binding_ref(
+            capture_expr,
+            local_values=local_values,
+        )
+    binding_steps, managed_bindings = _managed_write_root_binding_step(
+        context=context,
+        source_expr=branch_expr,
+        call_step_name=step_name,
+        callee_name=helper_name,
+        managed_inputs=_managed_write_root_requirements_for_callable(
+            lowered_callee=lowered_helper,
+            imported_bundle=None,
+            span=span,
+            form_path=form_path,
+        ),
+    )
+    with_bindings.update(managed_bindings)
+    _record_step_origin(
+        context,
+        step_name=step_name,
+        step_id=step_id,
+        source=LoweringOrigin(
+            span=span,
+            form_path=form_path,
+            notes=(
+                f"generated helper workflow `{helper_name}` hoists nested structured control from `{case_name}`",
+            ),
+        ),
+    )
+    return [*binding_steps, {"name": step_name, "id": step_id, "call": helper_name, "with": with_bindings}], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs={
+            field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+            for field in derive_workflow_boundary_fields(
+                result_type,
+                generated_name="return",
+                source_path=("return",),
+                span=span,
+                form_path=form_path,
+            )
+        },
+        output_kind="call",
+        hidden_inputs={},
+    )
+
+
+def _helper_capture_names(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+) -> tuple[str, ...]:
+    used_names: set[str] = set()
+
+    def walk(node: Any, bound_names: frozenset[str]) -> None:
+        if isinstance(node, NameExpr):
+            if node.name in context.local_type_bindings and node.name not in bound_names:
+                used_names.add(node.name)
+            return
+        if isinstance(node, FieldAccessExpr) and isinstance(node.base, NameExpr):
+            if node.base.name in context.local_type_bindings and node.base.name not in bound_names:
+                used_names.add(node.base.name)
+            walk(node.base, bound_names)
+            return
+        if isinstance(node, LetStarExpr):
+            child_bound = set(bound_names)
+            for binding_name, binding_expr in node.bindings:
+                walk(binding_expr, frozenset(child_bound))
+                child_bound.add(binding_name)
+            walk(node.body, frozenset(child_bound))
+            return
+        if isinstance(node, MatchExpr):
+            walk(node.subject, bound_names)
+            for arm in node.arms:
+                walk(arm.body, bound_names | {arm.binding_name})
+            return
+        for child in iter_child_exprs(node):
+            walk(child, bound_names)
+
+    from ..expressions import LetStarExpr
+
+    walk(expr, frozenset())
+    return tuple(name for name in context.local_type_bindings if name in used_names)
+
+
+def _helper_capture_boundary_type(
+    capture_name: str,
+    capture_type: TypeRef,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    if isinstance(capture_type, VariantCaseTypeRef):
+        union_type = context.type_env.resolve_type(
+            capture_type.union_name,
+            span=span,
+            form_path=form_path,
+        )
+        assert isinstance(union_type, UnionTypeRef)
+        record_name = _generated_helper_variant_record_name(
+            capture_name=capture_name,
+            variant_type=capture_type,
+        )
+        return RecordTypeRef(
+            name=record_name,
+            definition=RecordDef(
+                name=record_name,
+                fields=tuple(
+                    RecordField(
+                        name=field.name,
+                        type_name=field.type_name,
+                        span=field.span,
+                    )
+                    for field in capture_type.definition.fields
+                ),
+                span=capture_type.definition.span,
+            ),
+            field_types=dict(union_type.variant_field_types[capture_type.variant_name]),
+        )
+    return capture_type
+
+
+def _generated_helper_variant_record_name(
+    *,
+    capture_name: str,
+    variant_type: VariantCaseTypeRef,
+) -> str:
+    normalized_union = variant_type.union_name.replace("/", ".").replace("::", ".").replace("-", "_")
+    return f"%match-arm.{normalized_union}.{variant_type.variant_name.lower()}.{capture_name}"
+
+
+def _generated_helper_workflow_name(
+    *,
+    workflow_name: str,
+    case_name: str,
+    span: SourceSpan,
+) -> str:
+    digest = hashlib.sha1(
+        f"{workflow_name}|{case_name}|{span.start.path}|{span.start.line}|{span.start.column}".encode("utf-8")
+    ).hexdigest()[:12]
+    normalized_case = case_name.replace("/", ".").replace("::", ".").replace("-", "_")
+    return f"%composition.{normalized_case}.{digest}.v1"

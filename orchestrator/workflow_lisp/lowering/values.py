@@ -291,6 +291,14 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
         return expr
     if isinstance(expr, ProcRefLiteralExpr | BindProcExpr):
         return expr
+    if isinstance(expr, RecordExpr):
+        inline_value: dict[str, Any] = {}
+        for field_name, field_expr in expr.fields:
+            resolved_value = _resolve_inline_expr_value(field_expr, local_values=local_values)
+            if resolved_value is None:
+                return expr
+            inline_value[field_name] = resolved_value
+        return inline_value
     if isinstance(expr, LoopStateSeedExpr):
         return _loop_state_seed_inline_value(expr, local_values=local_values)
     if isinstance(expr, LoopStateUpdateExpr):
