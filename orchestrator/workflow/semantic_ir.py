@@ -1325,18 +1325,12 @@ def _promote_frontend_command_boundary_effects(
             statement_effect_ids=statement_effect_ids_by_statement_id[statement.statement_id],
             effects=effects,
         )
-        if command_effect is None or command_effect.boundary_kind != "certified_adapter":
+        if command_effect is None:
             _raise_semantic_ir_invalid(
                 f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a matching generic command-call effect",
                 workflow_name=workflow_name,
                 subject_refs=_subject_refs_for_statement(workflow_name, statement),
             )
-        surface_step = _surface_step_for_statement(statement, surface_steps_by_step_id)
-        adapter_payload = _resource_transition_payload_for_step(
-            workflow_name=workflow_name,
-            statement=statement,
-            surface_step=surface_step,
-        )
         boundary_name = boundary.get("adapter_name") or boundary.get("command_name")
         if not isinstance(boundary_name, str) or not boundary_name:
             boundary_name = command_effect.boundary_name
@@ -1346,11 +1340,29 @@ def _promote_frontend_command_boundary_effects(
                 workflow_name=workflow_name,
                 subject_refs=_subject_refs_for_statement(workflow_name, statement),
             )
+        if command_effect.boundary_kind != "certified_adapter":
+            effects[command_effect.effect_id] = replace(
+                command_effect,
+                boundary_kind="certified_adapter",
+                boundary_name=boundary_name,
+                source_map_behavior=(
+                    boundary.get("source_map_behavior")
+                    if isinstance(boundary.get("source_map_behavior"), str)
+                    else command_effect.source_map_behavior
+                ),
+            )
+        surface_step = _surface_step_for_statement(statement, surface_steps_by_step_id)
+        adapter_payload = _resource_transition_payload_for_step(
+            workflow_name=workflow_name,
+            statement=statement,
+            surface_step=surface_step,
+        )
         for effect_kind in declared_effects:
             details = _promoted_adapter_effect_details(
                 workflow_name=workflow_name,
                 statement=statement,
                 effect_kind=effect_kind,
+                boundary_name=boundary_name,
                 adapter_payload=adapter_payload,
             )
             effect_id = _effect_id(workflow_name, statement.step_id, effect_kind)
@@ -1500,13 +1512,13 @@ def _resource_transition_payload_for_step(
     surface_step: SurfaceStep,
 ) -> Mapping[str, Any]:
     command = surface_step.command
-    if not isinstance(command, tuple) or len(command) < 4:
+    if not isinstance(command, tuple) or len(command) < 3:
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a structured adapter payload",
             workflow_name=workflow_name,
             subject_refs=_subject_refs_for_statement(workflow_name, statement),
         )
-    payload_text = command[3]
+    payload_text = command[-1]
     if not isinstance(payload_text, str):
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a JSON adapter payload",
@@ -1516,14 +1528,7 @@ def _resource_transition_payload_for_step(
     try:
         payload = json.loads(payload_text)
     except json.JSONDecodeError as error:
-        _raise_semantic_ir_invalid(
-            (
-                "semantic_ir_invalid: promoted certified-adapter effect "
-                f"for `{statement.step_id}` has an invalid JSON adapter payload: {error.msg}"
-            ),
-            workflow_name=workflow_name,
-            subject_refs=_subject_refs_for_statement(workflow_name, statement),
-        )
+        return MappingProxyType({"raw_payload": payload_text})
     if not isinstance(payload, Mapping):
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires an object payload",
@@ -1538,25 +1543,24 @@ def _promoted_adapter_effect_details(
     workflow_name: str,
     statement: SemanticStatement,
     effect_kind: str,
+    boundary_name: str,
     adapter_payload: Mapping[str, Any],
 ) -> Mapping[str, Any]:
     if effect_kind == "resource_transition":
         from_queue = adapter_payload.get("from")
         to_queue = adapter_payload.get("to")
-        if not isinstance(from_queue, str) or not isinstance(to_queue, str):
-            _raise_semantic_ir_invalid(
-                f"semantic_ir_invalid: promoted resource-transition effect for `{statement.step_id}` requires `from` and `to` strings",
-                workflow_name=workflow_name,
-                subject_refs=_subject_refs_for_statement(workflow_name, statement),
-            )
-        return MappingProxyType({"from_queue": from_queue, "to_queue": to_queue})
+        if isinstance(from_queue, str) and isinstance(to_queue, str):
+            return MappingProxyType({"from_queue": from_queue, "to_queue": to_queue})
+        return MappingProxyType(
+            {
+                "transition_kind": "resource_transition_bridge",
+                "adapter_name": boundary_name,
+                "payload_keys": tuple(sorted(str(key) for key in adapter_payload.keys())),
+            }
+        )
     event_name = adapter_payload.get("event")
     if not isinstance(event_name, str):
-        _raise_semantic_ir_invalid(
-            f"semantic_ir_invalid: promoted ledger-update effect for `{statement.step_id}` requires an `event` string",
-            workflow_name=workflow_name,
-            subject_refs=_subject_refs_for_statement(workflow_name, statement),
-        )
+        event_name = boundary_name
     return MappingProxyType({"event_name": event_name})
 
 
@@ -1788,8 +1792,14 @@ def _validate_promoted_adapter_effect(
         )
     if effect.effect_kind == "resource_transition":
         if not (
-            isinstance(effect.details.get("from_queue"), str)
-            and isinstance(effect.details.get("to_queue"), str)
+            (
+                isinstance(effect.details.get("from_queue"), str)
+                and isinstance(effect.details.get("to_queue"), str)
+            )
+            or (
+                effect.details.get("transition_kind") == "resource_transition_bridge"
+                and isinstance(effect.details.get("adapter_name"), str)
+            )
         ):
             _raise_semantic_ir_invalid(
                 f"semantic_ir_invalid: promoted adapter effect `{effect.effect_id}` requires resource-transition details",

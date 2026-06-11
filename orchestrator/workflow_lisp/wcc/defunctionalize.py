@@ -1563,6 +1563,8 @@ def _lower_effectful_binding(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     if isinstance(value, WccPerform):
         if value.perform_kind == "command_result":
+            operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
+            adapter_inputs = operation_payload.get("adapter_inputs") or ()
             return _lower_command_result_operation(
                 LowerableCommandResult(
                     step_name=value.target_name,
@@ -1570,6 +1572,11 @@ def _lower_effectful_binding(
                     span=value.metadata.source_span,
                     form_path=value.metadata.form_path,
                     expansion_stack=value.metadata.expansion_stack,
+                    adapter_name=operation_payload.get("adapter_name"),
+                    adapter_inputs=tuple(
+                        (field_name, _frontend_expr_from_wcc_value(input_value))
+                        for field_name, input_value in adapter_inputs
+                    ),
                 ),
                 result_type=binding_type,
                 context=context,
@@ -2104,12 +2111,28 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
                 expansion_stack=value.metadata.expansion_stack,
             )
         if value.perform_kind == "command_result":
+            operation_payload = value.operation_payload if isinstance(value.operation_payload, dict) else {}
+            adapter_inputs = operation_payload.get("adapter_inputs") or ()
             return CommandResultExpr(
                 step_name=value.target_name,
                 argv=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.positional_args),
                 returns_type_name=value.returns_type_name or "",
-                adapter_name=None,
-                adapter_inputs=(),
+                adapter_name=operation_payload.get("adapter_name"),
+                adapter_inputs=tuple(
+                    (field_name, _frontend_expr_from_wcc_value(input_value))
+                    for field_name, input_value in adapter_inputs
+                ),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        if value.perform_kind == "workflow_call":
+            return CallExpr(
+                callee_name=value.target_name,
+                bindings=tuple(
+                    (binding_name, _frontend_expr_from_wcc_value(binding_value))
+                    for binding_name, binding_value in value.keyword_args
+                ),
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,
                 expansion_stack=value.metadata.expansion_stack,

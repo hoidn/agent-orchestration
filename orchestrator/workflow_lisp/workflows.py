@@ -1251,7 +1251,7 @@ def _normalize_boundary_contract_definition(definition: Mapping[str, object]) ->
     return {
         str(key): value
         for key, value in dict(definition).items()
-        if key not in {"default", "from", "__allow_unresolved_source"}
+        if key not in {"default", "from", "projection", "__allow_unresolved_source"}
     }
 
 

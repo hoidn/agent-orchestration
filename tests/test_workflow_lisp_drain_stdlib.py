@@ -16,6 +16,7 @@ from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
+from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 from orchestrator.workflow_lisp.workflows import ExternEnvironment
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
@@ -116,6 +117,7 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
         command_boundaries=_command_boundaries().bindings_by_name,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
 
@@ -194,6 +196,7 @@ def _compile_imported_selector_bundle(tmp_path: Path):
         prompt_externs={"prompts.selector": "prompts/imported-selector.md"},
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
     )
     return result.validated_bundles["selector-run"]
 
@@ -681,6 +684,7 @@ def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Pa
             command_boundaries=_command_boundaries().bindings_by_name,
             validate_shared=False,
             workspace_root=tmp_path,
+            lowering_route=LoweringRoute.LEGACY,
         )
 
     assert excinfo.value.diagnostics[0].code == "backlog_drain_contract_invalid"
@@ -811,6 +815,7 @@ def test_compile_stage3_module_rebinds_imported_selector_provider_metadata(tmp_p
         imported_workflow_bundles={"selector-run": imported_selector},
         validate_shared=False,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
@@ -950,6 +955,7 @@ def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_type
                 imported_workflow_bundles={"selector-run": imported_selector},
                 validate_shared=False,
                 workspace_root=tmp_path,
+                lowering_route=LoweringRoute.LEGACY,
             )
 
         diagnostic = excinfo.value.diagnostics[0]
@@ -1093,6 +1099,7 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
         command_boundaries=_command_boundaries().bindings_by_name,
         validate_shared=False,
         workspace_root=tmp_path,
+        lowering_route=LoweringRoute.LEGACY,
     )
 
     drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")

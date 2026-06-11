@@ -2378,25 +2378,37 @@ def test_design_delta_work_item_command_boundary_lineage_records_family_adapters
     }.issubset(boundary_names)
 
     _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
-    command_scripts = {
+    command_scripts = [
         tuple(step["command"])
         for workflow in compile_result.entry_result.lowered_workflows
         for step in _walk_design_delta_work_item_steps(workflow.authored_mapping.get("steps", []))
         if isinstance(step.get("command"), list)
-    }
+    ]
 
-    assert (
-        "python",
-        "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
-    ) in command_scripts
-    assert (
-        "python",
-        "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
-    ) in command_scripts
-    assert (
-        "python",
-        "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
-    ) in command_scripts
+    assert any(
+        command[:2]
+        == (
+            "python",
+            "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
+        )
+        for command in command_scripts
+    )
+    assert any(
+        command[:2]
+        == (
+            "python",
+            "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
+        )
+        for command in command_scripts
+    )
+    assert any(
+        command[:2]
+        == (
+            "python",
+            "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
+        )
+        for command in command_scripts
+    )
 
 
 def test_promoted_entry_runtime_context_inputs_stay_internal_and_appear_in_projection(
@@ -3179,6 +3191,83 @@ def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp
     ]
 
     assert any(effect["effect_kind"] == "pointer_materialization" for effect in effects)
+
+
+def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    result = build_frontend_bundle(
+        request_cls(
+            source_path=REPO_ROOT
+            / "workflows"
+            / "library"
+            / "lisp_frontend_design_delta"
+            / "drain.orc",
+            source_roots=(REPO_ROOT / "workflows" / "library",),
+            entry_workflow="lisp_frontend_design_delta/drain::drain",
+            provider_externs_path=REPO_ROOT
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.providers.json",
+            prompt_externs_path=REPO_ROOT
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.prompts.json",
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=REPO_ROOT
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+
+    expected_adapters = {
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+    }
+    adapter_rows = {
+        row["command_name"]: row
+        for workflow in source_map["workflows"].values()
+        for row in workflow.get("command_boundaries", [])
+        if row.get("boundary_name") in expected_adapters
+        or row.get("command_name") in expected_adapters
+    }
+
+    assert expected_adapters <= set(adapter_rows)
+    for adapter_name in expected_adapters:
+        assert {"structured_result", "resource_transition", "ledger_update"}.issubset(
+            set(adapter_rows[adapter_name]["declared_effects"])
+        )
+
+    effect_kinds_by_subject: dict[str, set[str]] = {}
+    for effect in semantic_ir["effects"].values():
+        boundary_name = effect.get("boundary_name")
+        if not isinstance(boundary_name, str):
+            continue
+        for adapter_name in expected_adapters:
+            if adapter_name in boundary_name:
+                effect_kinds_by_subject.setdefault(adapter_name, set()).add(effect["effect_kind"])
+
+    semantic_expected_adapters = {"write_lisp_frontend_drain_status"}
+    for adapter_name in semantic_expected_adapters:
+        assert {"command_call", "resource_transition", "ledger_update"}.issubset(
+            effect_kinds_by_subject.get(adapter_name, set())
+        )
 
 
 def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp_path: Path) -> None:

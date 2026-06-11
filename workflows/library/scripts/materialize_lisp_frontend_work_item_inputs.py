@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -179,6 +181,26 @@ def _materialize_design_gap(
 
 
 def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1].lstrip().startswith("{"):
+        payload_arg = json.loads(sys.argv[1])
+        output = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+        if not output:
+            raise SystemExit("ORCHESTRATOR_OUTPUT_BUNDLE_PATH is required for adapter invocation")
+        sys.argv = [
+            sys.argv[0],
+            "--selection-path",
+            str(payload_arg.get("selection_path") or ""),
+            "--manifest-path",
+            str(payload_arg.get("manifest_path") or "state/manifest.json"),
+            "--state-root",
+            str(payload_arg.get("state_root") or "state/runtime_work_item"),
+            "--output",
+            output,
+        ]
+        architecture_bundle = str(payload_arg.get("architecture_bundle_path") or "").strip()
+        if architecture_bundle:
+            sys.argv.extend(["--architecture-bundle-path", architecture_bundle])
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--selection-path", required=True)
     parser.add_argument("--manifest-path", required=True)
@@ -223,6 +245,8 @@ def main() -> int:
             "implementation_phase_state_root": _repo_relpath(state_root / "implementation-phase"),
             "plan_review_report_target_path": (artifact_review_root / f"{item_id}-plan-review.json").as_posix(),
             "progress_report_target_path": (artifact_work_root / item_id / "progress_report.md").as_posix(),
+            "item_summary_pointer_path": f"{payload['item_summary_target_path']}.pointer.txt",
+            "drain_status_path": _repo_relpath(state_root / "drain_status.txt"),
         }
     )
 

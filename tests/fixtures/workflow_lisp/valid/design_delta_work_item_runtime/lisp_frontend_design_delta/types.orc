@@ -220,7 +220,7 @@
 
   (defpath CheckCommandsPath
     :kind relpath
-    :under "docs/plans"
+    :under "state"
     :must-exist true)
 
   (defpath SelectionBundlePath

@@ -7,11 +7,13 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.references import StructuredStepReference
-from orchestrator.workflow.surface_ast import SurfaceStep
+from orchestrator.workflow.executable_ir import ProviderStepConfig
+from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic

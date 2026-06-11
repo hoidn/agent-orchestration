@@ -80,6 +80,10 @@ class ParityTarget:
     prompt_externs_file: str | None
     command_boundaries_file: str | None
     imported_workflow_bundles_file: str | None
+    readiness_label: str | None
+    lowering_route: str | None
+    lowering_schema_version: int | None
+    required_family_evidence_roles: tuple[str, ...]
     baseline_characterization: Mapping[str, list[str]]
     accepted_differences: tuple[Mapping[str, Any], ...]
     deprecated_yaml_mechanics: tuple[Mapping[str, Any], ...]
@@ -178,6 +182,14 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
                 prompt_externs_file=_optional_string(raw_target, "prompt_externs_file"),
                 command_boundaries_file=_optional_string(raw_target, "command_boundaries_file"),
                 imported_workflow_bundles_file=_optional_string(raw_target, "imported_workflow_bundles_file"),
+                readiness_label=_optional_string(raw_target, "readiness_label"),
+                lowering_route=_optional_string(raw_target, "lowering_route"),
+                lowering_schema_version=_optional_int(raw_target, "lowering_schema_version"),
+                required_family_evidence_roles=tuple(
+                    _require_string_list(raw_target, "required_family_evidence_roles")
+                    if "required_family_evidence_roles" in raw_target
+                    else ()
+                ),
                 baseline_characterization=normalized_baseline,
                 accepted_differences=tuple(_require_object_list(raw_target, "accepted_differences")),
                 deprecated_yaml_mechanics=tuple(_require_object_list(raw_target, "deprecated_yaml_mechanics")),
@@ -294,6 +306,18 @@ def run_parity_target(
     )
     if workflow_boundary is not None:
         report["workflow_boundary_projection"] = workflow_boundary
+    if target.required_family_evidence_roles:
+        parent_route_identity, parent_family_evidence = _parent_family_evidence(
+            target=target,
+            evidence=evidence,
+            compile_artifacts=compile_artifacts,
+            compile_payload=compile_payload,
+            build_manifest=build_manifest,
+            workflow_boundary=workflow_boundary,
+            repo_root=repo_root,
+        )
+        report["route_identity"] = parent_route_identity
+        evidence.update(parent_family_evidence)
     report["non_regressive"] = compute_non_regressive(report, today=today or date.today())
     return report
 
@@ -308,7 +332,7 @@ def compute_non_regressive(report: Mapping[str, Any], *, today: date) -> bool:
         return False
     if _status(evidence["shared_validation"]) != "pass":
         return False
-    if _status(evidence["dry_run"]) != "pass":
+    if not _dry_run_evidence_passes(evidence, today=today):
         return False
 
     smoke = _require_report_mapping(evidence, "smoke_or_integration")
@@ -329,6 +353,29 @@ def compute_non_regressive(report: Mapping[str, Any], *, today: date) -> bool:
         if _status(evidence[role]) != "pass":
             return False
 
+    target_identity = _require_report_mapping(report, "target_identity")
+    required_family_roles = target_identity.get("required_family_evidence_roles", ())
+    if required_family_roles:
+        if not isinstance(required_family_roles, list) or not all(
+            isinstance(role, str) and role for role in required_family_roles
+        ):
+            return False
+        route_identity = report.get("route_identity")
+        if not isinstance(route_identity, Mapping):
+            return False
+        if route_identity.get("readiness_label") != target_identity.get("readiness_label"):
+            return False
+        if route_identity.get("lowering_route") != target_identity.get("lowering_route"):
+            return False
+        if route_identity.get("lowering_schema_version") != target_identity.get(
+            "lowering_schema_version"
+        ):
+            return False
+        for role in required_family_roles:
+            role_evidence = evidence.get(role)
+            if not isinstance(role_evidence, Mapping) or _status(role_evidence) != "pass":
+                return False
+
     compile_artifacts = _require_report_mapping(report, "compile_artifacts")
     required_artifacts = _require_report_mapping(compile_artifacts, "required")
     for artifact in required_artifacts.values():
@@ -343,6 +390,29 @@ def compute_non_regressive(report: Mapping[str, Any], *, today: date) -> bool:
         return False
 
     return True
+
+
+def _dry_run_evidence_passes(evidence: Mapping[str, object], *, today: date) -> bool:
+    dry_run = _require_report_mapping(evidence, "dry_run")
+    dry_run_status = _status(dry_run)
+    if dry_run_status == "pass":
+        return True
+    if dry_run_status != "waived":
+        return False
+
+    waiver = dry_run.get("waiver")
+    if not _waiver_is_valid(waiver, today=today, require_targeted_evidence=True):
+        return False
+    targeted_roles = waiver.get("targeted_evidence") if isinstance(waiver, Mapping) else None
+    if not isinstance(targeted_roles, list):
+        return False
+    runtime_substitute_roles = {"smoke_or_integration", "parent_callable_smoke"}
+    if not set(targeted_roles).issubset(runtime_substitute_roles):
+        return False
+    return all(
+        isinstance(evidence.get(role), Mapping) and _status(evidence[role]) == "pass"
+        for role in targeted_roles
+    )
 
 
 def render_parity_markdown(report: Mapping[str, Any]) -> str:
@@ -733,7 +803,7 @@ def _build_target_identity(
     targets_file: Path | None = None,
 ) -> dict[str, object]:
     candidate_path = repo_root / target.candidate
-    return {
+    identity: dict[str, object] = {
         "targets_schema_version": TARGETS_SCHEMA_VERSION,
         "target_manifest_path": _relative_or_absolute_path((targets_file or target.target_manifest_path), repo_root),
         "target_manifest_sha256": target.target_manifest_sha256,
@@ -744,6 +814,17 @@ def _build_target_identity(
         "yaml_primary_path": target.yaml_primary,
         "entry_workflow": target.entry_workflow,
     }
+    if target.readiness_label is not None:
+        identity["readiness_label"] = target.readiness_label
+    if target.lowering_route is not None:
+        identity["lowering_route"] = target.lowering_route
+    if target.lowering_schema_version is not None:
+        identity["lowering_schema_version"] = target.lowering_schema_version
+    if target.required_family_evidence_roles:
+        identity["required_family_evidence_roles"] = list(
+            target.required_family_evidence_roles
+        )
+    return identity
 
 
 def _build_required_artifact_freshness(
@@ -904,6 +985,490 @@ def _load_selected_workflow_boundary_projection(
     }
 
 
+def _parent_family_evidence(
+    *,
+    target: ParityTarget,
+    evidence: Mapping[str, object],
+    compile_artifacts: Mapping[str, Any],
+    compile_payload: Mapping[str, Any] | None,
+    build_manifest: Mapping[str, Any] | None,
+    workflow_boundary: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    route_identity = {
+        "readiness_label": target.readiness_label,
+        "lowering_route": _reported_lowering_route(
+            compile_payload=compile_payload,
+            build_manifest=build_manifest,
+        ),
+        "lowering_schema_version": _reported_lowering_schema_version(
+            build_manifest=build_manifest,
+        ),
+    }
+    role_evidence: dict[str, object] = {}
+    for role in target.required_family_evidence_roles:
+        if role == "route_identity":
+            role_evidence[role] = _route_identity_evidence(
+                target=target,
+                route_identity=route_identity,
+            )
+        elif role == "parent_callable_compile":
+            role_evidence[role] = _parent_callable_compile_evidence(
+                target=target,
+                evidence=evidence,
+                compile_artifacts=compile_artifacts,
+                compile_payload=compile_payload,
+                build_manifest=build_manifest,
+                route_identity=route_identity,
+                repo_root=repo_root,
+            )
+        elif role == "parent_callable_smoke":
+            role_evidence[role] = _parent_callable_smoke_evidence(evidence)
+        elif role == "resource_transition_parity":
+            role_evidence[role] = _resource_transition_parity_evidence(
+                target=target,
+                repo_root=repo_root,
+            )
+        elif role == "public_private_boundary_parity":
+            role_evidence[role] = _public_private_boundary_parity_evidence(
+                workflow_boundary
+            )
+        elif role == "boundary_artifact_justifications":
+            role_evidence[role] = _boundary_artifact_justification_evidence(
+                target=target,
+                compile_artifacts=compile_artifacts,
+                workflow_boundary=workflow_boundary,
+                route_identity=route_identity,
+            )
+        else:
+            role_evidence[role] = {
+                "status": "fail",
+                "reason": f"unknown required parent-family evidence role `{role}`",
+            }
+    return route_identity, role_evidence
+
+
+def _reported_lowering_schema_version(
+    *,
+    build_manifest: Mapping[str, Any] | None,
+) -> int | None:
+    if isinstance(build_manifest, Mapping):
+        schema_version = build_manifest.get("lowering_schema_version")
+        if isinstance(schema_version, int):
+            return schema_version
+    return None
+
+
+def _reported_lowering_route(
+    *,
+    compile_payload: Mapping[str, Any] | None,
+    build_manifest: Mapping[str, Any] | None,
+) -> str | None:
+    if isinstance(compile_payload, Mapping):
+        route = compile_payload.get("lowering_route")
+        if isinstance(route, str) and route:
+            return route
+    if isinstance(build_manifest, Mapping):
+        route = build_manifest.get("lowering_route")
+        if isinstance(route, str) and route:
+            return route
+    return None
+
+
+def _route_identity_evidence(
+    *,
+    target: ParityTarget,
+    route_identity: Mapping[str, Any],
+) -> dict[str, object]:
+    reasons: list[str] = []
+    if route_identity.get("readiness_label") != target.readiness_label:
+        reasons.append("readiness_label mismatch")
+    if route_identity.get("lowering_route") != target.lowering_route:
+        reasons.append("lowering_route mismatch")
+    if route_identity.get("lowering_schema_version") != target.lowering_schema_version:
+        reasons.append("lowering_schema_version mismatch")
+    return {
+        "status": "fail" if reasons else "pass",
+        "readiness_label": route_identity.get("readiness_label"),
+        "lowering_route": route_identity.get("lowering_route"),
+        "lowering_schema_version": route_identity.get("lowering_schema_version"),
+        **({"reasons": reasons} if reasons else {}),
+    }
+
+
+def _parent_callable_compile_evidence(
+    *,
+    target: ParityTarget,
+    evidence: Mapping[str, object],
+    compile_artifacts: Mapping[str, Any],
+    compile_payload: Mapping[str, Any] | None,
+    build_manifest: Mapping[str, Any] | None,
+    route_identity: Mapping[str, Any],
+    repo_root: Path,
+) -> dict[str, object]:
+    reasons: list[str] = []
+    if _status(evidence.get("compile")) != "pass":
+        reasons.append("compile evidence is not passing")
+    if _status(evidence.get("shared_validation")) != "pass":
+        reasons.append("shared validation evidence is not passing")
+    if _route_identity_evidence(target=target, route_identity=route_identity)["status"] != "pass":
+        reasons.append("route identity is not passing")
+    required_artifacts = _require_report_mapping(compile_artifacts, "required")
+    missing_or_failed = [
+        str(artifact_name)
+        for artifact_name, artifact in required_artifacts.items()
+        if not isinstance(artifact, Mapping) or _status(artifact) != "pass"
+    ]
+    if missing_or_failed:
+        reasons.append("required compile artifact(s) not passing: " + ", ".join(missing_or_failed))
+    reasons.extend(
+        _parent_loop_control_reasons(
+            target=target,
+            compile_payload=compile_payload,
+            build_manifest=build_manifest,
+            repo_root=repo_root,
+        )
+    )
+    return {
+        "status": "fail" if reasons else "pass",
+        "readiness_label": target.readiness_label,
+        "lowering_route": target.lowering_route,
+        "lowering_schema_version": route_identity.get("lowering_schema_version"),
+        **({"reasons": reasons} if reasons else {}),
+    }
+
+
+def _parent_loop_control_reasons(
+    *,
+    target: ParityTarget,
+    compile_payload: Mapping[str, Any] | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> list[str]:
+    if target.entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return []
+    build_root = (
+        Path(str(compile_payload["build_root"]))
+        if isinstance(compile_payload, Mapping)
+        and isinstance(compile_payload.get("build_root"), str)
+        else None
+    )
+    artifact_paths = dict(build_manifest.get("artifact_paths", {})) if build_manifest else {}
+    core_ast_path = _resolve_build_artifact_path(
+        artifact_paths.get("core_workflow_ast"),
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    reason = "parent drain entrypoint does not own loop control"
+    if core_ast_path is None or not core_ast_path.exists():
+        return [reason]
+    try:
+        core_ast = json.loads(core_ast_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [reason]
+
+    top_level = core_ast.get("body") if isinstance(core_ast, Mapping) else None
+    if not isinstance(top_level, list):
+        return [reason]
+    top_level_calls = {
+        alias
+        for node in top_level
+        for alias in _core_ast_call_aliases(node)
+        if alias == "lisp_frontend_design_delta/drain::drain-loop-proof"
+    }
+    repeat_nodes = [
+        node
+        for node in top_level
+        if isinstance(node, Mapping) and str(node.get("kind")) == "repeat_until"
+    ]
+    if top_level_calls or not repeat_nodes:
+        return [reason]
+
+    loop_aliases = {
+        alias
+        for repeat_node in repeat_nodes
+        for alias in _core_ast_call_aliases(repeat_node)
+    }
+    required_exact_aliases = {
+        "lisp_frontend_design_delta/selector::select-next-work",
+        "lisp_frontend_design_delta/work_item::run-work-item",
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+    }
+    has_projection = any(str(alias).endswith("::project-selector-action.v1") for alias in loop_aliases)
+    has_legacy_selector_action = (
+        "lisp_frontend_design_delta/selector::select-next-action" in loop_aliases
+    )
+    if (
+        not required_exact_aliases.issubset(loop_aliases)
+        or not has_projection
+        or has_legacy_selector_action
+    ):
+        return [reason]
+    return []
+
+
+def _core_ast_call_aliases(node: object) -> list[str]:
+    aliases: list[str] = []
+    if isinstance(node, Mapping):
+        alias = node.get("call_alias")
+        if isinstance(alias, str):
+            aliases.append(alias)
+        workflow_call = node.get("workflow_call")
+        if isinstance(workflow_call, Mapping):
+            workflow = workflow_call.get("workflow")
+            if isinstance(workflow, str):
+                aliases.append(workflow)
+        for value in node.values():
+            aliases.extend(_core_ast_call_aliases(value))
+    elif isinstance(node, list):
+        for item in node:
+            aliases.extend(_core_ast_call_aliases(item))
+    return aliases
+
+
+def _parent_callable_smoke_evidence(evidence: Mapping[str, object]) -> dict[str, object]:
+    smoke = evidence.get("smoke_or_integration")
+    if isinstance(smoke, Mapping) and _status(smoke) == "pass":
+        return {
+            "status": "pass",
+            "source_role": "smoke_or_integration",
+        }
+    return {
+        "status": "fail",
+        "reason": "smoke_or_integration evidence is not passing",
+    }
+
+
+def _resource_transition_parity_evidence(
+    *,
+    target: ParityTarget,
+    repo_root: Path,
+) -> dict[str, object]:
+    required_helpers = (
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+        "finalize_lisp_frontend_drain_summary",
+    )
+    if target.command_boundaries_file is None:
+        return {
+            "status": "fail",
+            "reason": "target does not declare command_boundaries_file",
+        }
+    manifest_path = repo_root / target.command_boundaries_file
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "status": "fail",
+            "reason": f"command boundary manifest is unreadable: {exc}",
+        }
+    if not isinstance(manifest, Mapping):
+        return {
+            "status": "fail",
+            "reason": "command boundary manifest is not an object",
+        }
+    helper_rows: dict[str, object] = {}
+    reasons: list[str] = []
+    for helper in required_helpers:
+        row = manifest.get(helper)
+        if not isinstance(row, Mapping):
+            helper_rows[helper] = {"status": "missing"}
+            reasons.append(f"missing helper `{helper}`")
+            continue
+        helper_status = "pass"
+        helper_reasons: list[str] = []
+        if row.get("kind") != "certified_adapter":
+            helper_status = "fail"
+            helper_reasons.append("not certified_adapter")
+        for field_name in (
+            "behavior_class",
+            "input_signature",
+            "effects",
+            "fixture_ids",
+            "negative_fixture_ids",
+            "owner_module",
+            "replacement_path",
+            "invocation_protocol",
+        ):
+            if not row.get(field_name):
+                helper_status = "fail"
+                helper_reasons.append(f"missing {field_name}")
+        state_writes = row.get("state_writes")
+        if isinstance(state_writes, list) and state_writes:
+            effects = set(row.get("effects") if isinstance(row.get("effects"), list) else ())
+            behavior_class = row.get("behavior_class")
+            has_transition_semantics = (
+                behavior_class == "resource_transition"
+                and {"resource_transition", "ledger_update"}.issubset(effects)
+            )
+            if not has_transition_semantics:
+                helper_status = "fail"
+                helper_reasons.append(
+                    "state writer lacks resource_transition and ledger_update semantics"
+                )
+            semantic_effects = row.get("semantic_effects")
+            if semantic_effects:
+                helper_status = "fail"
+                helper_reasons.append(
+                    "state writer uses unconsumed semantic_effects sidecar metadata"
+                )
+        helper_rows[helper] = {
+            "status": helper_status,
+            "behavior_class": row.get("behavior_class"),
+            "semantic_effects": row.get("semantic_effects"),
+            "owner_module": row.get("owner_module"),
+            **({"reasons": helper_reasons} if helper_reasons else {}),
+        }
+        reasons.extend(f"{helper}: {reason}" for reason in helper_reasons)
+    return {
+        "status": "fail" if reasons else "pass",
+        "helpers": helper_rows,
+        **({"reasons": reasons} if reasons else {}),
+    }
+
+
+def _public_private_boundary_parity_evidence(
+    workflow_boundary: Mapping[str, Any] | None,
+) -> dict[str, object]:
+    if workflow_boundary is None:
+        return {
+            "status": "fail",
+            "reason": "missing workflow boundary projection for entry workflow",
+        }
+    public_inputs = set(workflow_boundary.get("public_input_names", ()))
+    forbidden_inputs = {
+        "phase-ctx",
+        "drain-ctx",
+        "selection_bundle_path",
+        "manifest_path",
+        "architecture_bundle_path",
+        "progress_ledger_path",
+        "run_state_path",
+        "state_root",
+    }
+    exposed_forbidden = sorted(
+        name
+        for name in public_inputs
+        if name in forbidden_inputs or str(name).startswith("__write_root__")
+    )
+    if exposed_forbidden:
+        return {
+            "status": "fail",
+            "exposed_forbidden_public_inputs": exposed_forbidden,
+        }
+    return {
+        "status": "pass",
+        "public_input_count": len(public_inputs),
+        "private_runtime_context_binding_count": len(
+            workflow_boundary.get("private_runtime_context_bindings", ())
+        ),
+        "private_managed_write_root_count": len(
+            workflow_boundary.get("private_managed_write_root_inputs", ())
+        ),
+        "private_compatibility_bridge_count": len(
+            workflow_boundary.get("private_compatibility_bridge_inputs", ())
+        ),
+    }
+
+
+def _boundary_artifact_justification_evidence(
+    *,
+    target: ParityTarget,
+    compile_artifacts: Mapping[str, Any],
+    workflow_boundary: Mapping[str, Any] | None,
+    route_identity: Mapping[str, Any],
+) -> dict[str, object]:
+    reasons: list[str] = []
+    boundary_records: list[dict[str, object]] = []
+    artifact_records: list[dict[str, object]] = []
+    common = {
+        "readiness_label": route_identity.get("readiness_label"),
+        "route": route_identity.get("lowering_route"),
+        "schema_version": route_identity.get("lowering_schema_version"),
+    }
+
+    if workflow_boundary is None:
+        reasons.append("missing workflow boundary projection for entry workflow")
+    else:
+        boundary_records.append(
+            {
+                "boundary_id": workflow_boundary.get("workflow_name") or target.entry_workflow,
+                "reason": "public_boundary_identity",
+                "parity_constrained": bool(
+                    workflow_boundary.get("private_compatibility_bridge_inputs")
+                    or workflow_boundary.get("private_managed_write_root_inputs")
+                ),
+                **common,
+            }
+        )
+
+    allowed_reasons = {
+        "public_boundary_identity",
+        "parity_comparison",
+        "legacy_consumption",
+        "cross_run_durability",
+    }
+    required_artifacts = _require_report_mapping(compile_artifacts, "required")
+    optional_artifacts = _require_report_mapping(compile_artifacts, "optional")
+    for artifact_name, artifact in {
+        **dict(required_artifacts),
+        **dict(optional_artifacts),
+    }.items():
+        if not isinstance(artifact, Mapping):
+            continue
+        if _status(artifact) != "pass":
+            if artifact_name in required_artifacts:
+                reasons.append(f"required artifact `{artifact_name}` lacks passing justification target")
+            continue
+        reason = (
+            "parity_comparison"
+            if artifact_name
+            in {
+                "core_workflow_ast",
+                "semantic_ir",
+                "source_map",
+                "workflow_boundary_projection",
+            }
+            else "cross_run_durability"
+        )
+        artifact_records.append(
+            {
+                "artifact_id": str(artifact_name),
+                "path": artifact.get("path"),
+                "reason": reason,
+                "parity_constrained": reason == "parity_comparison",
+                **common,
+            }
+        )
+    if workflow_boundary is not None and not any(
+        record.get("artifact_id") == "workflow_boundary_projection"
+        for record in artifact_records
+    ):
+        artifact_records.append(
+            {
+                "artifact_id": "workflow_boundary_projection",
+                "path": None,
+                "reason": "parity_comparison",
+                "parity_constrained": True,
+                **common,
+            }
+        )
+    if not artifact_records:
+        reasons.append("no artifact justifications recorded")
+    for record in (*boundary_records, *artifact_records):
+        if record.get("reason") not in allowed_reasons:
+            reasons.append(f"unsupported justification reason for `{record}`")
+        if record.get("parity_constrained") is not True and record.get("reason") == "parity_comparison":
+            reasons.append(f"parity comparison record lacks parity_constrained label: `{record}`")
+    return {
+        "status": "fail" if reasons else "pass",
+        "boundary_justifications": boundary_records,
+        "artifact_justifications": artifact_records,
+        **({"reasons": reasons} if reasons else {}),
+    }
+
+
 def _validate_evidence_freshness(
     report: Mapping[str, Any],
     *,
@@ -1026,6 +1591,23 @@ def _validate_required_evidence_completeness(
         if _status(artifact) != "pass":
             mark_incomplete(f"required compile artifact `{artifact_name}` is not passing")
 
+    target_identity = _require_report_mapping(report, "target_identity")
+    required_family_roles = target_identity.get("required_family_evidence_roles", ())
+    if isinstance(required_family_roles, list) and required_family_roles:
+        route_identity = report.get("route_identity")
+        if not isinstance(route_identity, Mapping):
+            mark_incomplete("missing route_identity for parent-family evidence")
+        else:
+            for field_name in ("readiness_label", "lowering_route", "lowering_schema_version"):
+                if route_identity.get(field_name) != target_identity.get(field_name):
+                    mark_incomplete(f"route_identity.{field_name} does not match target")
+        for role in required_family_roles:
+            role_evidence = evidence.get(role)
+            if not isinstance(role_evidence, Mapping):
+                mark_incomplete(f"missing parent-family evidence role `{role}`")
+            elif _status(role_evidence) != "pass":
+                mark_incomplete(f"parent-family evidence role `{role}` is not passing")
+
     return evidence_complete, reasons
 
 
@@ -1073,14 +1655,14 @@ def _gate_row_passes(row: ValidatedGateRow, *, gate_mode: str) -> bool:
 
 
 def _parse_command_spec(*, workflow_family: str, role: str, raw_value: Any) -> EvidenceCommand:
-    if role == "smoke_or_integration" and isinstance(raw_value, Mapping):
+    if role in {"dry_run", "smoke_or_integration"} and isinstance(raw_value, Mapping):
         argv = raw_value.get("argv")
         waiver = raw_value.get("waiver")
         if argv is None and waiver is None:
-            raise ValueError(f"`{workflow_family}` smoke_or_integration must declare argv or waiver")
+            raise ValueError(f"`{workflow_family}` {role} must declare argv or waiver")
         normalized_argv = None if argv is None else tuple(_validate_argv(argv, role=role, workflow_family=workflow_family))
-        if waiver is not None and not _waiver_is_valid(waiver, today=date.max, require_targeted_evidence=True):
-            raise ValueError(f"`{workflow_family}` smoke_or_integration waiver is malformed")
+        if waiver is not None and not _waiver_is_valid(waiver, today=date.min, require_targeted_evidence=True):
+            raise ValueError(f"`{workflow_family}` {role} waiver is malformed")
         return EvidenceCommand(argv=normalized_argv, waiver=waiver)
 
     return EvidenceCommand(
@@ -1343,6 +1925,15 @@ def _optional_string(payload: Mapping[str, Any], key: str) -> str | None:
         return None
     if not isinstance(value, str) or not value:
         raise ValueError(f"`{key}` must be a non-empty string when provided")
+    return value
+
+
+def _optional_int(payload: Mapping[str, Any], key: str) -> int | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise ValueError(f"`{key}` must be an integer when provided")
     return value
 
 

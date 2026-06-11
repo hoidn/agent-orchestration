@@ -15,6 +15,7 @@ from orchestrator.workflow_lisp.build import (
     normalize_frontend_artifact_exports,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.wcc.route import lowering_route_for_schema
 
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,8 @@ def compile_workflow(args: Namespace) -> int:
         "fingerprint": result.manifest.fingerprint,
         "entry_workflow": result.selected_workflow_name,
         "build_root": str(result.build_root),
+        "lowering_route": lowering_route_for_schema(result.manifest.lowering_schema_version).value,
+        "lowering_schema_version": result.manifest.lowering_schema_version,
         "imported_bundle_keys": [
             binding.canonical_key
             for binding in result.imported_workflow_bundles

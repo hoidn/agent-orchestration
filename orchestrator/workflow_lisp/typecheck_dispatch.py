@@ -2591,9 +2591,12 @@ def _validate_semantic_command_adapter_usage(
     binding: "CertifiedAdapterBinding",
 ) -> None:
     effects = set(binding.effects)
-    if "resource_transition" in effects or "ledger_update" in effects:
+    if (
+        ("resource_transition" in effects or "ledger_update" in effects)
+        and binding.behavior_class != "resource_transition"
+    ):
         _raise_error(
-            "resource movement must use `resource-transition` instead of a raw `command-result` adapter call",
+            "resource movement must use `resource-transition` or a certified resource_transition adapter",
             code="resource_move_without_transition",
             span=expr.span,
             form_path=expr.form_path,

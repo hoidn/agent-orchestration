@@ -5,18 +5,15 @@
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop))
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc PlanDoc SteeringDoc TargetDesignDoc WorkReport))
-  (export run-plan-phase)
-
-  (defpath PlanDocTarget
-    :kind relpath
-    :under "docs/plans"
-    :must-exist false)
-
-  (defpath PlanReviewReportTarget
-    :kind relpath
-    :under "artifacts/review"
-    :must-exist false)
+    (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanDraftResult
+      ProgressLedger SteeringDoc TargetDesignDoc WorkReport))
+  (export
+    DesignDeltaPlanPhaseResult
+    PhaseCtx
+    PlanPhaseInputs
+    PlanSubject
+    RunCtx
+    run-plan-phase)
 
   (defrecord RunCtx
     (run-id RunId)
@@ -32,17 +29,14 @@
   (defrecord PlanSubject
     (plan_path PlanDoc))
 
-  (defrecord PlanDraftResult
-    (plan_path PlanDoc))
-
   (defrecord PlanPhaseInputs
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
     (work_item_context WorkReport)
-    (progress_ledger WorkReport)
+    (progress_ledger ProgressLedger)
     (plan_target_path PlanDocTarget)
-    (plan_review_report_target_path PlanReviewReportTarget))
+    (plan_review_report_target_path ArtifactReviewTargetPath))
 
   (defunion DesignDeltaPlanPhaseResult
     (APPROVED
@@ -102,9 +96,9 @@
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
      (work_item_context WorkReport)
-     (progress_ledger WorkReport)
+     (progress_ledger ProgressLedger)
      (plan_target_path PlanDocTarget)
-     (plan_review_report_target_path PlanReviewReportTarget))
+     (plan_review_report_target_path ArtifactReviewTargetPath))
     -> DesignDeltaPlanPhaseResult
     (with-phase phase-ctx plan
       (let* ((draft

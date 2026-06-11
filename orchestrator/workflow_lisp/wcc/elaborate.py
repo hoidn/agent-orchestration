@@ -1842,6 +1842,24 @@ def _elaborate_effect_expr_to_binding_value(
             returns_type_name=expr.returns_type_name,
         )
     if isinstance(expr, CommandResultExpr):
+        adapter_inputs = tuple(
+            (
+                field_name,
+                _elaborate_atomic_value(
+                    value_expr,
+                    scope=scope.child_scope("command-adapter-input", authored_binding_name=field_name),
+                    type_env=type_env,
+                    value_env=value_env,
+                    workflow_return_types=workflow_return_types,
+                    procedure_return_types=procedure_return_types,
+                    effect_summary=effect_summary,
+                    procedure_edges_by_site=procedure_edges_by_site,
+                    compile_time_bindings=compile_time_bindings,
+                    active_phase_scope=active_phase_scope,
+                ),
+            )
+            for field_name, value_expr in expr.adapter_inputs
+        )
         return WccPerform(
             metadata=scope.value_metadata(role="perform:command_result", **metadata_kwargs),
             perform_kind="command_result",
@@ -1864,6 +1882,10 @@ def _elaborate_effect_expr_to_binding_value(
             ),
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
+            operation_payload={
+                "adapter_name": expr.adapter_name,
+                "adapter_inputs": adapter_inputs,
+            },
         )
     if isinstance(expr, RunProviderPhaseExpr):
         ctx_value = _elaborate_atomic_value(

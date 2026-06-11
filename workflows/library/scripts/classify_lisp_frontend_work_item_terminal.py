@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
+
 
 def _read_required(path: Path) -> str:
     value = path.read_text(encoding="utf-8").strip()
@@ -14,7 +17,57 @@ def _read_required(path: Path) -> str:
     return value
 
 
+def _write_output(path: Path, terminal_route: str, block_reason: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "route": terminal_route,
+                "terminal_route": terminal_route,
+                "block_reason": block_reason,
+                "implementation_blocked": terminal_route == "IMPLEMENTATION_BLOCKED",
+                "plan_review_exhausted": terminal_route == "PLAN_REVIEW_EXHAUSTED",
+                "implementation_review_exhausted": terminal_route
+                == "IMPLEMENTATION_REVIEW_EXHAUSTED",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _classify(plan_review_decision: str, implementation_state: str, implementation_review_decision: str) -> tuple[str, str]:
+    if plan_review_decision == "REVISE":
+        return "PLAN_REVIEW_EXHAUSTED", "plan_review_exhausted"
+    if implementation_state == "BLOCKED":
+        return "IMPLEMENTATION_BLOCKED", "implementation_blocked"
+    if implementation_state == "COMPLETED":
+        if implementation_review_decision == "APPROVE":
+            return "COMPLETE", "none"
+        if implementation_review_decision == "REVISE":
+            return "IMPLEMENTATION_REVIEW_EXHAUSTED", "implementation_review_exhausted"
+        raise SystemExit(f"Unexpected implementation review decision: {implementation_review_decision}")
+    raise SystemExit(f"Unexpected implementation state: {implementation_state}")
+
+
+def _run_adapter_payload(payload: dict[str, object]) -> int:
+    output = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+    if not output:
+        raise SystemExit("ORCHESTRATOR_OUTPUT_BUNDLE_PATH is required for adapter invocation")
+    terminal_route, block_reason = _classify(
+        str(payload.get("plan_review_decision") or "").strip(),
+        str(payload.get("implementation_state") or "").strip(),
+        str(payload.get("implementation_review_decision") or "").strip(),
+    )
+    _write_output(Path(output), terminal_route, block_reason)
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1].lstrip().startswith("{"):
+        return _run_adapter_payload(json.loads(sys.argv[1]))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan-review-decision", required=True, choices=["APPROVE", "REVISE"])
     parser.add_argument("--implementation-state-path", required=True)
@@ -24,33 +77,12 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    if args.plan_review_decision == "REVISE":
-        terminal_route = "PLAN_REVIEW_EXHAUSTED"
-        block_reason = "plan_review_exhausted"
-    else:
-        implementation_state = _read_required(Path(args.implementation_state_path))
-        if implementation_state == "BLOCKED":
-            terminal_route = "IMPLEMENTATION_BLOCKED"
-            block_reason = "implementation_blocked"
-        elif implementation_state == "COMPLETED":
-            review_decision = _read_required(Path(args.implementation_review_decision_path))
-            if review_decision == "APPROVE":
-                terminal_route = "COMPLETE"
-                block_reason = "none"
-            elif review_decision == "REVISE":
-                terminal_route = "IMPLEMENTATION_REVIEW_EXHAUSTED"
-                block_reason = "implementation_review_exhausted"
-            else:
-                raise SystemExit(f"Unexpected implementation review decision: {review_decision}")
-        else:
-            raise SystemExit(f"Unexpected implementation state: {implementation_state}")
-
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        json.dumps({"terminal_route": terminal_route, "block_reason": block_reason}, indent=2) + "\n",
-        encoding="utf-8",
+    terminal_route, block_reason = _classify(
+        args.plan_review_decision,
+        _read_required(Path(args.implementation_state_path)),
+        _read_required(Path(args.implementation_review_decision_path)),
     )
+    _write_output(Path(args.output), terminal_route, block_reason)
     return 0
 
 

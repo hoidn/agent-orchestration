@@ -3,31 +3,34 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/selector)
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc SelectionBundlePath SteeringDoc TargetDesignDoc WorkReport))
-  (export select-next-work)
+    (BaselineDesignDoc DesignDeltaDrainAction ProgressLedger RunStatePath SelectionBundlePath
+      SelectionStatus StateFileExisting SteeringDoc TargetDesignDoc))
+  (export SelectorPublicResult select-next-work)
 
   (defrecord SelectorInputs
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (manifest WorkReport)
-    (progress_ledger WorkReport)
-    (run_state WorkReport))
-
-  (defrecord SelectionDecision
-    (selection_status String))
+    (manifest StateFileExisting)
+    (progress_ledger ProgressLedger)
+    (run_state RunStatePath))
 
   (defrecord SelectorPublicResult
-    (selection_status String)
-    (selection_bundle_path SelectionBundlePath))
+    (selection_status SelectionStatus)
+    (selection_bundle_path SelectionBundlePath)
+    (is_selected Bool)
+    (is_design_gap Bool)
+    (is_done Bool)
+    (is_blocked Bool)
+    (blocked_reason String))
 
   (defworkflow select-next-work
     ((steering SteeringDoc)
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
-     (manifest WorkReport)
-     (progress_ledger WorkReport)
-     (run_state WorkReport))
+     (manifest StateFileExisting)
+     (progress_ledger ProgressLedger)
+     (run_state RunStatePath))
     -> SelectorPublicResult
     (let* ((inputs
              (record SelectorInputs
@@ -46,9 +49,14 @@
                         inputs.manifest
                         inputs.progress_ledger
                         inputs.run_state)
-               :returns SelectionDecision))
+               :returns SelectorPublicResult))
            (selection-bundle-path
              (provider-bundle-path decision :as SelectionBundlePath)))
       (record SelectorPublicResult
         :selection_status decision.selection_status
-        :selection_bundle_path selection-bundle-path))))
+        :selection_bundle_path selection-bundle-path
+        :is_selected decision.is_selected
+        :is_design_gap decision.is_design_gap
+        :is_done decision.is_done
+        :is_blocked decision.is_blocked
+        :blocked_reason decision.blocked_reason))))

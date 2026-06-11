@@ -337,6 +337,94 @@ def _valid_report_payload(*, workflow_family: str = "design_plan_impl_stack") ->
     }
 
 
+def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str, object]:
+    target = json.loads(json.dumps(base_entry))
+    target.update(
+        {
+            "workflow_family": "design_delta_parent_drain",
+            "candidate": "workflows/library/lisp_frontend_design_delta/drain.orc",
+            "yaml_primary": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+            "entry_workflow": "lisp_frontend_design_delta/drain::drain",
+            "provider_externs_file": (
+                "workflows/examples/inputs/workflow_lisp_migrations/"
+                "design_delta_parent_drain.providers.json"
+            ),
+            "prompt_externs_file": (
+                "workflows/examples/inputs/workflow_lisp_migrations/"
+                "design_delta_parent_drain.prompts.json"
+            ),
+            "command_boundaries_file": (
+                "workflows/examples/inputs/workflow_lisp_migrations/"
+                "design_delta_parent_drain.commands.json"
+            ),
+            "readiness_label": "parent_callable_candidate",
+            "lowering_route": "wcc_m4",
+            "lowering_schema_version": 2,
+            "required_family_evidence_roles": [
+                "parent_callable_compile",
+                "parent_callable_smoke",
+                "resource_transition_parity",
+                "public_private_boundary_parity",
+                "boundary_artifact_justifications",
+                "route_identity",
+            ],
+            "promotion_eligibility": {
+                "eligible_for_primary_surface": False,
+                "blocked_reason": (
+                    "parent-family candidate only; YAML primary replacement requires "
+                    "strict promotable family evidence"
+                ),
+            },
+        }
+    )
+    return target
+
+
+def _add_parent_family_evidence(report: dict[str, object], *, route: str = "wcc_m4") -> None:
+    target_identity = report["target_identity"]
+    target_identity.update(
+        {
+            "readiness_label": "parent_callable_candidate",
+            "lowering_route": "wcc_m4",
+            "lowering_schema_version": 2,
+            "required_family_evidence_roles": [
+                "parent_callable_compile",
+                "parent_callable_smoke",
+                "resource_transition_parity",
+                "public_private_boundary_parity",
+                "boundary_artifact_justifications",
+                "route_identity",
+            ],
+        }
+    )
+    report["route_identity"] = {
+        "readiness_label": "parent_callable_candidate",
+        "lowering_route": route,
+        "lowering_schema_version": 2,
+    }
+    evidence = report["evidence"]
+    for role in target_identity["required_family_evidence_roles"]:
+        evidence[role] = {"status": "pass"}
+
+
+def _add_parent_family_identity(report: dict[str, object]) -> None:
+    report["target_identity"].update(
+        {
+            "readiness_label": "parent_callable_candidate",
+            "lowering_route": "wcc_m4",
+            "lowering_schema_version": 2,
+            "required_family_evidence_roles": [
+                "parent_callable_compile",
+                "parent_callable_smoke",
+                "resource_transition_parity",
+                "public_private_boundary_parity",
+                "boundary_artifact_justifications",
+                "route_identity",
+            ],
+        }
+    )
+
+
 def _set_report_path(report: dict[str, object], *, repo_root: Path, output_root: Path) -> dict[str, object]:
     updated = json.loads(json.dumps(report))
     report_path = output_root / f"{updated['workflow_family']}.json"
@@ -594,6 +682,61 @@ def test_compute_non_regressive_rejects_expired_smoke_waiver() -> None:
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
 
 
+def test_compute_non_regressive_accepts_targeted_dry_run_waiver_with_parent_smoke() -> None:
+    module = _parity_module()
+    report = _valid_report_payload(workflow_family="design_delta_parent_drain")
+    _add_parent_family_evidence(report)
+    report["evidence"]["dry_run"] = {
+        "status": "waived",
+        "waiver": {
+            "owner": "workflow-lisp",
+            "justification": "CLI dry-run is not runnable for this parent-family slice; fake-provider smokes are the bounded runtime evidence.",
+            "expiry": "2026-07-01",
+            "targeted_evidence": ["smoke_or_integration", "parent_callable_smoke"],
+        },
+    }
+
+    assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is True
+
+
+def test_compute_non_regressive_rejects_dry_run_waiver_without_targeted_smoke() -> None:
+    module = _parity_module()
+    report = _valid_report_payload(workflow_family="design_delta_parent_drain")
+    _add_parent_family_evidence(report)
+    report["evidence"]["dry_run"] = {
+        "status": "waived",
+        "waiver": {
+            "owner": "workflow-lisp",
+            "justification": "Compile evidence is not a dry-run substitute.",
+            "expiry": "2026-07-01",
+            "targeted_evidence": ["compile"],
+        },
+    }
+
+    assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
+
+
+def test_load_parity_targets_accepts_targeted_dry_run_waiver(tmp_path: Path) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0]["evidence_commands"]["dry_run"] = {
+        "waiver": {
+            "owner": "workflow-lisp",
+            "justification": "CLI dry-run uses the fake-provider smoke substitute for this bounded slice.",
+            "expiry": "2026-07-01",
+            "targeted_evidence": ["smoke_or_integration"],
+        }
+    }
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+
+    target = module.load_parity_targets(manifest_path)[0]
+
+    assert target.evidence_commands["dry_run"].argv is None
+    assert target.evidence_commands["dry_run"].waiver["targeted_evidence"] == [
+        "smoke_or_integration"
+    ]
+
+
 def test_compute_non_regressive_requires_required_compile_artifacts() -> None:
     module = _parity_module()
     report = _valid_report_payload()
@@ -608,6 +751,222 @@ def test_compute_non_regressive_allows_optional_artifact_not_implemented() -> No
     report["compile_artifacts"]["optional"]["expanded_debug_yaml"]["status"] = "not_implemented"
 
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is True
+
+
+def test_design_delta_parent_drain_target_rejects_leaf_only_evidence_for_non_regressive() -> None:
+    module = _parity_module()
+    report = _valid_report_payload(workflow_family="design_delta_parent_drain")
+    _add_parent_family_identity(report)
+
+    assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
+
+
+def test_design_delta_parent_drain_requires_route_schema_identity() -> None:
+    module = _parity_module()
+    report = _valid_report_payload(workflow_family="design_delta_parent_drain")
+    _add_parent_family_evidence(report, route="legacy")
+
+    assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
+
+
+def test_design_delta_parent_drain_resource_parity_rejects_state_writers_without_transition_semantics(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    manifest_payload = _valid_manifest_payload()
+    manifest_payload["targets"][0] = _design_delta_parent_target_entry(
+        manifest_payload["targets"][0]
+    )
+    manifest_path = _write_json(tmp_path / "parity_targets.json", manifest_payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    def row(*, state_writes: list[str], behavior_class: str, effects: list[str]) -> dict[str, object]:
+        return {
+            "kind": "certified_adapter",
+            "behavior_class": behavior_class,
+            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+            "effects": effects,
+            "fixture_ids": ["ok"],
+            "negative_fixture_ids": ["bad"],
+            "owner_module": "lisp_frontend_design_delta/work_item",
+            "replacement_path": "runtime-native transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "state_writes": state_writes,
+        }
+
+    _write_json(
+        tmp_path / target.command_boundaries_file,
+        {
+            "record_terminal_work_item": row(
+                state_writes=["run_state_path"],
+                behavior_class="resource_transition",
+                effects=["structured_result"],
+            ),
+            "record_blocked_recovery_outcome": row(
+                state_writes=["run_state_path"],
+                behavior_class="resource_transition",
+                effects=["structured_result"],
+            ),
+            "write_lisp_frontend_drain_status": row(
+                state_writes=["run_state_path"],
+                behavior_class="resource_transition",
+                effects=["structured_result"],
+            ),
+            "finalize_lisp_frontend_drain_summary": row(
+                state_writes=[],
+                behavior_class="outcome_finalization",
+                effects=["structured_result"],
+            ),
+        },
+    )
+
+    evidence = module._resource_transition_parity_evidence(
+        target=target,
+        repo_root=tmp_path,
+    )
+
+    assert evidence["status"] == "fail"
+    assert evidence["helpers"]["record_terminal_work_item"]["status"] == "fail"
+    assert evidence["helpers"]["record_blocked_recovery_outcome"]["status"] == "fail"
+
+
+def test_design_delta_parent_drain_resource_parity_rejects_sidecar_semantic_effects(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    manifest_payload = _valid_manifest_payload()
+    manifest_payload["targets"][0] = _design_delta_parent_target_entry(
+        manifest_payload["targets"][0]
+    )
+    manifest_path = _write_json(tmp_path / "parity_targets.json", manifest_payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    def row(*, state_writes: list[str]) -> dict[str, object]:
+        return {
+            "kind": "certified_adapter",
+            "behavior_class": "outcome_finalization",
+            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+            "effects": ["structured_result"],
+            "semantic_effects": ["resource_transition", "ledger_update"],
+            "fixture_ids": ["ok"],
+            "negative_fixture_ids": ["bad"],
+            "owner_module": "lisp_frontend_design_delta/work_item",
+            "replacement_path": "runtime-native transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "state_writes": state_writes,
+        }
+
+    _write_json(
+        tmp_path / target.command_boundaries_file,
+        {
+            "record_terminal_work_item": row(state_writes=["run_state_path"]),
+            "record_blocked_recovery_outcome": row(state_writes=["run_state_path"]),
+            "write_lisp_frontend_drain_status": row(state_writes=["run_state_path"]),
+            "finalize_lisp_frontend_drain_summary": row(state_writes=[]),
+        },
+    )
+
+    evidence = module._resource_transition_parity_evidence(
+        target=target,
+        repo_root=tmp_path,
+    )
+
+    assert evidence["status"] == "fail"
+    assert evidence["helpers"]["record_terminal_work_item"]["status"] == "fail"
+    assert "unconsumed semantic_effects" in " ".join(evidence["reasons"])
+
+
+def test_design_delta_parent_drain_target_rejects_leaf_only_evidence_for_promotable(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    manifest_payload = _valid_manifest_payload()
+    manifest_payload["targets"][0] = _design_delta_parent_target_entry(
+        manifest_payload["targets"][0]
+    )
+    manifest_path = _write_json(tmp_path / "parity_targets.json", manifest_payload)
+    target = module.load_parity_targets(manifest_path)[0]
+    output_root = tmp_path / "artifacts" / "work" / "parity"
+    report = _materialize_gate_report(
+        tmp_path,
+        manifest_path=manifest_path,
+        target_entry=manifest_payload["targets"][0],
+        target_index=0,
+        output_root=output_root,
+    )
+    report["promotion_eligibility"] = dict(target.promotion_eligibility)
+    _add_parent_family_identity(report)
+    report["non_regressive"] = False
+
+    gate_row = module._validate_report_for_gate(
+        report,
+        target=target,
+        targets_file=manifest_path,
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+    gate = module.render_gate_evaluation(
+        gate_rows=[gate_row],
+        gate_mode="require_promotable",
+        targets_file=manifest_path,
+        selected_targets=["design_delta_parent_drain"],
+        repo_root=tmp_path,
+    )
+
+    assert gate_row.non_regressive is False
+    assert gate["overall_pass"] is False
+
+
+def test_design_delta_parent_drain_non_regressive_still_not_promotable(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    manifest_payload = _valid_manifest_payload()
+    manifest_payload["targets"][0] = _design_delta_parent_target_entry(
+        manifest_payload["targets"][0]
+    )
+    manifest_path = _write_json(tmp_path / "parity_targets.json", manifest_payload)
+    target = module.load_parity_targets(manifest_path)[0]
+    output_root = tmp_path / "artifacts" / "work" / "parity"
+    report = _materialize_gate_report(
+        tmp_path,
+        manifest_path=manifest_path,
+        target_entry=manifest_payload["targets"][0],
+        target_index=0,
+        output_root=output_root,
+    )
+    report["promotion_eligibility"] = dict(target.promotion_eligibility)
+    _add_parent_family_evidence(report)
+    report["non_regressive"] = module.compute_non_regressive(
+        report,
+        today=date(2026, 6, 2),
+    )
+
+    gate_row = module._validate_report_for_gate(
+        report,
+        target=target,
+        targets_file=manifest_path,
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+    non_regressive_gate = module.render_gate_evaluation(
+        gate_rows=[gate_row],
+        gate_mode="require_non_regressive",
+        targets_file=manifest_path,
+        selected_targets=["design_delta_parent_drain"],
+        repo_root=tmp_path,
+    )
+    promotable_gate = module.render_gate_evaluation(
+        gate_rows=[gate_row],
+        gate_mode="require_promotable",
+        targets_file=manifest_path,
+        selected_targets=["design_delta_parent_drain"],
+        repo_root=tmp_path,
+    )
+
+    assert gate_row.non_regressive is True
+    assert non_regressive_gate["overall_pass"] is True
+    assert promotable_gate["overall_pass"] is False
 
 
 def test_run_parity_target_records_selected_boundary_projection_split(
@@ -626,7 +985,38 @@ def test_run_parity_target_records_selected_boundary_projection_split(
 
     build_root = tmp_path / "build"
     build_root.mkdir(parents=True, exist_ok=True)
-    for artifact_name in ("core_workflow_ast", "semantic_ir", "source_map"):
+    _write_json(
+        build_root / "core_workflow_ast.json",
+        {
+            "body": [
+                {
+                    "kind": "repeat_until",
+                    "statements": [
+                        {
+                            "kind": "call",
+                            "call_alias": "lisp_frontend_design_delta/selector::select-next-work",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": "%drain.lisp_frontend_design_delta/drain::project-selector-action.v1",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": "lisp_frontend_design_delta/work_item::run-work-item",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "lisp_frontend_design_delta/design_gap_architect::"
+                                "draft-design-gap-architecture"
+                            ),
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+    for artifact_name in ("semantic_ir", "source_map"):
         (build_root / f"{artifact_name}.json").write_text("{}", encoding="utf-8")
     (build_root / "workflow_boundary_projection.json").write_text(
         json.dumps(
@@ -730,6 +1120,449 @@ def test_run_parity_target_records_selected_boundary_projection_split(
         "private_managed_write_root_inputs": ["__write_root__selection_bundle"],
         "private_compatibility_bridge_inputs": ["compatibility__legacy_state_root"],
     }
+
+
+def test_run_parity_target_records_parent_family_evidence_roles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0] = _design_delta_parent_target_entry(payload["targets"][0])
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    _write_text(tmp_path / str(target.candidate), "(workflow-lisp)\n")
+    _write_text(tmp_path / str(target.yaml_primary), "steps: []\n")
+    command_manifest = {
+        helper: {
+            "kind": "certified_adapter",
+            "stable_command": ["python", f"{helper}.py"],
+            "behavior_class": "outcome_finalization",
+            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+            "effects": ["structured_result"],
+            "fixture_ids": [f"{helper}_ok"],
+            "negative_fixture_ids": [f"{helper}_bad"],
+            "owner_module": "lisp_frontend_design_delta/drain",
+            "replacement_path": "runtime-native transition",
+            "invocation_protocol": "json_object_positional_arg",
+        }
+        for helper in (
+            "record_terminal_work_item",
+            "record_blocked_recovery_outcome",
+            "write_lisp_frontend_drain_status",
+            "finalize_lisp_frontend_drain_summary",
+        )
+    }
+    _write_json(tmp_path / str(target.command_boundaries_file), command_manifest)
+    build_root = tmp_path / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        build_root / "core_workflow_ast.json",
+        {
+            "body": [
+                {
+                    "kind": "repeat_until",
+                    "statements": [
+                        {
+                            "kind": "call",
+                            "call_alias": "lisp_frontend_design_delta/selector::select-next-work",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": "%drain.lisp_frontend_design_delta/drain::project-selector-action.v1",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": "lisp_frontend_design_delta/work_item::run-work-item",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "lisp_frontend_design_delta/design_gap_architect::"
+                                "draft-design-gap-architecture"
+                            ),
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+    for artifact_name in ("semantic_ir", "source_map"):
+        (build_root / f"{artifact_name}.json").write_text("{}", encoding="utf-8")
+    (build_root / "workflow_boundary_projection.json").write_text(
+        json.dumps(
+            {
+                "workflows": [
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                        "display_name": "lisp_frontend_design_delta/drain::drain",
+                        "boundary": {
+                            "public_input_names": ["steering_path", "target_design_path"],
+                            "private_runtime_context_bindings": [
+                                {
+                                    "binding_id": "phase-ctx",
+                                    "source_param_name": "phase-ctx",
+                                    "context_family": "PhaseCtx",
+                                    "bridge_class": "runtime_owned_context",
+                                    "generated_input_names": ["phase-ctx__run-id"],
+                                }
+                            ],
+                            "private_managed_write_root_inputs": ["__write_root__drain_summary"],
+                            "private_compatibility_bridge_inputs": ["manifest_path"],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_json(
+        build_root / "manifest.json",
+        {
+            "shared_validation_status": "validated",
+            "lowering_route": "wcc_m4",
+            "lowering_schema_version": 2,
+            "compiled_workflow_checksum": "sha256:compiled-workflow",
+            "artifact_paths": {
+                "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
+                "semantic_ir": str(build_root / "semantic_ir.json"),
+                "source_map": str(build_root / "source_map.json"),
+                "workflow_boundary_projection": str(build_root / "workflow_boundary_projection.json"),
+            },
+            "artifact_status": {
+                "core_workflow_ast": "emitted",
+                "semantic_ir": "emitted",
+                "source_map": "emitted",
+                "workflow_boundary_projection": "emitted",
+            },
+        },
+    )
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        stdout = json.dumps({"build_root": str(build_root)}) if role == "compile" else ""
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text("", encoding="utf-8")
+        return module.CommandOutcome(
+            status="pass",
+            argv=("python", role),
+            exit_code=0,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr="",
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["route_identity"] == {
+        "readiness_label": "parent_callable_candidate",
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2,
+    }
+    for role in target.required_family_evidence_roles:
+        assert report["evidence"][role]["status"] == "pass"
+    justifications = report["evidence"]["boundary_artifact_justifications"]
+    assert justifications["boundary_justifications"] == [
+        {
+            "boundary_id": "lisp_frontend_design_delta/drain::drain",
+            "reason": "public_boundary_identity",
+            "parity_constrained": True,
+            "readiness_label": "parent_callable_candidate",
+            "route": "wcc_m4",
+            "schema_version": 2,
+        }
+    ]
+    artifact_reasons = {
+        item["artifact_id"]: item
+        for item in justifications["artifact_justifications"]
+    }
+    assert {
+        "core_workflow_ast",
+        "semantic_ir",
+        "source_map",
+        "workflow_boundary_projection",
+    }.issubset(artifact_reasons)
+    assert all(
+        artifact_reasons[name]["reason"] == "parity_comparison"
+        and artifact_reasons[name]["parity_constrained"] is True
+        for name in (
+            "core_workflow_ast",
+            "semantic_ir",
+            "source_map",
+            "workflow_boundary_projection",
+        )
+    )
+    assert report["non_regressive"] is True
+
+
+def test_run_parity_target_rejects_dispatcher_only_parent_loop_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0] = _design_delta_parent_target_entry(payload["targets"][0])
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    _write_text(tmp_path / str(target.candidate), "(workflow-lisp)\n")
+    _write_text(tmp_path / str(target.yaml_primary), "steps: []\n")
+    command_manifest = {
+        helper: {
+            "kind": "certified_adapter",
+            "stable_command": ["python", f"{helper}.py"],
+            "behavior_class": "resource_transition",
+            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+            "effects": ["structured_result", "resource_transition", "ledger_update"],
+            "fixture_ids": [f"{helper}_ok"],
+            "negative_fixture_ids": [f"{helper}_bad"],
+            "owner_module": "lisp_frontend_design_delta/drain",
+            "replacement_path": "runtime-native transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "state_writes": ["run_state_path"] if helper != "finalize_lisp_frontend_drain_summary" else [],
+        }
+        for helper in (
+            "record_terminal_work_item",
+            "record_blocked_recovery_outcome",
+            "write_lisp_frontend_drain_status",
+            "finalize_lisp_frontend_drain_summary",
+        )
+    }
+    _write_json(tmp_path / str(target.command_boundaries_file), command_manifest)
+    build_root = tmp_path / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        build_root / "core_workflow_ast.json",
+        {
+            "body": [
+                {
+                    "kind": "call",
+                    "call_alias": "lisp_frontend_design_delta/drain::drain-loop-proof",
+                },
+                {
+                    "kind": "call",
+                    "call_alias": "lisp_frontend_design_delta/selector::select-next-action",
+                },
+            ]
+        },
+    )
+    for artifact_name in ("semantic_ir", "source_map"):
+        (build_root / f"{artifact_name}.json").write_text("{}", encoding="utf-8")
+    (build_root / "workflow_boundary_projection.json").write_text(
+        json.dumps(
+            {
+                "workflows": [
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                        "display_name": "lisp_frontend_design_delta/drain::drain",
+                        "boundary": {
+                            "public_input_names": ["steering_path", "target_design_path"],
+                            "private_runtime_context_bindings": [
+                                {
+                                    "binding_id": "phase-ctx",
+                                    "source_param_name": "phase-ctx",
+                                    "context_family": "PhaseCtx",
+                                    "bridge_class": "runtime_owned_context",
+                                    "generated_input_names": ["phase-ctx__run-id"],
+                                }
+                            ],
+                            "private_managed_write_root_inputs": ["__write_root__drain_summary"],
+                            "private_compatibility_bridge_inputs": ["manifest_path"],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_json(
+        build_root / "manifest.json",
+        {
+            "shared_validation_status": "validated",
+            "lowering_route": "wcc_m4",
+            "lowering_schema_version": 2,
+            "compiled_workflow_checksum": "sha256:compiled-workflow",
+            "artifact_paths": {
+                "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
+                "semantic_ir": str(build_root / "semantic_ir.json"),
+                "source_map": str(build_root / "source_map.json"),
+                "workflow_boundary_projection": str(build_root / "workflow_boundary_projection.json"),
+            },
+            "artifact_status": {
+                "core_workflow_ast": "emitted",
+                "semantic_ir": "emitted",
+                "source_map": "emitted",
+                "workflow_boundary_projection": "emitted",
+            },
+        },
+    )
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        stdout = json.dumps({"build_root": str(build_root)}) if role == "compile" else ""
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text("", encoding="utf-8")
+        return module.CommandOutcome(
+            status="pass",
+            argv=("python", role),
+            exit_code=0,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr="",
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["evidence"]["parent_callable_compile"]["status"] == "fail"
+    assert "parent drain entrypoint does not own loop control" in " ".join(
+        report["evidence"]["parent_callable_compile"]["reasons"]
+    )
+    assert report["non_regressive"] is False
+
+
+def test_run_parity_target_rejects_missing_parent_route_identity_from_compile_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0] = _design_delta_parent_target_entry(payload["targets"][0])
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    _write_text(tmp_path / str(target.candidate), "(workflow-lisp)\n")
+    _write_text(tmp_path / str(target.yaml_primary), "steps: []\n")
+    command_manifest = {
+        helper: {
+            "kind": "certified_adapter",
+            "stable_command": ["python", f"{helper}.py"],
+            "behavior_class": "resource_transition",
+            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+            "effects": ["structured_result", "resource_transition", "ledger_update"],
+            "fixture_ids": [f"{helper}_ok"],
+            "negative_fixture_ids": [f"{helper}_bad"],
+            "owner_module": "lisp_frontend_design_delta/drain",
+            "replacement_path": "runtime-native transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "state_writes": ["run_state_path"] if helper != "finalize_lisp_frontend_drain_summary" else [],
+        }
+        for helper in (
+            "record_terminal_work_item",
+            "record_blocked_recovery_outcome",
+            "write_lisp_frontend_drain_status",
+            "finalize_lisp_frontend_drain_summary",
+        )
+    }
+    _write_json(tmp_path / str(target.command_boundaries_file), command_manifest)
+    build_root = tmp_path / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    for artifact_name in ("core_workflow_ast", "semantic_ir", "source_map"):
+        (build_root / f"{artifact_name}.json").write_text("{}", encoding="utf-8")
+    (build_root / "workflow_boundary_projection.json").write_text(
+        json.dumps(
+            {
+                "workflows": [
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                        "display_name": "lisp_frontend_design_delta/drain::drain",
+                        "boundary": {
+                            "public_input_names": ["steering_path", "target_design_path"],
+                            "private_runtime_context_bindings": [],
+                            "private_managed_write_root_inputs": [],
+                            "private_compatibility_bridge_inputs": [],
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_json(
+        build_root / "manifest.json",
+        {
+            "shared_validation_status": "validated",
+            "lowering_schema_version": 2,
+            "compiled_workflow_checksum": "sha256:compiled-workflow",
+            "artifact_paths": {
+                "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
+                "semantic_ir": str(build_root / "semantic_ir.json"),
+                "source_map": str(build_root / "source_map.json"),
+                "workflow_boundary_projection": str(build_root / "workflow_boundary_projection.json"),
+            },
+            "artifact_status": {
+                "core_workflow_ast": "emitted",
+                "semantic_ir": "emitted",
+                "source_map": "emitted",
+                "workflow_boundary_projection": "emitted",
+            },
+        },
+    )
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        stdout = json.dumps({"build_root": str(build_root)}) if role == "compile" else ""
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text("", encoding="utf-8")
+        return module.CommandOutcome(
+            status="pass",
+            argv=("python", role),
+            exit_code=0,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr="",
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["route_identity"]["lowering_route"] is None
+    assert report["evidence"]["route_identity"]["status"] == "fail"
+    assert report["non_regressive"] is False
 
 
 def test_render_parity_index_derives_primary_surface() -> None:
@@ -1403,3 +2236,22 @@ def test_design_plan_impl_stack_manifest_uses_defaulted_dry_run_and_family_speci
 
     resume_selector = " ".join(target["evidence_commands"]["resume_parity"])
     assert "resume_or_start_plan_gate_reusable_state_parity_path" in resume_selector
+
+
+def test_design_delta_parent_drain_manifest_uses_explicit_dry_run_smoke_substitution() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    dry_run = target["evidence_commands"]["dry_run"]
+    assert isinstance(dry_run, dict)
+    assert "argv" not in dry_run
+    waiver = dry_run["waiver"]
+    assert waiver["targeted_evidence"] == ["smoke_or_integration", "parent_callable_smoke"]
+    assert "fake-provider smokes" in waiver["justification"]

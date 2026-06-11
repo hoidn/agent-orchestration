@@ -16,9 +16,7 @@
      (target_design_path TargetDesignDoc)
      (baseline_design_path BaselineDesignDoc)
      (progress_ledger_path ProgressLedger)
-     (run_state_path RunStatePath)
-     (implementation_execute_provider String)
-     (implementation_review_provider String))
+     (run_state_path RunStatePath))
     -> WorkItemResult
     (call run-work-item
       :selection_bundle_path selection_bundle_path
@@ -28,6 +26,4 @@
       :target_design_path target_design_path
       :baseline_design_path baseline_design_path
       :progress_ledger_path progress_ledger_path
-      :run_state_path run_state_path
-      :implementation_execute_provider implementation_execute_provider
-      :implementation_review_provider implementation_review_provider)))
+      :run_state_path run_state_path)))

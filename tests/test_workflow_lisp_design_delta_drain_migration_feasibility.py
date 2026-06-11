@@ -160,6 +160,8 @@ def _promoted_adapter_binding(
     fixture_ids: tuple[str, ...],
     negative_fixture_ids: tuple[str, ...],
 ) -> CertifiedAdapterBinding:
+    if behavior_class == "resource_transition" and effects == ("structured_result",):
+        effects = ("structured_result", "resource_transition", "ledger_update")
     return CertifiedAdapterBinding(
         name=name,
         stable_command=stable_command,
@@ -243,6 +245,18 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
                     required=True,
                     transport_key="selection_path",
                 ),
+                CertifiedAdapterInputField(
+                    name="manifest_path",
+                    type_name="StateFileExisting",
+                    required=True,
+                    transport_key="manifest_path",
+                ),
+                CertifiedAdapterInputField(
+                    name="architecture_bundle_path",
+                    type_name="StateFile",
+                    required=True,
+                    transport_key="architecture_bundle_path",
+                ),
             ),
             fixture_ids=("design_delta_work_item_inputs_ok",),
             negative_fixture_ids=("design_delta_work_item_inputs_bad",),
@@ -325,18 +339,300 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             fixture_ids=("design_delta_blocked_recovery_route_ok",),
             negative_fixture_ids=("design_delta_blocked_recovery_route_bad",),
         ),
-        "record_terminal_work_item": ExternalToolBinding(
+        "record_terminal_work_item": _promoted_adapter_binding(
             name="record_terminal_work_item",
             stable_command=("python", "workflows/library/scripts/update_lisp_frontend_run_state.py"),
+            output_type_name="WorkItemSummary",
+            behavior_class="resource_transition",
+            owner_module="lisp_frontend_design_delta/work_item",
+            replacement_path="runtime-native selected-item transition",
+            input_signature=(
+                CertifiedAdapterInputField("run_state_path", "RunStatePath", True, "run_state_path"),
+                CertifiedAdapterInputField("work_item_id", "String", True, "work_item_id"),
+                CertifiedAdapterInputField("work_item_source", "String", True, "work_item_source"),
+                CertifiedAdapterInputField("reason", "String", True, "reason"),
+                CertifiedAdapterInputField(
+                    "item_summary_target_path",
+                    "WorkReportTarget",
+                    True,
+                    "item_summary_target_path",
+                ),
+                CertifiedAdapterInputField(
+                    "item_summary_pointer_path",
+                    "WorkReportTarget",
+                    True,
+                    "item_summary_pointer_path",
+                ),
+                CertifiedAdapterInputField("drain_status_path", "StateFile", True, "drain_status_path"),
+            ),
+            fixture_ids=("design_delta_record_terminal_ok",),
+            negative_fixture_ids=("design_delta_record_terminal_bad",),
         ),
-        "record_blocked_recovery_outcome": ExternalToolBinding(
+        "record_blocked_recovery_outcome": _promoted_adapter_binding(
             name="record_blocked_recovery_outcome",
             stable_command=(
                 "python",
                 "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
             ),
+            output_type_name="WorkItemSummary",
+            behavior_class="resource_transition",
+            owner_module="lisp_frontend_design_delta/work_item",
+            replacement_path="runtime-native blocked-recovery transition",
+            input_signature=(
+                CertifiedAdapterInputField("run_state_path", "RunStatePath", True, "run_state_path"),
+                CertifiedAdapterInputField("work_item_id", "String", True, "work_item_id"),
+                CertifiedAdapterInputField("work_item_source", "String", True, "work_item_source"),
+                CertifiedAdapterInputField("recovery_route", "String", True, "recovery_route"),
+                CertifiedAdapterInputField("reason", "BlockedRecoveryReason", True, "reason"),
+                CertifiedAdapterInputField(
+                    "target_design_review_decision",
+                    "String",
+                    True,
+                    "target_design_review_decision",
+                ),
+                CertifiedAdapterInputField("terminal_action", "String", True, "terminal_action"),
+                CertifiedAdapterInputField("summary_path", "WorkReportTarget", True, "summary_path"),
+                CertifiedAdapterInputField(
+                    "summary_pointer_path",
+                    "WorkReportTarget",
+                    True,
+                    "summary_pointer_path",
+                ),
+                CertifiedAdapterInputField("drain_status_path", "StateFile", True, "drain_status_path"),
+                CertifiedAdapterInputField(
+                    "progress_report_path",
+                    "ArtifactWorkTargetPath",
+                    True,
+                    "progress_report_path",
+                ),
+                CertifiedAdapterInputField(
+                    "implementation_state_path",
+                    "ArtifactWorkTargetPath",
+                    True,
+                    "implementation_state_path",
+                ),
+                CertifiedAdapterInputField(
+                    "architecture_bundle_path",
+                    "WorkReport",
+                    True,
+                    "architecture_bundle_path",
+                ),
+                CertifiedAdapterInputField("plan_path", "PlanDocTarget", True, "plan_path"),
+            ),
+            fixture_ids=("design_delta_record_blocked_recovery_ok",),
+            negative_fixture_ids=("design_delta_record_blocked_recovery_bad",),
         ),
     }
+
+
+def _design_delta_parent_drain_provider_externs() -> dict[str, str]:
+    return {
+        **_design_delta_work_item_provider_externs(),
+        "providers.selector": "fake-selector",
+        "providers.architect.draft": "fake-architect-draft",
+    }
+
+
+def _design_delta_parent_drain_prompt_externs() -> dict[str, object]:
+    return {
+        "prompts.plan.draft": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md"
+        },
+        "prompts.plan.review": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
+        },
+        "prompts.plan.fix": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md"
+        },
+        "prompts.implementation.execute": {
+            "input_file": (
+                "workflows/library/prompts/"
+                "lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+            )
+        },
+        "prompts.implementation.review": {
+            "input_file": (
+                "workflows/library/prompts/"
+                "lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+            )
+        },
+        "prompts.implementation.fix": {
+            "input_file": (
+                "workflows/library/prompts/"
+                "lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+            )
+        },
+        "prompts.work-item.classify-blocked-recovery": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
+                "classify_blocked_implementation_recovery.md"
+            )
+        },
+        "prompts.selector.select-next-work": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_selector/"
+                "select_next_design_delta_work.md"
+            )
+        },
+        "prompts.architect.draft": {
+            "input_file": (
+                "workflows/library/prompts/"
+                "lisp_frontend_design_delta_design_gap_architect/"
+                "draft_implementation_architecture.md"
+            )
+        },
+    }
+
+
+def _design_delta_parent_drain_command_boundaries() -> dict[str, object]:
+    command_boundaries = dict(_design_delta_work_item_command_boundaries())
+    command_boundaries.update(
+        {
+            "project_lisp_frontend_selector_action": _promoted_adapter_binding(
+                name="project_lisp_frontend_selector_action",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/project_lisp_frontend_selector_action.py",
+                ),
+                output_type_name="DesignDeltaDrainAction",
+                behavior_class="typed_projection",
+                owner_module="lisp_frontend_design_delta/drain",
+                replacement_path="SelectorPublicResult to DesignDeltaDrainAction projection",
+                input_signature=(
+                    CertifiedAdapterInputField(
+                        name="selection_status",
+                        type_name="SelectionStatus",
+                        required=True,
+                        transport_key="selection_status",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="selection_bundle_path",
+                        type_name="SelectionBundlePath",
+                        required=True,
+                        transport_key="selection_bundle_path",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="is_selected",
+                        type_name="Bool",
+                        required=True,
+                        transport_key="is_selected",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="is_design_gap",
+                        type_name="Bool",
+                        required=True,
+                        transport_key="is_design_gap",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="is_done",
+                        type_name="Bool",
+                        required=True,
+                        transport_key="is_done",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="is_blocked",
+                        type_name="Bool",
+                        required=True,
+                        transport_key="is_blocked",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="blocked_reason",
+                        type_name="String",
+                        required=True,
+                        transport_key="blocked_reason",
+                    ),
+                ),
+                fixture_ids=("design_delta_selector_action_projection_ok",),
+                negative_fixture_ids=("design_delta_selector_action_projection_bad",),
+            ),
+            "validate_lisp_frontend_design_gap_architecture": ExternalToolBinding(
+                name="validate_lisp_frontend_design_gap_architecture",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
+                ),
+            ),
+            "write_lisp_frontend_drain_status": _promoted_adapter_binding(
+                name="write_lisp_frontend_drain_status",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/write_lisp_frontend_drain_status.py",
+                ),
+                output_type_name="DrainStatusUpdate",
+                behavior_class="resource_transition",
+                owner_module="lisp_frontend_design_delta/drain",
+                replacement_path="runtime-native parent drain status transition",
+                input_signature=(
+                    CertifiedAdapterInputField(
+                        name="run_state_path",
+                        type_name="RunStatePath",
+                        required=True,
+                        transport_key="run_state_path",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="status",
+                        type_name="String",
+                        required=True,
+                        transport_key="status",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="reason",
+                        type_name="String",
+                        required=True,
+                        transport_key="reason",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="summary_path",
+                        type_name="WorkReportTarget",
+                        required=True,
+                        transport_key="summary_path",
+                    ),
+                ),
+                fixture_ids=("design_delta_drain_status_ok",),
+                negative_fixture_ids=("design_delta_drain_status_bad",),
+            ),
+            "finalize_lisp_frontend_drain_summary": _promoted_adapter_binding(
+                name="finalize_lisp_frontend_drain_summary",
+                stable_command=(
+                    "python",
+                    "workflows/library/scripts/finalize_lisp_frontend_drain_summary.py",
+                ),
+                output_type_name="DrainSummary",
+                behavior_class="outcome_finalization",
+                owner_module="lisp_frontend_design_delta/drain",
+                replacement_path="typed drain summary projection",
+                input_signature=(
+                    CertifiedAdapterInputField(
+                        name="run_state_path",
+                        type_name="RunStatePath",
+                        required=True,
+                        transport_key="run_state_path",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="drain_status",
+                        type_name="String",
+                        required=True,
+                        transport_key="drain_status",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="summary_path",
+                        type_name="WorkReportTarget",
+                        required=True,
+                        transport_key="summary_path",
+                    ),
+                    CertifiedAdapterInputField(
+                        name="state_root",
+                        type_name="Path.state-root",
+                        required=True,
+                        transport_key="state_root",
+                    ),
+                ),
+                fixture_ids=("design_delta_drain_summary_ok",),
+                negative_fixture_ids=("design_delta_drain_summary_bad",),
+            ),
+        }
+    )
+    return command_boundaries
 
 
 def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
@@ -428,7 +724,7 @@ def _copy_design_delta_work_item_runtime_modules(tmp_path: Path) -> Path:
     module_dir = tmp_path / "lisp_frontend_design_delta"
     module_dir.mkdir(parents=True, exist_ok=True)
     for name in ("plan_phase.orc", "implementation_phase.orc", "types.orc", "work_item.orc"):
-        source = DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta" / name
+        source = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / name
         _write_module(module_dir / name, source.read_text(encoding="utf-8"))
     return module_dir / "work_item.orc"
 
@@ -460,6 +756,24 @@ def _compile_design_delta_work_item_library_module(tmp_path: Path):
         validate_shared=False,
         workspace_root=tmp_path,
     )
+
+
+def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs=_design_delta_parent_drain_provider_externs(),
+        prompt_externs=_design_delta_parent_drain_prompt_externs(),
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return result, lowered_by_name
 
 
 def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
@@ -503,6 +817,25 @@ def _assert_design_delta_parent_call_work_item_phase_family_boundary_failure(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
 ) -> None:
     _assert_design_delta_work_item_candidate_post_ifexpr_boundary_failure(diagnostics)
+
+
+def _walk_lowered_steps(steps):
+    for step in steps:
+        yield step
+        if "repeat_until" in step:
+            yield from _walk_lowered_steps(step["repeat_until"].get("steps", []))
+        if "match" in step:
+            for case in step["match"].get("cases", {}).values():
+                yield from _walk_lowered_steps(case.get("steps", []))
+
+
+def _all_lowered_commands(lowered_by_name: dict[str, dict[str, object]]) -> list[list[str]]:
+    return [
+        step["command"]
+        for lowered in lowered_by_name.values()
+        for step in _walk_lowered_steps(lowered.get("steps", []))
+        if isinstance(step.get("command"), list)
+    ]
 
 
 def _compile_design_delta_work_item_runtime_entrypoint(tmp_path: Path):
@@ -803,7 +1136,7 @@ def _rewrite_managed_write_root_bindings_for_smoke(
         if not isinstance(value, str):
             continue
         rewritten[input_name] = (
-            f".orchestrate/test-smoke/{hashlib.sha1(value.encode('utf-8')).hexdigest()[:16]}.json"
+            f"state/test-smoke/{hashlib.sha1(value.encode('utf-8')).hexdigest()[:16]}.json"
         )
     return rewritten
 
@@ -1105,7 +1438,13 @@ def _execute_design_delta_parent_call_route(
 
 
 def _write_design_delta_work_item_runtime_prompt_assets(module_root: Path) -> None:
-    for relpath in _design_delta_work_item_prompt_externs().values():
+    for prompt_ref in _design_delta_parent_drain_prompt_externs().values():
+        relpath = (
+            prompt_ref.get("input_file") or prompt_ref.get("asset_file")
+            if isinstance(prompt_ref, dict)
+            else prompt_ref
+        )
+        assert isinstance(relpath, str)
         target = Path(relpath)
         if target.is_absolute():
             continue
@@ -1131,7 +1470,7 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "selection = json.loads(Path(selection_path).read_text(encoding='utf-8')) if Path(selection_path).exists() else {}",
                 "work_item_source = selection.get('work_item_source', 'DESIGN_GAP')",
                 "work_item_id = selection.get('work_item_id', 'design-gap-work-item')",
-                "check_commands_path = Path('docs/plans/runtime_work_item/check_commands.json')",
+                "check_commands_path = Path('state/runtime_work_item/check_commands.json')",
                 "check_commands_path.parent.mkdir(parents=True, exist_ok=True)",
                 "check_commands_path.write_text(json.dumps(['python -m pytest -q']) + '\\n', encoding='utf-8')",
                 "context_path = Path('artifacts/work/runtime_work_item_context.md')",
@@ -1152,6 +1491,8 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "  'progress_report_target_path': 'artifacts/work/progress_report.md',",
                 "  'checks_report_target_path': 'artifacts/checks/checks_report.md',",
                 "  'implementation_review_report_target_path': 'artifacts/review/implementation_review_report.md',",
+                "  'item_summary_pointer_path': 'artifacts/work/item_summary.json.pointer.txt',",
+                "  'drain_status_path': 'state/runtime_work_item/drain_status.txt',",
                 "  'item_summary_target_path': 'artifacts/work/item_summary.json'",
                 "}) + '\\n', encoding='utf-8')",
             ]
@@ -1170,9 +1511,9 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
                 "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
                 "if Path('artifacts/work/progress_report.md').exists():",
-                "    payload = {'route': 'IMPLEMENTATION_BLOCKED', 'implementation_blocked': True, 'plan_review_exhausted': False, 'implementation_review_exhausted': False}",
+                "    payload = {'route': 'IMPLEMENTATION_BLOCKED', 'terminal_route': 'IMPLEMENTATION_BLOCKED', 'block_reason': 'implementation_blocked', 'implementation_blocked': True, 'plan_review_exhausted': False, 'implementation_review_exhausted': False}",
                 "else:",
-                "    payload = {'route': 'COMPLETE', 'implementation_blocked': False, 'plan_review_exhausted': False, 'implementation_review_exhausted': False}",
+                "    payload = {'route': 'COMPLETE', 'terminal_route': 'COMPLETE', 'block_reason': 'none', 'implementation_blocked': False, 'plan_review_exhausted': False, 'implementation_review_exhausted': False}",
                 "bundle_path.write_text(json.dumps(payload) + '\\n', encoding='utf-8')",
             ]
         )
@@ -1193,6 +1534,36 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "route = payload.get('blocked_recovery_route', 'GAP_DESIGN_REVISION_REQUIRED')",
                 "reason = payload.get('reason', 'implementation_blocked')",
                 "bundle_path.write_text(json.dumps({'variant': route, 'reason': reason}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        script_dir / "validate_lisp_frontend_design_gap_architecture.py",
+        "\n".join(
+            [
+                "import argparse",
+                "import json",
+                "import os",
+                "from pathlib import Path",
+                "",
+                "parser = argparse.ArgumentParser()",
+                "parser.add_argument('--draft-bundle-path', required=True)",
+                "parser.add_argument('--architecture-targets-path')",
+                "parser.add_argument('--output', required=True)",
+                "args = parser.parse_args()",
+                "output = Path(args.output)",
+                "output.parent.mkdir(parents=True, exist_ok=True)",
+                "output.write_text(json.dumps({",
+                "  'architecture_validation_status': 'VALID',",
+                "  'work_item_bundle_path': args.output",
+                "}) + '\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(json.dumps({",
+                "  'architecture_validation_status': 'VALID',",
+                "  'work_item_bundle_path': args.output",
+                "}) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
@@ -1240,6 +1611,63 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
         )
         + "\n",
     )
+    _write_module(
+        script_dir / "write_lisp_frontend_drain_status.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "_, state_path, status, reason, summary_path = sys.argv",
+                "summary = Path(summary_path)",
+                "summary.parent.mkdir(parents=True, exist_ok=True)",
+                "summary.write_text(json.dumps({'status': status, 'reason': reason}) + '\\n', encoding='utf-8')",
+                "state = Path(state_path)",
+                "state.parent.mkdir(parents=True, exist_ok=True)",
+                "state.write_text(json.dumps({'drain_status': status, 'reason': reason}) + '\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(json.dumps({'run_state': state_path, 'summary': summary_path}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        script_dir / "finalize_lisp_frontend_drain_summary.py",
+        "\n".join(
+            [
+                "import json",
+                "import os",
+                "import sys",
+                "from pathlib import Path",
+                "",
+                "summary_path = sys.argv[1]",
+                "summary = Path(summary_path)",
+                "summary.parent.mkdir(parents=True, exist_ok=True)",
+                "if not summary.exists():",
+                "    summary.write_text(json.dumps({'status': 'DONE'}) + '\\n', encoding='utf-8')",
+                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        + "\n",
+    )
+    for script_name in (
+        "update_lisp_frontend_run_state.py",
+        "project_lisp_frontend_selector_action.py",
+        "record_lisp_frontend_blocked_recovery_outcome.py",
+        "write_lisp_frontend_drain_status.py",
+        "finalize_lisp_frontend_drain_summary.py",
+    ):
+        _write_module(
+            script_dir / script_name,
+            (REPO_ROOT / "workflows" / "library" / "scripts" / script_name).read_text(
+                encoding="utf-8"
+            ),
+        )
 
 
 def _write_design_delta_work_item_runtime_inputs(
@@ -1247,18 +1675,22 @@ def _write_design_delta_work_item_runtime_inputs(
     *,
     work_item_source: str,
 ) -> None:
+    normalized_source = "DESIGN_GAP" if work_item_source == "DRAFT_DESIGN_GAP" else work_item_source
     for relpath, contents in {
         "docs/design/target.md": "# target\n",
         "docs/design/baseline.md": "# baseline\n",
+        "docs/design/workflow_command_adapter_contract.md": "# command adapter contract\n",
         "docs/steering.md": "# steering\n",
         "state/progress_ledger.json": json.dumps({"events": []}) + "\n",
         "state/run_state.json": json.dumps({"history": []}) + "\n",
         "state/selection.json": json.dumps(
-            {"work_item_source": work_item_source, "work_item_id": "design-gap-work-item"}
+            {"work_item_source": normalized_source, "work_item_id": "design-gap-work-item"}
         )
         + "\n",
         "state/manifest.json": json.dumps({"items": []}) + "\n",
         "state/architecture_validation.json": json.dumps({"architecture_validation_status": "VALID"}) + "\n",
+        "artifacts/work/selection_bundle.md": "# selection bundle\n",
+        "artifacts/work/existing_architecture_index.md": "# existing architectures\n",
     }.items():
         target = tmp_path / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1277,6 +1709,31 @@ def _design_delta_work_item_bound_inputs() -> dict[str, str]:
         "run_state_path": "state/run_state.json",
         "implementation_execute_provider": "codex",
         "implementation_review_provider": "codex",
+    }
+
+
+def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
+    return {
+        "steering_path": "docs/steering.md",
+        "target_design_path": "docs/design/target.md",
+        "baseline_design_path": "docs/design/baseline.md",
+        "manifest_path": "state/manifest.json",
+        "progress_ledger_path": "state/progress_ledger.json",
+        "run_state_path": "state/run_state.json",
+        "architecture_bundle_path": "state/architecture_validation.json",
+        "command_adapter_contract_path": "docs/design/workflow_command_adapter_contract.md",
+        "selection_bundle_report_path": "artifacts/work/selection_bundle.md",
+        "architecture_targets__design_gap_id": "design-gap-work-item",
+        "architecture_targets__architecture_path": "docs/plans/generated_architecture.md",
+        "architecture_targets__work_item_context_path": "artifacts/work/runtime_work_item_context.md",
+        "architecture_targets__check_commands_path": "artifacts/work/check_commands.md",
+        "architecture_targets__plan_target_path": "docs/plans/generated_plan.md",
+        "existing_architecture_index_path": "artifacts/work/existing_architecture_index.md",
+        "draft_bundle_target_path": "artifacts/work/draft_architecture_bundle.json",
+        "architecture_validation_bundle_target_path": (
+            "artifacts/work/architecture_validation_bundle.json"
+        ),
+        "drain_summary_target_path": "artifacts/work/drain_summary.json",
     }
 
 
@@ -1315,18 +1772,21 @@ def _execute_design_delta_work_item_bundle(
     plan_variant: str,
     implementation_variant: str,
     work_item_source: str,
+    selector_status: str | tuple[str, ...] = "SELECT_BACKLOG_ITEM",
     recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
     recovery_reason: str = "implementation_architecture_under_scoped",
     review_sequence: tuple[str, ...] = ("APPROVE",),
 ):
 
     _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
+    _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
     _write_design_delta_runtime_run_checks_script(tmp_path)
     _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
     _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
 
     provider_calls: list[str] = []
     review_index = 0
+    selector_index = 0
 
     def _prepare_invocation(
         _self,
@@ -1348,11 +1808,60 @@ def _execute_design_delta_work_item_bundle(
         )
 
     def _execute_provider(_self, invocation, **_kwargs):
-        nonlocal review_index
+        nonlocal review_index, selector_index
         provider_calls.append(invocation.provider_name)
         bundle_path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
 
+        if invocation.provider_name == "fake-selector":
+            current_selector_status = (
+                selector_status[min(selector_index, len(selector_status) - 1)]
+                if isinstance(selector_status, tuple)
+                else selector_status
+            )
+            selector_index += 1
+            if current_selector_status not in {
+                "SELECT_BACKLOG_ITEM",
+                "DRAFT_DESIGN_GAP",
+                "DONE",
+                "BLOCKED",
+            }:
+                raise AssertionError(f"unexpected selector status: {current_selector_status}")
+            selector_variant = (
+                "SELECTED_ITEM"
+                if current_selector_status == "SELECT_BACKLOG_ITEM"
+                else current_selector_status
+            )
+            selector_payload = {
+                "selection_status": current_selector_status,
+                "selection_bundle_path": "state/selection.json",
+                "is_selected": selector_variant == "SELECTED_ITEM",
+                "is_design_gap": selector_variant == "DRAFT_DESIGN_GAP",
+                "is_done": selector_variant == "DONE",
+                "is_blocked": selector_variant == "BLOCKED",
+                "blocked_reason": "selector_blocked" if selector_variant == "BLOCKED" else "",
+            }
+            bundle_path.write_text(
+                json.dumps(selector_payload)
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
+        if invocation.provider_name == "fake-architect-draft":
+            draft_path = tmp_path / "docs" / "plans" / "generated_architecture.md"
+            draft_path.parent.mkdir(parents=True, exist_ok=True)
+            draft_path.write_text("# generated architecture\n", encoding="utf-8")
+            bundle_path.write_text(
+                json.dumps(
+                    {
+                        "draft_status": "DRAFTED",
+                        "draft_bundle": "artifacts/work/draft_architecture_bundle.json",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return _success_provider_result()
         if invocation.provider_name == "fake-plan-draft":
             plan_path = tmp_path / "docs" / "plans" / "generated_plan.md"
             plan_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1547,6 +2056,42 @@ def _execute_design_delta_parent_call_work_item_route(
         plan_variant=plan_variant,
         implementation_variant=implementation_variant,
         work_item_source=work_item_source,
+        recovery_route=recovery_route,
+        recovery_reason=recovery_reason,
+        review_sequence=review_sequence,
+    )
+
+
+def _execute_design_delta_parent_drain_route(
+    tmp_path: Path,
+    *,
+    plan_variant: str,
+    implementation_variant: str,
+    work_item_source: str,
+    selector_status: str | tuple[str, ...] = "SELECT_BACKLOG_ITEM",
+    recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
+    recovery_reason: str = "implementation_architecture_under_scoped",
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "lisp_frontend_design_delta/drain::drain"
+    ]
+    return _execute_design_delta_work_item_bundle(
+        tmp_path,
+        workflow_path=(
+            REPO_ROOT
+            / "workflows"
+            / "library"
+            / "lisp_frontend_design_delta"
+            / "drain.orc"
+        ),
+        bundle=bundle,
+        bound_inputs=_design_delta_parent_drain_bound_inputs(),
+        plan_variant=plan_variant,
+        implementation_variant=implementation_variant,
+        work_item_source=work_item_source,
+        selector_status=selector_status,
         recovery_route=recovery_route,
         recovery_reason=recovery_reason,
         review_sequence=review_sequence,
@@ -2115,18 +2660,19 @@ def test_design_delta_selector_candidate_downstream_consumes_typed_selection_sta
                 "  (defmodule selector_consumer)",
                 "  (import lisp_frontend_design_delta/selector :only (select-next-work))",
                 "  (import lisp_frontend_design_delta/types :only",
-                "    (BaselineDesignDoc SelectionBundlePath SteeringDoc TargetDesignDoc WorkReport))",
+                "    (BaselineDesignDoc ProgressLedger RunStatePath SelectionBundlePath SelectionStatus StateFileExisting",
+                "      SteeringDoc TargetDesignDoc))",
                 "  (export consume-selection)",
                 "  (defrecord SelectionView",
-                "    (selection_status String)",
+                "    (selection_status SelectionStatus)",
                 "    (selection_bundle_path SelectionBundlePath))",
                 "  (defworkflow consume-selection",
                 "    ((steering SteeringDoc)",
                 "     (target_design TargetDesignDoc)",
                 "     (baseline_design BaselineDesignDoc)",
-                "     (manifest WorkReport)",
-                "     (progress_ledger WorkReport)",
-                "     (run_state WorkReport))",
+                "     (manifest StateFileExisting)",
+                "     (progress_ledger ProgressLedger)",
+                "     (run_state RunStatePath))",
                 "    -> SelectionView",
                 "    (let* ((selection",
                 "             (call select-next-work",
@@ -2296,10 +2842,210 @@ def test_design_delta_work_item_library_module_stays_closure_only(
         for workflow in result.lowered_workflows
     }
 
-    assert lowered_names == {
+    assert {
         "lisp_frontend_design_delta/work_item::classify-work-item-terminal",
         "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+        "lisp_frontend_design_delta/work_item::run-work-item",
+    }.issubset(lowered_names)
+    assert any("route-blocked-implementation" in name for name in lowered_names)
+    assert any("finalize-approved-review-state" in name for name in lowered_names)
+    assert any("finalize-approved-nonblocked" in name for name in lowered_names)
+
+
+def test_design_delta_parent_drain_compiles_with_hidden_private_context(
+    tmp_path: Path,
+) -> None:
+    result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "lisp_frontend_design_delta/drain::drain"
+    ]
+    public_inputs = set(workflow_public_input_contracts(bundle))
+
+    assert result.entry_result.lowering_schema_version == 2
+    assert {
+        "phase-ctx",
+        "drain-ctx",
+        "selection_bundle_path",
+        "manifest_path",
+        "architecture_bundle_path",
+        "progress_ledger_path",
+        "run_state_path",
+        "state_root",
+        "max_iterations",
+    }.isdisjoint(public_inputs)
+    assert not any(name.startswith("__write_root__") for name in public_inputs)
+    assert "lisp_frontend_design_delta/selector::select-next-work" in lowered_by_name
+    assert (
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
+        in lowered_by_name
+    )
+    assert (
+        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
+        in lowered_by_name
+    )
+    assert "lisp_frontend_design_delta/work_item::run-work-item" in lowered_by_name
+    parent_family_steps = [
+        step
+        for name, lowered in lowered_by_name.items()
+        if name.startswith("lisp_frontend_design_delta/drain::")
+        for step in _walk_lowered_steps(lowered["steps"])
+    ]
+    assert any("repeat_until" in step for step in parent_family_steps)
+
+
+def test_design_delta_parent_drain_entrypoint_owns_loop_control(
+    tmp_path: Path,
+) -> None:
+    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+
+    assert "lisp_frontend_design_delta/drain::drain-loop-proof" not in lowered_by_name
+    entry_steps = lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"]
+    entry_repeat_steps = [
+        step for step in entry_steps if isinstance(step, dict) and "repeat_until" in step
+    ]
+    assert len(entry_repeat_steps) == 1
+
+    loop_steps = list(_walk_lowered_steps(entry_repeat_steps[0]["repeat_until"]["steps"]))
+    loop_call_targets = {
+        step.get("call") for step in loop_steps if isinstance(step.get("call"), str)
     }
+    assert "lisp_frontend_design_delta/selector::select-next-work" in loop_call_targets
+    assert any(str(target).endswith("::project-selector-action.v1") for target in loop_call_targets)
+    assert "lisp_frontend_design_delta/selector::select-next-action" not in loop_call_targets
+    assert "lisp_frontend_design_delta/work_item::run-work-item" in loop_call_targets
+    assert (
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
+        in loop_call_targets
+    )
+
+
+def test_design_delta_parent_family_commands_use_production_adapter_interfaces(
+    tmp_path: Path,
+) -> None:
+    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    commands = _all_lowered_commands(lowered_by_name)
+
+    def _commands_for(script_name: str) -> list[list[str]]:
+        return [command for command in commands if any(script_name in token for token in command)]
+
+    def _payloads_for(script_name: str) -> list[str]:
+        payloads = []
+        for command in _commands_for(script_name):
+            assert len(command) == 3
+            payloads.append(command[2])
+        return payloads
+
+    terminal_commands = _commands_for("update_lisp_frontend_run_state.py")
+    assert terminal_commands
+    for payload in _payloads_for("update_lisp_frontend_run_state.py"):
+        assert all(
+            f'"{key}"' in payload
+            for key in {
+                "run_state_path",
+                "work_item_id",
+                "work_item_source",
+                "reason",
+                "item_summary_target_path",
+            }
+        )
+        assert "state/run_state.json" not in terminal_commands[0][2:]
+
+    recovery_commands = _commands_for("record_lisp_frontend_blocked_recovery_outcome.py")
+    assert recovery_commands
+    for payload in _payloads_for("record_lisp_frontend_blocked_recovery_outcome.py"):
+        assert all(
+            f'"{key}"' in payload
+            for key in {
+                "target_design_review_decision",
+                "terminal_action",
+                "run_state_path",
+                "work_item_id",
+                "work_item_source",
+                "summary_path",
+                "summary_pointer_path",
+                "drain_status_path",
+            }
+        )
+
+    status_commands = _commands_for("write_lisp_frontend_drain_status.py")
+    assert status_commands
+    for payload in _payloads_for("write_lisp_frontend_drain_status.py"):
+        assert all(f'"{key}"' in payload for key in {"run_state_path", "status", "summary_path"})
+
+    summary_commands = _commands_for("finalize_lisp_frontend_drain_summary.py")
+    assert summary_commands
+    for payload in _payloads_for("finalize_lisp_frontend_drain_summary.py"):
+        assert all(
+            f'"{key}"' in payload
+            for key in {"run_state_path", "drain_status", "summary_path", "state_root"}
+        )
+
+
+def test_design_delta_selector_action_projection_rejects_inconsistent_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter_path = (
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "scripts"
+        / "project_lisp_frontend_selector_action.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "project_lisp_frontend_selector_action_for_test",
+        adapter_path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    output_bundle = tmp_path / "out.json"
+    monkeypatch.setenv("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", output_bundle.as_posix())
+
+    payload = {
+        "selection_status": "DONE",
+        "selection_bundle_path": "state/selection.json",
+        "is_selected": True,
+        "is_design_gap": False,
+        "is_done": False,
+        "is_blocked": False,
+        "blocked_reason": "",
+    }
+    with pytest.raises(SystemExit, match="selection_status conflicts with selector flags"):
+        module.main([json.dumps(payload)])
+
+    assert not output_bundle.exists()
+
+
+def test_design_delta_parent_drain_routes_design_gap_bundle_from_action(
+    tmp_path: Path,
+) -> None:
+    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    loop_steps = list(
+        _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
+    )
+
+    draft_call = next(
+        step
+        for step in loop_steps
+        if step.get("call")
+        == "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
+    )
+    validate_call = next(
+        step
+        for step in loop_steps
+        if step.get("call")
+        == "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
+    )
+
+    design_gap_refs = [
+        draft_call["with"]["progress_ledger"]["ref"],
+        draft_call["with"]["selection_bundle"]["ref"],
+        validate_call["with"]["architecture_targets_bundle"]["ref"],
+    ]
+    assert all("design_gap_selection_bundle" in ref for ref in design_gap_refs)
+    assert all(ref != "inputs.selection_bundle_report_path" for ref in design_gap_refs)
 
 
 def test_design_delta_work_item_candidate_advances_past_private_workflow_ifexpr_export_blocker(
@@ -2614,6 +3360,219 @@ def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
     assert not (workspace / "artifacts" / "work" / "progress_report.md").exists()
+
+
+def test_design_delta_parent_drain_smokes_selected_item_completed_path(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-completed",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=("SELECT_BACKLOG_ITEM", "DONE"),
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+        "fake-selector",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "DONE"
+    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert state["workflow_outputs"]["return__drain-summary"] == "artifacts/work/drain_summary.json"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+
+
+def test_design_delta_parent_drain_continues_after_selected_item_completion(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-completed-then-done",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=("SELECT_BACKLOG_ITEM", "DONE"),
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+        "fake-selector",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "DONE"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+
+
+def test_design_delta_parent_drain_exhausts_with_typed_result_at_authored_bound(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-exhausted",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=(
+            "SELECT_BACKLOG_ITEM",
+            "SELECT_BACKLOG_ITEM",
+            "SELECT_BACKLOG_ITEM",
+            "DONE",
+        ),
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "EXHAUSTED"
+    assert state["workflow_outputs"]["return__reason"] == "max_iterations_exhausted"
+    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert state["workflow_outputs"]["return__drain-summary"] == "artifacts/work/selection_bundle.md"
+    assert not (workspace / "artifacts" / "work" / "drain_summary.json").exists()
+    assert (workspace / "artifacts" / "work" / "selection_bundle.md").is_file()
+    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+
+
+def test_design_delta_parent_drain_smokes_blocked_recovery_path(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-blocked",
+        plan_variant="APPROVED",
+        implementation_variant="BLOCKED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=("SELECT_BACKLOG_ITEM", "BLOCKED"),
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-work-item-recovery",
+        "fake-selector",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "BLOCKED"
+    assert state["workflow_outputs"]["return__reason"] == "selector_blocked"
+    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert state["workflow_outputs"]["return__drain-summary"] == "artifacts/work/drain_summary.json"
+    assert (workspace / "artifacts" / "work" / "progress_report.md").is_file()
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+
+
+def test_design_delta_parent_drain_design_gap_retry_runs_prepared_item(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-design-gap-then-item",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=("DRAFT_DESIGN_GAP", "SELECT_BACKLOG_ITEM", "DONE"),
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-selector",
+        "fake-architect-draft",
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+        "fake-selector",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "DONE"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+
+
+def test_design_delta_parent_drain_smokes_selector_design_gap_path(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-design-gap",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=("DRAFT_DESIGN_GAP", "DONE"),
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == ["fake-selector", "fake-architect-draft", "fake-selector"]
+    assert state["workflow_outputs"]["return__variant"] == "DONE"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
+
+
+def test_design_delta_parent_drain_smokes_selector_done_path(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-done",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status="DONE",
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == ["fake-selector"]
+    assert state["workflow_outputs"]["return__variant"] == "DONE"
+    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
+    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
+    assert run_state["history"][-1]["event"] == "drain_status"
+    assert run_state["history"][-1]["status"] == "DONE"
+
+
+def test_design_delta_parent_drain_smokes_selector_blocked_path(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        tmp_path / "parent-blocked-selector",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status="BLOCKED",
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == ["fake-selector"]
+    assert state["workflow_outputs"]["return__variant"] == "BLOCKED"
+    assert state["workflow_outputs"]["return__reason"] == "selector_blocked"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
+    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
+    assert run_state["history"][-1]["event"] == "drain_status"
+    assert run_state["history"][-1]["status"] == "BLOCKED"
+    assert run_state["history"][-1]["reason"] == "selector_blocked"
 
 
 def test_design_delta_migration_nested_same_file_call_with_local_record_compiles(

@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 RECOVERY_ROUTES = {
@@ -28,6 +31,71 @@ def _read_value_or_path(value: str) -> str:
 def _write_summary(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_output_bundle(summary_path: str) -> None:
+    bundle_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+    if not bundle_path:
+        return
+    path = Path(bundle_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"summary": summary_path}, indent=2) + "\n", encoding="utf-8")
+
+
+def _run_adapter_payload(payload: dict[str, Any]) -> int:
+    route = str(payload.get("recovery_route") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    terminal_action = str(payload.get("terminal_action") or "continue").strip()
+    state_path = str(payload.get("run_state_path") or "").strip()
+    item_id = str(payload.get("work_item_id") or "").strip()
+    source = str(payload.get("work_item_source") or "").strip()
+    summary_path = str(payload.get("summary_path") or "").strip()
+    summary_pointer_path = str(payload.get("summary_pointer_path") or "").strip()
+    drain_status_path = str(payload.get("drain_status_path") or "").strip()
+    if route not in RECOVERY_ROUTES:
+        raise SystemExit(f"Unexpected recovery route: {route}")
+    if not all((reason, state_path, item_id, source, summary_path, summary_pointer_path, drain_status_path)):
+        raise SystemExit("adapter payload missing required blocked recovery fields")
+    if terminal_action not in {"block", "continue"}:
+        raise SystemExit(f"Unexpected terminal_action: {terminal_action}")
+
+    update_reason = "implementation_blocked" if route == "TERMINAL_BLOCKED" or terminal_action == "block" else reason
+    command_args = [
+        "python",
+        "workflows/library/scripts/update_lisp_frontend_run_state.py",
+        "--state-path",
+        state_path,
+        "blocked",
+        "--item-id",
+        item_id,
+        "--source",
+        source,
+        "--reason",
+        update_reason,
+        "--summary-path",
+        summary_path,
+        "--summary-pointer-path",
+        summary_pointer_path,
+        "--drain-status-path",
+        drain_status_path,
+    ]
+    optional = {
+        "--recovery-route": route,
+        "--recovery-reason": reason,
+        "--progress-report-path": str(payload.get("progress_report_path") or "").strip(),
+        "--implementation-state-path": str(payload.get("implementation_state_path") or "").strip(),
+        "--architecture-path": str(payload.get("architecture_bundle_path") or "").strip(),
+        "--plan-path": str(payload.get("plan_path") or "").strip(),
+    }
+    for flag, value in optional.items():
+        if value:
+            command_args.extend([flag, value])
+    result = subprocess.run(command_args).returncode
+    if result == 0 and terminal_action == "continue" and route != "TERMINAL_BLOCKED":
+        Path(drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+    if result == 0:
+        _write_output_bundle(summary_path)
+    return result
 
 
 def _timestamp() -> str:
@@ -156,6 +224,9 @@ def _architecture_path(args: argparse.Namespace) -> str:
 
 
 def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1].lstrip().startswith("{"):
+        return _run_adapter_payload(json.loads(sys.argv[1]))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--recovery-route", default="")
     parser.add_argument("--reason", default="")

@@ -1,0 +1,29 @@
+{
+  "prompts.selector.select-next-work": {
+    "input_file": "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+  },
+  "prompts.architect.draft": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md"
+  },
+  "prompts.plan.draft": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md"
+  },
+  "prompts.plan.review": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
+  },
+  "prompts.plan.fix": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md"
+  },
+  "prompts.implementation.execute": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+  },
+  "prompts.implementation.review": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+  },
+  "prompts.implementation.fix": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+  },
+  "prompts.work-item.classify-blocked-recovery": {
+    "input_file": "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md"
+  }
+}

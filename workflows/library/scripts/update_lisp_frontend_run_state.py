@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,68 @@ def _save(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def _write_output_bundle(summary_path: str) -> None:
+    bundle_path = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+    if not bundle_path:
+        return
+    path = Path(bundle_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"summary": summary_path}, indent=2) + "\n", encoding="utf-8")
+
+
+def _run_adapter_payload(payload: dict[str, Any]) -> int:
+    state_path = str(payload.get("run_state_path") or "").strip()
+    item_id = str(payload.get("work_item_id") or "").strip()
+    source = str(payload.get("work_item_source") or "").strip()
+    reason = str(payload.get("reason") or "").strip()
+    summary_path = str(payload.get("item_summary_target_path") or "").strip()
+    summary_pointer_path = str(payload.get("item_summary_pointer_path") or "").strip()
+    drain_status_path = str(payload.get("drain_status_path") or "").strip()
+    if not all((state_path, item_id, source, reason, summary_path)):
+        raise SystemExit("adapter payload requires run_state_path, work_item_id, work_item_source, reason, and item_summary_target_path")
+    if source not in {"BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"}:
+        raise SystemExit(f"Unexpected work_item_source: {source}")
+
+    path = Path(state_path)
+    state = _load(path)
+    if reason == "complete":
+        _record_completed(state, item_id=item_id, source=source)
+        summary_status = "COMPLETED"
+        drain_status = "CONTINUE"
+    else:
+        _record_blocked(state, item_id=item_id, source=source, reason=reason)
+        summary_status = "BLOCKED"
+        drain_status = "BLOCKED"
+
+    summary = Path(summary_path)
+    summary.parent.mkdir(parents=True, exist_ok=True)
+    summary.write_text(
+        json.dumps(
+            {
+                "work_item_id": item_id,
+                "work_item_source": source,
+                "item_status": summary_status,
+                "reason": "" if reason == "complete" else reason,
+                "run_state_path": path.as_posix(),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    if summary_pointer_path:
+        pointer = Path(summary_pointer_path)
+        pointer.parent.mkdir(parents=True, exist_ok=True)
+        pointer.write_text(summary.as_posix() + "\n", encoding="utf-8")
+    if drain_status_path:
+        drain = Path(drain_status_path)
+        drain.parent.mkdir(parents=True, exist_ok=True)
+        drain.write_text(drain_status + "\n", encoding="utf-8")
+    _save(path, state)
+    _write_output_bundle(summary.as_posix())
+    return 0
 
 
 def _record_completed(state: dict[str, Any], *, item_id: str, source: str) -> None:
@@ -126,6 +190,9 @@ def _record_gap_design_revision(state: dict[str, Any], *, item_id: str, source: 
 
 
 def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1].lstrip().startswith("{"):
+        return _run_adapter_payload(json.loads(sys.argv[1]))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--state-path", required=True)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -204,6 +271,7 @@ def main() -> int:
                 pointer_path = Path(args.summary_pointer_path)
                 pointer_path.parent.mkdir(parents=True, exist_ok=True)
                 pointer_path.write_text(summary_path.as_posix() + "\n", encoding="utf-8")
+            _write_output_bundle(summary_path.as_posix())
         if args.drain_status_path:
             status_path = Path(args.drain_status_path)
             status_path.parent.mkdir(parents=True, exist_ok=True)

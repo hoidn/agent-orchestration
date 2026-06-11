@@ -3,8 +3,18 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/design_gap_architect)
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc SteeringDoc TargetDesignDoc WorkReport WorkReportTarget))
-  (export draft-design-gap-architecture validate-design-gap-architecture)
+    (BaselineDesignDoc SelectionBundlePath SteeringDoc TargetDesignDoc WorkReport WorkReportTarget))
+  (export
+    ArchitectureDocTarget
+    ArchitectureTargets
+    ArchitectureValidationBundleTarget
+    ArchitectureValidationDecision
+    CommandAdapterContractDoc
+    DraftArchitectureDecision
+    DraftBundleTarget
+    PlanDocTarget
+    draft-design-gap-architecture
+    validate-design-gap-architecture)
 
   (defpath CommandAdapterContractDoc
     :kind relpath
@@ -50,8 +60,8 @@
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
      (command_adapter_contract CommandAdapterContractDoc)
-     (progress_ledger WorkReport)
-     (selection_bundle WorkReport)
+     (progress_ledger SelectionBundlePath)
+     (selection_bundle SelectionBundlePath)
      (architecture_targets ArchitectureTargets)
      (existing_architecture_index WorkReport)
      (draft_bundle_target DraftBundleTarget))
@@ -74,7 +84,7 @@
 
   (defworkflow validate-design-gap-architecture
     ((draft_bundle DraftBundleTarget)
-     (architecture_targets_bundle WorkReport)
+     (architecture_targets_bundle SelectionBundlePath)
      (validation_bundle_target ArchitectureValidationBundleTarget))
     -> ArchitectureValidationDecision
     (command-result validate_lisp_frontend_design_gap_architecture

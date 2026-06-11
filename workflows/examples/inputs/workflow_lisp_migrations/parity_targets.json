@@ -292,6 +292,163 @@
           "-q"
         ]
       }
+    },
+    {
+      "workflow_family": "design_delta_parent_drain",
+      "candidate": "workflows/library/lisp_frontend_design_delta/drain.orc",
+      "yaml_primary": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+      "entry_workflow": "lisp_frontend_design_delta/drain::drain",
+      "provider_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+      "prompt_externs_file": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+      "command_boundaries_file": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
+      "readiness_label": "parent_callable_candidate",
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "required_family_evidence_roles": [
+        "parent_callable_compile",
+        "parent_callable_smoke",
+        "resource_transition_parity",
+        "public_private_boundary_parity",
+        "boundary_artifact_justifications",
+        "route_identity"
+      ],
+      "baseline_characterization": {
+        "inputs": [
+          "steering",
+          "target_design",
+          "baseline_design",
+          "manifest",
+          "progress_ledger",
+          "run_state"
+        ],
+        "outputs": [
+          "drain_terminal_variant",
+          "run_state",
+          "drain_summary"
+        ],
+        "terminal_states": [
+          "selected item completed",
+          "selected item blocked recovery",
+          "blocked",
+          "exhausted"
+        ],
+        "artifacts": [
+          "selection bundle view",
+          "work item summary",
+          "drain summary"
+        ],
+        "resume_behavior": [
+          "parent-callable family evidence only; YAML primary remains authoritative"
+        ]
+      },
+      "accepted_differences": [
+        {
+          "id": "parent-callable-candidate",
+          "description": "This target proves first parent-callable family evidence but does not replace the YAML primary."
+        },
+        {
+          "id": "parity-constrained-boundaries",
+          "description": "YAML-comparable child boundaries and artifacts remain labeled as migration constraints until promotable parity is intentionally produced."
+        }
+      ],
+      "deprecated_yaml_mechanics": [
+        {
+          "mechanic": "leaf-only compile/smoke evidence used as family proof",
+          "replacement": "parent-callable compile, smoke, boundary, route, and resource-transition evidence"
+        },
+        {
+          "mechanic": "manual parent-drain parity conclusion",
+          "replacement": "machine-readable migration-parity report with required family evidence roles"
+        }
+      ],
+      "promotion_eligibility": {
+        "eligible_for_primary_surface": false,
+        "blocked_reason": "parent-family candidate only; YAML primary replacement requires strict promotable family evidence"
+      },
+      "compile_artifacts": {
+        "required": [
+          "core_workflow_ast",
+          "semantic_ir",
+          "source_map",
+          "workflow_boundary_projection"
+        ],
+        "optional": [
+          "expanded_debug_yaml"
+        ]
+      },
+      "evidence_commands": {
+        "compile": [
+          "python",
+          "-m",
+          "orchestrator",
+          "compile",
+          "workflows/library/lisp_frontend_design_delta/drain.orc",
+          "--entry-workflow",
+          "lisp_frontend_design_delta/drain::drain",
+          "--provider-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "--prompt-externs-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "--command-boundaries-file",
+          "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        ],
+        "dry_run": {
+          "waiver": {
+            "owner": "workflow-lisp",
+            "justification": "CLI dry-run is not runnable for this parent-family slice because the parent drain runtime paths use fake-provider pytest harness inputs; fake-provider smokes are the bounded runtime evidence.",
+            "expiry": "2026-07-31",
+            "targeted_evidence": [
+              "smoke_or_integration",
+              "parent_callable_smoke"
+            ]
+          }
+        },
+        "smoke_or_integration": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py",
+          "-k",
+          "design_delta_parent_drain_smokes",
+          "-q"
+        ],
+        "output_contract_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py",
+          "-k",
+          "design_delta_parent_drain",
+          "-q"
+        ],
+        "terminal_state_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py",
+          "-k",
+          "design_delta_parent_drain_smokes",
+          "-q"
+        ],
+        "artifact_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_build_artifacts.py",
+          "-k",
+          "design_delta_parent_drain or command_boundary_lineage or compatibility_bridge",
+          "-q"
+        ],
+        "resume_parity": [
+          "python",
+          "-m",
+          "pytest",
+          "tests/test_workflow_lisp_migration_parity.py",
+          "-k",
+          "design_delta_parent_drain",
+          "-q"
+        ]
+      }
     }
   ]
 }

@@ -1,0 +1,11 @@
+{
+  "providers.selector": "codex",
+  "providers.architect.draft": "codex",
+  "providers.plan.draft": "codex",
+  "providers.plan.review": "codex",
+  "providers.plan.fix": "codex",
+  "providers.implementation.execute": "codex",
+  "providers.implementation.review": "codex",
+  "providers.implementation.fix": "codex",
+  "providers.work-item.recovery-classifier": "codex"
+}
