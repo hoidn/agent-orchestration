@@ -5,9 +5,10 @@ imports:
   selector: ../library/lisp_frontend_design_delta_selector.v214.yaml
   design_gap_architect: ../library/lisp_frontend_design_delta_design_gap_architect.v214.yaml
   work_item: ../library/lisp_frontend_design_delta_work_item.v214.yaml
+  done_review: ../library/lisp_frontend_design_delta_done_review.v214.yaml
 
 context:
-  workflow_model: "gpt-5.5"
+  workflow_model: "gpt-5.4"
   workflow_effort: "high"
 
 inputs:
@@ -196,6 +197,18 @@ steps:
                 under: state
               - name: design_gap_work_item_state_root
                 json_pointer: /design_gap_work_item_state_root
+                type: relpath
+                under: state
+              - name: done_review_state_root
+                json_pointer: /done_review_state_root
+                type: relpath
+                under: state
+              - name: done_review_design_gap_architect_state_root
+                json_pointer: /done_review_design_gap_architect_state_root
+                type: relpath
+                under: state
+              - name: done_review_design_gap_work_item_state_root
+                json_pointer: /done_review_design_gap_work_item_state_root
                 type: relpath
                 under: state
 
@@ -515,14 +528,46 @@ steps:
                     type: enum
                     allowed: ["CONTINUE", "DONE", "BLOCKED"]
                     from:
-                      ref: self.steps.WriteDone.artifacts.drain_status
+                      ref: self.steps.RunDoneReview.artifacts.drain_status
                 steps:
-                  - name: WriteDone
-                    id: write_done
-                    set_scalar:
-                      artifact: drain_status
-                      value: DONE
-
+                  - name: RunDoneReview
+                    id: run_done_review
+                    call: done_review
+                    with:
+                      state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.done_review_state_root
+                      design_gap_architect_state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.done_review_design_gap_architect_state_root
+                      design_gap_work_item_state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.done_review_design_gap_work_item_state_root
+                      steering_path:
+                        ref: inputs.steering_path
+                      target_design_path:
+                        ref: inputs.target_design_path
+                      baseline_design_path:
+                        ref: inputs.baseline_design_path
+                      command_adapter_contract_path:
+                        ref: inputs.command_adapter_contract_path
+                      manifest_path:
+                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
+                      progress_ledger_path:
+                        ref: inputs.progress_ledger_path
+                      run_state_path:
+                        ref: inputs.run_state_target_path
+                      selection_bundle_path:
+                        ref: parent.steps.SelectNextWork.artifacts.selection_bundle_path
+                      architecture_index_root:
+                        ref: inputs.architecture_index_root
+                      artifact_work_root:
+                        ref: inputs.artifact_work_root
+                      artifact_checks_root:
+                        ref: inputs.artifact_checks_root
+                      artifact_review_root:
+                        ref: inputs.artifact_review_root
+                      implementation_execute_provider:
+                        ref: inputs.implementation_execute_provider
+                      implementation_review_provider:
+                        ref: inputs.implementation_review_provider
               BLOCKED:
                 id: blocked_path
                 outputs:

@@ -79,6 +79,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/lisp_frontend_design_delta_design_gap_architect.v214.yaml",
         "workflows/library/lisp_frontend_work_item.v214.yaml",
         "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
         "workflows/library/lisp_frontend_plan_phase.v214.yaml",
         "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
         "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
@@ -88,6 +89,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/build_neurips_backlog_manifest.py",
         "workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py",
         "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py",
+        "workflows/library/scripts/project_lisp_frontend_done_review.py",
         "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
         "workflows/library/scripts/prepare_lisp_frontend_recovered_design_gap_work_item.py",
         "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
@@ -165,13 +167,13 @@ def _design_delta_workflow_inputs() -> dict:
     }
 
 
-def _run_script(workspace: Path, *argv: str) -> subprocess.CompletedProcess[str]:
+def _run_script(workspace: Path, *argv: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["python", *argv],
         cwd=workspace,
         text=True,
         capture_output=True,
-        check=True,
+        check=check,
     )
 
 
@@ -2542,7 +2544,7 @@ def test_blocked_implementation_prompts_reserve_user_decision_for_terminal_categ
         assert "user_decision_required" in prompt
         assert "repo-local" in prompt
         assert "prerequisite" in prompt
-        assert "target-design" in prompt or "target design" in prompt
+        assert "target design" in prompt
         assert "environment" in prompt or "access" in prompt or "credential" in prompt
 
 
@@ -2877,7 +2879,7 @@ def test_design_delta_selector_prompt_defines_target_and_baseline():
 
     assert "target design" in prompt.lower()
     assert "baseline design" in prompt.lower()
-    assert "Return `DONE` only when the target delta" in prompt
+    assert "Return `DONE` only when the target design" in prompt
     assert "MVP" not in prompt
 
 
@@ -3249,6 +3251,238 @@ def test_autonomous_drain_design_gap_path_stays_plan_scoped():
     ]
 
 
+def test_design_delta_drain_done_route_requires_terminal_review_gate():
+    workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text())
+    assert workflow["imports"]["done_review"] == "../library/lisp_frontend_design_delta_done_review.v214.yaml"
+    drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
+    prepare = next(step for step in drain_step["repeat_until"]["steps"] if step["name"] == "PrepareIterationPaths")
+    prepare_fields = {field["name"]: field for field in prepare["output_bundle"]["fields"]}
+    assert "done_review_state_root" in prepare_fields
+    assert "done_review_design_gap_architect_state_root" in prepare_fields
+    assert "done_review_design_gap_work_item_state_root" in prepare_fields
+
+    route_selection = next(step for step in drain_step["repeat_until"]["steps"] if step["name"] == "RouteSelection")
+    done_case = route_selection["match"]["cases"]["DONE"]
+    assert done_case["outputs"]["drain_status"]["from"]["ref"] == "self.steps.RunDoneReview.artifacts.drain_status"
+    done_step_names = [step["name"] for step in done_case["steps"]]
+    assert done_step_names == ["RunDoneReview"]
+
+    done_call = done_case["steps"][0]
+    assert done_call["call"] == "done_review"
+    assert done_call["with"]["selection_bundle_path"]["ref"] == "parent.steps.SelectNextWork.artifacts.selection_bundle_path"
+    assert done_call["with"]["state_root"]["ref"] == (
+        "parent.steps.PrepareIterationPaths.artifacts.done_review_state_root"
+    )
+    assert done_call["with"]["design_gap_architect_state_root"]["ref"] == (
+        "parent.steps.PrepareIterationPaths.artifacts.done_review_design_gap_architect_state_root"
+    )
+    assert done_call["with"]["design_gap_work_item_state_root"]["ref"] == (
+        "parent.steps.PrepareIterationPaths.artifacts.done_review_design_gap_work_item_state_root"
+    )
+
+    done_workflow = yaml.safe_load(
+        (ROOT / "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml").read_text()
+    )
+    review = next(step for step in done_workflow["steps"] if step["name"] == "ReviewDoneDecision")
+    assert review["asset_file"] == "prompts/lisp_frontend_selector/review_done_design_delta.md"
+    review_fields = {field["name"]: field for field in review["output_bundle"]["fields"]}
+    assert review_fields["done_decision"]["allowed"] == ["APPROVE_DONE", "REJECT_DONE"]
+
+    projection = next(step for step in done_workflow["steps"] if step["name"] == "ProjectDoneReview")
+    assert any(part.endswith("project_lisp_frontend_done_review.py") for part in projection["command"])
+    assert "--original-selection-path" in projection["command"]
+    projection_fields = {field["name"]: field for field in projection["output_bundle"]["fields"]}
+    assert projection_fields["selection_status"]["allowed"] == ["DONE", "DRAFT_DESIGN_GAP"]
+
+    done_review_route = next(step for step in done_workflow["steps"] if step["name"] == "RouteDoneReview")
+    nested_cases = done_review_route["match"]["cases"]
+    assert set(nested_cases) == {"DONE", "DRAFT_DESIGN_GAP"}
+    assert [step["name"] for step in nested_cases["DONE"]["steps"]] == ["WriteDone"]
+    assert [step["name"] for step in nested_cases["DRAFT_DESIGN_GAP"]["steps"]] == [
+        "DraftDoneRejectedDesignGapArchitecture",
+        "RunDoneRejectedDesignGapWorkItem",
+    ]
+    rejected_architect = nested_cases["DRAFT_DESIGN_GAP"]["steps"][0]
+    assert rejected_architect["with"]["selection_bundle_path"]["ref"] == (
+        "parent.steps.ProjectDoneReview.artifacts.selection_bundle_path"
+    )
+
+
+def test_prepare_design_delta_iteration_paths_clears_stale_iteration_outputs(tmp_path):
+    manifest = tmp_path / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"items":[]}\n', encoding="utf-8")
+    stale_selection = (
+        tmp_path
+        / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/selector/selection.json"
+    )
+    stale_selection.parent.mkdir(parents=True)
+    stale_selection.write_text('{"selection_status":"DONE"}\n', encoding="utf-8")
+    stale_work_item = (
+        tmp_path
+        / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-work-item/drain_status.txt"
+    )
+    stale_work_item.parent.mkdir(parents=True)
+    stale_work_item.write_text("DONE\n", encoding="utf-8")
+
+    output = "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/iteration-paths.json"
+    result = subprocess.run(
+        [
+            "python",
+            str(ROOT / "workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py"),
+            "--drain-state-root",
+            "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain",
+            "--iteration",
+            "0",
+            "--output",
+            output,
+        ],
+        cwd=tmp_path,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert manifest.exists()
+    assert not stale_selection.exists()
+    assert not stale_work_item.exists()
+    payload = json.loads((tmp_path / output).read_text(encoding="utf-8"))
+    assert payload["selector_state_root"] == (
+        "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/selector"
+    )
+    assert (tmp_path / payload["selector_state_root"]).is_dir()
+
+
+def test_project_lisp_frontend_done_review_approves_terminal_done(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    original_selection = workspace / "state/selector/selection.json"
+    original_selection.parent.mkdir(parents=True)
+    original_selection.write_text(
+        json.dumps({"selection_status": "DONE", "selection_rationale": "Selector saw no remaining work."}) + "\n",
+        encoding="utf-8",
+    )
+    review_path = workspace / "state/iteration/done-review.json"
+    review_path.parent.mkdir(parents=True)
+    review_path.write_text(
+        json.dumps({"done_decision": "APPROVE_DONE", "review_rationale": "Coverage is sufficient."}) + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/project_lisp_frontend_done_review.py"),
+        "--review-path",
+        "state/iteration/done-review.json",
+        "--original-selection-path",
+        "state/selector/selection.json",
+        "--selection-output",
+        "state/iteration/projected-selection.json",
+        "--output",
+        "state/iteration/projected-selection-path.json",
+    )
+
+    projected = json.loads((workspace / "state/iteration/projected-selection.json").read_text(encoding="utf-8"))
+    assert projected == {
+        "selection_status": "DONE",
+        "selection_rationale": "Coverage is sufficient.",
+        "terminal_review_decision": "APPROVE_DONE",
+        "original_selection_bundle_path": "state/selector/selection.json",
+    }
+    bundle = json.loads((workspace / "state/iteration/projected-selection-path.json").read_text(encoding="utf-8"))
+    assert bundle == {
+        "selection_status": "DONE",
+        "selection_bundle_path": "state/iteration/projected-selection.json",
+    }
+
+
+def test_project_lisp_frontend_done_review_rejects_done_as_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    original_selection = workspace / "state/selector/selection.json"
+    original_selection.parent.mkdir(parents=True)
+    original_selection.write_text(
+        json.dumps({"selection_status": "DONE", "selection_rationale": "Selector saw no remaining work."}) + "\n",
+        encoding="utf-8",
+    )
+    review_path = workspace / "state/iteration/done-review.json"
+    review_path.parent.mkdir(parents=True)
+    review_path.write_text(
+        json.dumps(
+            {
+                "done_decision": "REJECT_DONE",
+                "review_rationale": "Parent-callable parity is still missing.",
+                "design_gap_id": "parent-callable-parity-evidence",
+                "source_design_path": "docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md",
+                "source_sections": ["Tranche 8: Canonical Resume/Reuse Validation And Migration Evidence"],
+                "missing_component": "Parent-callable parity evidence is incomplete.",
+                "proposed_scope": "Add one bounded gap for parent-callable parity evidence.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/project_lisp_frontend_done_review.py"),
+        "--review-path",
+        "state/iteration/done-review.json",
+        "--original-selection-path",
+        "state/selector/selection.json",
+        "--selection-output",
+        "state/iteration/projected-selection.json",
+        "--output",
+        "state/iteration/projected-selection-path.json",
+    )
+
+    projected = json.loads((workspace / "state/iteration/projected-selection.json").read_text(encoding="utf-8"))
+    assert projected["selection_status"] == "DRAFT_DESIGN_GAP"
+    assert projected["design_gap_id"] == "parent-callable-parity-evidence"
+    assert projected["selection_rationale"] == "Parent-callable parity is still missing."
+    assert projected["terminal_review_decision"] == "REJECT_DONE"
+    bundle = json.loads((workspace / "state/iteration/projected-selection-path.json").read_text(encoding="utf-8"))
+    assert bundle == {
+        "selection_status": "DRAFT_DESIGN_GAP",
+        "selection_bundle_path": "state/iteration/projected-selection.json",
+    }
+
+
+def test_project_lisp_frontend_done_review_requires_gap_fields_when_rejected(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    original_selection = workspace / "state/selector/selection.json"
+    original_selection.parent.mkdir(parents=True)
+    original_selection.write_text(
+        json.dumps({"selection_status": "DONE", "selection_rationale": "Selector saw no remaining work."}) + "\n",
+        encoding="utf-8",
+    )
+    review_path = workspace / "state/iteration/done-review.json"
+    review_path.parent.mkdir(parents=True)
+    review_path.write_text(
+        json.dumps({"done_decision": "REJECT_DONE", "review_rationale": "Still missing work."}) + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/project_lisp_frontend_done_review.py"),
+        "--review-path",
+        "state/iteration/done-review.json",
+        "--original-selection-path",
+        "state/selector/selection.json",
+        "--selection-output",
+        "state/iteration/projected-selection.json",
+        "--output",
+        "state/iteration/projected-selection-path.json",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "missing required rejection field" in result.stderr
+
+
 def test_implementation_review_checks_report_consumes_are_loop_safe():
     workflow_paths = [
         "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
@@ -3313,6 +3547,28 @@ def _write_selector_done(workspace: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def _write_done_review_approve(workspace: Path) -> None:
+    roots = sorted(workspace.glob("state/**/done-review"), reverse=True)
+    for root in roots:
+        review_path = root / "done-review.json"
+        if review_path.exists():
+            continue
+        review_path.parent.mkdir(parents=True, exist_ok=True)
+        review_path.write_text(
+            json.dumps(
+                {
+                    "done_decision": "APPROVE_DONE",
+                    "review_rationale": "Terminal review found no remaining target design gaps.",
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return
+    raise AssertionError("No pending done-review directory found")
 
 
 def _write_design_gap_architecture(workspace: Path) -> None:
@@ -4263,6 +4519,7 @@ def test_design_delta_target_design_recovery_revises_design_and_continues(tmp_pa
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
             ("SelectNextWork", _write_selector_done),
+            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -4306,6 +4563,7 @@ def test_design_delta_gap_design_recovery_continues_without_target_edit(tmp_path
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
             ("SelectNextWork", _write_selector_done),
+            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -4345,6 +4603,7 @@ def test_design_delta_prior_blocked_gap_revises_design_before_selection(tmp_path
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
             ("SelectNextWork", _write_selector_done),
+            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -4355,7 +4614,7 @@ def test_design_delta_prior_blocked_gap_revises_design_before_selection(tmp_path
     target_text = (workspace / _design_delta_workflow_inputs()["target_design_path"]).read_text(encoding="utf-8")
 
     assert state["status"] == "completed"
-    assert state["__provider_calls"] == 8
+    assert state["__provider_calls"] == 9
     assert any(event["event"] == "design_revision" for event in run_state["history"])
     assert any(
         event["event"] == "completed" and event["item_id"] == "parser-syntax"
@@ -4382,6 +4641,7 @@ def test_design_delta_prior_blocked_gap_design_recovery_before_selection(tmp_pat
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
             ("SelectNextWork", _write_selector_done),
+            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -4396,7 +4656,7 @@ def test_design_delta_prior_blocked_gap_design_recovery_before_selection(tmp_pat
     ).read_text(encoding="utf-8")
 
     assert state["status"] == "completed"
-    assert state["__provider_calls"] == 7
+    assert state["__provider_calls"] == 8
     assert any(event["event"] == "gap_design_revision" for event in run_state["history"])
     assert any(
         event["event"] == "completed" and event["item_id"] == "parser-syntax"

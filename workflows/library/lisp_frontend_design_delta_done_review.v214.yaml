@@ -1,0 +1,247 @@
+version: "2.14"
+name: "lisp-frontend-design-delta-done-review-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+imports:
+  design_gap_architect: ./lisp_frontend_design_delta_design_gap_architect.v214.yaml
+  work_item: ./lisp_frontend_design_delta_work_item.v214.yaml
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  design_gap_architect_state_root:
+    type: relpath
+    under: state
+  design_gap_work_item_state_root:
+    type: relpath
+    under: state
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  target_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  baseline_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  command_adapter_contract_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_command_adapter_contract.md
+    must_exist_target: true
+  manifest_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  run_state_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  selection_bundle_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  architecture_index_root:
+    type: relpath
+    under: docs/plans
+    default: docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps
+  artifact_work_root:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN
+  artifact_checks_root:
+    type: relpath
+    under: artifacts/checks
+    default: artifacts/checks/LISP-FRONTEND-AUTONOMOUS-DRAIN
+  artifact_review_root:
+    type: relpath
+    under: artifacts/review
+    default: artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+  implementation_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+    from:
+      ref: root.steps.RouteDoneReview.artifacts.drain_status
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+  claude_opus:
+    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "argv"
+    defaults:
+      model: "opus"
+      effort: "high"
+
+artifacts:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+
+steps:
+  - name: ReviewDoneDecision
+    id: review_done_decision
+    provider: codex
+    asset_file: prompts/lisp_frontend_selector/review_done_design_delta.md
+    timeout_sec: 1800
+    depends_on:
+      required:
+        - ${inputs.steering_path}
+        - ${inputs.target_design_path}
+        - ${inputs.baseline_design_path}
+        - ${inputs.manifest_path}
+        - ${inputs.progress_ledger_path}
+        - ${inputs.run_state_path}
+        - ${inputs.selection_bundle_path}
+      inject:
+        mode: content
+        position: prepend
+    output_bundle:
+      path: ${inputs.state_root}/done-review.json
+      fields:
+        - name: done_decision
+          json_pointer: /done_decision
+          type: enum
+          allowed: ["APPROVE_DONE", "REJECT_DONE"]
+        - name: review_rationale
+          json_pointer: /review_rationale
+          type: string
+
+  - name: ProjectDoneReview
+    id: project_done_review
+    command:
+      - python
+      - workflows/library/scripts/project_lisp_frontend_done_review.py
+      - --review-path
+      - ${inputs.state_root}/done-review.json
+      - --original-selection-path
+      - ${inputs.selection_bundle_path}
+      - --selection-output
+      - ${inputs.state_root}/reviewed-selection.json
+      - --output
+      - ${inputs.state_root}/reviewed-selection-path.json
+    output_bundle:
+      path: ${inputs.state_root}/reviewed-selection-path.json
+      fields:
+        - name: selection_status
+          json_pointer: /selection_status
+          type: enum
+          allowed: ["DONE", "DRAFT_DESIGN_GAP"]
+        - name: selection_bundle_path
+          json_pointer: /selection_bundle_path
+          type: relpath
+          under: state
+          must_exist_target: true
+
+  - name: RouteDoneReview
+    id: route_done_review
+    match:
+      ref: root.steps.ProjectDoneReview.artifacts.selection_status
+      cases:
+        DONE:
+          id: approve_done_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteDone.artifacts.drain_status
+          steps:
+            - name: WriteDone
+              id: write_done
+              set_scalar:
+                artifact: drain_status
+                value: DONE
+
+        DRAFT_DESIGN_GAP:
+          id: rejected_done_design_gap_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.RunDoneRejectedDesignGapWorkItem.artifacts.drain_status
+          steps:
+            - name: DraftDoneRejectedDesignGapArchitecture
+              id: draft_done_rejected_design_gap_architecture
+              call: design_gap_architect
+              with:
+                state_root:
+                  ref: inputs.design_gap_architect_state_root
+                steering_path:
+                  ref: inputs.steering_path
+                target_design_path:
+                  ref: inputs.target_design_path
+                baseline_design_path:
+                  ref: inputs.baseline_design_path
+                command_adapter_contract_path:
+                  ref: inputs.command_adapter_contract_path
+                progress_ledger_path:
+                  ref: inputs.progress_ledger_path
+                selection_bundle_path:
+                  ref: parent.steps.ProjectDoneReview.artifacts.selection_bundle_path
+                architecture_index_root:
+                  ref: inputs.architecture_index_root
+            - name: RunDoneRejectedDesignGapWorkItem
+              id: run_done_rejected_design_gap_work_item
+              call: work_item
+              with:
+                state_root:
+                  ref: inputs.design_gap_work_item_state_root
+                selection_bundle_path:
+                  ref: parent.steps.ProjectDoneReview.artifacts.selection_bundle_path
+                manifest_path:
+                  ref: inputs.manifest_path
+                architecture_bundle_path:
+                  ref: self.steps.DraftDoneRejectedDesignGapArchitecture.artifacts.work_item_bundle_path
+                steering_path:
+                  ref: inputs.steering_path
+                target_design_path:
+                  ref: inputs.target_design_path
+                baseline_design_path:
+                  ref: inputs.baseline_design_path
+                progress_ledger_path:
+                  ref: inputs.progress_ledger_path
+                run_state_path:
+                  ref: inputs.run_state_path
+                artifact_work_root:
+                  ref: inputs.artifact_work_root
+                artifact_checks_root:
+                  ref: inputs.artifact_checks_root
+                artifact_review_root:
+                  ref: inputs.artifact_review_root
+                implementation_execute_provider:
+                  ref: inputs.implementation_execute_provider
+                implementation_review_provider:
+                  ref: inputs.implementation_review_provider

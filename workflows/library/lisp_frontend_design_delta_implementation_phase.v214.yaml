@@ -2,7 +2,7 @@ version: "2.14"
 name: "lisp-frontend-design-delta-implementation-phase-v214"
 
 context:
-  workflow_model: "gpt-5.5"
+  workflow_model: "gpt-5.4"
   workflow_effort: "high"
 
 inputs:
