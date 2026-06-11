@@ -1,6 +1,7 @@
 # Workflow Lisp Generic Resource And Context Core
 
-Status: draft design
+Status: draft design (executable target:
+`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`)
 Kind: architecture decision / simplification target
 Created: 2026-06-09
 Scope: Workflow Lisp private context, resource state, typed transitions, and

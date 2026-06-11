@@ -264,6 +264,11 @@ document owns the answer.
 **Description:** Active post-foundation roadmap after the runtime foundation, now consuming WCC as the accepted compiler substrate for nested-control composition and focused on remaining typed result translation, private executable context bridging, certified adapter/state-transition ownership, typed bundle-publication projection, entrypoint bootstrap/defaults, canonical `resume-or-start` validation, and parent-callable parity promotion.
 **Keywords:** lisp-frontend, post-foundation, stdlib, composition, nested-control, private-context, certified-adapters, backlog-drain, parity
 
+### [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
+**Description:** Draft target design that simplifies the runtime to a generic core (`RunCtx`, `Resource<TState>`, `Transition<TRequest, TResult>`), adds a minimal total pure-expression surface (equality, comparison, boolean operators, bounded Int arithmetic, string construction, option handling, record update) plus typed projection, materialized value views, and runtime-native typed transitions, and retires Python adapters that encode workflow semantics while moving `PhaseCtx`-style domain contexts and the phase/drain forms into the stdlib.
+**Keywords:** lisp-frontend, generic-core, expression-surface, pure-projection, transitions, materialized-views, adapter-retirement, boundary-classes, runtime-simplification
+**Use this when:** Planning or reviewing the runtime ontology simplification, the pure-expression operator set, adapter retirement evidence, boundary authority classification, or stdlib migration of `with-phase` / `finalize-selected-item` / `backlog-drain`.
+
 ### [Workflow Lisp Core Calculus And Compiler Middle-End](design/workflow_lisp_core_calculus_middle_end.md)
 **Description:** Accepted compiler architecture for Workflow Lisp lowering in the migrated subset: a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization into the existing validated flat runtime — with WCC schema 2 default for new compiles and legacy schema 1 retained for compatibility.
 **Keywords:** lisp-frontend, core-calculus, middle-end, anf, join-points, defunctionalization, composition, lowering
