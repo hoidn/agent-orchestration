@@ -103,14 +103,14 @@ Add under `providers:` alongside `codex`:
 
 ```yaml
   claude:
-    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
-    input_mode: "argv"
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
     defaults:
       model: "claude-fable-5"
       effort: "high"
 ```
 
-Rationale: this is the Claude Code equivalent of the Codex agentic CLI provider, not the plain API completion form. It can edit/write the required output bundle when the prompt instructs it to write `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+Rationale: this is the Claude Code equivalent of the Codex agentic CLI provider, not the plain API completion form. Use stdin mode because design-gap drafting prompts include large injected context and can exceed OS argv limits if `${PROMPT}` is passed as a command-line argument. It can edit/write the required output bundle when the prompt instructs it to write `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
 
 - [ ] **Step 3: Add provider/model compatibility preflight**
 

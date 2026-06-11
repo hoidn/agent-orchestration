@@ -74,8 +74,8 @@ providers:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
   claude:
-    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
-    input_mode: "argv"
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
     defaults:
       model: "claude-fable-5"
       effort: "high"
