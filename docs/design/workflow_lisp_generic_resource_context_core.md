@@ -366,7 +366,45 @@ Examples:
 This keeps Python acceptable at the boundary while preventing Python from
 owning invisible workflow semantics.
 
-## 10. Relationship To The Post-Foundation Design
+## 10. Minimal Adapter-Retirement Surface
+
+This design should not grow into a general Python replacement language. The
+minimal path for retiring simple Python adapters is four workflow-safe
+surfaces:
+
+1. pure typed projection: construct a typed record or union from existing typed
+   values without invoking a command;
+2. a tiny deterministic expression surface for those projections: string and
+   enum equality, boolean literals/operators/conditionals, field access,
+   record construction/update, and option/default handling;
+3. materialized value views: write a typed value as deterministic JSON or text
+   for prompt, report, or compatibility consumers without making the file
+   semantic authority; and
+4. typed transitions: commit durable resource changes through
+   `Transition<TRequest, TResult>` with version, idempotency, conflict, resume,
+   audit, source-map, and Semantic IR evidence.
+
+These surfaces split adapter retirement by authority class:
+
+| Current adapter behavior | Minimal replacement |
+| --- | --- |
+| selector/action classification | pure typed projection |
+| terminal outcome classification | match plus typed projection |
+| summary or bundle view writing | materialized value view over typed state |
+| run-state, ledger, queue, or recovery mutation | typed transition |
+| external tools or legacy protocol bridges | certified adapter remains |
+
+Do not add map/filter/sort libraries, arbitrary file IO, general JSON
+manipulation, or broad path-string helpers merely to remove a Python script.
+Add those only when a concrete workflow-safe contract requires them. State and
+path authority should flow through typed values, materialized views,
+`StateLayout`, and typed transitions rather than unconstrained Lisp file
+operations.
+
+This surface is intentionally limited to scalar predicates and typed value
+construction; it is not a general string-processing or scripting layer.
+
+## 11. Relationship To The Post-Foundation Design
 
 The post-foundation design should keep its domain context names as examples and
 acceptance fixtures, but it should treat them as library-level typed records.
@@ -385,15 +423,16 @@ The post-foundation tranches still stand:
 
 - nested structured control is still needed;
 - private context is still needed;
-- typed projection is still needed;
+- typed projection and materialized value views are still needed;
 - certified adapters are still needed;
 - resource transitions are still needed;
 - parent-callable parity is still needed.
 
 This document narrows the implementation substrate for those tranches so the
-runtime does not grow one primitive per workflow-family noun.
+runtime does not grow one primitive per workflow-family noun or one adapter
+replacement primitive per Python script.
 
-## 11. Acceptance Criteria
+## 12. Acceptance Criteria
 
 The simpler core is acceptable only if it can express the same migration
 requirements without hiding semantics.
@@ -411,6 +450,10 @@ Required evidence:
   the same visible contract;
 - source maps identify domain helper calls and their generated generic
   resource/transition effects;
+- pure typed projections can replace selector/action and terminal
+  classification adapters without losing source-map or Semantic IR provenance;
+- materialized value views can replace summary/bundle-view writers while
+  preserving typed values as semantic authority;
 - resume uses generic resource identity, version, call-frame, loop-frame, and
   allocation identity;
 - public/private boundary inspection proves generated roots and resources are
@@ -419,19 +462,21 @@ Required evidence:
   and transition audit evidence without knowing workflow-family-specific
   runtime scope names.
 
-## 12. Non-Goals
+## 13. Non-Goals
 
 - Do not remove domain records such as `PhaseCtx` or `DrainCtx` from authoring
   examples.
 - Do not force every workflow family to use status labels.
 - Do not require file-backed state.
 - Do not ban Python, shell, or external tools.
+- Do not add arbitrary file IO, general JSON manipulation, or a broad
+  collection-processing library merely to remove adapters.
 - Do not introduce runtime closures or dynamic procedure values.
 - Do not make `Resource<TState>` a public authored-YAML artifact kind in this
   document.
 - Do not rewrite existing YAML workflows as part of this design.
 
-## 13. Verification Strategy
+## 14. Verification Strategy
 
 Focused fixtures:
 
@@ -446,12 +491,16 @@ Focused fixtures:
 - source-map generated transition effects back to authored helper calls;
 - verify Semantic IR records generic resource/transition effects plus domain
   type names;
+- verify pure typed projections can replace selector/action and terminal
+  classification adapters without introducing command steps;
+- verify materialized value views can replace summary/bundle-view writers
+  without becoming semantic authority;
 - verify a certified adapter and a runtime-native implementation satisfy the
   same transition contract; and
 - verify parity reporting can classify resource-transition evidence without
   special-casing drain-family scope names.
 
-## 14. Migration Recommendation
+## 15. Migration Recommendation
 
 Revise future post-foundation work to implement the generic core first. Keep
 the six context names as vocabulary for the Design Delta Drain and stdlib
@@ -463,10 +512,13 @@ Implementation order:
 2. define `Resource<TState>` metadata and source-map/Semantic IR projection;
 3. define `Transition<TRequest, TResult>` contracts and effect summaries;
 4. express `PhaseCtx` and `DrainCtx` as library records over the generic core;
-5. map retained Python helpers to certified transition/projection adapters;
-6. add fixtures proving parent-callable workflows do not expose generated
+5. add pure typed projection and materialized value-view support for
+   deterministic adapter-retirement cases;
+6. map retained Python helpers to typed projection, materialized value view,
+   typed transition, or certified external/legacy adapter behavior;
+7. add fixtures proving parent-callable workflows do not expose generated
    state roots; and
-7. update the post-foundation design to reference this simplified substrate.
+8. update the post-foundation design to reference this simplified substrate.
 
 This keeps the runtime small while preserving the authority guarantees that
 made resource transitions necessary in the first place.
