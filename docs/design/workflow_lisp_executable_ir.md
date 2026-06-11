@@ -9,7 +9,9 @@ This document records the durable executable-layer contract that the current
 checkout already implements. It describes the shared runtime-facing boundary
 used after Core AST and shared validation, without reopening frontend syntax,
 runtime execution ownership, or future executable extensions that are not yet
-accepted.
+accepted. Workflow Lisp now reaches this layer through WCC/schema-2
+defunctionalization into the flat Core AST; legacy schema-1/direct per-form
+lowering is compatibility-only when explicitly selected.
 
 ## Authority Boundary
 
@@ -30,6 +32,7 @@ The current shared pipeline is:
 
 ```text
 frontend source / YAML surface
+  -> frontend-specific loading or Workflow Lisp WCC/schema-2 lowering
   -> Core Workflow AST
   -> shared validation and lowering
   -> validated ExecutableWorkflow
@@ -37,9 +40,9 @@ frontend source / YAML surface
   -> existing runtime
 ```
 
-Workflow Lisp lowers into the same shared bundle boundary as imported YAML
-workflows. The frontend does not bypass this layer, and it does not compile
-directly into executor-owned state.
+Workflow Lisp lowers through WCC/schema 2 into the same shared bundle boundary
+as imported YAML workflows. The frontend does not bypass this layer, and it
+does not compile directly into executor-owned state.
 
 ## Current Executable Surface
 

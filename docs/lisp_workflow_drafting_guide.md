@@ -17,6 +17,7 @@ Design references:
 
 - [Capability Status Matrix](capability_status_matrix.md)
 - [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
+- [Workflow Lisp Core Calculus And Compiler Middle-End](design/workflow_lisp_core_calculus_middle_end.md)
 - [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
 - [Workflow Lisp Core Statement Taxonomy](design/workflow_lisp_core_stmt_taxonomy.md)
 - [Workflow Lisp Semantic Workflow IR](design/workflow_lisp_semantic_workflow_ir.md)

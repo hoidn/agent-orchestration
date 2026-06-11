@@ -1,14 +1,16 @@
 # Workflow Lisp Frontend Specification and Design
 
 Status: accepted baseline / umbrella frontend contract
-Target substrate: v2.14+ core workflow AST and semantic IR  
+Target substrate: Workflow Core Calculus (WCC) schema 2 lowering into the
+v2.14+ core workflow AST and semantic IR
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
 Lifecycle note: this document is the parent language contract for Workflow
-Lisp. Focused companion contracts refine current ProcRef, runtime migration,
-and composition/stdlib behavior:
+Lisp. Focused companion contracts refine current ProcRef, compiler
+middle-end, runtime migration, and composition/stdlib behavior:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md),
+[Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md),
 [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md),
 and
 [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md).
@@ -32,19 +34,28 @@ The compact operating rule is:
 - every generated semantic node is source-mapped.
 
 This document assumes the Lisp frontend is not a YAML generator and not merely
-a macro veneer. It is a typed procedural authoring language that lowers into
-the existing validated workflow pipeline:
+a macro veneer. It is a typed procedural authoring language that lowers through
+the accepted WCC middle-end into the existing validated workflow pipeline:
 
 ```text
 Lisp source
   -> frontend AST
-  -> macro expansion / procedural elaboration
-  -> core workflow AST
+  -> macro expansion, import expansion, and ProcRef specialization
+  -> typecheck
+  -> WCC elaboration
+  -> ANF normalization
+  -> scope / effect / proof analysis
+  -> defunctionalization into flat Core AST
   -> shared validation
   -> semantic IR
   -> executable IR
   -> existing runtime
 ```
+
+WCC schema 2 is the current default lowering route for the migrated route
+subset. The legacy schema 1 route and direct per-form lowerers are retained
+only for compatibility, characterization, and resume of historical runs where
+explicitly marked.
 
 The same pipeline, with the authority boundary made explicit:
 
@@ -52,8 +63,10 @@ The same pipeline, with the authority boundary made explicit:
 flowchart LR
     Source[".orc source"] --> Parse["Frontend parser"]
     Parse --> FrontendAST["Frontend AST"]
-    FrontendAST --> Expand["Macro expansion and procedural elaboration"]
-    Expand --> CoreAST["Core Workflow AST"]
+    FrontendAST --> Expand["Macro/import expansion and ProcRef specialization"]
+    Expand --> Typed["Typecheck"]
+    Typed --> WCC["WCC elaboration, ANF, scope/effect/proof analysis"]
+    WCC --> CoreAST["Defunctionalized flat Core Workflow AST"]
     CoreAST --> SharedValidation["Shared validation"]
     SharedValidation --> SemanticIR["Semantic Workflow IR"]
     SemanticIR --> ExecutableIR["Executable IR"]
@@ -283,31 +296,38 @@ The following component docs define the missing implementation contracts:
    Required mapping from frontend syntax through Core AST, Semantic IR,
    Executable IR, runtime logs, and diagnostics.
 
-11. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)  
+11. [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md)
+    Accepted compiler middle-end for current Workflow Lisp lowering. WCC
+    schema 2 elaborates typed frontend programs into ANF-normalized calculus,
+    performs scope/effect/proof analysis, and defunctionalizes second-class
+    join points into the existing flat Core AST. New compiler-lane work must
+    target this route; legacy schema 1 is compatibility only.
+
+12. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)
     Exact lowering contracts for `provider-result`, `produce-one-of`,
     `run-provider-phase`, `resume-or-start`, `review-revise-loop`,
     `resource-transition`, `finalize-selected-item`, and `backlog-drain`.
 
-12. [Legacy Adapter](workflow_lisp_legacy_adapter.md)  
+13. [Legacy Adapter](workflow_lisp_legacy_adapter.md)
     Rules for quarantined markdown parsing, old scripts, pointer conventions,
     and command adapters.
 
-13. [Command Adapter Contract](workflow_command_adapter_contract.md)
+14. [Command Adapter Contract](workflow_command_adapter_contract.md)
     Certified command-adapter boundary for procedural behavior implemented by
     scripts or external commands, including inline-glue lint policy, adapter
     fixtures, source maps, and runtime-native promotion criteria.
 
-14. [Debug YAML Renderer](workflow_lisp_debug_yaml_renderer.md)
+15. [Debug YAML Renderer](workflow_lisp_debug_yaml_renderer.md)
     Optional, explicitly non-authoritative projection from Core AST or Semantic
     IR.
 
-15. [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md)
+16. [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md)
     Runtime-migration contract for runtime-owned command/provider
     structured-output targets, private frontend-lowered typed value transport,
     strict migration-parity gates, prompt extern source semantics, and the
     `StateLayout` / `PathAllocator` boundary.
 
-16. [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md)
+17. [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md)
     Composition and stdlib-migration contract for generic effectful
     composition hardening, imported/std `.orc` reuse, stdlib review/revise
     convergence, entrypoint bootstrap/defaults, canonical `resume-or-start`
@@ -340,6 +360,12 @@ Current companion contracts:
   extern source semantics and canonical `resume-or-start` proof alignment are
   part of that boundary when compatibility or promotion proof traverses those
   paths.
+- The WCC middle-end is the current compiler-lane baseline for new Workflow
+  Lisp lowering in the migrated route subset. It owns elaboration, ANF
+  normalization, scope/effect/proof analysis, and defunctionalization into the
+  existing flat Core AST. New nested-control, loop, stdlib-composition, and
+  returned-variant work must target WCC/schema 2. Legacy schema 1 and direct
+  per-form lowerers are compatibility routes, not the default architecture.
 - The composition/stdlib migration contract starts from the existing stdlib
   review/revise route, ProcRef specialization, loop exhaustion, structural
   constraints, and imported generic-loop evidence.
@@ -696,9 +722,9 @@ Compiler-known list heads are classified through the form registry before
 elaboration. The registry distinguishes core special forms, core effect bridges,
 stdlib extensions, and temporary compiler intrinsics. A stdlib extension such as
 `review-revise-loop` must resolve through an imported stdlib binding or an
-allowed stdlib macro expansion before ordinary typechecking/lowering; promoted
-compilation must not silently elaborate it through a literal-name compiler
-branch.
+allowed stdlib macro expansion before ordinary typechecking and WCC
+elaboration; promoted compilation must not silently elaborate it through a
+literal-name compiler branch.
 
 ## 7. Types
 
@@ -884,7 +910,8 @@ The accepted model is:
 - `(proc-ref name)` creates an explicit compile-time procedure reference;
 - `bind-proc` partially binds named arguments and produces a specialized
   compile-time `ProcRef`;
-- specialization happens before Core Workflow AST / Semantic IR lowering;
+- specialization happens before WCC elaboration, Core Workflow AST projection,
+  and Semantic IR projection;
 - executable IR and runtime state contain no unresolved procedure values.
 
 Detailed contract:
@@ -893,10 +920,11 @@ Detailed contract:
 ### 7.9 Type Parameters And Structural Constraints
 
 Generic `.orc` procedures may declare compile-time type parameters. The
-first-tranche surface is intentionally monomorphized before Core AST lowering:
-each call site resolves every type parameter to one concrete type, checks any
-declared constraints, emits or reuses a deterministic specialization, and then
-typechecks/lowers the concrete helper through the ordinary path.
+first-tranche surface is intentionally monomorphized before WCC elaboration and
+Core AST projection: each call site resolves every type parameter to one
+concrete type, checks any declared constraints, emits or reuses a deterministic
+specialization, and then typechecks/lowers the concrete helper through the
+ordinary WCC path.
 
 Type parameters and compile-time references must not appear in:
 
@@ -1131,10 +1159,10 @@ constraint header before their ordinary argument list. Illustrative shape:
 ```
 
 Generic `defproc` bodies are not runtime-generic. The compiler specializes them
-to concrete monomorphic helpers before ordinary typechecking, Core AST lowering,
-Semantic IR, Executable IR, and runtime execution. Runtime state must not carry
-type parameters, procedure values, provider refs, prompt refs, or closure
-environments.
+to concrete monomorphic helpers before ordinary typechecking, WCC elaboration,
+Core AST projection, Semantic IR, Executable IR, and runtime execution. Runtime
+state must not carry type parameters, procedure values, provider refs, prompt
+refs, or closure environments.
 
 #### 8.8.1 Why `defproc` Exists
 
@@ -2337,6 +2365,9 @@ Source text
   -> Resolved Frontend AST
   -> Expanded Frontend AST
   -> Typed Frontend AST
+  -> WCC schema 2
+  -> ANF-normalized WCC
+  -> scoped/effect/proof-analyzed WCC
   -> Core Workflow AST
   -> Validated Core Workflow AST
   -> Semantic IR
@@ -2351,7 +2382,10 @@ flowchart TD
     Syntax --> Resolved["Resolved Frontend AST"]
     Resolved --> Expanded["Expanded Frontend AST"]
     Expanded --> Typed["Typed Frontend AST"]
-    Typed --> Core["Core Workflow AST"]
+    Typed --> WCC["WCC schema 2"]
+    WCC --> ANF["ANF-normalized WCC"]
+    ANF --> Scoped["Scope/effect/proof analysis"]
+    Scoped --> Core["Defunctionalized flat Core Workflow AST"]
     Core --> Validated["Validated Core Workflow AST"]
     Validated --> Semantic["Semantic IR"]
     Semantic --> Exec["Executable IR"]
@@ -2359,6 +2393,8 @@ flowchart TD
 
     Syntax -. source spans .-> SourceMap["SourceMap"]
     Expanded -. macro frames .-> SourceMap
+    WCC -. elaboration frames .-> SourceMap
+    Scoped -. scope and proof frames .-> SourceMap
     Core -. generated node origins .-> SourceMap
     Semantic -. semantic diagnostics .-> SourceMap
     Exec -. runtime step origins .-> SourceMap
@@ -2449,6 +2485,28 @@ inside COMPLETED branch:
   completed : ImplementationAttempt.COMPLETED
   completed.execution-report : Path.execution-report
 ```
+
+## 44.1 Workflow Core Calculus
+
+WCC schema 2 is the current default compiler middle-end for new Workflow Lisp
+compiles in the migrated route subset. It is compiler-internal, not runtime
+state and not a second execution authority.
+
+The typechecked frontend elaborates into WCC, then the compiler applies:
+
+- ANF normalization to atomize effectful subexpressions;
+- scope/effect/proof analysis over the normalized program; and
+- defunctionalization of second-class join points into the existing flat Core
+  Workflow AST.
+
+The legacy schema 1 route and direct per-form lowerers remain only for
+explicitly marked compatibility, characterization, and historical-run resume.
+New compiler-lane work for nested structured control, loops, stdlib
+composition, returned-variant normalization, and branch-local proof handling
+must target WCC/schema 2.
+
+Detailed contract:
+[Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md).
 
 ## 45. Core Workflow AST
 
@@ -2592,9 +2650,18 @@ Final runtime plan includes:
 - observability spans
 - resume checkpoints
 
-## Part IX. Lowering Rules
+## Part IX. Elaboration And WCC Projection Rules
 
-## 50. `defworkflow` Lowering
+This part describes how surface forms enter the WCC route and what flat Core
+AST projection they may produce after WCC elaboration, ANF normalization,
+scope/effect/proof analysis, and defunctionalization.
+
+The Core AST sketches below are projection shapes, not permission for
+surface-specific direct flat-step lowerers. For promoted routes, construct
+classes covered by WCC must elaborate to WCC first. Direct schema-1/per-form
+lowerers are legacy compatibility or characterization paths only.
+
+## 50. `defworkflow` Elaboration
 
 Source:
 
@@ -2607,10 +2674,12 @@ Source:
   body)
 ```
 
-Core AST:
+WCC and Core projection:
 
 ```text
-CoreWorkflow
+defworkflow boundary
+  -> WCC module/function boundary
+  -> defunctionalized CoreWorkflow
   inputs:
     ctx fields as structured inputs or flattened inputs
     inputs fields
@@ -2632,17 +2701,19 @@ SemanticWorkflow
   effect summary
 ```
 
-## 51. `defproc` Lowering
+## 51. `defproc` Elaboration
 
-A `defproc` may lower as inline or private workflow.
+A `defproc` elaborates to a WCC function after import expansion,
+specialization, and typechecking. The compiler may project it as inline WCC or
+as a private workflow boundary before Core AST generation.
 
-Inline lowering:
+Inline projection:
 
 - use when procedure is local
 - use when procedure body is small enough
 - use when no explicit runtime boundary is needed
 
-Private subworkflow lowering:
+Private subworkflow projection:
 
 - use when procedure is reused many times
 - use when procedure needs separate state namespace
@@ -2656,7 +2727,7 @@ Generated private names are deterministic:
 
 Source maps point back to the original `defproc`.
 
-## 52. `call` Lowering
+## 52. `call` Elaboration
 
 Source:
 
@@ -2667,10 +2738,11 @@ Source:
   :providers providers.implementation)
 ```
 
-Core AST:
+WCC and Core projection:
 
 ```text
-CoreCallStep
+perform workflow call
+  -> CoreCallStep
   callee: implementation/run
   args:
     ctx: ...
@@ -2687,7 +2759,7 @@ Validation:
 - workflow ref known
 - return type bound
 
-## 53. `match` Lowering
+## 53. `match` Elaboration
 
 Source:
 
@@ -2697,10 +2769,12 @@ Source:
   ((BLOCKED b) ...))
 ```
 
-Core AST:
+WCC and Core projection:
 
 ```text
-CoreMatch
+case result.variant
+  join branch exits
+  -> CoreMatch or defunctionalized routing equivalent
   discriminant_ref: result.variant
   arms:
     COMPLETED:
@@ -2717,7 +2791,7 @@ Semantic IR:
 - `VariantArtifactEntry` availability narrowed
 - runtime `requires_variant` guard retained
 
-## 54. `provider-result` Lowering
+## 54. `provider-result` Elaboration
 
 Source:
 
@@ -2729,10 +2803,11 @@ Source:
   :returns ImplementationAttempt)
 ```
 
-Core AST:
+WCC and Core projection:
 
 ```text
-CoreProviderStep
+perform provider call :effect provider_call
+  -> CoreProviderStep
   provider: providers.execute
   prompt: prompts.implementation.execute
   prompt_contract: generated from ImplementationAttempt
@@ -2749,7 +2824,7 @@ SemanticProviderResult
   AtomicBundleValidation(...)
 ```
 
-## 55. `produce-one-of` Lowering
+## 55. `produce-one-of` Elaboration
 
 Source:
 
@@ -2760,12 +2835,15 @@ Source:
   :candidates ...)
 ```
 
-Core AST:
+WCC and Core projection:
 
 ```text
-CorePreSnapshot
-CoreProducerStep
-CoreSelectVariantOutput
+perform snapshot
+perform producer
+perform select-variant-output
+  -> CorePreSnapshot
+  -> CoreProducerStep
+  -> CoreSelectVariantOutput
 ```
 
 Semantic IR:
@@ -2779,20 +2857,22 @@ This aligns with the v2.14 selection model: snapshot evidence, exactly-one
 changed candidate, validation before commit, and artifacts exposed only after
 successful commit.
 
-## 56. `resource-transition` Lowering
+## 56. `resource-transition` Elaboration
 
 Possible lowering A: certified command adapter.
 
 ```text
-CoreCommandStep
-CoreOutputBundle
-CorePublish
+perform certified adapter transition
+  -> CoreCommandStep
+  -> CoreOutputBundle
+  -> CorePublish
 ```
 
 Possible lowering B: runtime-native transition.
 
 ```text
-CoreResourceTransition
+perform runtime-native resource transition
+  -> CoreResourceTransition
 ```
 
 Rule:
@@ -2808,7 +2888,7 @@ atomicity is adapter-certified and fixture-tested
 
 not pretend it is a core runtime transaction.
 
-## 57. `review-revise-loop` Lowering Contract
+## 57. `review-revise-loop` Elaboration Contract
 
 Source:
 
@@ -2816,11 +2896,13 @@ Source:
 (review-revise-loop implementation-review ...)
 ```
 
-The stdlib definition must compile through the shared effectful composition
-model to generated Core AST equivalent to:
+The stdlib definition must compile through ordinary imported/std `.orc` into
+WCC. After specialization and WCC analysis, defunctionalization may project a
+Core AST shape equivalent to:
 
 ```text
-CoreRepeatUntil
+loop/recur or bounded rec-join
+  -> CoreRepeatUntil or equivalent defunctionalized routing
   iteration state
   call specialized review ProcRef
   match decision
@@ -2842,7 +2924,7 @@ findings, optional blocker class, optional reason, iteration count, and a scalar
 decision marker. After specialization all fields are concrete; no type
 parameter or ProcRef may remain in lowered state.
 
-Review decisions lower through ordinary proof-gated `match`:
+Review decisions elaborate through ordinary proof-gated `match` / WCC `case`:
 
 - `APPROVE` materializes the current completed value, review report, findings,
   and terminal decision marker.
@@ -2858,12 +2940,12 @@ The final projection must read loop-frame outputs. It must not read only the
 first review step or a body-local step that was not materialized onto the loop
 frame.
 
-Promoted lowering must not depend on `ReviewReviseLoopExpr`, a lowerer branch
+Promoted elaboration must not depend on `ReviewReviseLoopExpr`, a lowerer branch
 keyed to literal `review-revise-loop`, or review-loop-specific Python
 construction of terminal variants. Legacy bridge fixtures, if any remain, must
 be explicitly marked legacy.
 
-## 58. `backlog-drain` Lowering
+## 58. `backlog-drain` Elaboration
 
 Source:
 
@@ -2876,10 +2958,11 @@ Source:
   :max-iterations max)
 ```
 
-Core AST:
+WCC and Core projection:
 
 ```text
-CoreRepeatUntil or LoopIR
+loop/recur or bounded rec-join
+  -> CoreRepeatUntil or defunctionalized routing equivalent
   call selector
   match SelectionResult
     EMPTY -> done
@@ -3101,6 +3184,16 @@ Checks:
 - `legacy_adapter_not_deprecated`
 
 ## 72. Lowering Errors
+
+WCC is the current ownership boundary for compiler-lane expressivity. Unsupported
+authoring surfaces should fail during parsing, typechecking, or explicit
+surface validation. Once a program typechecks for the migrated route subset,
+failure during WCC elaboration, ANF normalization, scope/effect/proof analysis,
+or defunctionalization is a compiler defect unless the failure depends on a
+runtime-only condition such as live filesystem path safety. A shared-validation
+failure over WCC-generated Core AST is likewise treated as a compiler defect
+unless the shared validator is enforcing a runtime condition the compiler could
+not know.
 
 - `lowering_no_backend_for_form`
 - `resource_transition_requires_runtime_backend`
@@ -3773,6 +3866,16 @@ LOC.
 
 ## Part XVIII. Implementation Staging
 
+These stages are retained as provenance for the frontend rollout. They are not
+the current compiler-lane roadmap where they conflict with WCC. The current
+compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset, with
+legacy schema 1 retained for compatibility and historical-run resume.
+
+Current post-WCC work is tracked by the post-foundation composition design:
+private executable context, typed projection, certified adapters/resource
+transitions, parent-callable family parity, promotion evidence, and
+post-promotion simplification.
+
 ## 99. Stage 1: Frontend Core Without Workflow Execution
 
 Implement:
@@ -3801,7 +3904,7 @@ Implement:
 - `match`
 - effect signatures
 - source maps
-- core AST lowering
+- WCC elaboration and Core AST projection
 
 A trivial workflow should compile to core AST and semantic IR.
 
@@ -3885,6 +3988,11 @@ Measure:
 - semantic equivalence
 
 Reject the frontend design if translations remain YAML-shaped.
+
+Current baseline note: the WCC M0-M5 route supersedes the direct Core-AST
+compiler-substrate interpretation of these stages. For migrated-route evidence,
+new fixtures should identify the lowering route and schema version, and
+promoted work should treat `wcc_default`/schema 2 as current guidance.
 
 Promotion of YAML primaries remains separate from implementation of frontend
 capability. A `.orc` candidate must have machine-computed non-regressive parity
@@ -4017,7 +4125,7 @@ The minimal acceptable architecture is:
 - `match`
 - effect signatures
 - source maps
-- core AST lowering
+- WCC elaboration and Core AST projection
 - shared validation
 - semantic IR
 

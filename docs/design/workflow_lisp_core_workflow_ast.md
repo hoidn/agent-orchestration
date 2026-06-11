@@ -6,10 +6,14 @@ Depends on: `specs/dsl.md`, `docs/design/workflow_language_design_principles.md`
 ## Purpose
 
 `CoreWorkflowAST` is the syntax-neutral workflow representation shared by YAML
-and future frontends such as Workflow Lisp. It is the first common substrate
-after frontend-specific parsing, macro expansion, and procedural elaboration.
+and frontends such as Workflow Lisp. For YAML it can be the first common
+substrate after loading. For Workflow Lisp, the accepted compiler baseline now
+passes through WCC/schema 2 first, then defunctionalizes into this flat Core
+AST before shared validation.
 
-The Lisp frontend must lower to this AST, not to YAML text.
+The Lisp frontend must lower to this AST through the WCC middle-end, not to
+YAML text and not through direct per-form lowerers except for explicitly marked
+legacy schema 1 compatibility.
 
 ## Ownership Boundary
 

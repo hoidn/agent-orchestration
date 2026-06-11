@@ -8,12 +8,14 @@ Depends on: `docs/design/workflow_lisp_core_stmt_taxonomy.md`,
 ## Purpose
 
 This document defines the contract for high-level Lisp library forms to compile
-to Core AST and Semantic IR without hiding unresolved semantics.
+through the accepted WCC/schema-2 middle-end into Core AST and Semantic IR
+without hiding unresolved semantics.
 
 The default implementation path is ordinary `.orc` stdlib code compiled through
-the shared effectful composition model. A form should receive bespoke compiler
-lowering only when it is explicitly accepted as a primitive rather than as a
-library abstraction.
+the shared WCC effectful-composition model. A form should receive bespoke
+compiler lowering only when it is explicitly accepted as a primitive rather
+than as a library abstraction. Legacy schema-1 or direct per-form lowerers are
+compatibility routes, not the promoted stdlib architecture.
 
 Each standard-library form needs an exact generated-shape contract before it can
 be implemented or promoted.

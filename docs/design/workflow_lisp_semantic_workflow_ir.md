@@ -58,6 +58,7 @@ The current shared pipeline is:
 
 ```text
 frontend source / YAML surface
+  -> frontend-specific loading or Workflow Lisp WCC/schema-2 lowering
   -> Core Workflow AST
   -> shared validation and lowering
   -> validated executable IR
@@ -66,9 +67,10 @@ frontend source / YAML surface
   -> loaded bundle / build artifacts / existing runtime
 ```
 
-Workflow Lisp lowers into the same shared bundle path as imported YAML
-workflows. The frontend does not bypass shared lowering to build Semantic IR
-directly.
+Workflow Lisp lowers through WCC/schema 2 into the same shared bundle path as
+imported YAML workflows. The frontend does not bypass shared lowering to build
+Semantic IR directly, and WCC metadata is consumed only as provenance,
+scope/proof/effect, and source-map input for the ordinary projections.
 
 The boundary with adjacent layers is:
 
