@@ -14,6 +14,9 @@ from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inpu
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.modules import resolve_module_graph
+from orchestrator.workflow_lisp.phase_family_boundary import (
+    build_design_delta_boundary_authority_expected_rows,
+)
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_command_boundary_environment
@@ -23,6 +26,12 @@ from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CLI_FIXTURES = FIXTURES / "cli"
+DESIGN_DELTA_MIGRATION_INPUTS = (
+    REPO_ROOT / "workflows" / "examples" / "inputs" / "workflow_lisp_migrations"
+)
+DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH = (
+    DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.boundary_authority.json"
+)
 # This checked-in candidate remains the authoritative proof source for the
 # imported-child prerequisite until the shipping library module lands its
 # separate parent-callable `run-work-item` export.
@@ -56,6 +65,72 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def _design_delta_parent_drain_request(
+    tmp_path: Path,
+    *,
+    command_boundaries_path: Path | None = None,
+):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return request_cls(
+        source_path=REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        entry_workflow="lisp_frontend_design_delta/drain::drain",
+        provider_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.providers.json",
+        prompt_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=command_boundaries_path
+        or (DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json"),
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
+def _build_design_delta_parent_drain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    registry_payload: dict[str, object] | None = None,
+    command_boundaries_path: Path | None = None,
+):
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    registry_path = None
+    if registry_payload is not None:
+        registry_path = tmp_path / "design_delta_parent_drain.boundary_authority.json"
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(json.dumps(registry_payload, indent=2) + "\n", encoding="utf-8")
+        monkeypatch.setattr(
+            build,
+            "DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH",
+            registry_path,
+            raising=False,
+        )
+    return build_frontend_bundle(
+        _design_delta_parent_drain_request(
+            tmp_path,
+            command_boundaries_path=command_boundaries_path,
+        )
+    )
+
+
+def _load_design_delta_boundary_authority_registry() -> dict[str, object]:
+    return json.loads(DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH.read_text(encoding="utf-8"))
+
+
+def _validate_review_findings_retirement_metadata() -> dict[str, object]:
+    return {
+        "retirement_class": "validation",
+        "retirement_label": "keep_bridge",
+        "replacement_surface": "typed review findings validation bridge",
+        "bridge_owner": "std/phase",
+        "expiry_condition": (
+            "retain until typed review-findings validation parity replaces the command bridge"
+        ),
+        "evidence_refs": ["validate_review_findings_v1"],
+    }
 
 
 def _write_structured_results_module(tmp_path: Path) -> Path:
@@ -235,6 +310,12 @@ def _design_delta_work_item_request(tmp_path: Path):
                         "python",
                         "workflows/library/scripts/run_neurips_backlog_checks.py",
                     ],
+                    "retirement_class": "genuine_system",
+                    "retirement_label": "keep_certified_system",
+                    "replacement_surface": "certified external backlog check command",
+                    "bridge_owner": "lisp_frontend_design_delta/implementation_phase",
+                    "expiry_condition": "retain while backlog checks remain external",
+                    "evidence_refs": ["design_delta_parent_drain_smokes"],
                 },
                 "validate_review_findings_v1": {
                     "kind": "external_tool",
@@ -243,6 +324,7 @@ def _design_delta_work_item_request(tmp_path: Path):
                         "-m",
                         "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
                     ],
+                    **_validate_review_findings_retirement_metadata(),
                 },
                 "materialize_lisp_frontend_work_item_inputs": {
                     "kind": "certified_adapter",
@@ -272,6 +354,12 @@ def _design_delta_work_item_request(tmp_path: Path):
                     "owner_module": "lisp_frontend_design_delta/work_item",
                     "replacement_path": "SelectionCtx + ItemCtx private bootstrap + typed projection",
                     "invocation_protocol": "json_object_positional_arg",
+                    "retirement_class": "typed_projection",
+                    "retirement_label": "retire_to_projection",
+                    "replacement_surface": "typed work-item input projection",
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "expiry_condition": "g2 typed projection route replaces work-item input materialization",
+                    "evidence_refs": ["design_delta_work_item_inputs_ok"],
                 },
                 "classify_lisp_frontend_work_item_terminal": {
                     "kind": "certified_adapter",
@@ -319,6 +407,12 @@ def _design_delta_work_item_request(tmp_path: Path):
                     "owner_module": "lisp_frontend_design_delta/work_item",
                     "replacement_path": "typed implementation terminal union",
                     "invocation_protocol": "json_object_positional_arg",
+                    "retirement_class": "outcome_classification",
+                    "retirement_label": "retire_to_projection",
+                    "replacement_surface": "typed terminal classification projection",
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "expiry_condition": "g2 typed outcome classification replaces terminal classifier adapter",
+                    "evidence_refs": ["design_delta_work_item_terminal_ok"],
                 },
                 "select_lisp_frontend_blocked_recovery_route": {
                     "kind": "certified_adapter",
@@ -366,6 +460,12 @@ def _design_delta_work_item_request(tmp_path: Path):
                     "owner_module": "lisp_frontend_design_delta/work_item",
                     "replacement_path": "typed BlockedRecoveryDecision normalization",
                     "invocation_protocol": "json_object_positional_arg",
+                    "retirement_class": "outcome_classification",
+                    "retirement_label": "retire_to_projection",
+                    "replacement_surface": "typed blocked-recovery route classification",
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "expiry_condition": "g2 typed outcome classification replaces blocked-recovery router",
+                    "evidence_refs": ["design_delta_blocked_recovery_route_ok"],
                 },
                 "record_terminal_work_item": {
                     "kind": "external_tool",
@@ -373,6 +473,12 @@ def _design_delta_work_item_request(tmp_path: Path):
                         "python",
                         "workflows/library/scripts/update_lisp_frontend_run_state.py",
                     ],
+                    "retirement_class": "resource_transition",
+                    "retirement_label": "retire_to_transition",
+                    "replacement_surface": "runtime-native selected-item resource transition",
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "expiry_condition": "g3 typed resource transition replaces terminal work-item recorder",
+                    "evidence_refs": ["design_delta_record_terminal_ok"],
                 },
                 "record_blocked_recovery_outcome": {
                     "kind": "external_tool",
@@ -380,6 +486,12 @@ def _design_delta_work_item_request(tmp_path: Path):
                         "python",
                         "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
                     ],
+                    "retirement_class": "resource_transition",
+                    "retirement_label": "retire_to_transition",
+                    "replacement_surface": "runtime-native blocked-recovery resource transition",
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "expiry_condition": "g3 typed resource transition replaces blocked-recovery recorder",
+                    "evidence_refs": ["design_delta_record_blocked_recovery_ok"],
                 },
             },
             indent=2,
@@ -3060,6 +3172,7 @@ def test_review_loop_command_boundary_surfaces_validate_review_findings_adapter(
                     "source_map_behavior": "step",
                     "fixture_ids": ["review_findings_valid"],
                     "negative_fixture_ids": ["review_findings_pointer_authority_forbidden"],
+                    **_validate_review_findings_retirement_metadata(),
                 }
             },
             indent=2,
@@ -3430,3 +3543,366 @@ def test_source_map_validator_rejects_missing_core_node_lineage_when_coverage_cl
 
     assert excinfo.value.diagnostics[0].code == "source_map_core_node_missing"
     assert workflow_name in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+
+    assert "adapter_census" in result.artifact_paths
+    assert result.manifest.artifact_status["adapter_census"] == "emitted"
+
+    payload = json.loads(result.artifact_paths["adapter_census"].read_text(encoding="utf-8"))
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    rows_by_name = {row["binding_name"]: row for row in payload["rows"]}
+    assert {
+        "project_lisp_frontend_selector_action",
+        "materialize_lisp_frontend_work_item_inputs",
+        "record_terminal_work_item",
+        "run_neurips_backlog_checks",
+        "validate_review_findings_v1",
+    }.issubset(rows_by_name)
+    review_findings = rows_by_name["validate_review_findings_v1"]
+    assert review_findings["retirement_class"] == "validation"
+    assert review_findings["retirement_label"] == "keep_bridge"
+    assert review_findings["replacement_surface"]
+    assert review_findings["bridge_owner"]
+    assert review_findings["expiry_condition"]
+    assert review_findings["evidence_refs"]
+    assert review_findings["liveness"] == "live"
+
+
+def test_design_delta_parent_drain_build_emits_boundary_authority_report_for_all_target_workflows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+
+    assert "boundary_authority_report" in result.artifact_paths
+    assert result.manifest.artifact_status["boundary_authority_report"] == "emitted"
+
+    payload = json.loads(
+        result.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert {
+        "lisp_frontend_design_delta/drain::drain",
+        "lisp_frontend_design_delta/selector::select-next-work",
+        "lisp_frontend_design_delta/work_item::run-work-item",
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+    }.issubset({row["workflow_name"] for row in payload["workflows"]})
+
+    for row in payload["workflows"]:
+        compiled_evidence = row["compiled_evidence"]
+        assert compiled_evidence["workflow_boundary_projection"] == {
+            "artifact": "workflow_boundary_projection.json",
+            "workflow_name": row["workflow_name"],
+        }
+        assert compiled_evidence["generated_path_allocations"]["artifact"] == "workflow_boundary_projection.json"
+        assert isinstance(compiled_evidence["generated_path_allocations"]["rows"], list)
+        assert compiled_evidence["source_map_provenance"]["artifact"] == "source_map.json"
+        assert row["workflow_name"] in compiled_evidence["source_map_provenance"]["workflow_names"]
+
+
+def test_design_delta_parent_drain_boundary_authority_registry_covers_expected_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    boundary_projection = json.loads(
+        result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
+    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    registry_payload = _load_design_delta_boundary_authority_registry()
+
+    assert {
+        (row["workflow_name"], row["field_name"], row["surface_kind"])
+        for row in registry_payload["rows"]
+    } == {
+        (workflow_name, field_name, row["surface_kind"])
+        for (workflow_name, field_name), row in expected_rows.items()
+    }
+
+
+def test_design_delta_parent_drain_boundary_authority_expected_rows_include_generated_and_managed_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    boundary_projection = json.loads(
+        result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
+
+    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    drain_workflow = next(
+        workflow
+        for workflow in boundary_projection["workflows"]
+        if workflow["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+    )
+
+    flattened_inputs = {
+        field["generated_name"]: field
+        for field in drain_workflow["flattened_inputs"]
+        if isinstance(field, dict) and isinstance(field.get("generated_name"), str)
+    }
+    drain_generated_internal = {
+        field["generated_name"]
+        for field in drain_workflow["generated_internal_inputs"]
+        if isinstance(field, dict)
+        and isinstance(field.get("generated_name"), str)
+        and (
+            field.get("reason") == "managed_write_root"
+            or (
+                isinstance(
+                    flattened_inputs.get(field["generated_name"], {}).get("contract_definition"),
+                    dict,
+                )
+                and flattened_inputs.get(field["generated_name"], {})
+                .get("contract_definition", {})
+                .get("type")
+                == "relpath"
+            )
+        )
+    }
+    drain_managed_write_roots = set(
+        drain_workflow["boundary"]["private_managed_write_root_inputs"]
+    )
+
+    generated_internal_coverage = {
+        field_name
+        for (workflow_name, field_name), row in expected_rows.items()
+        if workflow_name == "lisp_frontend_design_delta/drain::drain"
+        and row["surface_kind"]
+        in {
+            "generated_internal_input",
+            "compatibility_bridge_input",
+            "managed_write_root",
+            "runtime_context_input",
+        }
+    }
+    managed_write_root_rows = {
+        field_name
+        for (workflow_name, field_name), row in expected_rows.items()
+        if workflow_name == "lisp_frontend_design_delta/drain::drain"
+        and row["surface_kind"] == "managed_write_root"
+    }
+
+    assert generated_internal_coverage == drain_generated_internal
+    assert managed_write_root_rows == drain_managed_write_roots
+
+
+def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scalar_runtime_context_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    boundary_projection = json.loads(
+        result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
+
+    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+
+    assert (
+        "lisp_frontend_design_delta/drain::drain",
+        "phase-ctx__phase-name",
+    ) not in expected_rows
+    assert (
+        "lisp_frontend_design_delta/drain::drain",
+        "phase-ctx__run__run-id",
+    ) not in expected_rows
+    assert (
+        "lisp_frontend_design_delta/drain::drain",
+        "phase-ctx__artifact-root",
+    ) in expected_rows
+
+
+def test_design_delta_parent_drain_build_rejects_unclassified_path_like_boundary_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_boundary_authority_registry()
+    payload["rows"] = [
+        row
+        for row in payload["rows"]
+        if not (
+            row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+            and row["field_name"] == "manifest_path"
+        )
+    ]
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(tmp_path, monkeypatch, registry_payload=payload)
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
+    assert "unclassified" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_rejects_missing_public_or_generated_boundary_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_boundary_authority_registry()
+    payload["rows"] = [
+        row
+        for row in payload["rows"]
+        if not (
+            row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+            and row["field_name"] == "baseline_design_path"
+        )
+    ]
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(tmp_path, monkeypatch, registry_payload=payload)
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
+    assert "unclassified" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_rejects_stale_boundary_authority_registry_row_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_boundary_authority_registry()
+    payload["rows"].append(
+        {
+            "workflow_name": "lisp_frontend_design_delta/drain::drain",
+            "field_name": "no_such_boundary_value",
+            "surface_kind": "public_input",
+            "authority_class": "public_authored",
+            "path_like": True,
+            "owner": "tests",
+            "justification": "intentional stale row",
+            "replacement_tranche": "G0",
+            "parity_constrained": True,
+        }
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(tmp_path, monkeypatch, registry_payload=payload)
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
+    assert "stale" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_rejects_boundary_authority_registry_path_like_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_boundary_authority_registry()
+    for row in payload["rows"]:
+        if (
+            row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+            and row["field_name"] == "baseline_design_path"
+            and row["surface_kind"] == "public_input"
+        ):
+            row["path_like"] = False
+            break
+    else:
+        raise AssertionError("expected baseline_design_path boundary row to exist")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(tmp_path, monkeypatch, registry_payload=payload)
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
+    assert "path_like" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_rejects_private_authority_value_exposed_publicly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_boundary_authority_registry()
+    for row in payload["rows"]:
+        if (
+            row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+            and row["field_name"] == "baseline_design_path"
+        ):
+            row["authority_class"] = "runtime_derived"
+            break
+    else:
+        raise AssertionError("expected baseline_design_path row in boundary registry fixture")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(tmp_path, monkeypatch, registry_payload=payload)
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_private_class_exposed_publicly"
+    assert "public" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_keeps_runtime_owned_context_mapped_to_runtime_derived(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    payload = json.loads(
+        result.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
+    )
+    drain_row = next(
+        row
+        for row in payload["workflows"]
+        if row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+    )
+
+    assert {
+        "phase-ctx__artifact-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__run__state-root",
+        "phase-ctx__state-root",
+    }.issubset(set(drain_row["runtime_derived"]))
+    assert "phase-ctx__phase-name" not in drain_row["runtime_derived"]
+    assert "phase-ctx__run__run-id" not in drain_row["runtime_derived"]
+
+
+def test_design_delta_parent_drain_boundary_authority_report_records_generated_and_managed_path_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    payload = json.loads(
+        result.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
+    )
+    drain_row = next(
+        row
+        for row in payload["workflows"]
+        if row["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+    )
+
+    generated_internal_inputs = set(
+        drain_row["compiled_evidence"]["generated_internal_inputs"]
+    )
+    managed_write_root_inputs = set(
+        drain_row["compiled_evidence"]["private_managed_write_root_inputs"]
+    )
+
+    assert generated_internal_inputs
+    assert managed_write_root_inputs
+    assert managed_write_root_inputs.issubset(generated_internal_inputs)
+    assert managed_write_root_inputs == set(drain_row["generated_internal"])
+
+
+def test_design_delta_parent_drain_boundary_registry_changes_build_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _build_design_delta_parent_drain(tmp_path / "first", monkeypatch)
+    payload = _load_design_delta_boundary_authority_registry()
+    payload["rows"][0]["justification"] = payload["rows"][0]["justification"] + " (mutated)"
+    second = _build_design_delta_parent_drain(
+        tmp_path / "second",
+        monkeypatch,
+        registry_payload=payload,
+    )
+
+    assert first.manifest.fingerprint != second.manifest.fingerprint
+
+
+def test_design_delta_parent_drain_manifest_records_boundary_registry_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+
+    provenance = result.manifest.boundary_authority_registry
+    assert provenance["workflow_family"] == "design_delta_parent_drain"
+    assert provenance["path"].endswith("design_delta_parent_drain.boundary_authority.json")
+    assert provenance["sha256"].startswith("sha256:")

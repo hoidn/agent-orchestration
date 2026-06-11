@@ -17,6 +17,54 @@ CertifiedAdapterBehaviorClass = Literal[
     "resume_state_reuse",
 ]
 CertifiedAdapterInvocationProtocol = Literal["json_object_positional_arg"]
+G0_RETIREMENT_REQUIRED_FIELDS = frozenset(
+    {
+        "retirement_class",
+        "retirement_label",
+        "replacement_surface",
+        "bridge_owner",
+        "expiry_condition",
+        "evidence_refs",
+    }
+)
+G0_RETIREMENT_ALLOWED_CLASSES = frozenset(
+    {
+        "typed_projection",
+        "outcome_classification",
+        "resource_transition",
+        "view_writer",
+        "manifest_assembly",
+        "path_materialization",
+        "validation",
+        "genuine_system",
+        "legacy_bridge",
+    }
+)
+G0_RETIREMENT_ALLOWED_LABELS = frozenset(
+    {
+        "retire_to_projection",
+        "retire_to_view",
+        "retire_to_transition",
+        "keep_certified_system",
+        "keep_bridge",
+        "unknown_requires_design",
+    }
+)
+DESIGN_DELTA_G0_HELPER_NAMES = frozenset(
+    {
+        "run_neurips_backlog_checks",
+        "validate_review_findings_v1",
+        "project_lisp_frontend_selector_action",
+        "validate_lisp_frontend_design_gap_architecture",
+        "materialize_lisp_frontend_work_item_inputs",
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+        "finalize_lisp_frontend_drain_summary",
+    }
+)
 PROMOTED_CALL_REQUIRED_METADATA_FIELDS = frozenset(
     {
         "behavior_class",
@@ -37,6 +85,12 @@ class ExternalToolBinding:
 
     name: str
     stable_command: tuple[str, ...]
+    retirement_class: str | None = None
+    retirement_label: str | None = None
+    replacement_surface: str | None = None
+    bridge_owner: str | None = None
+    expiry_condition: str | None = None
+    evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -71,6 +125,12 @@ class CertifiedAdapterBinding:
     replacement_path: str | None = None
     invocation_protocol: CertifiedAdapterInvocationProtocol | str | None = None
     declared_promoted_fields: frozenset[str] = frozenset()
+    retirement_class: str | None = None
+    retirement_label: str | None = None
+    replacement_surface: str | None = None
+    bridge_owner: str | None = None
+    expiry_condition: str | None = None
+    evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -149,6 +209,7 @@ def build_command_boundary_environment(
                     )
                 )
                 continue
+        _validate_g0_retirement_metadata(name, binding, diagnostics)
         bindings[name] = binding
 
     if diagnostics:
@@ -159,3 +220,84 @@ def build_command_boundary_environment(
 def _environment_span() -> SourceSpan:
     position = SourcePosition(path="<stage3-environment>", line=1, column=1, offset=0)
     return SourceSpan(start=position, end=position)
+
+
+def _validate_g0_retirement_metadata(
+    name: str,
+    binding: ExternalToolBinding | CertifiedAdapterBinding,
+    diagnostics: list[LispFrontendDiagnostic],
+) -> None:
+    if name not in DESIGN_DELTA_G0_HELPER_NAMES:
+        return
+
+    values = {
+        "retirement_class": getattr(binding, "retirement_class", None),
+        "retirement_label": getattr(binding, "retirement_label", None),
+        "replacement_surface": getattr(binding, "replacement_surface", None),
+        "bridge_owner": getattr(binding, "bridge_owner", None),
+        "expiry_condition": getattr(binding, "expiry_condition", None),
+        "evidence_refs": getattr(binding, "evidence_refs", ()),
+    }
+    missing = [
+        field_name
+        for field_name in sorted(G0_RETIREMENT_REQUIRED_FIELDS)
+        if (
+            not values[field_name]
+            if field_name != "evidence_refs"
+            else not isinstance(values[field_name], tuple) or not values[field_name]
+        )
+    ]
+    if missing:
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="command_adapter_missing_contract",
+                message=(
+                    f"design-delta command boundary `{name}` is missing required G0 retirement metadata: "
+                    + ", ".join(missing)
+                ),
+                span=_environment_span(),
+                phase="typecheck",
+            )
+        )
+        return
+    retirement_class = values["retirement_class"]
+    if retirement_class not in G0_RETIREMENT_ALLOWED_CLASSES:
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="command_adapter_missing_contract",
+                message=f"design-delta command boundary `{name}` uses unknown retirement_class `{retirement_class}`",
+                span=_environment_span(),
+                phase="typecheck",
+            )
+        )
+    retirement_label = values["retirement_label"]
+    if retirement_label not in G0_RETIREMENT_ALLOWED_LABELS:
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="command_adapter_missing_contract",
+                message=f"design-delta command boundary `{name}` uses unknown retirement_label `{retirement_label}`",
+                span=_environment_span(),
+                phase="typecheck",
+            )
+        )
+    for field_name in ("replacement_surface", "bridge_owner", "expiry_condition"):
+        value = values[field_name]
+        if not isinstance(value, str) or not value.strip():
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=f"design-delta command boundary `{name}` requires non-empty `{field_name}`",
+                    span=_environment_span(),
+                    phase="typecheck",
+                )
+            )
+    evidence_refs = values["evidence_refs"]
+    if not isinstance(evidence_refs, tuple) or any(not isinstance(item, str) or not item for item in evidence_refs):
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="command_adapter_missing_contract",
+                message=f"design-delta command boundary `{name}` requires non-empty string `evidence_refs`",
+                span=_environment_span(),
+                phase="typecheck",
+            )
+        )

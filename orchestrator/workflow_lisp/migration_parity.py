@@ -318,8 +318,24 @@ def run_parity_target(
         build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
         repo_root=repo_root,
     )
+    adapter_census = _load_compile_artifact_json(
+        artifact_name="adapter_census",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
+    boundary_authority_report = _load_compile_artifact_json(
+        artifact_name="boundary_authority_report",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
     if workflow_boundary is not None:
         report["workflow_boundary_projection"] = workflow_boundary
+    if isinstance(adapter_census, Mapping):
+        report["adapter_census"] = dict(adapter_census)
+    if isinstance(boundary_authority_report, Mapping):
+        report["boundary_authority_report"] = dict(boundary_authority_report)
     if target.required_family_evidence_roles:
         parent_route_identity, parent_family_evidence = _parent_family_evidence(
             target=target,
@@ -328,6 +344,7 @@ def run_parity_target(
             compile_payload=compile_payload,
             build_manifest=build_manifest,
             workflow_boundary=workflow_boundary,
+            boundary_authority_report=boundary_authority_report,
             repo_root=repo_root,
         )
         report["route_identity"] = parent_route_identity
@@ -999,6 +1016,30 @@ def _load_selected_workflow_boundary_projection(
     }
 
 
+def _load_compile_artifact_json(
+    *,
+    artifact_name: str,
+    build_manifest: Mapping[str, Any] | None,
+    build_root: Path | None,
+    repo_root: Path,
+) -> Mapping[str, Any] | None:
+    if build_manifest is None:
+        return None
+    artifact_paths = dict(build_manifest.get("artifact_paths", {}))
+    artifact_path = _resolve_build_artifact_path(
+        artifact_paths.get(artifact_name),
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if artifact_path is None or not artifact_path.exists():
+        return None
+    try:
+        payload = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, Mapping) else None
+
+
 def _parent_family_evidence(
     *,
     target: ParityTarget,
@@ -1007,6 +1048,7 @@ def _parent_family_evidence(
     compile_payload: Mapping[str, Any] | None,
     build_manifest: Mapping[str, Any] | None,
     workflow_boundary: Mapping[str, Any] | None,
+    boundary_authority_report: Mapping[str, Any] | None,
     repo_root: Path,
 ) -> tuple[dict[str, object], dict[str, object]]:
     route_identity = {
@@ -1045,7 +1087,8 @@ def _parent_family_evidence(
             )
         elif role == "public_private_boundary_parity":
             role_evidence[role] = _public_private_boundary_parity_evidence(
-                workflow_boundary
+                workflow_boundary,
+                boundary_authority_report=boundary_authority_report,
             )
         elif role == "boundary_artifact_justifications":
             role_evidence[role] = _boundary_artifact_justification_evidence(
@@ -1344,11 +1387,57 @@ def _resource_transition_parity_evidence(
 
 def _public_private_boundary_parity_evidence(
     workflow_boundary: Mapping[str, Any] | None,
+    *,
+    boundary_authority_report: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
+    if boundary_authority_report is None:
+        return {
+            "status": "fail",
+            "reason": "missing boundary_authority_report compile artifact",
+        }
+    workflows = boundary_authority_report.get("workflows")
+    if not isinstance(workflows, list) or not workflows:
+        return {
+            "status": "fail",
+            "reason": "boundary_authority_report does not contain workflow rows",
+        }
     if workflow_boundary is None:
         return {
             "status": "fail",
             "reason": "missing workflow boundary projection for entry workflow",
+        }
+    selected_workflow_name = workflow_boundary.get("workflow_name")
+    if not isinstance(selected_workflow_name, str) or not selected_workflow_name:
+        return {
+            "status": "fail",
+            "reason": "workflow boundary projection does not identify the entry workflow",
+        }
+    boundary_row = next(
+        (
+            row
+            for row in workflows
+            if isinstance(row, Mapping) and row.get("workflow_name") == selected_workflow_name
+        ),
+        None,
+    )
+    if not isinstance(boundary_row, Mapping):
+        return {
+            "status": "fail",
+            "reason": "boundary_authority_report does not contain a selected workflow row",
+        }
+    reasons: list[str] = []
+    unclassified = boundary_row.get("unclassified")
+    if isinstance(unclassified, list) and unclassified:
+        reasons.append("unclassified path-like boundary values remain")
+    public_leaks = boundary_row.get("public_leaks")
+    if isinstance(public_leaks, list) and public_leaks:
+        reasons.append("public boundary still exposes private authority classes")
+    if reasons:
+        return {
+            "status": "fail",
+            "reasons": reasons,
+            "unclassified": list(unclassified) if isinstance(unclassified, list) else [],
+            "public_leaks": list(public_leaks) if isinstance(public_leaks, list) else [],
         }
     public_inputs = set(workflow_boundary.get("public_input_names", ()))
     forbidden_inputs = {
@@ -1439,6 +1528,8 @@ def _boundary_artifact_justification_evidence(
             "parity_comparison"
             if artifact_name
             in {
+                "adapter_census",
+                "boundary_authority_report",
                 "core_workflow_ast",
                 "semantic_ir",
                 "source_map",

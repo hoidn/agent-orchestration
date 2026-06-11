@@ -375,6 +375,17 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "strict promotable family evidence"
                 ),
             },
+            "compile_artifacts": {
+                "required": [
+                    "core_workflow_ast",
+                    "semantic_ir",
+                    "source_map",
+                    "workflow_boundary_projection",
+                    "adapter_census",
+                    "boundary_authority_report",
+                ],
+                "optional": ["expanded_debug_yaml"],
+            },
         }
     )
     return target
@@ -2255,3 +2266,356 @@ def test_design_delta_parent_drain_manifest_uses_explicit_dry_run_smoke_substitu
     waiver = dry_run["waiver"]
     assert waiver["targeted_evidence"] == ["smoke_or_integration", "parent_callable_smoke"]
     assert "fake-provider smokes" in waiver["justification"]
+
+
+def _design_delta_parent_target_fixture(tmp_path: Path):
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0] = _design_delta_parent_target_entry(payload["targets"][0])
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+    _write_text(tmp_path / str(target.candidate), "(workflow-lisp)\n")
+    _write_text(tmp_path / str(target.yaml_primary), "steps: []\n")
+    return module, manifest_path, target
+
+
+def _write_design_delta_g0_build_manifest(
+    tmp_path: Path,
+    *,
+    include_adapter_census: bool = True,
+    include_boundary_authority_report: bool = True,
+    boundary_unclassified: list[str] | None = None,
+    boundary_public_leaks: list[str] | None = None,
+) -> Path:
+    build_root = tmp_path / "build"
+    build_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        build_root / "core_workflow_ast.json",
+        {
+            "body": [
+                {
+                    "kind": "repeat_until",
+                    "statements": [
+                        {
+                            "kind": "call",
+                            "call_alias": "lisp_frontend_design_delta/selector::select-next-work",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": "lisp_frontend_design_delta/work_item::run-work-item",
+                        },
+                    ],
+                }
+            ]
+        },
+    )
+    for artifact_name in ("semantic_ir", "source_map"):
+        _write_json(build_root / f"{artifact_name}.json", {})
+    _write_json(
+        build_root / "workflow_boundary_projection.json",
+        {
+            "workflows": [
+                {
+                    "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                    "display_name": "lisp_frontend_design_delta/drain::drain",
+                    "boundary": {
+                        "public_input_names": ["baseline_design_path", "target_design_path"],
+                        "private_runtime_context_bindings": [
+                            {
+                                "binding_id": "phase-ctx",
+                                "source_param_name": "phase-ctx",
+                                "context_family": "PhaseCtx",
+                                "bridge_class": "runtime_owned_context",
+                                "generated_input_names": ["phase-ctx__run__run-id"],
+                            }
+                        ],
+                        "private_managed_write_root_inputs": ["__write_root__drain_summary"],
+                        "private_compatibility_bridge_inputs": ["manifest_path"],
+                    },
+                }
+            ]
+        },
+    )
+    if include_adapter_census:
+        _write_json(
+            build_root / "adapter_census.json",
+            {
+                "workflow_family": "design_delta_parent_drain",
+                "rows": [
+                    {
+                        "binding_name": "record_terminal_work_item",
+                        "behavior_class": "resource_transition",
+                        "retirement_class": "resource_transition",
+                        "retirement_label": "retire_to_transition",
+                    }
+                ],
+            },
+        )
+    if include_boundary_authority_report:
+        _write_json(
+            build_root / "boundary_authority_report.json",
+            {
+                "workflow_family": "design_delta_parent_drain",
+                "workflows": [
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                        "public_authored": ["baseline_design_path", "target_design_path"],
+                        "compatibility_bridge": ["manifest_path"],
+                        "runtime_derived": ["phase-ctx__run__run-id"],
+                        "generated_internal": ["__write_root__drain_summary"],
+                        "materialized_view": [],
+                        "public_artifact": ["drain_summary_target_path"],
+                        "unclassified": boundary_unclassified or [],
+                        "public_leaks": boundary_public_leaks or [],
+                        "compiled_evidence": {
+                            "workflow_boundary_projection": "workflow_boundary_projection.json",
+                            "source_map": "source_map.json",
+                        },
+                    }
+                ],
+            },
+        )
+    artifact_paths = {
+        "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
+        "semantic_ir": str(build_root / "semantic_ir.json"),
+        "source_map": str(build_root / "source_map.json"),
+        "workflow_boundary_projection": str(build_root / "workflow_boundary_projection.json"),
+    }
+    artifact_status = {
+        "core_workflow_ast": "emitted",
+        "semantic_ir": "emitted",
+        "source_map": "emitted",
+        "workflow_boundary_projection": "emitted",
+    }
+    if include_adapter_census:
+        artifact_paths["adapter_census"] = str(build_root / "adapter_census.json")
+        artifact_status["adapter_census"] = "emitted"
+    if include_boundary_authority_report:
+        artifact_paths["boundary_authority_report"] = str(
+            build_root / "boundary_authority_report.json"
+        )
+        artifact_status["boundary_authority_report"] = "emitted"
+    _write_json(
+        build_root / "manifest.json",
+        {
+            "shared_validation_status": "validated",
+            "lowering_route": "wcc_m4",
+            "lowering_schema_version": 2,
+            "compiled_workflow_checksum": "sha256:compiled-workflow",
+            "artifact_paths": artifact_paths,
+            "artifact_status": artifact_status,
+        },
+    )
+    return build_root
+
+
+def _install_fake_run_command(
+    module: object,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    build_root: Path,
+) -> None:
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        stdout = json.dumps({"build_root": str(build_root)}) if role == "compile" else ""
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text("", encoding="utf-8")
+        return module.CommandOutcome(
+            status="pass",
+            argv=("python", role),
+            exit_code=0,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr="",
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+
+def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["adapter_census"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["boundary_authority_report"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["compile_artifacts"]["required"]["adapter_census"]["status"] == "pass"
+    assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "pass"
+
+
+def test_run_parity_target_fails_boundary_parity_when_g0_report_has_unclassified_or_public_leaks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        boundary_unclassified=["manifest_path"],
+        boundary_public_leaks=["phase-ctx__run__run-id"],
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["public_private_boundary_parity"]
+    assert evidence["status"] == "fail"
+    assert "unclassified" in " ".join(evidence.get("reasons", []))
+    assert "public" in " ".join(evidence.get("reasons", []))
+
+
+def test_design_delta_parent_drain_fails_boundary_parity_when_selected_workflow_row_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    boundary_report_path = build_root / "boundary_authority_report.json"
+    payload = json.loads(boundary_report_path.read_text(encoding="utf-8"))
+    payload["workflows"] = [
+        {
+            **payload["workflows"][0],
+            "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
+        }
+    ]
+    _write_json(boundary_report_path, payload)
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["public_private_boundary_parity"]
+    assert evidence["status"] == "fail"
+    assert "selected workflow row" in evidence["reason"]
+
+
+def test_design_delta_parent_drain_resource_transition_parity_ignores_retirement_lane(
+    tmp_path: Path,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    _write_json(
+        tmp_path / str(target.command_boundaries_file),
+        {
+            helper: {
+                "kind": "certified_adapter",
+                "stable_command": ["python", f"{helper}.py"],
+                "behavior_class": "resource_transition",
+                "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+                "effects": ["structured_result", "resource_transition", "ledger_update"],
+                "fixture_ids": [f"{helper}_ok"],
+                "negative_fixture_ids": [f"{helper}_bad"],
+                "owner_module": "lisp_frontend_design_delta/drain",
+                "replacement_path": "runtime-native transition",
+                "invocation_protocol": "json_object_positional_arg",
+                "state_writes": ["run_state_path"] if helper != "finalize_lisp_frontend_drain_summary" else [],
+                "retirement_class": "typed_projection",
+                "retirement_label": "retire_to_projection",
+                "replacement_surface": "typed projection",
+                "bridge_owner": "workflow-lisp",
+                "expiry_condition": "g2-typed-projection",
+                "evidence_refs": [f"{helper}_evidence"],
+            }
+            for helper in (
+                "record_terminal_work_item",
+                "record_blocked_recovery_outcome",
+                "write_lisp_frontend_drain_status",
+                "finalize_lisp_frontend_drain_summary",
+            )
+        },
+    )
+
+    evidence = module._resource_transition_parity_evidence(
+        target=target,
+        repo_root=tmp_path,
+    )
+
+    assert evidence["status"] == "pass"
+
+
+def test_run_parity_target_fails_cleanly_when_boundary_authority_report_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_boundary_authority_report=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "missing"
+    assert report["evidence"]["public_private_boundary_parity"]["status"] == "fail"
+    assert "boundary_authority_report" in report["evidence"]["public_private_boundary_parity"]["reason"]
+
+
+def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert "adapter_census" in target["compile_artifacts"]["required"]
+    assert "boundary_authority_report" in target["compile_artifacts"]["required"]
+
+
+def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_artifacts_as_parity_comparison(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    artifact_reasons = {
+        item["artifact_id"]: item
+        for item in report["evidence"]["boundary_artifact_justifications"]["artifact_justifications"]
+    }
+    assert artifact_reasons["adapter_census"]["reason"] == "parity_comparison"
+    assert artifact_reasons["adapter_census"]["parity_constrained"] is True
+    assert artifact_reasons["boundary_authority_report"]["reason"] == "parity_comparison"
+    assert artifact_reasons["boundary_authority_report"]["parity_constrained"] is True

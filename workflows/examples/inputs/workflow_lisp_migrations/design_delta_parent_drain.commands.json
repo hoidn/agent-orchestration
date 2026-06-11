@@ -4,6 +4,14 @@
     "stable_command": [
       "python",
       "workflows/library/scripts/run_neurips_backlog_checks.py"
+    ],
+    "retirement_class": "genuine_system",
+    "retirement_label": "keep_certified_system",
+    "replacement_surface": "certified external backlog check command",
+    "bridge_owner": "lisp_frontend_design_delta/implementation_phase",
+    "expiry_condition": "retain while backlog checks remain a genuine external validation",
+    "evidence_refs": [
+      "design_delta_parent_drain_smokes"
     ]
   },
   "validate_review_findings_v1": {
@@ -12,6 +20,14 @@
       "python",
       "-m",
       "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"
+    ],
+    "retirement_class": "validation",
+    "retirement_label": "keep_bridge",
+    "replacement_surface": "typed review findings validation bridge",
+    "bridge_owner": "std/phase",
+    "expiry_condition": "retain until typed review-findings validation parity replaces the command bridge",
+    "evidence_refs": [
+      "validate_review_findings_v1"
     ]
   },
   "project_lisp_frontend_selector_action": {
@@ -37,7 +53,7 @@
     "negative_fixture_ids": [
       "design_delta_selector_action_projection_bad"
     ],
-    "behavior_class": "typed_projection",
+    "behavior_class": "structured_result",
     "input_signature": [
       {
         "name": "selection_status",
@@ -91,13 +107,29 @@
     ],
     "owner_module": "lisp_frontend_design_delta/drain",
     "replacement_path": "SelectorPublicResult to DesignDeltaDrainAction projection",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "typed_projection",
+    "retirement_label": "retire_to_projection",
+    "replacement_surface": "typed selector action projection",
+    "bridge_owner": "lisp_frontend_design_delta/drain",
+    "expiry_condition": "g2 typed projection route replaces selector-action adapter",
+    "evidence_refs": [
+      "design_delta_selector_action_projection_ok"
+    ]
   },
   "validate_lisp_frontend_design_gap_architecture": {
     "kind": "external_tool",
     "stable_command": [
       "python",
       "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"
+    ],
+    "retirement_class": "validation",
+    "retirement_label": "keep_bridge",
+    "replacement_surface": "typed design-gap validation bridge",
+    "bridge_owner": "lisp_frontend_design_delta/design_gap_architect",
+    "expiry_condition": "retain until typed validation parity replaces the command bridge",
+    "evidence_refs": [
+      "validate_lisp_frontend_design_gap_architecture"
     ]
   },
   "materialize_lisp_frontend_work_item_inputs": {
@@ -123,7 +155,7 @@
     "negative_fixture_ids": [
       "design_delta_work_item_inputs_bad"
     ],
-    "behavior_class": "typed_projection",
+    "behavior_class": "structured_result",
     "input_signature": [
       {
         "name": "selection_bundle_path",
@@ -153,7 +185,15 @@
     ],
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "SelectionCtx + ItemCtx private bootstrap + typed projection",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "typed_projection",
+    "retirement_label": "retire_to_projection",
+    "replacement_surface": "typed work-item input projection",
+    "bridge_owner": "lisp_frontend_design_delta/work_item",
+    "expiry_condition": "g2 typed projection route replaces work-item input materialization",
+    "evidence_refs": [
+      "design_delta_work_item_inputs_ok"
+    ]
   },
   "classify_lisp_frontend_work_item_terminal": {
     "kind": "certified_adapter",
@@ -214,7 +254,15 @@
     ],
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "typed implementation terminal union",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "outcome_classification",
+    "retirement_label": "retire_to_projection",
+    "replacement_surface": "typed terminal classification projection",
+    "bridge_owner": "lisp_frontend_design_delta/work_item",
+    "expiry_condition": "g2 typed outcome classification replaces terminal classifier adapter",
+    "evidence_refs": [
+      "design_delta_work_item_terminal_ok"
+    ]
   },
   "select_lisp_frontend_blocked_recovery_route": {
     "kind": "certified_adapter",
@@ -275,7 +323,15 @@
     ],
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "typed BlockedRecoveryDecision projection",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "outcome_classification",
+    "retirement_label": "retire_to_projection",
+    "replacement_surface": "typed blocked-recovery route classification",
+    "bridge_owner": "lisp_frontend_design_delta/work_item",
+    "expiry_condition": "g2 typed outcome classification replaces blocked-recovery router",
+    "evidence_refs": [
+      "design_delta_blocked_recovery_route_ok"
+    ]
   },
   "record_terminal_work_item": {
     "kind": "certified_adapter",
@@ -358,7 +414,15 @@
     ],
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "runtime-native selected-item transition",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "resource_transition",
+    "retirement_label": "retire_to_transition",
+    "replacement_surface": "runtime-native selected-item resource transition",
+    "bridge_owner": "lisp_frontend_design_delta/work_item",
+    "expiry_condition": "g3 typed resource transition replaces terminal work-item recorder",
+    "evidence_refs": [
+      "design_delta_record_terminal_ok"
+    ]
   },
   "record_blocked_recovery_outcome": {
     "kind": "certified_adapter",
@@ -483,7 +547,15 @@
     ],
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "runtime-native blocked-recovery transition",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "resource_transition",
+    "retirement_label": "retire_to_transition",
+    "replacement_surface": "runtime-native blocked-recovery resource transition",
+    "bridge_owner": "lisp_frontend_design_delta/work_item",
+    "expiry_condition": "g3 typed resource transition replaces blocked-recovery recorder",
+    "evidence_refs": [
+      "design_delta_record_blocked_recovery_ok"
+    ]
   },
   "write_lisp_frontend_drain_status": {
     "kind": "certified_adapter",
@@ -548,7 +620,15 @@
     ],
     "owner_module": "lisp_frontend_design_delta/drain",
     "replacement_path": "runtime-native parent drain status transition",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "resource_transition",
+    "retirement_label": "retire_to_transition",
+    "replacement_surface": "runtime-native drain status transition",
+    "bridge_owner": "lisp_frontend_design_delta/drain",
+    "expiry_condition": "g3 typed resource transition replaces drain status writer",
+    "evidence_refs": [
+      "design_delta_drain_status_ok"
+    ]
   },
   "finalize_lisp_frontend_drain_summary": {
     "kind": "certified_adapter",
@@ -609,6 +689,14 @@
     ],
     "owner_module": "lisp_frontend_design_delta/drain",
     "replacement_path": "typed drain summary projection",
-    "invocation_protocol": "json_object_positional_arg"
+    "invocation_protocol": "json_object_positional_arg",
+    "retirement_class": "view_writer",
+    "retirement_label": "retire_to_view",
+    "replacement_surface": "materialized drain summary view",
+    "bridge_owner": "lisp_frontend_design_delta/drain",
+    "expiry_condition": "g4 materialized value views replace drain summary finalizer",
+    "evidence_refs": [
+      "design_delta_drain_summary_ok"
+    ]
   }
 }

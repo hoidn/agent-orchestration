@@ -370,7 +370,9 @@
           "core_workflow_ast",
           "semantic_ir",
           "source_map",
-          "workflow_boundary_projection"
+          "workflow_boundary_projection",
+          "adapter_census",
+          "boundary_authority_report"
         ],
         "optional": [
           "expanded_debug_yaml"

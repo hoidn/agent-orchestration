@@ -7,6 +7,10 @@ from types import SimpleNamespace
 import pytest
 
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
+from orchestrator.workflow_lisp.command_boundaries import (
+    CommandBoundaryEnvironment,
+    build_command_boundary_environment,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import CommandResultExpr, elaborate_expression
@@ -22,6 +26,15 @@ INVALID_MISSING_INPUT_FIXTURE = FIXTURES / "invalid" / "certified_adapter_missin
 INVALID_EXTRA_INPUT_FIXTURE = FIXTURES / "invalid" / "certified_adapter_extra_input.orc"
 INVALID_TYPE_MISMATCH_FIXTURE = FIXTURES / "invalid" / "certified_adapter_type_mismatch.orc"
 INVALID_SEMANTIC_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.commands.json"
+)
 
 
 def _typed_adapter_manifest_payload() -> dict[str, object]:
@@ -122,6 +135,72 @@ def _command_boundaries():
     )
 
 
+def _validated_command_boundaries(
+    payload: dict[str, object],
+    *,
+    manifest_path: Path | None = None,
+) -> CommandBoundaryEnvironment:
+    return build_command_boundary_environment(
+        _parse_command_boundaries_manifest(
+            payload,
+            manifest_path=manifest_path,
+        )
+    )
+
+
+def _design_delta_retirement_row(
+    *,
+    kind: str,
+    name: str,
+    stable_command: list[str] | None = None,
+    behavior_class: str | None = None,
+    retirement_class: str = "typed_projection",
+    retirement_label: str = "retire_to_projection",
+    replacement_surface: str = "typed projection",
+    bridge_owner: str = "workflow-lisp",
+    expiry_condition: str = "g2-typed-projection",
+    evidence_refs: list[str] | None = None,
+) -> dict[str, object]:
+    row: dict[str, object] = {
+        "kind": kind,
+        "stable_command": stable_command or ["python", f"scripts/{name}.py"],
+        "retirement_class": retirement_class,
+        "retirement_label": retirement_label,
+        "replacement_surface": replacement_surface,
+        "bridge_owner": bridge_owner,
+        "expiry_condition": expiry_condition,
+        "evidence_refs": evidence_refs or [f"{name}_ok"],
+    }
+    if kind == "certified_adapter":
+        row.update(
+            {
+                "input_contract": {"type": "object"},
+                "output_type_name": "SelectionAction",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": [f"{name}_ok"],
+                "negative_fixture_ids": [f"{name}_bad"],
+                "behavior_class": behavior_class or "structured_result",
+                "input_signature": [
+                    {
+                        "name": "selection_status",
+                        "type_name": "SelectionStatus",
+                        "required": True,
+                        "transport_key": "selection_status",
+                    }
+                ],
+                "artifact_contracts": [f"{name}_bundle"],
+                "state_writes": [],
+                "error_codes": [f"{name}_invalid"],
+                "owner_module": "lisp_frontend_design_delta/drain",
+                "replacement_path": "typed projection",
+                "invocation_protocol": "json_object_positional_arg",
+            }
+        )
+    return row
+
+
 def _expression_syntax(source: str) -> SyntaxNode:
     parse_tree = read_sexpr_text(source, source_path="inline_command_adapter.orc")
     assert len(parse_tree.items) == 1
@@ -158,6 +237,114 @@ def test_command_result_adapter_manifest_supports_typed_metadata() -> None:
     )
     assert binding.owner_module == "std/phase"
     assert binding.replacement_path is None
+
+
+def test_design_delta_parent_drain_manifest_keeps_contract_behavior_class_and_parses_retirement_lane() -> None:
+    payload = json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8"))
+
+    bindings = _parse_command_boundaries_manifest(
+        payload,
+        manifest_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
+    )
+
+    projection = bindings["project_lisp_frontend_selector_action"]
+    assert projection.behavior_class == "structured_result"
+    assert getattr(projection, "retirement_class") == "typed_projection"
+    assert getattr(projection, "retirement_label") == "retire_to_projection"
+    assert getattr(projection, "replacement_surface")
+    assert getattr(projection, "bridge_owner")
+    assert getattr(projection, "expiry_condition")
+    assert getattr(projection, "evidence_refs")
+
+    backlog_checks = bindings["run_neurips_backlog_checks"]
+    assert getattr(backlog_checks, "retirement_class") == "genuine_system"
+    assert getattr(backlog_checks, "retirement_label") == "keep_certified_system"
+
+    review_findings = bindings["validate_review_findings_v1"]
+    assert getattr(review_findings, "retirement_class") == "validation"
+    assert getattr(review_findings, "retirement_label") == "keep_bridge"
+    assert getattr(review_findings, "replacement_surface")
+    assert getattr(review_findings, "bridge_owner")
+    assert getattr(review_findings, "expiry_condition")
+    assert getattr(review_findings, "evidence_refs")
+
+
+def test_design_delta_parent_drain_manifest_rejects_unknown_retirement_class() -> None:
+    payload = {
+        "project_lisp_frontend_selector_action": _design_delta_retirement_row(
+            kind="certified_adapter",
+            name="project_lisp_frontend_selector_action",
+            retirement_class="not_a_real_class",
+        )
+    }
+
+    with pytest.raises(LispFrontendCompileError):
+        _validated_command_boundaries(payload)
+
+
+def test_design_delta_parent_drain_manifest_rejects_unknown_retirement_label() -> None:
+    payload = {
+        "project_lisp_frontend_selector_action": _design_delta_retirement_row(
+            kind="certified_adapter",
+            name="project_lisp_frontend_selector_action",
+            retirement_label="not_a_real_label",
+        )
+    }
+
+    with pytest.raises(LispFrontendCompileError):
+        _validated_command_boundaries(payload)
+
+
+def test_design_delta_parent_drain_certified_adapter_requires_full_retirement_metadata() -> None:
+    payload = {
+        "project_lisp_frontend_selector_action": _design_delta_retirement_row(
+            kind="certified_adapter",
+            name="project_lisp_frontend_selector_action",
+        )
+    }
+    payload["project_lisp_frontend_selector_action"].pop("expiry_condition")
+
+    with pytest.raises(LispFrontendCompileError):
+        _validated_command_boundaries(payload)
+
+
+def test_design_delta_parent_drain_external_tool_requires_full_retirement_metadata() -> None:
+    payload = {
+        "run_neurips_backlog_checks": _design_delta_retirement_row(
+            kind="external_tool",
+            name="run_neurips_backlog_checks",
+            retirement_class="genuine_system",
+            retirement_label="keep_certified_system",
+            replacement_surface="certified external tool",
+        )
+    }
+    payload["run_neurips_backlog_checks"].pop("evidence_refs")
+
+    with pytest.raises(LispFrontendCompileError):
+        _validated_command_boundaries(payload)
+
+
+def test_design_delta_parent_drain_validate_review_findings_requires_full_retirement_metadata() -> None:
+    payload = {
+        "validate_review_findings_v1": {
+            "kind": "external_tool",
+            "stable_command": [
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ],
+        }
+    }
+
+    with pytest.raises(LispFrontendCompileError):
+        _validated_command_boundaries(payload)
+
+
+def test_non_family_command_boundary_manifest_remains_compatible_without_retirement_metadata() -> None:
+    environment = _validated_command_boundaries(_typed_adapter_manifest_payload())
+
+    assert "normalize_result" in environment.bindings_by_name
+    assert "apply_resource_transition" in environment.bindings_by_name
 
 
 def test_command_result_adapter_requires_full_promoted_metadata(tmp_path: Path) -> None:

@@ -30,6 +30,11 @@ from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
 from .lints import LINT_PROFILE_DEFAULT
+from .phase_family_boundary import (
+    build_design_delta_boundary_authority_expected_rows,
+    is_design_delta_parent_drain_target_workflow,
+    load_design_delta_boundary_authority_registry,
+)
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
 from .workflows import (
@@ -41,6 +46,14 @@ from .wcc.route import LoweringRoute
 
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
+DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.boundary_authority.json"
+)
 FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "executable_ir": "executable_ir.json",
     "core_workflow_ast": "core_workflow_ast.json",
@@ -131,6 +144,7 @@ class FrontendBuildManifest:
     source_map_schema_version: str | None = None
     source_map_coverage: Mapping[str, str] | None = None
     lowering_schema_version: int = 1
+    boundary_authority_registry: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -231,8 +245,15 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         requested_name=resolved_request.entry_workflow,
         source_path=resolved_request.source_path,
     )
+    boundary_authority_registry = _maybe_load_design_delta_boundary_authority_registry(
+        entry_workflow=entry_selection.canonical_name,
+    )
     selected_bundle = compile_result.entry_result.validated_bundles[entry_selection.canonical_name]
     source_map_payload = _serialize_source_map(
+        compile_result,
+        selected_name=entry_selection.canonical_name,
+    )
+    workflow_boundary_projection_payload = _serialize_workflow_boundary_projection(
         compile_result,
         selected_name=entry_selection.canonical_name,
     )
@@ -252,6 +273,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
+        boundary_authority_registry=boundary_authority_registry,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
@@ -291,6 +313,19 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         imports=selected_bundle.imports,
         provenance=provenance,
     )
+    adapter_census_payload = None
+    boundary_authority_report_payload = None
+    if boundary_authority_registry is not None:
+        adapter_census_payload = _serialize_design_delta_adapter_census(
+            command_boundaries=command_boundaries,
+            command_boundary_manifest=command_boundary_manifest,
+            source_map_payload=source_map_payload,
+        )
+        boundary_authority_report_payload = _serialize_design_delta_boundary_authority_report(
+            boundary_projection_payload=workflow_boundary_projection_payload,
+            boundary_authority_registry=boundary_authority_registry,
+            source_map_payload=source_map_payload,
+        )
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
         compile_result=compile_result,
@@ -299,6 +334,9 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         diagnostics=diagnostics,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
         source_map_payload=source_map_payload,
+        workflow_boundary_projection_payload=workflow_boundary_projection_payload,
+        adapter_census_payload=adapter_census_payload,
+        boundary_authority_report_payload=boundary_authority_report_payload,
     )
     manifest = _build_manifest(
         request=resolved_request,
@@ -310,6 +348,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         diagnostics=diagnostics,
         build_root=build_root,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
+        boundary_authority_registry=boundary_authority_registry,
     )
     manifest_path = build_root / "manifest.json"
     manifest_path.write_text(
@@ -725,7 +764,46 @@ def _parse_command_boundaries_manifest(
                 )
             )
         if kind == "external_tool":
-            bindings[name] = ExternalToolBinding(name=name, stable_command=stable_command)
+            bindings[name] = ExternalToolBinding(
+                name=name,
+                stable_command=stable_command,
+                retirement_class=_require_optional_string_field(
+                    raw_entry.get("retirement_class"),
+                    field_name="retirement_class",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                retirement_label=_require_optional_string_field(
+                    raw_entry.get("retirement_label"),
+                    field_name="retirement_label",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                replacement_surface=_require_optional_string_field(
+                    raw_entry.get("replacement_surface"),
+                    field_name="replacement_surface",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                bridge_owner=_require_optional_string_field(
+                    raw_entry.get("bridge_owner"),
+                    field_name="bridge_owner",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                expiry_condition=_require_optional_string_field(
+                    raw_entry.get("expiry_condition"),
+                    field_name="expiry_condition",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                evidence_refs=_require_optional_string_array(
+                    raw_entry.get("evidence_refs"),
+                    field_name="evidence_refs",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+            )
             continue
         if kind == "certified_adapter":
             declared_promoted_fields = frozenset(
@@ -826,6 +904,42 @@ def _parse_command_boundaries_manifest(
                     manifest_path=manifest_path,
                 ),
                 declared_promoted_fields=declared_promoted_fields,
+                retirement_class=_require_optional_string_field(
+                    raw_entry.get("retirement_class"),
+                    field_name="retirement_class",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                retirement_label=_require_optional_string_field(
+                    raw_entry.get("retirement_label"),
+                    field_name="retirement_label",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                replacement_surface=_require_optional_string_field(
+                    raw_entry.get("replacement_surface"),
+                    field_name="replacement_surface",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                bridge_owner=_require_optional_string_field(
+                    raw_entry.get("bridge_owner"),
+                    field_name="bridge_owner",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                expiry_condition=_require_optional_string_field(
+                    raw_entry.get("expiry_condition"),
+                    field_name="expiry_condition",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                evidence_refs=_require_optional_string_array(
+                    raw_entry.get("evidence_refs"),
+                    field_name="evidence_refs",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
             )
             continue
         raise LispFrontendCompileError(
@@ -858,6 +972,23 @@ def _require_string_array(
             )
         )
     return tuple(value)
+
+
+def _require_optional_string_array(
+    value: object,
+    *,
+    field_name: str,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    return _require_string_array(
+        value,
+        field_name=field_name,
+        binding_name=binding_name,
+        manifest_path=manifest_path,
+    )
 
 
 def _require_mapping_field(
@@ -1039,6 +1170,408 @@ def _select_entry_workflow(
     )
 
 
+def _maybe_load_design_delta_boundary_authority_registry(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        payload = load_design_delta_boundary_authority_registry(
+            DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="boundary_authority_registry_invalid",
+                    message=f"design-delta boundary authority registry is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH,
+                ),
+            )
+        ) from exc
+    return {
+        **payload,
+        "__registry_path__": str(DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH),
+        "__registry_sha256__": _sha256_path(DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH),
+        "workflow_family": "design_delta_parent_drain",
+    }
+
+
+def _boundary_authority_registry_provenance(
+    boundary_authority_registry: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if boundary_authority_registry is None:
+        return None
+    return {
+        "workflow_family": str(boundary_authority_registry.get("workflow_family", "")),
+        "path": str(boundary_authority_registry.get("__registry_path__", "")),
+        "sha256": f"sha256:{boundary_authority_registry.get('__registry_sha256__', '')}",
+        "schema_version": str(boundary_authority_registry.get("schema_version", "")),
+    }
+
+
+def _serialize_design_delta_adapter_census(
+    *,
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
+    command_boundary_manifest: Mapping[str, object],
+    source_map_payload: Mapping[str, object],
+) -> dict[str, object]:
+    workflows = source_map_payload.get("workflows")
+    lineage_by_name: dict[str, list[dict[str, object]]] = {}
+    if isinstance(workflows, Mapping):
+        for workflow_name, workflow_payload in workflows.items():
+            if not isinstance(workflow_payload, Mapping):
+                continue
+            boundaries = workflow_payload.get("command_boundaries")
+            if not isinstance(boundaries, list):
+                continue
+            for boundary in boundaries:
+                if not isinstance(boundary, Mapping):
+                    continue
+                command_name = boundary.get("command_name")
+                if not isinstance(command_name, str) or not command_name:
+                    continue
+                lineage_by_name.setdefault(command_name, []).append(
+                    {
+                        "workflow_name": workflow_name,
+                        "step_id": boundary.get("step_id"),
+                        "boundary_kind": boundary.get("boundary_kind"),
+                    }
+                )
+    rows: list[dict[str, object]] = []
+    for name, raw_entry in sorted(command_boundary_manifest.items()):
+        binding = command_boundaries.get(name)
+        if binding is None:
+            continue
+        fixture_ids = tuple(getattr(binding, "fixture_ids", ()) or ())
+        negative_fixture_ids = tuple(getattr(binding, "negative_fixture_ids", ()) or ())
+        replacement_path = getattr(binding, "replacement_path", None)
+        rows.append(
+            {
+                "workflow_family": "design_delta_parent_drain",
+                "binding_name": name,
+                "binding_kind": "certified_adapter"
+                if isinstance(binding, CertifiedAdapterBinding)
+                else "external_tool",
+                "stable_command": list(binding.stable_command),
+                "behavior_class": getattr(binding, "behavior_class", None),
+                "retirement_class": getattr(binding, "retirement_class", None),
+                "retirement_label": getattr(binding, "retirement_label", None),
+                "replacement_surface": getattr(binding, "replacement_surface", None),
+                "bridge_owner": getattr(binding, "bridge_owner", None),
+                "expiry_condition": getattr(binding, "expiry_condition", None),
+                "evidence_refs": list(getattr(binding, "evidence_refs", ()) or ()),
+                "fixture_ids": list(fixture_ids),
+                "negative_fixture_ids": list(negative_fixture_ids),
+                "owner_module": getattr(binding, "owner_module", None),
+                "replacement_path": replacement_path,
+                "invocation_sites": lineage_by_name.get(name, []),
+                "liveness": "live" if lineage_by_name.get(name) else "unreferenced",
+            }
+        )
+    return {
+        "workflow_family": "design_delta_parent_drain",
+        "schema_version": "workflow_lisp_design_delta_adapter_census.v1",
+        "rows": rows,
+    }
+
+
+def _serialize_design_delta_boundary_authority_report(
+    *,
+    boundary_projection_payload: Mapping[str, object],
+    boundary_authority_registry: Mapping[str, object],
+    source_map_payload: Mapping[str, object],
+) -> dict[str, object]:
+    expected_rows = build_design_delta_boundary_authority_expected_rows(dict(boundary_projection_payload))
+    expected_row_keys = {
+        (workflow_name, field_name, str(row["surface_kind"])): row
+        for (workflow_name, field_name), row in expected_rows.items()
+    }
+    registry_rows = {
+        (
+            str(row["workflow_name"]),
+            str(row["field_name"]),
+            str(row["surface_kind"]),
+        ): row
+        for row in boundary_authority_registry.get("rows", [])
+        if isinstance(row, Mapping)
+        and is_design_delta_parent_drain_target_workflow(str(row.get("workflow_name", "")))
+    }
+    stale_rows = sorted(key for key in registry_rows if key not in expected_row_keys)
+    if stale_rows:
+        workflow_name, field_name, surface_kind = stale_rows[0]
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="workflow_boundary_authority_unclassified",
+                    message=(
+                        "stale boundary authority registry row does not match compiled evidence: "
+                        f"{workflow_name} / {field_name} / {surface_kind}"
+                    ),
+                    path=Path(str(boundary_authority_registry.get("__registry_path__", ""))),
+                ),
+            )
+        )
+    path_like_mismatches = sorted(
+        key
+        for key, expected_row in expected_row_keys.items()
+        if key in registry_rows
+        and bool(registry_rows[key].get("path_like")) != bool(expected_row["path_like"])
+    )
+    if path_like_mismatches:
+        workflow_name, field_name, surface_kind = path_like_mismatches[0]
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="workflow_boundary_authority_unclassified",
+                    message=(
+                        "boundary authority registry path_like does not match compiled evidence: "
+                        f"{workflow_name} / {field_name} / {surface_kind}"
+                    ),
+                    path=Path(str(boundary_authority_registry.get("__registry_path__", ""))),
+                ),
+            )
+        )
+
+    projection_workflows = {
+        str(workflow["workflow_name"]): workflow
+        for workflow in boundary_projection_payload.get("workflows", [])
+        if isinstance(workflow, Mapping)
+        and isinstance(workflow.get("workflow_name"), str)
+    }
+    source_map_workflows = source_map_payload.get("workflows")
+    if not isinstance(source_map_workflows, Mapping):
+        source_map_workflows = {}
+
+    workflow_rows: dict[str, dict[str, object]] = {}
+    for (workflow_name, field_name, surface_kind), expected in sorted(expected_row_keys.items()):
+        projection_workflow = projection_workflows.get(workflow_name, {})
+        source_map_workflow = source_map_workflows.get(workflow_name, {})
+        flattened_inputs_by_name: dict[str, Mapping[str, object]] = {}
+        generated_internal_path_like_inputs: list[str] = []
+        runtime_context_path_inputs: list[str] = []
+        compatibility_bridge_path_inputs: list[str] = []
+        managed_write_root_inputs: list[str] = []
+        flattened_output_names: list[str] = []
+        if isinstance(projection_workflow, Mapping):
+            flattened_inputs_by_name = {
+                str(field.get("generated_name")): field
+                for field in projection_workflow.get("flattened_inputs", [])
+                if isinstance(field, Mapping) and isinstance(field.get("generated_name"), str)
+            }
+            generated_internal_entries = {
+                str(field.get("generated_name")): field
+                for field in projection_workflow.get("generated_internal_inputs", [])
+                if isinstance(field, Mapping) and isinstance(field.get("generated_name"), str)
+            }
+            generated_internal_path_like_inputs = sorted(
+                name
+                for name, field in generated_internal_entries.items()
+                if _design_delta_generated_internal_entry_is_path_like(
+                    name,
+                    field,
+                    flattened_inputs_by_name=flattened_inputs_by_name,
+                )
+            )
+            flattened_output_names = sorted(
+                str(field.get("generated_name"))
+                for field in projection_workflow.get("flattened_outputs", [])
+                if isinstance(field, Mapping)
+                and isinstance(field.get("generated_name"), str)
+                and _design_delta_contract_is_path_like(field.get("contract_definition"))
+            )
+            compatibility_bridge_path_inputs = sorted(
+                name
+                for name in projection_workflow.get("boundary", {}).get(
+                    "private_compatibility_bridge_inputs", []
+                )
+                if isinstance(name, str)
+                and _design_delta_generated_internal_entry_is_path_like(
+                    name,
+                    generated_internal_entries.get(name, {}),
+                    flattened_inputs_by_name=flattened_inputs_by_name,
+                )
+            )
+            managed_write_root_inputs = sorted(
+                name
+                for name in projection_workflow.get("boundary", {}).get(
+                    "private_managed_write_root_inputs", []
+                )
+                if isinstance(name, str)
+                and _design_delta_generated_internal_entry_is_path_like(
+                    name,
+                    generated_internal_entries.get(name, {}),
+                    flattened_inputs_by_name=flattened_inputs_by_name,
+                )
+            )
+            runtime_context_generated_names = {
+                name
+                for binding in projection_workflow.get("boundary", {}).get(
+                    "private_runtime_context_bindings", []
+                )
+                if isinstance(binding, Mapping)
+                for name in binding.get("generated_input_names", [])
+                if isinstance(name, str)
+            }
+            runtime_context_path_inputs = sorted(
+                name
+                for name in runtime_context_generated_names
+                if _design_delta_generated_internal_entry_is_path_like(
+                    name,
+                    generated_internal_entries.get(name, {}),
+                    flattened_inputs_by_name=flattened_inputs_by_name,
+                )
+            )
+        generated_path_allocations: list[dict[str, object]] = []
+        if isinstance(projection_workflow, Mapping):
+            for allocation in projection_workflow.get("generated_path_allocations", []):
+                if not isinstance(allocation, Mapping):
+                    continue
+                generated_path_allocations.append(
+                    {
+                        "generated_input_name": allocation.get("generated_input_name"),
+                        "allocation_id": allocation.get("allocation_id"),
+                        "semantic_role": allocation.get("semantic_role"),
+                        "privacy": allocation.get("privacy"),
+                    }
+                )
+        source_map_command_boundaries: list[dict[str, object]] = []
+        source_map_generated_allocations: list[dict[str, object]] = []
+        if isinstance(source_map_workflow, Mapping):
+            for boundary in source_map_workflow.get("command_boundaries", []):
+                if not isinstance(boundary, Mapping):
+                    continue
+                source_map_command_boundaries.append(
+                    {
+                        "command_name": boundary.get("command_name"),
+                        "boundary_kind": boundary.get("boundary_kind"),
+                        "step_id": boundary.get("step_id"),
+                    }
+                )
+            for allocation in source_map_workflow.get("generated_path_allocations", []):
+                if not isinstance(allocation, Mapping):
+                    continue
+                source_map_generated_allocations.append(
+                    {
+                        "generated_input_name": allocation.get("generated_input_name"),
+                        "allocation_id": allocation.get("allocation_id"),
+                        "semantic_role": allocation.get("semantic_role"),
+                        "origin_key": allocation.get("origin_key"),
+                    }
+                )
+        row = workflow_rows.setdefault(
+            workflow_name,
+            {
+                "workflow_name": workflow_name,
+                "public_authored": [],
+                "compatibility_bridge": [],
+                "runtime_derived": [],
+                "generated_internal": [],
+                "materialized_view": [],
+                "public_artifact": [],
+                "unclassified": [],
+                "public_leaks": [],
+                "compiled_evidence": {
+                    "workflow_boundary_projection": {
+                        "artifact": "workflow_boundary_projection.json",
+                        "workflow_name": workflow_name,
+                    },
+                    "generated_path_allocations": {
+                        "artifact": "workflow_boundary_projection.json",
+                        "rows": generated_path_allocations,
+                    },
+                    "source_map_provenance": {
+                        "artifact": "source_map.json",
+                        "workflow_names": [workflow_name]
+                        if isinstance(source_map_workflow, Mapping)
+                        else [],
+                        "command_boundaries": source_map_command_boundaries,
+                        "generated_path_allocations": source_map_generated_allocations,
+                    },
+                    "generated_internal_inputs": generated_internal_path_like_inputs,
+                    "flattened_outputs": flattened_output_names,
+                    "private_runtime_context_bindings": runtime_context_path_inputs,
+                    "private_compatibility_bridge_inputs": compatibility_bridge_path_inputs,
+                    "private_managed_write_root_inputs": managed_write_root_inputs,
+                },
+            },
+        )
+        registry_row = registry_rows.get((workflow_name, field_name, surface_kind))
+        if registry_row is None:
+            row["unclassified"].append(field_name)
+            continue
+        else:
+            authority_class = str(registry_row["authority_class"])
+        row[authority_class].append(field_name)
+        if surface_kind == "public_input" and authority_class != "public_authored":
+            row["public_leaks"].append(field_name)
+        elif surface_kind == "runtime_context_input" and authority_class != "runtime_derived":
+            row["public_leaks"].append(field_name)
+        elif surface_kind == "compatibility_bridge_input" and authority_class != "compatibility_bridge":
+            row["public_leaks"].append(field_name)
+        elif surface_kind in {"generated_internal_input", "managed_write_root"} and authority_class != "generated_internal":
+            row["public_leaks"].append(field_name)
+        elif surface_kind == "flattened_output" and authority_class not in {"materialized_view", "public_artifact"}:
+            row["public_leaks"].append(field_name)
+
+    for row in workflow_rows.values():
+        for key, value in tuple(row.items()):
+            if isinstance(value, list):
+                value.sort()
+        if row["unclassified"]:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="workflow_boundary_authority_unclassified",
+                        message=(
+                            "unclassified path-like boundary values remain for "
+                            f"{row['workflow_name']}: {', '.join(row['unclassified'])}"
+                        ),
+                        path=Path(str(boundary_authority_registry.get("__registry_path__", ""))),
+                    ),
+                )
+            )
+        if row["public_leaks"]:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="workflow_boundary_private_class_exposed_publicly",
+                        message=(
+                            "public boundary exposes private authority classes for "
+                            f"{row['workflow_name']}: {', '.join(row['public_leaks'])}"
+                        ),
+                        path=Path(str(boundary_authority_registry.get("__registry_path__", ""))),
+                    ),
+                )
+            )
+
+    return {
+        "workflow_family": "design_delta_parent_drain",
+        "schema_version": "workflow_lisp_design_delta_boundary_authority_report.v1",
+        "registry_provenance": _boundary_authority_registry_provenance(boundary_authority_registry),
+        "workflows": sorted(workflow_rows.values(), key=lambda row: str(row["workflow_name"])),
+    }
+
+
+def _design_delta_contract_is_path_like(contract_definition: object) -> bool:
+    return isinstance(contract_definition, Mapping) and contract_definition.get("type") == "relpath"
+
+
+def _design_delta_generated_internal_entry_is_path_like(
+    field_name: str,
+    field: Mapping[str, object],
+    *,
+    flattened_inputs_by_name: Mapping[str, Mapping[str, object]],
+) -> bool:
+    flattened_input = flattened_inputs_by_name.get(field_name)
+    if isinstance(flattened_input, Mapping) and _design_delta_contract_is_path_like(
+        flattened_input.get("contract_definition")
+    ):
+        return True
+    return field.get("reason") == "managed_write_root"
+
+
 def _fingerprint_build(
     *,
     request: FrontendBuildRequest,
@@ -1048,6 +1581,7 @@ def _fingerprint_build(
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
+    boundary_authority_registry: Mapping[str, object] | None,
 ) -> str:
     source_payload = {
         "schema_version": BUILD_SCHEMA_VERSION,
@@ -1071,6 +1605,9 @@ def _fingerprint_build(
             }
             for binding in imported_bindings
         ],
+        "boundary_authority_registry": _json_data(boundary_authority_registry)
+        if boundary_authority_registry is not None
+        else None,
     }
     encoded = json.dumps(source_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
@@ -1085,6 +1622,9 @@ def _write_build_artifacts(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     emit_debug_yaml: bool,
     source_map_payload: Mapping[str, object],
+    workflow_boundary_projection_payload: Mapping[str, object],
+    adapter_census_payload: Mapping[str, object] | None,
+    boundary_authority_report_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
@@ -1100,6 +1640,10 @@ def _write_build_artifacts(
         "workflow_boundary_projection": build_root / "workflow_boundary_projection.json",
         "diagnostics": build_root / "diagnostics.json",
     }
+    if adapter_census_payload is not None:
+        artifact_paths["adapter_census"] = build_root / "adapter_census.json"
+    if boundary_authority_report_payload is not None:
+        artifact_paths["boundary_authority_report"] = build_root / "boundary_authority_report.json"
     payloads = {
         "frontend_ast": _serialize_frontend_ast(compile_result),
         "expanded_frontend_ast": _serialize_expanded_frontend_ast(compile_result),
@@ -1110,12 +1654,13 @@ def _write_build_artifacts(
         "semantic_ir": workflow_semantic_ir_to_json(validated_bundle.semantic_ir),
         "runtime_plan": _json_data(validated_bundle.runtime_plan),
         "source_map": _json_data(source_map_payload),
-        "workflow_boundary_projection": _serialize_workflow_boundary_projection(
-            compile_result,
-            selected_name=entry_selection.canonical_name,
-        ),
+        "workflow_boundary_projection": _json_data(workflow_boundary_projection_payload),
         "diagnostics": serialize_diagnostics(diagnostics),
     }
+    if adapter_census_payload is not None:
+        payloads["adapter_census"] = _json_data(adapter_census_payload)
+    if boundary_authority_report_payload is not None:
+        payloads["boundary_authority_report"] = _json_data(boundary_authority_report_payload)
     for name, path in artifact_paths.items():
         path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:
@@ -1143,6 +1688,7 @@ def _build_manifest(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     build_root: Path,
     emit_debug_yaml: bool,
+    boundary_authority_registry: Mapping[str, object] | None,
 ) -> FrontendBuildManifest:
     return FrontendBuildManifest(
         schema_version=BUILD_SCHEMA_VERSION,
@@ -1175,6 +1721,7 @@ def _build_manifest(
             for name, path in artifact_paths.items()
         },
         artifact_status={
+            **{name: "emitted" for name in artifact_paths},
             "executable_ir": "emitted",
             "core_workflow_ast": "emitted",
             "runtime_plan": "emitted",
@@ -1186,6 +1733,9 @@ def _build_manifest(
         source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         source_map_coverage=dict(SOURCE_MAP_COVERAGE),
         lowering_schema_version=compile_result.entry_result.lowering_schema_version,
+        boundary_authority_registry=_boundary_authority_registry_provenance(
+            boundary_authority_registry
+        ),
     )
 
 
