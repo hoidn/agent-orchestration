@@ -68,6 +68,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
     files = [
         "docs/design/workflow_command_adapter_contract.md",
         "docs/design/workflow_lisp_proc_refs_partial_application.md",
+        "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json",
         "docs/plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md",
         "state/LISP-PROC-REFS-PARTIAL-APPLICATION/progress_ledger.json",
         "workflows/examples/lisp_frontend_autonomous_drain.yaml",
@@ -163,6 +164,9 @@ def _design_delta_workflow_inputs() -> dict:
         "steering_path": "docs/steering.md",
         "target_design_path": "docs/design/workflow_lisp_frontend_specification.md",
         "baseline_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
+        "post_wcc_inventory_path": (
+            "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json"
+        ),
         "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
     }
 
@@ -3025,6 +3029,7 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
     assert any(step["name"] == "RunNormalSelector" for step in selector_cases["SELECT_NORMAL_WORK"]["steps"])
     normal_selector = next(step for step in selector_cases["SELECT_NORMAL_WORK"]["steps"] if step["name"] == "RunNormalSelector")
     assert normal_selector["with"]["run_state_path"]["ref"] == "inputs.run_state_target_path"
+    assert normal_selector["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
     assert any(
         step["name"] == "RunPrerequisiteRecoverySelector"
         for step in selector_cases["SELECT_PREREQUISITE_WORK"]["steps"]
@@ -3039,6 +3044,7 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
         "parent.steps.PrepareIterationPaths.artifacts.prerequisite_selector_state_root"
     )
     assert prerequisite_selector["with"]["run_state_path"]["ref"] == "inputs.run_state_target_path"
+    assert prerequisite_selector["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
     for placeholder in ["RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED"]:
         assert any(
             step["name"] == "WriteSelectorBlockedPlaceholder"
@@ -3254,6 +3260,10 @@ def test_autonomous_drain_design_gap_path_stays_plan_scoped():
 def test_design_delta_drain_done_route_requires_terminal_review_gate():
     workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text())
     assert workflow["imports"]["done_review"] == "../library/lisp_frontend_design_delta_done_review.v214.yaml"
+    post_wcc_input = workflow["inputs"]["post_wcc_inventory_path"]
+    assert post_wcc_input["default"] == (
+        "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json"
+    )
     drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
     prepare = next(step for step in drain_step["repeat_until"]["steps"] if step["name"] == "PrepareIterationPaths")
     prepare_fields = {field["name"]: field for field in prepare["output_bundle"]["fields"]}
@@ -3270,6 +3280,7 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
     done_call = done_case["steps"][0]
     assert done_call["call"] == "done_review"
     assert done_call["with"]["selection_bundle_path"]["ref"] == "parent.steps.SelectNextWork.artifacts.selection_bundle_path"
+    assert done_call["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
     assert done_call["with"]["state_root"]["ref"] == (
         "parent.steps.PrepareIterationPaths.artifacts.done_review_state_root"
     )
@@ -3283,8 +3294,10 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
     done_workflow = yaml.safe_load(
         (ROOT / "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml").read_text()
     )
+    assert done_workflow["inputs"]["post_wcc_inventory_path"]["under"] == "docs/plans"
     review = next(step for step in done_workflow["steps"] if step["name"] == "ReviewDoneDecision")
     assert review["asset_file"] == "prompts/lisp_frontend_selector/review_done_design_delta.md"
+    assert "${inputs.post_wcc_inventory_path}" in review["depends_on"]["required"]
     review_fields = {field["name"]: field for field in review["output_bundle"]["fields"]}
     assert review_fields["done_decision"]["allowed"] == ["APPROVE_DONE", "REJECT_DONE"]
 
@@ -3306,6 +3319,28 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
     assert rejected_architect["with"]["selection_bundle_path"]["ref"] == (
         "parent.steps.ProjectDoneReview.artifacts.selection_bundle_path"
     )
+
+
+def test_design_delta_selector_workflow_consumes_post_wcc_inventory_authority():
+    selector_workflow = yaml.safe_load(
+        (ROOT / "workflows/library/lisp_frontend_design_delta_selector.v214.yaml").read_text()
+    )
+
+    assert selector_workflow["inputs"]["post_wcc_inventory_path"]["under"] == "docs/plans"
+    assert selector_workflow["artifacts"]["post_wcc_inventory"]["pointer"] == (
+        "${inputs.state_root}/post_wcc_inventory_path.txt"
+    )
+
+    materialize = next(step for step in selector_workflow["steps"] if step["name"] == "MaterializeSelectorInputs")
+    names = materialize["materialize_artifacts"]["input_values"][0]["names"]
+    assert "post_wcc_inventory_path" in names
+    publishes = {entry["artifact"]: entry["from"] for entry in materialize["publishes"]}
+    assert publishes["post_wcc_inventory"] == "post_wcc_inventory_path"
+
+    select = next(step for step in selector_workflow["steps"] if step["name"] == "SelectNextWork")
+    consumed = [entry["artifact"] for entry in select["consumes"]]
+    assert "post_wcc_inventory" in consumed
+    assert "post_wcc_inventory" in select["prompt_consumes"]
 
 
 def test_prepare_design_delta_iteration_paths_clears_stale_iteration_outputs(tmp_path):

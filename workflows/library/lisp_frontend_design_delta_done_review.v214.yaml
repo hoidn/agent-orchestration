@@ -31,6 +31,10 @@ inputs:
     type: relpath
     under: docs/design
     must_exist_target: true
+  post_wcc_inventory_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
   command_adapter_contract_path:
     type: relpath
     under: docs/design
@@ -118,6 +122,7 @@ steps:
         - ${inputs.steering_path}
         - ${inputs.target_design_path}
         - ${inputs.baseline_design_path}
+        - ${inputs.post_wcc_inventory_path}
         - ${inputs.manifest_path}
         - ${inputs.progress_ledger_path}
         - ${inputs.run_state_path}

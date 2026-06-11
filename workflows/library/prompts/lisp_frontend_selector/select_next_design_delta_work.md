@@ -1,5 +1,6 @@
-Read the consumed steering, target design, baseline design, backlog manifest,
-progress ledger, and run state before acting.
+Read the consumed steering, target design, baseline design, post-WCC inventory
+authority (`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`),
+backlog manifest, progress ledger, and run state before acting.
 
 Select exactly one next implementation unit for the target design.
 
@@ -41,20 +42,23 @@ slice. If it changes current relied-upon architecture/design docs, update those
 docs in scope. Do not rewrite historical per-gap implementation architecture
 docs merely to match the refactor.
 
-Before returning `DONE`, compare the target design against durable repo evidence:
-source, docs, fixtures, tests, ledgers, and run state. Evaluate obligations from
-the target design itself, not from the set of existing backlog items or
+Before returning `DONE`, treat the consumed post-WCC inventory authority as the
+current-state source for whether a bounded implementation obligation remains.
+Compare the target design against durable repo evidence: source, docs, fixtures,
+tests, ledgers, run state, and the reconciled inventory. Evaluate obligations
+from the target design itself, not from the set of existing backlog items or
 design-gap directories. A missing work item or design-gap directory is not
 evidence that a target design obligation is complete.
-Return `DONE` only when evidence covers every target-design obligation.
+Return `DONE` only when evidence covers every target-design obligation and the
+reconciled inventory has no `remaining_post_wcc` rows.
 A completed subset of the target design is not enough for `DONE`.
 
 For any target design obligation, return `DRAFT_DESIGN_GAP` unless the available
 evidence shows a coherent completed treatment of that obligation, or the target
 design explicitly marks it out of scope. Do not require every obligation to have
 the same evidence shape; use the evidence that is appropriate to the obligation.
-When the ledger says complete but source/docs/fixtures/tests do not support that
-claim, prefer `DRAFT_DESIGN_GAP` over `DONE`.
+When the ledger says complete but source/docs/fixtures/tests or the reconciled
+inventory do not support that claim, prefer `DRAFT_DESIGN_GAP` over `DONE`.
 
 Make only this step's local selection judgment and explain it. Do not edit
 files, move backlog items, or draft architecture content. For design gaps,

@@ -21,6 +21,10 @@ inputs:
     type: relpath
     under: docs/design
     must_exist_target: true
+  post_wcc_inventory_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
   manifest_path:
     type: relpath
     under: state
@@ -75,6 +79,12 @@ artifacts:
     pointer: ${inputs.state_root}/baseline_design_path.txt
     under: docs/design
     must_exist_target: true
+  post_wcc_inventory:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/post_wcc_inventory_path.txt
+    under: docs/plans
+    must_exist_target: true
   manifest:
     kind: relpath
     type: relpath
@@ -103,6 +113,7 @@ steps:
             - steering_path
             - target_design_path
             - baseline_design_path
+            - post_wcc_inventory_path
             - manifest_path
             - progress_ledger_path
             - run_state_path
@@ -115,6 +126,8 @@ steps:
         from: target_design_path
       - artifact: baseline_design
         from: baseline_design_path
+      - artifact: post_wcc_inventory
+        from: post_wcc_inventory_path
       - artifact: manifest
         from: manifest_path
       - artifact: progress_ledger
@@ -137,6 +150,9 @@ steps:
       - artifact: baseline_design
         policy: latest_successful
         freshness: any
+      - artifact: post_wcc_inventory
+        policy: latest_successful
+        freshness: any
       - artifact: manifest
         policy: latest_successful
         freshness: any
@@ -146,7 +162,7 @@ steps:
       - artifact: run_state
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["steering", "target_design", "baseline_design", "manifest", "progress_ledger", "run_state"]
+    prompt_consumes: ["steering", "target_design", "baseline_design", "post_wcc_inventory", "manifest", "progress_ledger", "run_state"]
     output_bundle:
       path: ${inputs.state_root}/selection.json
       fields:

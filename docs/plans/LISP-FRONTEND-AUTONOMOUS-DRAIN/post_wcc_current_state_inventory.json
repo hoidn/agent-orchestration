@@ -1,0 +1,373 @@
+{
+  "schema_version": "workflow_lisp_post_wcc_current_state_inventory.v1",
+  "updated": "2026-06-10",
+  "target_design_path": "docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md",
+  "surfaces": [
+    {
+      "surface_id": "workflow-lisp-imported-child-returned-variant-work-item-prerequisite",
+      "display_name": "Imported-child returned-variant prerequisite",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "4.3 Findings map",
+        "29. Success Criteria"
+      ],
+      "status": "implemented_by_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-imported-child-returned-variant-work-item-prerequisite",
+      "selector_guidance": "Treat as historical route evidence. Do not reselect as fresh work unless WCC or legacy-compatibility regression evidence reopens returned-variant behavior.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "steering_doc",
+          "path": "docs/plans/2026-06-10-wcc-post-foundation-gap-reconciliation.md"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-nested-structured-control-helper-hoisting-retirement",
+      "display_name": "Nested structured-control / helper-hoisting work",
+      "surface_kind": "reconciled_surface",
+      "target_sections": [
+        "4.2 Current status snapshot",
+        "11. Tranche 0: Current-State Inventory And Readiness Labels"
+      ],
+      "status": "superseded_by_wcc",
+      "blocks_done": false,
+      "selector_guidance": "Do not continue helper-hoisting as a new route. Any follow-up must be legacy/schema-1 retirement or WCC regression evidence.",
+      "evidence": [
+        {
+          "kind": "steering_doc",
+          "path": "docs/plans/2026-06-10-wcc-post-foundation-gap-reconciliation.md"
+        },
+        {
+          "kind": "design_doc",
+          "path": "docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-parent-callable-implementation-phase-composition",
+      "display_name": "Implementation-phase parent-callable fixture",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "4.2 Current status snapshot",
+        "14.4A Phase-Family Boundary Rehabilitation Prerequisite",
+        "29. Success Criteria"
+      ],
+      "status": "implemented_by_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-parent-callable-implementation-phase-composition",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "Preserve compile, shared-validation, and smoke regression evidence. Do not recreate legacy helper-hoisting for this shape.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "test_evidence",
+          "path": "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-plan-phase-parent-callable-route",
+      "display_name": "Plan-phase parent-callable route",
+      "surface_kind": "implementation_surface",
+      "target_sections": [
+        "14.4A Phase-Family Boundary Rehabilitation Prerequisite",
+        "18.2 Parent-callable phase surfaces",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-phase-family-boundary-rehabilitation",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "Keep the real plan-phase candidate on the parent-callable WCC route with private context hidden from the public boundary.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "test_evidence",
+          "path": "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-wcc-ifexpr-work-item-route",
+      "display_name": "WCC IfExpr work-item-route prerequisite",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "2. Executive Decision",
+        "14.4A Phase-Family Boundary Rehabilitation Prerequisite",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-wcc-ifexpr-work-item-route",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "This prerequisite is complete. Treat later Tranche 3A work as post-IfExpr boundary evidence, not as a substitute for the prerequisite.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "test_evidence",
+          "path": "tests/test_workflow_lisp_wcc_characterization.py"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-phase-family-boundary-rehabilitation-post-ifexpr",
+      "display_name": "Post-IfExpr phase-family boundary rehabilitation remainder",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "14.4A Phase-Family Boundary Rehabilitation Prerequisite",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-phase-family-boundary-rehabilitation-post-ifexpr",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "Keep the post-IfExpr acceptance surface covered by compile/build-artifact evidence for the real design-delta family workflows.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "test_evidence",
+          "path": "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-phase-family-boundary-rehabilitation",
+      "display_name": "Remaining Tranche 3A plan/work-item phase-family obligation",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "4.2 Current status snapshot",
+        "4.3 Findings map",
+        "14.4A Phase-Family Boundary Rehabilitation Prerequisite",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-phase-family-boundary-rehabilitation",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "Treat the Tranche 3A obligation as satisfied only because the real plan/work-item family evidence exists; do not let DONE pass by omitting this row.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "test_evidence",
+          "path": "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-private-exec-context-bridge-generalization",
+      "display_name": "Private executable context / PhaseCtx bridge",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "4.2 Current status snapshot",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-private-exec-context-bridge-generalization",
+      "selector_guidance": "This bridge is complete in the current checkout. Preserve hidden runtime context and compatibility labeling; do not reopen it through stale selector prose.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "migration_parity_report",
+          "path": "artifacts/work/review-parity-check/design_delta_parent_drain.json"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-selector-bundle-typed-projection",
+      "display_name": "Selector bundle typed projection",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "4.2 Current status snapshot",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-selector-bundle-typed-projection",
+      "selector_guidance": "The typed selector projection lane is complete for current-state purposes; downstream consumers must continue to treat typed selection state as authority, not pointer/report text.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "test_evidence",
+          "path": "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-certified-adapter-declaration-surface",
+      "display_name": "Certified adapter declarations",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "4.2 Current status snapshot",
+        "17.6 Acceptance",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-certified-adapter-declaration-surface",
+      "selector_guidance": "Adapter declarations are complete enough for this target state. Preserve typed declarations and helper classification rather than treating adapter work as still missing.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "design_doc",
+          "path": "docs/design/workflow_command_adapter_contract.md"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-resource-transition-ownership",
+      "display_name": "Resource-transition ownership",
+      "surface_kind": "implementation_surface",
+      "target_sections": [
+        "17.6 Acceptance",
+        "18.2 Parent-callable phase surfaces",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-parent-backlog-drain-composition-parity",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "Treat resource-transition ownership as satisfied by the completed family parity slice and its recorded helper classifications; do not keep it remaining in stale prose.",
+      "evidence": [
+        {
+          "kind": "migration_parity_report",
+          "path": "artifacts/work/review-parity-check/design_delta_parent_drain.json"
+        },
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-parent-backlog-drain-composition-parity",
+      "display_name": "Parent backlog-drain composition and parity",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "18. Work-Item And Parent Backlog-Drain Composition",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-parent-backlog-drain-composition-parity",
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "This family now has parent-callable route identity and machine-computed non-regressive parity evidence. YAML-primary promotion remains separate.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "route_readiness_registry",
+          "path": "docs/workflow_lisp_route_readiness_registry.json",
+          "surface_id": "workflows.library.lisp_frontend_design_delta.drain"
+        },
+        {
+          "kind": "migration_parity_report",
+          "path": "artifacts/work/review-parity-check/design_delta_parent_drain.json"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-route-readiness-classification-registry",
+      "display_name": "Route/readiness classification registry",
+      "surface_kind": "design_gap",
+      "target_sections": [
+        "11. Tranche 0: Current-State Inventory And Readiness Labels",
+        "27.10 Route identity tests",
+        "29. Success Criteria"
+      ],
+      "status": "completed_post_wcc",
+      "blocks_done": false,
+      "owning_design_gap_id": "workflow-lisp-route-readiness-classification-registry",
+      "selector_guidance": "Use the checked-in route/readiness registry as the authority for current route identity and readiness labels.",
+      "evidence": [
+        {
+          "kind": "run_state_completion",
+          "path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json"
+        },
+        {
+          "kind": "route_readiness_registry",
+          "path": "docs/workflow_lisp_route_readiness_registry.json",
+          "surface_id": "workflows.library.lisp_frontend_design_delta.drain"
+        }
+      ]
+    },
+    {
+      "surface_id": "workflow-lisp-yaml-primary-promotion-gate",
+      "display_name": "YAML-primary promotion gate",
+      "surface_kind": "promotion_gate",
+      "target_sections": [
+        "11.2 Required labels",
+        "29. Success Criteria"
+      ],
+      "status": "deferred_promotion_gate",
+      "blocks_done": false,
+      "route_identity": {
+        "lowering_route": "wcc_m4",
+        "lowering_schema_version": 2
+      },
+      "selector_guidance": "Keep YAML-primary replacement blocked until `--require-promotable` passes. This is a promotion gate, not a remaining implementation gap for DONE.",
+      "evidence": [
+        {
+          "kind": "migration_parity_report",
+          "path": "artifacts/work/review-parity-check/design_delta_parent_drain.json"
+        },
+        {
+          "kind": "design_doc",
+          "path": "docs/lisp_workflow_drafting_guide.md"
+        }
+      ]
+    }
+  ]
+}

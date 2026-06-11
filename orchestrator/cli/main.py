@@ -503,6 +503,21 @@ def create_parser() -> argparse.ArgumentParser:
         help='Validate registry and exit nonzero on stale or invalid labels'
     )
 
+    post_wcc_inventory_parser = subparsers.add_parser(
+        'workflow-lisp-post-wcc-inventory',
+        help='Validate Workflow Lisp post-WCC current-state inventory'
+    )
+    post_wcc_inventory_parser.add_argument(
+        '--inventory',
+        default='docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json',
+        help='Path to Workflow Lisp post-WCC current-state inventory JSON'
+    )
+    post_wcc_inventory_parser.add_argument(
+        '--check',
+        action='store_true',
+        help='Validate inventory and exit nonzero on stale or invalid authority state'
+    )
+
     return parser
 
 
@@ -556,6 +571,9 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'workflow-lisp-route-readiness':
         from orchestrator.cli.commands import route_readiness_workflow
         return route_readiness_workflow(parsed_args)
+    elif parsed_args.command == 'workflow-lisp-post-wcc-inventory':
+        from orchestrator.cli.commands import post_wcc_inventory_workflow
+        return post_wcc_inventory_workflow(parsed_args)
     else:
         parser.print_help()
         return 1

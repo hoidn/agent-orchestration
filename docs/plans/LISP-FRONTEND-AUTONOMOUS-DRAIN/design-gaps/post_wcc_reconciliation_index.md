@@ -1,30 +1,39 @@
 # Post-WCC Reconciliation Index
 
-Status: selector guard  
-Updated: 2026-06-10  
+Status: selector guard view
+Updated: 2026-06-10
 Target design: `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+Inventory authority: `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`
 
 Compiler substrate: WCC is the default route for new Workflow Lisp compiles in
 the migrated subset. New post-foundation compiler-lane gaps must extend WCC or
 provide explicit legacy/schema-1 retirement evidence. They must not add new
 nested-control behavior to legacy lowerers.
 
-| Gap | Status after WCC | Required action before drain may select it |
+This file is a selector-facing markdown view over
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`. `remaining_post_wcc` blocks `DONE`;
+`deferred_promotion_gate` does not.
+
+| Surface | Current inventory status | Required action before drain may select it |
 | --- | --- | --- |
-| `workflow-lisp-imported-child-returned-variant-work-item-prerequisite` | `implemented_by_wcc` | Do not reselect as fresh work. Use only as historical evidence unless a regression test proves returned-variant behavior failed on WCC or legacy compatibility. |
+| Imported-child returned-variant prerequisite | `implemented_by_wcc` | Treat as historical route evidence. Do not reselect as fresh work unless WCC or legacy-compatibility regression evidence reopens returned-variant behavior. |
 | Nested structured-control / helper-hoisting work | `superseded_by_wcc` | Do not continue helper-hoisting as a new route. Any follow-up must be legacy/schema-1 retirement or WCC regression evidence. |
-| Implementation-phase parent-callable fixture | `implemented_by_wcc` | Preserve compile, shared-validation, and smoke regression tests. Do not recreate legacy helper-hoisting for this shape. |
-| Work-item parent-callable route | `remaining_post_wcc` | Draft WCC `IfExpr` support first; `lisp_frontend_design_delta/work_item::run-work-item` now reaches that blocker. |
-| Private executable context / PhaseCtx bridge | `remaining_post_wcc` | Continue after WCC `IfExpr` exposes the next parent-callable work-item boundary. |
-| Selector bundle typed projection | `remaining_post_wcc` | Continue as typed projection or certified projection-adapter work; do not rely on pointer/report authority. |
-| Certified adapter declarations | `remaining_post_wcc` | Continue as typed adapter declaration and lint policy work. |
-| Resource-transition ownership | `remaining_post_wcc` | Continue as declared transition/certified adapter work after parent-callable prerequisites are clear. |
-| Parent backlog-drain composition and parity | `remaining_post_wcc` | Wait for WCC `IfExpr`, private context, typed projection, adapter/resource-transition visibility, and parent-callable work-item evidence. |
+| Implementation-phase parent-callable fixture | `implemented_by_wcc` | Preserve compile, shared-validation, and smoke regression evidence. Do not recreate legacy helper-hoisting for this shape. |
+| Plan-phase parent-callable route | `completed_post_wcc` | Keep the real plan-phase candidate on the parent-callable WCC route with private context hidden from the public boundary. |
+| WCC IfExpr work-item-route prerequisite | `completed_post_wcc` | This prerequisite is complete. Treat later Tranche 3A work as post-IfExpr boundary evidence, not as a substitute for the prerequisite. |
+| Post-IfExpr phase-family boundary rehabilitation remainder | `completed_post_wcc` | Keep the post-IfExpr acceptance surface covered by compile/build-artifact evidence for the real design-delta family workflows. |
+| Remaining Tranche 3A plan/work-item phase-family obligation | `completed_post_wcc` | Treat the Tranche 3A obligation as satisfied only because the real plan/work-item family evidence exists; do not let DONE pass by omitting this row. |
+| Private executable context / PhaseCtx bridge | `completed_post_wcc` | This bridge is complete in the current checkout. Preserve hidden runtime context and compatibility labeling; do not reopen it through stale selector prose. |
+| Selector bundle typed projection | `completed_post_wcc` | The typed selector projection lane is complete for current-state purposes; downstream consumers must continue to treat typed selection state as authority, not pointer/report text. |
+| Certified adapter declarations | `completed_post_wcc` | Adapter declarations are complete enough for this target state. Preserve typed declarations and helper classification rather than treating adapter work as still missing. |
+| Resource-transition ownership | `completed_post_wcc` | Treat resource-transition ownership as satisfied by the completed family parity slice and its recorded helper classifications; do not keep it remaining in stale prose. |
+| Parent backlog-drain composition and parity | `completed_post_wcc` | This family now has parent-callable route identity and machine-computed non-regressive parity evidence. YAML-primary promotion remains separate. |
+| Route/readiness classification registry | `completed_post_wcc` | Use the checked-in route/readiness registry as the authority for current route identity and readiness labels. |
+| YAML-primary promotion gate | `deferred_promotion_gate` | Keep YAML-primary replacement blocked until `--require-promotable` passes. This is a promotion gate, not a remaining implementation gap for DONE. |
 
 Selector rule:
 
-- Do not select gaps marked `superseded_by_wcc`.
-- Do not select `implemented_by_wcc` gaps as fresh work unless the selected item
-  is explicitly a regression or retirement-evidence item.
-- Prefer `remaining_post_wcc` gaps that do not touch compiler/lowering internals
-  unless the gap is WCC `IfExpr` or explicit legacy-retirement verification.
+- Do not select surfaces marked `superseded_by_wcc`.
+- Do not select `implemented_by_wcc` or `completed_post_wcc` surfaces as fresh work unless the selected item is explicitly regression or retirement evidence.
+- Treat `deferred_promotion_gate` as non-blocking for `DONE`; it governs YAML-primary replacement only.
+- Prefer any future `remaining_post_wcc` gap only when it is the highest-authority unresolved target-design obligation.

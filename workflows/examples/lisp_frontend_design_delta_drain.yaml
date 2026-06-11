@@ -24,6 +24,11 @@ inputs:
     type: relpath
     under: docs/design
     must_exist_target: true
+  post_wcc_inventory_path:
+    type: relpath
+    under: docs/plans
+    default: docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json
+    must_exist_target: true
   command_adapter_contract_path:
     type: relpath
     under: docs/design
@@ -306,6 +311,8 @@ steps:
                         ref: inputs.target_design_path
                       baseline_design_path:
                         ref: inputs.baseline_design_path
+                      post_wcc_inventory_path:
+                        ref: inputs.post_wcc_inventory_path
                       manifest_path:
                         ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
                       progress_ledger_path:
@@ -340,6 +347,8 @@ steps:
                         ref: inputs.target_design_path
                       baseline_design_path:
                         ref: inputs.baseline_design_path
+                      post_wcc_inventory_path:
+                        ref: inputs.post_wcc_inventory_path
                       manifest_path:
                         ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
                       progress_ledger_path:
@@ -546,6 +555,8 @@ steps:
                         ref: inputs.target_design_path
                       baseline_design_path:
                         ref: inputs.baseline_design_path
+                      post_wcc_inventory_path:
+                        ref: inputs.post_wcc_inventory_path
                       command_adapter_contract_path:
                         ref: inputs.command_adapter_contract_path
                       manifest_path:
