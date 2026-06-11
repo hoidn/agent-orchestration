@@ -488,6 +488,21 @@ def create_parser() -> argparse.ArgumentParser:
         help='Exit nonzero unless selected targets are promotable to the primary surface'
     )
 
+    route_readiness_parser = subparsers.add_parser(
+        'workflow-lisp-route-readiness',
+        help='Validate Workflow Lisp route/readiness registry'
+    )
+    route_readiness_parser.add_argument(
+        '--registry',
+        default='docs/workflow_lisp_route_readiness_registry.json',
+        help='Path to Workflow Lisp route/readiness registry JSON'
+    )
+    route_readiness_parser.add_argument(
+        '--check',
+        action='store_true',
+        help='Validate registry and exit nonzero on stale or invalid labels'
+    )
+
     return parser
 
 
@@ -538,6 +553,9 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'migration-parity':
         from orchestrator.cli.commands import migration_parity_workflow
         return migration_parity_workflow(parsed_args)
+    elif parsed_args.command == 'workflow-lisp-route-readiness':
+        from orchestrator.cli.commands import route_readiness_workflow
+        return route_readiness_workflow(parsed_args)
     else:
         parser.print_help()
         return 1

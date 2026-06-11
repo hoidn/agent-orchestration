@@ -202,6 +202,20 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
     return targets
 
 
+def validate_parity_targets_against_route_readiness(
+    targets: Sequence[ParityTarget],
+    registry: object,
+    repo_root: Path,
+) -> list[Mapping[str, object]]:
+    """Validate parity target route/readiness identity against the registry."""
+
+    from orchestrator.workflow_lisp.route_readiness import (
+        validate_migration_targets_against_route_readiness,
+    )
+
+    return validate_migration_targets_against_route_readiness(targets, registry, repo_root)
+
+
 def run_parity_target(
     target: ParityTarget,
     *,

@@ -54,6 +54,21 @@ Reference corpus:
 - Treat workflows last modified more than one week ago as reference corpus:
   useful to read and adapt for concepts, but not direct copy templates.
 
+## Workflow Lisp Route/Readiness Labels
+
+Workflow Lisp `.orc` copy-safety is recorded in
+`docs/workflow_lisp_route_readiness_registry.json`. The registry labels, not
+filenames, modification dates, or prose status alone, determine whether an
+example is current WCC/schema-2 guidance, legacy compatibility evidence,
+migration-only evidence, historical negative coverage, or stale material.
+
+Use `wcc_default` entries as current WCC/schema-2 examples. Treat
+`legacy_schema1_compat` as compatibility evidence, not new authoring guidance.
+Treat `migration_candidate` as mid-migration until migration parity supplies
+the required family evidence. Do not cite `stale_needs_update` entries as
+current evidence. Markdown catalog rows are a view over that registry and
+nearby parity evidence; route identity remains registry metadata.
+
 ## Directory Map
 
 - `workflows/examples/`: runnable example workflows and validation fixtures

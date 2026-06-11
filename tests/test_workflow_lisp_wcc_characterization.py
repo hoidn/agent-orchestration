@@ -164,6 +164,18 @@ def test_manifest_marks_only_expected_cases_for_dual_compile_routes() -> None:
         assert case.dual_compile_routes == ()
 
 
+def test_retired_characterization_sources_are_not_active_wcc_evidence() -> None:
+    active_sources = {case.source_path.as_posix() for case in load_characterization_cases()}
+    retired_sources = {
+        "tests/fixtures/workflow_lisp/characterization/sources/wcc_m3_branch_local_ref_leak.orc",
+        "tests/fixtures/workflow_lisp/characterization/sources/wcc_m3_nested_join_inside_arm.orc",
+    }
+
+    assert retired_sources.isdisjoint(active_sources)
+    for source in retired_sources:
+        assert (Path(__file__).resolve().parent.parent / source).is_file()
+
+
 def test_m5_route_flip_corpus_has_no_normal_exclusions() -> None:
     for case in load_characterization_cases():
         if case.historical_legacy_fixture:

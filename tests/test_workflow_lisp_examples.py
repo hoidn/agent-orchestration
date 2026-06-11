@@ -5,6 +5,7 @@ import importlib
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
+from orchestrator.workflow_lisp.route_readiness import compile_registered_route_case
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -110,8 +111,13 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
 
 
 def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        WORKFLOWS / "with_phase_composed_binding.orc",
+    result, _entry = compile_registered_route_case(
+        "workflows.examples.with_phase_composed_binding",
+        source_path=WORKFLOWS / "with_phase_composed_binding.orc",
+        repo_root=REPO_ROOT,
+        default_route_check=True,
+        compile_func=_compile_stage3_module,
+        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
         provider_externs={
             "providers.execute": "test-provider",
         },
@@ -129,15 +135,20 @@ def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path:
     assert result.lowered_workflows[0].typed_workflow.definition.name == "run-with-phase-composed-binding"
     assert [step["name"] for step in lowered["steps"]] == [
         "MaterializeImplementationAttemptPromptInputs",
-        "run-with-phase-composed-binding__phase-result",
+        "run-with-phase-composed-binding__result",
         "run-with-phase-composed-binding__match_phase-result",
     ]
     assert lowered["steps"][1]["provider"] == "test-provider"
 
 
 def test_effectful_match_arm_normalization_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        WORKFLOWS / "effectful_match_arm_normalization.orc",
+    result, _entry = compile_registered_route_case(
+        "workflows.examples.effectful_match_arm_normalization",
+        source_path=WORKFLOWS / "effectful_match_arm_normalization.orc",
+        repo_root=REPO_ROOT,
+        default_route_check=True,
+        compile_func=_compile_stage3_module,
+        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
         provider_externs={
             "providers.execute": "test-provider",
         },
@@ -163,8 +174,13 @@ def test_effectful_match_arm_normalization_orc_compiles_with_shared_validation(t
 
 
 def test_effectful_let_star_normalization_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        WORKFLOWS / "effectful_let_star_normalization.orc",
+    result, _entry = compile_registered_route_case(
+        "workflows.examples.effectful_let_star_normalization",
+        source_path=WORKFLOWS / "effectful_let_star_normalization.orc",
+        repo_root=REPO_ROOT,
+        default_route_check=True,
+        compile_func=_compile_stage3_module,
+        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
         provider_externs={
             "providers.execute": "test-provider",
         },
@@ -190,8 +206,13 @@ def test_effectful_let_star_normalization_orc_compiles_with_shared_validation(tm
 
 
 def test_same_file_record_call_binding_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
-    result = compile_stage3_module(
-        WORKFLOWS / "same_file_record_call_binding.orc",
+    result, _entry = compile_registered_route_case(
+        "workflows.examples.same_file_record_call_binding",
+        source_path=WORKFLOWS / "same_file_record_call_binding.orc",
+        repo_root=REPO_ROOT,
+        default_route_check=True,
+        compile_func=_compile_stage3_module,
+        registry_path=REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json",
         command_boundaries={
             "run_checks": ExternalToolBinding(
                 name="run_checks",

@@ -8,6 +8,7 @@ from .report import report_workflow
 from .dashboard import dashboard_workflow
 from .monitor import monitor_workflows
 from .migration_parity import migration_parity_workflow
+from .route_readiness import route_readiness_workflow
 
 __all__ = [
     'compile_workflow',
@@ -18,4 +19,5 @@ __all__ = [
     'dashboard_workflow',
     'monitor_workflows',
     'migration_parity_workflow',
+    'route_readiness_workflow',
 ]

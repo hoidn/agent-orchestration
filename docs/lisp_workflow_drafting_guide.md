@@ -52,6 +52,18 @@ For migrations, keep the existing YAML workflow authoritative until the `.orc`
 version has compile, shared-validation, dry-run or smoke, and parity evidence.
 Do not deprecate the YAML version only because an `.orc` version parses.
 
+Before copying a checked-in `.orc` example or fixture, check
+`docs/workflow_lisp_route_readiness_registry.json`. Registry labels provide
+the copy-safety and route/readiness classification: `wcc_default` is current
+WCC/schema-2 evidence, `legacy_schema1_compat` is compatibility evidence,
+`migration_candidate` needs migration parity before promotion claims, and
+`stale_needs_update` is not current guidance. Compiler and lowering tests that
+cover registry entries should pin `LoweringRoute` explicitly unless the test
+intentionally exercises `DEFAULT_LOWERING_ROUTE`; route identity and
+`lowering_schema_version` are evidence freshness fields. Leaf compile/runtime
+labels are useful progress evidence, but they are not promotable
+workflow-family evidence.
+
 Migration promotion checklist:
 
 - Treat compile, typecheck, lower, shared validation, and dry-run as necessary
