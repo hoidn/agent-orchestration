@@ -1,9 +1,9 @@
 # Workflow Lisp Runtime Migration Foundation
 
-Status: draft design
+Status: completed foundation / implemented baseline; retained as authority boundary and regression checklist
 Kind: architecture decision / migration foundation
 Created: 2026-06-08
-Updated: 2026-06-08
+Updated: 2026-06-11
 Scope: command structured-output conformance; frontend-lowered typed value transport; provider structured-output target binding; migration promotion gate hardening; and generated state/path allocation ownership.
 
 Authority:
@@ -12,9 +12,9 @@ Authority:
 - Normative provider prompt/source behavior lives in `specs/providers.md`.
 - Normative DSL/runtime surface behavior lives in `specs/dsl.md`.
 - Normative runtime state behavior lives in `specs/state.md`.
-- This document is a migration foundation and implementation-sequencing design.
+- This document is a completed migration foundation and implementation-sequencing design.
 - This document does not by itself promote any `.orc` workflow to primary surface.
-- A behavior described here is implementation-complete only when the listed verification evidence passes.
+- A behavior described here remains baseline only while the listed verification evidence and owning specs/tests stay current.
 
 Related docs:
 
@@ -41,6 +41,25 @@ It is a consuming architecture. It does not replace `specs/io.md`, `specs/dsl.md
 This document does not by itself promote any `.orc` workflow to primary. YAML remains authoritative for a workflow family until the migration parity process computes non-regressive parity for that family and a promotion gate derives primary-surface eligibility.
 
 This document also does not make every frontend-lowered internal value shape a public authored-YAML surface. The distinction between public authored DSL compatibility and private executable values lowered from Workflow Lisp is intentional.
+
+## 1.1 Completion And Current Authority
+
+This foundation has been consumed by the current specs, Workflow Lisp baseline
+docs, and post-foundation composition target as an implemented baseline. It is
+retained to explain the authority boundary and to serve as a regression
+checklist for promotion work.
+
+The baseline surfaces are:
+
+- command structured-output conformance;
+- frontend-lowered typed value transport;
+- provider structured-output target binding;
+- strict migration promotion gates; and
+- centralized generated state/path allocation ownership.
+
+Normative runtime behavior remains in `specs/`. If a foundation success
+criterion regresses, downstream post-foundation promotion evidence is invalid
+until the owning spec/runtime behavior and verification evidence are repaired.
 
 ## 2. Executive Decision
 
@@ -204,26 +223,30 @@ executor helper C synthesizes resume identity
 source map reconstructs after the fact
 ```
 
-Current checkout already contains partial implementation evidence for several surfaces, but this document treats them as foundation-ready only after the verification criteria below pass.
+This foundation is now consumed as baseline by the current specs and Workflow
+Lisp design docs. The table below is a regression checklist, not a future-work
+claim.
 
-## 4. Current Status Snapshot
+## 4. Baseline Status Snapshot
 
-| Surface | Current normative status | Current implementation status | Evidence required before foundation-ready |
-| --- | --- | --- | --- |
-| command `output_bundle.path` env injection | Normative in `specs/io.md` | Must be verified in runtime executor | env override, parent creation/validation, missing-bundle failure tests |
-| command `variant_output.path` | `specs/dsl.md` defines command validation, but runtime-owned env binding is ambiguous across the current spec chain | Needs an explicit `specs/dsl.md` or `specs/io.md` clarification before promotion evidence counts | spec clarification, then env override, parent creation/validation, missing-bundle failure tests, command `variant_output` coverage |
-| provider `output_bundle.path` target binding | Normative in `specs/io.md` / `specs/dsl.md` | Implemented enough to launch, but needs focused conformance evidence | provider target-binding tests and provider spec/readme alignment |
-| provider `variant_output.path` target binding | Normative in `specs/io.md` / `specs/dsl.md` | Runtime validates expected path; wrong-path provider output exposed the need for focused coverage | provider target-binding tests and wrong-path failure diagnostic |
-| private collection contracts | Not ordinary public authored-YAML boundary | Frontend-lowered executable workflows can expose gaps | validator tests for list/map/record-like values and nested relpaths |
-| scalar/list/map materialized value views | Public YAML `pointer.path` remains relpath-only unless widened | Needed for uniform `.orc` prompt-input materialization | string/list/map view tests; pointer-as-view invariants |
-| collection publish/consume | Public authored artifact registry remains relpath/scalar; private executable artifacts require a separate authority lane | Collection consume can fail at provider boundary until the private catalog/state lane is explicit | private artifact catalog + state persistence tests; collection artifact publish/consume tests with embedded contracts |
-| prompt extern source semantics | `asset_file` is source-relative; `input_file` is workspace-relative | `.orc` extern strings are easy to mislaunch | explicit extern manifest model and docs/examples |
-| `migration-parity` report generation | Tool/evidence surface; promotion policy in migration docs | Existing tool computes `non_regressive` | schema validation, strict gate mode, stable nonzero exit tests |
-| `non_regressive` | Must be tooling-computed | Existing reports compute it from evidence | target-manifest and hand-authored-report negative tests |
-| StateLayout / PathAllocator | Draft design direction with stricter run-isolation invariant already owned by `workflow_lisp_state_layout.md` | Partial/scattered generated path evidence | one allocation/provenance boundary plus run-isolated private path, source-map, and Semantic IR tests |
-| hidden `__write_root__...` inputs | Compatibility mechanism, not public API | Existing generated/private binding mechanics | public-boundary inspection tests and runtime-contract visibility tests |
+| Surface | Baseline authority | Regression evidence to preserve |
+| --- | --- | --- |
+| command `output_bundle.path` env injection | Normative in `specs/io.md` | env override, parent creation/validation, missing-bundle failure tests |
+| command `variant_output.path` | Normative in `specs/io.md` / `specs/dsl.md` | env override, parent creation/validation, missing-bundle failure tests, command `variant_output` coverage |
+| provider `output_bundle.path` target binding | Normative in `specs/io.md` / `specs/dsl.md` / `specs/providers.md` | provider target-binding tests and provider spec/readme alignment |
+| provider `variant_output.path` target binding | Normative in `specs/io.md` / `specs/dsl.md` / `specs/providers.md` | provider target-binding tests and wrong-path failure diagnostic |
+| private collection contracts | Private executable Workflow Lisp lane; public YAML remains conservative | validator tests for list/map/record-like values and nested relpaths |
+| scalar/list/map materialized value views | Private value-view lane; public YAML `pointer.path` remains relpath-compatible unless widened | string/list/map view tests; pointer-as-view invariants |
+| collection publish/consume | Private executable artifact lineage with embedded contracts/provenance | private artifact catalog + state persistence tests; collection artifact publish/consume tests |
+| prompt extern source semantics | `asset_file` is source-relative; `input_file` is workspace-relative | explicit extern manifest model and docs/examples |
+| `migration-parity` report generation | Tool/evidence surface; promotion policy in migration docs | schema validation, strict gate mode, stable nonzero exit tests |
+| `non_regressive` | Tooling-computed only | target-manifest and hand-authored-report negative tests |
+| StateLayout / PathAllocator | Ownership boundary in `workflow_lisp_state_layout.md` plus this foundation | allocation/provenance, run-isolated private path, source-map, and Semantic IR tests |
+| hidden `__write_root__...` inputs | Compatibility mechanism, not public API | public-boundary inspection tests and runtime-contract visibility tests |
 
-The remaining gap is coherence: these surfaces are implemented in several places, but not yet hardened as one promotion-grade foundation.
+The remaining post-foundation work builds on these surfaces. If any row
+regresses, downstream promotion evidence is invalid until the row is repaired
+and evidence is refreshed.
 
 ## 5. Problem
 
@@ -1043,7 +1066,7 @@ Work that can proceed in parallel:
 - prompt extern docs/examples; and
 - inventory of generated path families that currently bypass a shared layout interface.
 
-Work that should wait for this foundation:
+Work that depends on this foundation remaining valid:
 
 - treating additional `.orc` candidates as primary YAML replacements;
 - broad strict adapter-lint enforcement;
@@ -1051,7 +1074,7 @@ Work that should wait for this foundation:
 - public authored-YAML collection artifact expansion; and
 - any generic stdlib workflow promotion that depends on collection publish/consume or provider structured-output path authority.
 
-## 18. Work Blocked Until This Foundation Lands
+## 18. Work Invalidated If This Foundation Regresses
 
 - Additional `.orc` candidates treated as primary YAML replacements.
 - Generic review/revise `.orc` workflows used as promotion evidence while private typed value transport is unstable.

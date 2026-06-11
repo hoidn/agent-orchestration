@@ -101,12 +101,11 @@ eligibility is proven by the gate.
 
 ## 2. Executive Decision
 
-After `workflow_lisp_runtime_migration_foundation.md` is accepted and its
-verification evidence passes, implement the next tranche as an issue-driven
-composition and parent-callability hardening pass. Do not start by writing a
-parent `.orc` wrapper around the existing YAML state choreography. First
-complete the language/runtime surfaces that make the leaf candidates
-parent-callable.
+The runtime migration foundation is now the consumed lower-level baseline for
+this target. Implement the next tranche as an issue-driven composition and
+parent-callability hardening pass. Do not start by writing a parent `.orc`
+wrapper around the existing YAML state choreography. First complete the
+language/runtime surfaces that make the leaf candidates parent-callable.
 
 Implement the work in these ordered tranches:
 
@@ -164,8 +163,10 @@ condition is that at least one real workflow family reaches parent-callable
 
 ## 3. Prerequisite Boundary
 
-This document is blocked until the runtime migration foundation has completed
-its success criteria:
+The runtime migration foundation was the historical prerequisite for this
+document. In the current baseline, this document consumes that foundation as an
+implemented authority boundary and regression checklist. Post-foundation
+promotion evidence is valid only while these foundation contracts remain true:
 
 - command structured-output tests pass for runtime env precedence, parent
   creation, and missing-bundle fail-closed behavior;
@@ -186,8 +187,10 @@ its success criteria:
   validator/writer bindings available through the normal compiler-owned
   command-boundary route.
 
-If any of those remain incomplete, this document may be used for planning, but
-it must not be used to justify additional `.orc` primary-promotion work.
+If any of those regress, this document may still be used for planning and
+repair work, but it must not be used to justify additional `.orc`
+primary-promotion work until the regression is fixed and the relevant evidence
+is refreshed.
 
 The design-delta findings do not reopen the foundation. The private executable
 context bridge in this document builds on the foundation's private value
