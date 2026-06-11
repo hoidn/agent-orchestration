@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from orchestrator.dashboard.cursor import ExecutionCursorProjector
 
@@ -34,6 +36,15 @@ def classify_run(
     if run.process is not None:
         process_match = process_identity_matches(run.process)
         if process_match is False:
+            refreshed = _refresh_terminal_state(run)
+            if refreshed is not run:
+                return classify_run(refreshed, now=now, stale_after_seconds=stale_after_seconds)
+            heartbeat = _active_cursor_heartbeat(run.state)
+            if heartbeat is not None and (_normalize_now(now) - heartbeat).total_seconds() <= stale_after_seconds:
+                return None
+            updated_at = _parse_datetime(run.state.get("updated_at"))
+            if updated_at is not None and (_normalize_now(now) - updated_at).total_seconds() <= stale_after_seconds:
+                return None
             return MonitorEvent(MonitorEventKind.CRASHED, run, "process_not_alive", observed_at)
 
     heartbeat = _active_cursor_heartbeat(run.state)
@@ -47,6 +58,20 @@ def classify_run(
         return MonitorEvent(MonitorEventKind.STALLED, run, "stale_updated_at", observed_at)
 
     return None
+
+
+def _refresh_terminal_state(run: MonitorRun) -> MonitorRun:
+    """Return a fresh terminal-state snapshot when a stale scan races finalization."""
+
+    try:
+        raw = json.loads(run.state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return run
+    if not isinstance(raw, Mapping):
+        return run
+    if raw.get("status") not in {"completed", "failed"}:
+        return run
+    return replace(run, state=raw)
 
 
 def _active_cursor_heartbeat(state: Any) -> datetime | None:

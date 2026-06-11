@@ -177,7 +177,7 @@ def test_running_state_without_heartbeat_falls_back_to_updated_at(tmp_path: Path
     assert event.reason == "stale_updated_at"
 
 
-def test_running_state_with_dead_recorded_pid_produces_crashed_event(tmp_path: Path):
+def test_running_state_with_dead_recorded_pid_and_fresh_heartbeat_produces_no_event(tmp_path: Path):
     workspace = tmp_path / "repo"
     workspace.mkdir()
     run_root = _write_state(
@@ -193,11 +193,67 @@ def test_running_state_with_dead_recorded_pid_produces_crashed_event(tmp_path: P
     write_process_metadata(run_root, pid=999_999_999, argv=["python", "-m", "orchestrator"])
 
     run, cfg = _scan_one(tmp_path, workspace)
+
+    assert classify_run(run, now=NOW, stale_after_seconds=cfg.monitor.stale_after_seconds) is None
+
+
+def test_running_state_with_dead_recorded_pid_produces_crashed_event_after_stale_grace(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    run_root = _write_state(
+        workspace,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "updated_at": (NOW - timedelta(minutes=10)).isoformat(),
+            "current_step": {"last_heartbeat_at": (NOW - timedelta(minutes=10)).isoformat()},
+        },
+    )
+    write_process_metadata(run_root, pid=999_999_999, argv=["python", "-m", "orchestrator"])
+
+    run, cfg = _scan_one(tmp_path, workspace)
     event = classify_run(run, now=NOW, stale_after_seconds=cfg.monitor.stale_after_seconds)
 
     assert event is not None
     assert event.kind is MonitorEventKind.CRASHED
     assert event.reason == "process_not_alive"
+
+
+def test_dead_recorded_pid_rereads_terminal_state_before_crashed_event(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    run_root = _write_state(
+        workspace,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "updated_at": NOW.isoformat(),
+            "current_step": {"last_heartbeat_at": NOW.isoformat()},
+        },
+    )
+    write_process_metadata(run_root, pid=999_999_999, argv=["python", "-m", "orchestrator"])
+
+    run, cfg = _scan_one(tmp_path, workspace)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "completed",
+                "updated_at": (NOW + timedelta(seconds=1)).isoformat(),
+                "workflow_outputs": {"return__variant": "APPROVED"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    event = classify_run(run, now=NOW, stale_after_seconds=cfg.monitor.stale_after_seconds)
+
+    assert event is not None
+    assert event.kind is MonitorEventKind.COMPLETED
+    assert event.reason == "state_completed"
+    assert event.run.state["workflow_outputs"]["return__variant"] == "APPROVED"
 
 
 def test_running_state_without_process_identity_token_can_still_stall(tmp_path: Path):
