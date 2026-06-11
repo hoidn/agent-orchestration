@@ -137,24 +137,15 @@ Implement the work in these ordered tranches:
   `--require-promotable` passes and the YAML primary is retired
   (Section 10A.6).
 
-The P0/P1 labels mirror the priority work items in the findings report. The
-three P0 blockers — nested structured control, the private executable context
-bridge, and run-state/resource-transition ownership — gate parent-callable
-migration for the drain family. Until they land, migrations of that family
-must continue as typed leaf candidates plus explicit bridge records, with YAML
-remaining primary.
+The P0/P1 labels mirror the priority work items in the findings report.
+Parent-callable migration for the drain family requires nested structured
+control, private executable context, and run-state/resource-transition
+ownership evidence. YAML remains primary until promotion evidence passes.
 
-The 2026-06-10 WCC reconciliation changed the compiler-lane baseline. The
-nested implementation-phase acceptance fixture now compiles, validates, and
-smokes as one parent-callable phase under the WCC route. The remaining
-work-item compile blocker has advanced past the old private-workflow and
-phase-family boundary diagnostics to the next explicit compiler gap:
-`work_item.orc` uses `IfExpr`, which is not yet covered by the WCC M4 route.
-That `IfExpr` gap is its own prerequisite tranche and must be selected through
-the existing `workflow-lisp-wcc-ifexpr-work-item-route` gap before Tranche 3A
-phase-family boundary rehabilitation may be treated as the next draftable
-slice or before the work-item or parent drain may be used as parent-callable
-parity evidence.
+The 2026-06-10 WCC reconciliation changed the compiler-lane baseline. Nested
+implementation-phase and work-item evidence must run through the WCC route,
+and any surface syntax such as `IfExpr` must have route-compatible lowering
+evidence before it can support parent-callable parity.
 
 The target success condition is not "more leaves compile." The target success
 condition is that at least one real workflow family reaches parent-callable
@@ -220,13 +211,13 @@ assessment against this target. Durable evidence:
 
 - findings report:
   `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`;
-- parent-drain blocker record:
+- historical parent-drain readiness blocker record:
   `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`;
 - committed leaf candidates for plan, implementation, selector, design-gap
   architect, and work-item pieces; and
 - feasibility test module
   `tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py`;
-- blocked prerequisite evidence from the imported-child returned-variant
+- historical prerequisite evidence from the imported-child returned-variant
   recovery (quarantined with its stale iteration on 2026-06-10):
   `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations-quarantine/postfound-stale-3plus-20260610T212138Z/10/blocked-progress-report.md`
   and
@@ -244,48 +235,45 @@ The 2026-06-10 WCC reconciliation added a second findings layer:
   finding about example/evidence labeling, not WCC architecture failure;
 - the reconciliation inventory:
   `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`; and
-- the live per-gap selection authority:
+- the current implementation-status inventory:
+  `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`;
+- the per-gap reconciliation index:
   `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`,
   whose `implemented_by_wcc` / `superseded_by_wcc` / `remaining_post_wcc`
-  statuses are a third labeling axis alongside the readiness and route
-  taxonomies in Tranche 0.
+  statuses are implementation-planning labels, not durable design contracts.
 
-### 4.2 Current status snapshot
+### 4.2 Evidence And Status Routing
 
-| Surface | Current state | Remaining post-foundation work |
-| --- | --- | --- |
-| Runtime foundation | Implemented in the completed runtime-foundation drain, subject to the prerequisite evidence above | Treat as prerequisite evidence; reopen only if a listed success criterion regresses |
-| Design Delta Drain leaf candidates | Leaf candidates compile for plan, implementation pieces, selector, design-gap architect, and work-item pieces | Do not mistake leaf compile evidence for parent-callable parity |
-| Parent drain | Intentionally blocked before implementation; blocker record in force | Unblock only after nested composition, private context, typed projection, resource transitions, and parent-callable evidence exist |
-| Imported `PhaseCtx` recognition | Fixed frontend bug (F1) from name-local to structural/provenance-aware recognition | Preserve as invariant for future stdlib/context forms; keep regression coverage |
-| Generic effectful composition | Implemented for the migrated WCC M0-M5 subset; design-delta implementation-phase parent-callable fixture compiles and smokes through WCC | Continue new compiler-lane work on WCC; do not add a second helper-hoisting route |
-| Nested structured control | Implemented for the canonical implementation-phase shape through WCC; still incomplete for non-migrated surface forms such as work-item `IfExpr` (F2) | Draft the WCC `IfExpr` gap before parent-callable work-item/drain parity |
-| Union-to-union result translation | Implemented on the WCC route and preserved on the legacy route where required; returned variants, not matched source cases, control target identity (F3) | Keep returned-variant normalization authoritative and finish remaining diagnostic hardening |
-| Variant output field identity | Partially implemented on the WCC route (F4): variant-scoped generated allocation identity has M5 evidence (schema- and branch-scoped, formatting-stable), and runtime active-variant output resolution landed in the reconciliation (UAF-11) | Tranche 2: verify authored field-name reuse acceptance (`APPROVED.plan_path` / `BLOCKED.plan_path`) and active-variant parity comparison on WCC; documented restriction remains interim mitigation only |
-| Imported/std `.orc` reuse | Partial/implemented for stdlib modules and review-loop route | Verify import expansion, specialization identity, hygienic generated names, effect visibility, source maps, and denylist coverage |
-| `review-revise-loop` stdlib route | Composes inside the canonical implementation-phase branch through WCC with compile-time `ProcRef` hooks, loop exhaustion, and typed stdlib unions (F8) | Preserve denylist/source-map/resume evidence and extend only through WCC for new nested shapes |
-| Private runtime context | Gap; required lints correctly reject raw `state/` path inputs at high-level `.orc` boundaries, but no private bridge exists for runtime-owned context (F5) | Tranche 3: private executable context bridge and hidden reusable-call binding |
-| Phase-family boundary rehabilitation | Partially implemented: implementation-phase parent-callable fixture now clears boundary and nested-control gates; work-item now blocks on the separate `workflow-lisp-wcc-ifexpr-work-item-route` prerequisite before later private-context/resource gates (F12) | Select and clear the explicit WCC `IfExpr` prerequisite first, then continue Tranche 3A boundary rehabilitation for remaining plan/work-item surfaces |
-| Selector/bundle publication | Selector leaf can model provider decision; publication remains an unclassified script (F7) | Tranche 5: typed projection or certified adapter authority for selection bundle publication |
-| Adapter/resource-transition authority | Adapter contract exists; family scripts still encode workflow semantics (F6, F10) | Tranche 6: classify helpers, certify retained adapters, move recurring state/resource transitions to typed runtime effects where justified |
-| Migration parity gates | Strict gate hardening implemented in foundation; leaf-versus-family distinction relies on prose labels in migration records (F11) | Tranche 8: parent-callable readiness labels; leaf-only evidence insufficient for promotability |
+This design owns durable contracts, invariants, dependency directions,
+acceptance boundaries, and evidence requirements. It does not own live
+implementation status, current blockers, or next-work sequencing.
 
-### 4.3 Findings map
+Current implementation status for this target is tracked in
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`.
+Per-gap reconciliation labels are tracked in
+`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/post_wcc_reconciliation_index.md`.
+Parity status for the parent drain is tracked in
+`artifacts/work/review-parity-check/design_delta_parent_drain.json`.
 
-| Finding | Type | Target response | Promotion consequence |
+### 4.3 Findings Traceability Map
+
+The following map preserves why the tranches exist. It is traceability, not a
+live backlog.
+
+| Finding | Durable concern | Owning design response | Promotion consequence |
 | --- | --- | --- | --- |
-| F1 imported `PhaseCtx` recognition | Fixed frontend bug | Preserve structural/capability recognition across module boundaries | Regression blocks stdlib/context promotion |
-| F2 nested structured control | P0 frontend/runtime design gap, implemented for the migrated WCC subset | Tranche 1: WCC-owned nested structured-control composition and branch-scope shared validation | Parent implementation phase no longer needs split-leaf workaround; work-item still needs WCC `IfExpr` |
-| F3 union-to-union result mapping | P1 lowering bug/design gap, implemented for WCC and preserved for legacy compatibility | Tranche 2: returned variant controls target union normalization; same-target imported-child pass-through is route evidence | Domain result types must not be shaped by inner control names |
-| F4 variant output field uniqueness | P1 ergonomics/shared-validation issue | Tranche 2: variant-scoped output field identity; documented restriction is interim mitigation only | Variant-specific field-name workarounds remain compatibility only |
-| F5 private context and StateLayout | P0 frontend/runtime design gap | Tranche 3: private executable context bridge and entrypoint bootstrap | Public state roots or fake `PhaseCtx` inputs are not parity evidence |
-| F12 parent-callable phase-family boundaries | P0 frontend/runtime design gap, partially implemented | Tranche 3A: parent-callable phase-boundary rehabilitation for plan, implementation, and work-item, including private/helper boundary types and compatibility path labeling | Implementation phase has parent-callable smoke evidence; work-item remains non-parent-callable until WCC `IfExpr` and later private/resource gates land |
-| F6 certified adapters and resources | P0 runtime/adapter authority gap | Tranche 6: certified adapter/resource-transition ownership | Hidden state mutation blocks family promotion |
-| F7 selector/bundle publication | P1 projection/materialization gap | Tranche 5: typed projection and materialized bundle views | Selector leaves remain non-parity candidates until publication is authoritative |
-| F8 review loop first-class composition | P0 stdlib composition gap | Tranches 1 and 4: stdlib review loops compose wherever effectful procedures are valid | Review-loop leaves are insufficient if nested branches fail |
-| F9 work-item and parent drain | P0 workflow-family design gap | Tranche 7: typed work-item/backlog-drain model | Parent `.orc` wrapper must not hide YAML-shaped state choreography |
-| F10 command adapter ergonomics | P1 authoring ergonomics issue | Tranche 6: typed adapter declaration/call surface | Raw argv plumbing is allowed only as low-level compatibility |
-| F11 migration readiness evidence | P1 migration evidence gap | Tranche 8: parent-callable readiness and strict parity labels | `--require-promotable` fails on leaf-only evidence |
+| F1 imported `PhaseCtx` recognition | Context recognition must be structural/capability-based across module boundaries | Preserve structural recognition as a regression invariant | Regression blocks stdlib/context promotion |
+| F2 nested structured control | Nested effectful control must lower with explicit scopes, proof lifetimes, and validation visibility | Tranche 1: WCC-owned structured-control composition | Parent-callable evidence must prove nested control through WCC |
+| F3 union-to-union result mapping | Returned variants, not matched source cases, control target union identity | Tranche 2: returned-variant normalization | Domain result types must not mirror inner control-state names |
+| F4 variant output field uniqueness | Logical field names must be variant-scoped in generated identities | Tranche 2: variant-scoped output identity | Compatibility field-name workarounds are not promotion evidence |
+| F5 private context and StateLayout | Runtime-owned context must stay out of public high-level `.orc` boundaries | Tranche 3: private executable context bridge | Public state roots or fake `PhaseCtx` inputs are not parity evidence |
+| F12 parent-callable phase-family boundaries | Parent-callable phase boundaries must preserve private/helper boundary types | Tranche 3A: phase-family boundary rehabilitation | Family parity must inspect public/private boundary separation |
+| F6 certified adapters and resources | Retained helpers that own semantics need declared contracts and visible effects | Tranche 6: certified adapter/resource-transition ownership | Hidden state mutation blocks family promotion |
+| F7 selector/bundle publication | Selector publication must be typed projection or certified adapter authority | Tranche 5: typed projection and materialized bundle views | Selection bundles must not be pointer/report authority |
+| F8 review loop first-class composition | Review loops must compose wherever effectful procedures are valid | Tranches 1 and 4: stdlib review-loop composition | Review-loop evidence must include nested and parent-callable use |
+| F9 work-item and parent drain | Parent drains must be typed workflow-family composition, not YAML-shaped wrappers | Tranche 7: typed work-item/backlog-drain model | Parent `.orc` must not hide state choreography in opaque helpers |
+| F10 command adapter ergonomics | High-level `.orc` should call typed adapters, not assemble semantic raw argv | Tranche 6: typed adapter declaration/call surface | Raw argv is low-level compatibility only |
+| F11 migration readiness evidence | Promotion needs machine-readable family evidence, not leaf compile status | Tranche 8: readiness labels and strict parity evidence | `--require-promotable` fails on leaf-only evidence |
 
 ### 4.4 Reconciliation findings map (2026-06-10, UAF)
 
@@ -329,9 +317,10 @@ The 2026-06-10 WCC reconciliation added a second findings layer:
   classification, and lint policy.
 - `workflow_lisp_key_migration_parity_architecture.md` owns promotion evidence
   and family-level parity policy.
-- The Design Delta Drain findings report and parent-drain blocker record
-  supply the current blocker evidence for nested composition, private context,
-  typed projection, resource transitions, and parent-callability.
+- The Design Delta Drain findings report, historical parent-drain blocker
+  record, current inventory, and parity reports supply the evidence trail for
+  nested composition, private context, typed projection, resource transitions,
+  and parent-callability.
 
 ### 5.2 This document owns
 
@@ -1704,20 +1693,15 @@ A parent-callable `.orc` family must expose typed public inputs and outputs
 while carrying private runtime context, resource state, selection state,
 recovery state, and generated paths internally.
 
-The design-delta migration correctly stopped before the parent drain; the
-blocker record at
+The historical parent-drain blocker record at
 `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
-remains in force until this tranche's prerequisites pass.
+records the original readiness concern. Current implementation status is owned
+by the active inventory and parity evidence, not by this design prose.
 
 ### 18.2 Parent-callable phase surfaces
 
 Before a parent `.orc` drain can be promoted, each child phase must be
-parent-callable. After Tranche 2 lands, the next mandatory gate is the
-separate Tranche 1A prerequisite
-`workflow-lisp-wcc-ifexpr-work-item-route`; once that has cleared unsupported
-`IfExpr` from the real work-item route, Tranche 3A phase-family boundary
-rehabilitation becomes the next gate for the real plan, implementation, and
-work-item candidates:
+parent-callable. Phase-family evidence must prove:
 
 - public inputs match the intended YAML/user boundary;
 - private context is hidden and runtime-owned;
@@ -2217,16 +2201,13 @@ available. Union normalization and variant-scoped field identity reduce
 authoring workarounds and make domain types independent from control-state
 internals.
 
-Tranche 1A is the next draftable prerequisite surfaced by the imported-child
-returned-variant recovery and by the blocked phase-family revision. Clear the
-explicit `workflow-lisp-wcc-ifexpr-work-item-route` gap before selecting
-Tranche 3A; until it lands, the real work-item route can still fail on
-unsupported `IfExpr` and Tranche 3A is not the active blocker.
+Tranche 1A records the route-compatibility requirement for WCC surface forms
+such as `IfExpr`. Parent-callable phase-boundary evidence may rely on those
+forms only when route-compatible lowering evidence exists.
 
-Tranche 3A should land before parent-callable phase compilation only after
-Tranche 1A has passed. At that point the real plan/implementation/work-item
-routes can clear the cross-union and `IfExpr` blockers and still fail on
-`low_level_state_path_in_high_level_module` or
+Tranche 3A covers the private/helper boundary model for the real
+plan/implementation/work-item routes, including diagnostics such as
+`low_level_state_path_in_high_level_module` and
 `workflow_boundary_type_invalid`.
 
 The broader Tranche 3 bootstrap should land before promoted wrapper parity,
@@ -2834,10 +2815,9 @@ This post-foundation target succeeds when:
 
 ## 30. Summary Recommendation
 
-Use this document as the next target only after the foundation evidence is
-confirmed and a current-state inventory pass updates stale claims. The next
-implementation driver should select work from the issue map, not from roadmap
-wording that predates the Design Delta Drain findings.
+Use this document as the durable post-foundation target. Current
+implementation status belongs in active planning and evidence-tracking
+documents, not in duplicated roadmap wording inside this design.
 
 The key post-foundation move is to stop adding one-off frontend conveniences
 and instead make Workflow Lisp a first-class workflow composition frontend:
@@ -2846,14 +2826,7 @@ imported/std `.orc`, private runtime context, typed projection, certified
 adapters, declared resource transitions, parent-callable family workflows, and
 strict migration evidence.
 
-After the imported-child returned-variant slice, the next draftable
-prerequisite is the explicit Tranche 1A
-`workflow-lisp-wcc-ifexpr-work-item-route` gap. Only after that gap lands does
-Tranche 3A phase-family boundary rehabilitation become the next draftable
-slice for the real plan/implementation/work-item candidates. Until both gates
-land in order, parent-callable work-item and drain work should remain blocked
-even if the cross-union route compiles.
-
-Until the P0 tranches land, the correct migration shape remains compileable
-typed leaves, explicit bridge records, and no parent `.orc` wrapper pretending
-to be a principled migration.
+Planning surfaces may sequence implementation slices as needed, but this design
+continues to define the acceptance boundary: parent-callable `.orc` evidence
+must be typed, WCC-routed, source-mapped, parity-comparable, and free of hidden
+YAML-shaped state choreography before it can support promotion.

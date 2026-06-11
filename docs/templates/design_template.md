@@ -26,6 +26,8 @@ enough that implementation and review do not have to infer missing architecture.
 - **Related docs / issues / plans:**
 - **Implementation target:**
 
+Do not put live implementation status, current blockers, or next-work sequencing in durable specs/designs; route those to active planning or evidence-tracking documents.
+
 ## Summary
 
 State what is being designed, why it matters, the recommended direction, and
