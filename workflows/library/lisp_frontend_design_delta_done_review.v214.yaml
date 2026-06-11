@@ -60,6 +60,19 @@ inputs:
     type: relpath
     under: docs/plans
     default: docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps
+  design_gap_draft_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude"]
+    default: "codex"
+  design_gap_draft_model:
+    kind: scalar
+    type: string
+    default: "gpt-5.4"
+  design_gap_draft_effort:
+    kind: scalar
+    type: string
+    default: "high"
   artifact_work_root:
     type: relpath
     under: artifacts/work
@@ -218,6 +231,12 @@ steps:
                   ref: parent.steps.ProjectDoneReview.artifacts.selection_bundle_path
                 architecture_index_root:
                   ref: inputs.architecture_index_root
+                design_gap_draft_provider:
+                  ref: inputs.design_gap_draft_provider
+                design_gap_draft_model:
+                  ref: inputs.design_gap_draft_model
+                design_gap_draft_effort:
+                  ref: inputs.design_gap_draft_effort
             - name: RunDoneRejectedDesignGapWorkItem
               id: run_done_rejected_design_gap_work_item
               call: work_item

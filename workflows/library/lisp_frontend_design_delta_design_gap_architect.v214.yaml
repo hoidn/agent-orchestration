@@ -38,6 +38,19 @@ inputs:
     type: relpath
     under: docs/plans
     default: docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps
+  design_gap_draft_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude"]
+    default: "codex"
+  design_gap_draft_model:
+    kind: scalar
+    type: string
+    default: "gpt-5.4"
+  design_gap_draft_effort:
+    kind: scalar
+    type: string
+    default: "high"
 
 outputs:
   architecture_validation_status:
@@ -60,6 +73,12 @@ providers:
     defaults:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
+  claude:
+    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "argv"
+    defaults:
+      model: "claude-fable-5"
+      effort: "high"
 
 steps:
   - name: PrepareArchitectureTargets
@@ -141,9 +160,79 @@ steps:
           json_pointer: /existing_architecture_count
           type: integer
 
+  - name: ValidateDesignGapDraftProviderRouting
+    id: validate_design_gap_draft_provider_routing
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+        import sys
+
+        provider = sys.argv[1]
+        model = sys.argv[2]
+        effort = sys.argv[3]
+        output_path = pathlib.Path(sys.argv[4])
+
+        errors = []
+        if provider == "claude" and not (
+            model.startswith("claude-")
+            or model in {"fable", "opus", "sonnet", "haiku"}
+        ):
+            errors.append(f"provider=claude requires a Claude model, got {model!r}")
+        if provider == "codex" and not (
+            model.startswith("gpt-")
+            or "codex" in model
+        ):
+            errors.append(f"provider=codex requires a Codex/OpenAI model, got {model!r}")
+        codex_efforts = {"low", "medium", "high", "xhigh"}
+        claude_efforts = {"low", "medium", "high", "xhigh", "max"}
+        allowed_efforts = claude_efforts if provider == "claude" else codex_efforts
+        if effort not in allowed_efforts:
+            errors.append(
+                f"unsupported effort {effort!r} for provider={provider}; "
+                f"allowed={sorted(allowed_efforts)}"
+            )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "provider": provider,
+            "model": model,
+            "effort": effort,
+            "routing_status": "INVALID" if errors else "VALID",
+            "errors": errors,
+        }
+        output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        if errors:
+            raise SystemExit("; ".join(errors))
+      - ${inputs.design_gap_draft_provider}
+      - ${inputs.design_gap_draft_model}
+      - ${inputs.design_gap_draft_effort}
+      - ${inputs.state_root}/draft-provider-routing.json
+    output_bundle:
+      path: ${inputs.state_root}/draft-provider-routing.json
+      fields:
+        - name: routing_status
+          json_pointer: /routing_status
+          type: enum
+          allowed: ["VALID", "INVALID"]
+        - name: provider
+          json_pointer: /provider
+          type: string
+        - name: model
+          json_pointer: /model
+          type: string
+        - name: effort
+          json_pointer: /effort
+          type: string
+
   - name: DraftDesignGapArchitecture
     id: draft_design_gap_architecture
-    provider: codex
+    provider: ${inputs.design_gap_draft_provider}
+    provider_params:
+      model: ${inputs.design_gap_draft_model}
+      effort: ${inputs.design_gap_draft_effort}
     asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md
     timeout_sec: 1800
     depends_on:
