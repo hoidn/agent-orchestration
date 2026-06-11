@@ -1,0 +1,30 @@
+# AGENTS.md
+
+Read `docs/index.md` before making changes.
+
+Documentation routing:
+- Start at `docs/index.md` for current docs/spec routing.
+- Use `docs/capability_status_matrix.md` to check whether a surface is implemented, partial, library-provided, designed, future, or legacy before copying it.
+- Use `docs/design/README.md` to choose the relevant design doc; `MIND_MAP.md` is a secondary orientation map, not the agent entry point.
+
+Repo expectations:
+- Read `docs/index.md` before deciding what docs or specs govern the task.
+- Use the `tmux` skill when launching long-running commands.
+- When launching workflows for EasySpin, `/home/ollie/Documents/PtychoPINN`, or its paper repo `/home/ollie/Documents/ptychopinnpaper2`, run the workflow process in the `ptycho311` environment, including tmux-launched workflows.
+- For tmux-launched EasySpin, PtychoPINN, or paper workflows, prefer sourcing conda, activating `ptycho311`, and then invoking `python -m orchestrator` directly so tmux shows live output; if you use `conda run`, include `--no-capture-output`.
+- Write plans under `docs/plans/` before large edits.
+- Keep changes scoped to the task; avoid unrelated refactors.
+- Run commands from the repo root so imports, relative paths, and fixture layout stay stable.
+- Run visible checks before claiming completion.
+- Treat fresh command output as required verification evidence.
+- Prefer the narrowest relevant `pytest` selectors first.
+- If you add or rename tests, run `pytest --collect-only` on those modules.
+- Changes to workflows, prompts, artifact contracts, provisioning, or demo trial mechanics should rerun at least one orchestrator/demo smoke check in addition to unit tests.
+- For DSL, frontend, runtime, or reusable workflow changes, include an end-to-end usage or integration check, or state why isolated checks are enough.
+- Do not add or keep tests that assert literal prompt text or prompt phrasing. Prefer behavioral, contract, artifact-lineage, or dataflow assertions that stay valid when prompts are revised.
+- Record what you changed and how you verified it.
+
+Do not assume success from inspection alone when runnable checks are available.
+Do not weaken verification just to make a failure disappear.
+Do not create worktrees, especially not when executing plans or implementing features
+When a workflow run has already passed an approval/review gate and later fails downstream, prefer `orchestrator resume <run_id>` over launching a fresh run unless you intentionally want to redo the earlier gated stages.
