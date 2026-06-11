@@ -404,6 +404,48 @@ operations.
 This surface is intentionally limited to scalar predicates and typed value
 construction; it is not a general string-processing or scripting layer.
 
+## 10A. Public Boundary And Bookkeeping Path Retirement
+
+Workflow inputs should remain user-provided when they are true public semantic
+inputs. The cleanup target is not "derive every path"; it is to stop exposing
+runtime bookkeeping, generated output targets, and YAML-era compatibility paths
+as ordinary high-level `.orc` inputs.
+
+Classify each path-like boundary value before removing or deriving it:
+
+| Class | Meaning | Treatment |
+| --- | --- | --- |
+| `public_authored` | The caller genuinely chooses the value, such as target design, baseline design, steering, or an explicit output root | Keep as public input |
+| `compatibility_bridge` | A YAML-era state or artifact path retained for parity, migration, or existing consumers | Keep temporarily with provenance, `parity_constrained` labeling, and a retirement path |
+| `runtime_derived` | A value derived from `RunCtx`, resource identity, or `StateLayout` | Hide from public input and bind internally |
+| `generated_internal` | Compiler/runtime-owned bundle, write-root, temp, or sidecar path | Allocate through `StateLayout` and keep private |
+| `materialized_view` | Deterministic file representation of a typed value for prompts, reports, or compatibility consumers | Allocate as a view; do not treat as semantic authority |
+
+For the Design Delta Drain family, examples of likely public authored inputs
+are `steering_path`, `target_design_path`, and `baseline_design_path`.
+Examples of compatibility bridges include existing YAML-facing
+`manifest_path`, `progress_ledger_path`, and `run_state_path` while parity
+still compares those surfaces. Examples of generated/internal or view paths
+include selection bundle views, draft bundle targets, validation bundle
+targets, per-iteration roots, check/report outputs, and drain summary views.
+
+Retirement order:
+
+1. add boundary classification metadata and lints so every path-like value has
+   an authority class;
+2. hide or derive generated/internal output targets first;
+3. replace deterministic publication scripts with typed projection plus
+   materialized value views;
+4. keep YAML-era state paths only as compatibility bridges until parity no
+   longer requires them; and
+5. fail promotion on unclassified bookkeeping paths or generated/internal paths
+   exposed as public inputs.
+
+Parent-callable candidates may tolerate classified compatibility bridges.
+Promotion-quality boundaries may expose only true public authored inputs plus
+explicitly accepted compatibility inputs; generated internals and
+runtime-derived values must be private.
+
 ## 11. Relationship To The Post-Foundation Design
 
 The post-foundation design should keep its domain context names as examples and

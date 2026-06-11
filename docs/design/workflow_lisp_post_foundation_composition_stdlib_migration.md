@@ -1114,6 +1114,14 @@ hidden-binding, and compatibility-carrier machinery appear only at promoted
 entry boundaries and YAML compatibility boundaries, not as the family's
 internal context transport.
 
+Bookkeeping path cleanup follows
+`docs/design/workflow_lisp_generic_resource_context_core.md`: classify
+path-like boundary values as public authored inputs, compatibility bridges,
+runtime-derived values, generated internals, or materialized views before
+retiring them. Do not remove YAML-era state paths merely because they are
+paths; keep them as labeled compatibility bridges until parity no longer
+requires them.
+
 This tranche needs a pre-implementation design before code changes. Parity
 architecture has already exposed missing phase-context binding as a real
 wrapper-promotion failure mode, and synthetic top-level `PhaseCtx` inputs are
