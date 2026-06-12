@@ -94,6 +94,7 @@ def elaborate_surface_workflow(
     compatibility_bridge_inputs: tuple[str, ...] = (),
     validation_backend: SurfaceWorkflowValidationBackend | None = None,
     workflow_is_imported: bool = False,
+    allow_generated_step_kinds: bool = False,
 ) -> SurfaceWorkflow | None:
     """Elaborate one validated authored workflow into the immutable surface AST."""
     validation_workflow = deepcopy(dict(workflow))
@@ -165,6 +166,16 @@ def elaborate_surface_workflow(
                 validation_workflow.get("finally"),
             )
 
+        if not allow_generated_step_kinds:
+            _validate_reserved_generated_step_kinds(
+                validation_workflow.get("steps"),
+                validation_backend=validation_backend,
+            )
+            _validate_reserved_generated_step_kinds(
+                validation_workflow.get("finally"),
+                validation_backend=validation_backend,
+            )
+
         if validation_backend.error_count() > 0:
             return None
 
@@ -212,6 +223,7 @@ def elaborate_surface_workflow(
             root_step_names=root_step_names,
             self_step_names=root_step_names,
             parent_step_names=(),
+            allow_generated_step_kinds=allow_generated_step_kinds,
         ),
         provenance=provenance,
         strict_flow=surface_workflow.get("strict_flow") if isinstance(surface_workflow.get("strict_flow"), bool) else True,
@@ -227,7 +239,11 @@ def elaborate_surface_workflow(
         inputs=_parse_contracts(surface_workflow.get("inputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
         outputs=_parse_contracts(surface_workflow.get("outputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
         imports=imports,
-        finalization=_elaborate_finalization(finalization, root_step_names=root_step_names),
+        finalization=_elaborate_finalization(
+            finalization,
+            root_step_names=root_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
+        ),
     )
 
 
@@ -235,6 +251,7 @@ def _elaborate_finalization(
     finalization: Any,
     *,
     root_step_names: tuple[str, ...],
+    allow_generated_step_kinds: bool,
 ) -> SurfaceFinallyBlock | None:
     normalized = normalize_finally_block(finalization)
     if normalized is None:
@@ -252,6 +269,7 @@ def _elaborate_finalization(
             root_step_names=root_step_names,
             self_step_names=step_names,
             parent_step_names=(),
+            allow_generated_step_kinds=allow_generated_step_kinds,
         ),
     )
 
@@ -262,6 +280,7 @@ def _elaborate_steps(
     root_step_names: tuple[str, ...],
     self_step_names: tuple[str, ...],
     parent_step_names: tuple[str, ...],
+    allow_generated_step_kinds: bool,
 ) -> tuple[SurfaceStep, ...]:
     if not isinstance(steps, list):
         return ()
@@ -271,6 +290,7 @@ def _elaborate_steps(
             root_step_names=root_step_names,
             self_step_names=self_step_names,
             parent_step_names=parent_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         )
         for step in steps
         if isinstance(step, dict)
@@ -283,13 +303,14 @@ def _elaborate_step(
     root_step_names: tuple[str, ...],
     self_step_names: tuple[str, ...],
     parent_step_names: tuple[str, ...],
+    allow_generated_step_kinds: bool,
 ) -> SurfaceStep:
     catalog = SurfaceRefScopeCatalog(
         root_step_names=root_step_names,
         self_step_names=self_step_names,
         parent_step_names=parent_step_names,
     )
-    kind = _surface_step_kind(step)
+    kind = _surface_step_kind(step, allow_generated_step_kinds=allow_generated_step_kinds)
     call_bindings = {}
     references = []
     common = _parse_surface_common_config(step)
@@ -316,6 +337,7 @@ def _elaborate_step(
             statement_step_id=str(step.get("step_id", "")),
             root_step_names=root_step_names,
             parent_step_names=self_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         )
         else_branch = _elaborate_branch(
             step.get("else"),
@@ -323,6 +345,7 @@ def _elaborate_step(
             statement_step_id=str(step.get("step_id", "")),
             root_step_names=root_step_names,
             parent_step_names=self_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         )
         return SurfaceStep(
             name=str(step.get("name", "")),
@@ -350,6 +373,7 @@ def _elaborate_step(
                         statement_step_id=str(step.get("step_id", "")),
                         root_step_names=root_step_names,
                         parent_step_names=self_step_names,
+                        allow_generated_step_kinds=allow_generated_step_kinds,
                     )
                     if case_block is not None:
                         match_cases[str(case_name)] = case_block
@@ -371,6 +395,7 @@ def _elaborate_step(
             step,
             root_step_names=root_step_names,
             parent_step_names=self_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         )
         return SurfaceStep(
             name=str(step.get("name", "")),
@@ -414,6 +439,7 @@ def _elaborate_step(
                 root_step_names=root_step_names,
                 self_step_names=nested_names,
                 parent_step_names=self_step_names,
+                allow_generated_step_kinds=allow_generated_step_kinds,
             ),
         )
 
@@ -485,6 +511,11 @@ def _elaborate_step(
         ),
         wait_for=freeze_mapping(step.get("wait_for")) if kind is SurfaceStepKind.WAIT_FOR else freeze_mapping(None),
         set_scalar=freeze_mapping(step.get("set_scalar")) if kind is SurfaceStepKind.SET_SCALAR else freeze_mapping(None),
+        pure_projection=(
+            freeze_mapping(step.get("pure_projection"))
+            if kind is SurfaceStepKind.PURE_PROJECTION
+            else freeze_mapping(None)
+        ),
         increment_scalar=(
             freeze_mapping(step.get("increment_scalar"))
             if kind is SurfaceStepKind.INCREMENT_SCALAR
@@ -512,6 +543,7 @@ def _elaborate_branch(
     statement_step_id: str,
     root_step_names: tuple[str, ...],
     parent_step_names: tuple[str, ...],
+    allow_generated_step_kinds: bool,
 ) -> SurfaceBranchBlock | None:
     normalized = normalize_branch_block(branch, branch_name)
     if normalized is None:
@@ -535,6 +567,7 @@ def _elaborate_branch(
             root_step_names=root_step_names,
             self_step_names=branch_step_names,
             parent_step_names=parent_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         ),
         outputs=_parse_contracts(normalized.get("outputs"), branch_catalog),
     )
@@ -547,6 +580,7 @@ def _elaborate_match_case(
     statement_step_id: str,
     root_step_names: tuple[str, ...],
     parent_step_names: tuple[str, ...],
+    allow_generated_step_kinds: bool,
 ) -> SurfaceMatchCaseBlock | None:
     normalized = normalize_match_case_block(case_block, case_name)
     if normalized is None:
@@ -570,6 +604,7 @@ def _elaborate_match_case(
             root_step_names=root_step_names,
             self_step_names=case_step_names,
             parent_step_names=parent_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         ),
         outputs=_parse_contracts(normalized.get("outputs"), case_catalog),
     )
@@ -580,6 +615,7 @@ def _elaborate_repeat_until(
     *,
     root_step_names: tuple[str, ...],
     parent_step_names: tuple[str, ...],
+    allow_generated_step_kinds: bool,
 ) -> SurfaceRepeatUntilBlock | None:
     block = normalize_repeat_until_block(step.get("repeat_until"))
     if block is None:
@@ -610,6 +646,7 @@ def _elaborate_repeat_until(
             root_step_names=root_step_names,
             self_step_names=body_step_names,
             parent_step_names=parent_step_names,
+            allow_generated_step_kinds=allow_generated_step_kinds,
         ),
         outputs=_parse_contracts(output_specs, body_catalog),
         condition=parse_typed_predicate(block.get("condition", {}), body_catalog),
@@ -819,7 +856,11 @@ def _collect_all_steps(steps: list[Any]) -> list[dict[str, Any]]:
     return collected
 
 
-def _surface_step_kind(step: Mapping[str, Any]) -> SurfaceStepKind:
+def _surface_step_kind(
+    step: Mapping[str, Any],
+    *,
+    allow_generated_step_kinds: bool,
+) -> SurfaceStepKind:
     if is_if_statement(step):
         return SurfaceStepKind.IF
     if is_match_statement(step):
@@ -842,6 +883,10 @@ def _surface_step_kind(step: Mapping[str, Any]) -> SurfaceStepKind:
         return SurfaceStepKind.ASSERT
     if "set_scalar" in step:
         return SurfaceStepKind.SET_SCALAR
+    if "pure_projection" in step:
+        if not allow_generated_step_kinds:
+            raise ValueError("pure_projection is compiler-generated only and cannot appear in authored workflows")
+        return SurfaceStepKind.PURE_PROJECTION
     if "increment_scalar" in step:
         return SurfaceStepKind.INCREMENT_SCALAR
     if "materialize_artifacts" in step:
@@ -849,3 +894,52 @@ def _surface_step_kind(step: Mapping[str, Any]) -> SurfaceStepKind:
     if "select_variant_output" in step:
         return SurfaceStepKind.SELECT_VARIANT_OUTPUT
     raise ValueError(f"Unsupported surface step shape for '{step.get('name', '<unnamed>')}'")
+
+
+def _validate_reserved_generated_step_kinds(
+    node: Any,
+    *,
+    validation_backend: SurfaceWorkflowValidationBackend,
+) -> None:
+    def visit_steps(steps: Any) -> None:
+        if not isinstance(steps, list):
+            return
+        for step in steps:
+            if not isinstance(step, Mapping):
+                continue
+            step_name = step.get("name", "<unnamed>")
+            if "pure_projection" in step:
+                validation_backend.add_error(
+                    f"Step '{step_name}': pure_projection is compiler-generated only and cannot appear in authored workflows"
+                )
+            if is_if_statement(step):
+                visit_block(step.get("then"), "then")
+                visit_block(step.get("else"), "else")
+            if is_match_statement(step):
+                match_node = step.get("match")
+                cases = match_node.get("cases") if isinstance(match_node, Mapping) else None
+                if isinstance(cases, Mapping):
+                    for case_name, authored_case in cases.items():
+                        visit_block(authored_case, str(case_name))
+            repeat_until = normalize_repeat_until_block(step.get("repeat_until"))
+            if isinstance(repeat_until, Mapping):
+                visit_steps(repeat_until.get("steps"))
+            for_each = step.get("for_each")
+            if isinstance(for_each, Mapping):
+                visit_steps(for_each.get("steps"))
+
+    def visit_block(block: Any, branch_name: str) -> None:
+        normalized = normalize_branch_block(block, branch_name)
+        if isinstance(normalized, Mapping):
+            visit_steps(normalized.get("steps"))
+            return
+        case_block = normalize_match_case_block(block, branch_name)
+        if isinstance(case_block, Mapping):
+            visit_steps(case_block.get("steps"))
+            return
+        final_block = normalize_finally_block(block)
+        if isinstance(final_block, Mapping):
+            visit_steps(final_block.get("steps"))
+
+    visit_block(node, "finally")
+    visit_steps(node)

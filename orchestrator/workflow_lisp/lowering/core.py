@@ -84,6 +84,7 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    PureOpExpr,
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
     ProcedureCallExpr,
@@ -91,6 +92,7 @@ from ..expressions import (
     ProviderResultExpr,
     ResourceTransitionExpr,
     RecordExpr,
+    RecordUpdateExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
@@ -126,6 +128,7 @@ from ..spans import SourceSpan
 from ..syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
 from ..type_env import (
     FrontendTypeEnvironment,
+    OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
     ProcRefTypeRef,
@@ -1050,6 +1053,8 @@ def _observed_statement_families(steps: Sequence[Mapping[str, Any]]) -> tuple[st
                 observed.add("match")
             if "materialize_artifacts" in step:
                 observed.add("materialize_artifacts")
+            if "pure_projection" in step:
+                observed.add("pure_projection")
             if "call" in step:
                 observed.add("workflow_call")
             if step.get("publishes"):
@@ -1081,6 +1086,7 @@ def _observed_statement_families(steps: Sequence[Mapping[str, Any]]) -> tuple[st
         "repeat_until",
         "match",
         "materialize_artifacts",
+        "pure_projection",
         "workflow_call",
         "publishes",
     )
@@ -1403,6 +1409,10 @@ def _infer_inline_binding_type(expr: Any, *, context: _LoweringContext) -> TypeR
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, RecordUpdateExpr):
+        return _resolve_lowering_expr_type(expr.base_expr, context=context)
+    if isinstance(expr, PureOpExpr):
+        return _resolve_pure_op_type(expr, context=context)
     if isinstance(expr, IfExpr):
         return _resolve_lowering_expr_type(expr, context=context)
     if isinstance(expr, ProviderBundlePathExpr):
@@ -1484,6 +1494,8 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, RecordUpdateExpr):
+        return _resolve_lowering_expr_type(expr.base_expr, context=context)
     if isinstance(expr, LoopStateSeedExpr):
         from ..loop_state import carrier_metadata_for_expr
 
@@ -1508,6 +1520,8 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, PureOpExpr):
+        return _resolve_pure_op_type(expr, context=context)
     if isinstance(expr, ProviderBundlePathExpr):
         return context.type_env.resolve_type(
             expr.target_type_name,
@@ -1645,6 +1659,32 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
         )
     if isinstance(expr, WithPhaseExpr):
         return _resolve_lowering_expr_type(expr.body, context=context)
+    return None
+
+
+def _resolve_pure_op_type(expr: PureOpExpr, *, context: _LoweringContext) -> TypeRef | None:
+    arg_types = [
+        _resolve_lowering_expr_type(arg, context=context)
+        or _infer_inline_binding_type(arg, context=context)
+        for arg in expr.args
+    ]
+    if any(arg_type is None for arg_type in arg_types):
+        return None
+    resolved_arg_types = [arg_type for arg_type in arg_types if arg_type is not None]
+    operator = expr.operator
+    if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?", "string/empty?"}:
+        return PrimitiveTypeRef(name="Bool")
+    if operator in {"+", "-", "*", "min", "max"}:
+        return resolved_arg_types[0]
+    if operator == "or-else":
+        if len(resolved_arg_types) != 2:
+            return None
+        first = resolved_arg_types[0]
+        if isinstance(first, OptionalTypeRef):
+            return first.item_type_ref
+        return resolved_arg_types[1]
+    if operator in {"string/concat", "symbol/name"}:
+        return PrimitiveTypeRef(name="String")
     return None
 
 
@@ -1828,6 +1868,7 @@ def _validate_one_lowered_workflow(
         compatibility_bridge_inputs=lowered_workflow.compatibility_bridge_inputs,
         validation_backend=loader,
         workflow_is_imported=workflow_is_imported,
+        allow_generated_step_kinds=True,
     )
     if surface is None or loader.errors:
         _raise_remapped_validation_error(lowered_workflow, loader.errors)

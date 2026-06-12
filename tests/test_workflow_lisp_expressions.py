@@ -41,6 +41,8 @@ from orchestrator.workflow_lisp.expressions import (
     WorkflowRefLiteralExpr,
     ProcRefLiteralExpr,
     PhaseTargetExpr,
+    PureOpExpr,
+    RecordUpdateExpr,
     GeneratedRelpathSeedExpr,
     CallExpr,
     elaborate_expression,
@@ -502,6 +504,27 @@ def test_elaborate_expression_rejects_unknown_expression_forms() -> None:
         elaborate_expression(_expression_syntax("(unknown-form 1)"), bound_names=frozenset())
 
     _assert_diagnostic_code(excinfo, "procedure_call_unknown")
+
+
+def test_elaborate_expression_handles_pure_ops_and_record_update() -> None:
+    expr = elaborate_expression(
+        _expression_syntax(
+            '(record-update state :count (+ state.count 1) :label (or-else maybe-label "fallback"))'
+        ),
+        bound_names=frozenset({"state", "maybe-label"}),
+    )
+
+    assert isinstance(expr, RecordUpdateExpr)
+    assert isinstance(expr.base_expr, NameExpr)
+    assert expr.base_expr.name == "state"
+    assert [field_name for field_name, _ in expr.overrides] == ["count", "label"]
+
+    count_expr = dict(expr.overrides)["count"]
+    label_expr = dict(expr.overrides)["label"]
+    assert isinstance(count_expr, PureOpExpr)
+    assert count_expr.operator == "+"
+    assert isinstance(label_expr, PureOpExpr)
+    assert label_expr.operator == "or-else"
 
 
 def test_elaborate_expression_rejects_stdlib_extension_without_import_route() -> None:
@@ -983,6 +1006,51 @@ def test_typecheck_expression_validates_record_exactness() -> None:
             value_env=value_env,
         )
     _assert_diagnostic_code(unknown_field, "record_field_unknown")
+
+
+def test_typecheck_expression_accepts_pure_ops_and_computed_if(tmp_path: Path) -> None:
+    type_env = _build_type_env_from_lines(
+        tmp_path,
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defrecord CounterState",
+            "    (count Int)",
+            "    (label String)",
+            "    (enabled Bool))",
+            ")",
+        ],
+    )
+    syntax = _expression_syntax('"seed"')
+    state_type = type_env.resolve_type("CounterState", span=syntax.span, form_path=FORM_PATH)
+    maybe_label_type = type_env.resolve_type(
+        "Optional[String]",
+        span=syntax.span,
+        form_path=FORM_PATH,
+    )
+
+    typed = typecheck_expression(
+        elaborate_expression(
+            _expression_syntax(
+                '(if (< state.count 5)'
+                '  (record-update state :count (+ state.count 1) :label (or-else maybe-label "fallback"))'
+                '  state)'
+            ),
+            bound_names=frozenset({"state", "maybe-label"}),
+        ),
+        type_env=type_env,
+        value_env={
+            "state": state_type,
+            "maybe-label": maybe_label_type,
+        },
+    )
+
+    assert typed.type_ref == state_type
+    assert isinstance(typed.expr, IfExpr)
+    assert isinstance(typed.expr.condition_expr, PureOpExpr)
+    assert typed.expr.condition_expr.operator == "<"
+    assert isinstance(typed.expr.then_expr, RecordUpdateExpr)
 
 
 def test_shared_union_field_capability_allows_branch_free_projection_only_for_validated_field(

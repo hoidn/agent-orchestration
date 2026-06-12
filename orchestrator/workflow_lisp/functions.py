@@ -29,9 +29,11 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    PureOpExpr,
     ProcedureCallExpr,
     ProduceOneOfExpr,
     ProviderResultExpr,
+    RecordUpdateExpr,
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
@@ -363,6 +365,29 @@ def _normalize_expr(
                 for field_name, field_expr in expr.fields
             ),
         )
+    if isinstance(expr, PureOpExpr):
+        return replace(
+            expr,
+            args=tuple(
+                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name)
+                for arg in expr.args
+            ),
+        )
+    if isinstance(expr, RecordUpdateExpr):
+        return replace(
+            expr,
+            base_expr=_normalize_expr(
+                expr.base_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+            overrides=tuple(
+                (
+                    field_name,
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name),
+                )
+                for field_name, field_expr in expr.overrides
+            ),
+        )
     if isinstance(expr, LoopStateSeedExpr):
         return replace(
             expr,
@@ -531,6 +556,47 @@ def _clone_function_expr(
                     ),
                 )
                 for field_name, field_expr in expr.fields
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, PureOpExpr):
+        return replace(
+            expr,
+            args=tuple(
+                _clone_function_expr(
+                    arg,
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                for arg in expr.args
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(expr, RecordUpdateExpr):
+        return replace(
+            expr,
+            base_expr=_clone_function_expr(
+                expr.base_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            overrides=tuple(
+                (
+                    field_name,
+                    _clone_function_expr(
+                        field_expr,
+                        span=span,
+                        form_path=form_path,
+                        expansion_stack=expansion_stack,
+                    ),
+                )
+                for field_name, field_expr in expr.overrides
             ),
             span=span,
             form_path=form_path,
@@ -760,6 +826,21 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return None
     if isinstance(expr, RecordExpr):
         for _, field_expr in expr.fields:
+            violation = _find_purity_violation(field_expr)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, PureOpExpr):
+        for arg in expr.args:
+            violation = _find_purity_violation(arg)
+            if violation is not None:
+                return violation
+        return None
+    if isinstance(expr, RecordUpdateExpr):
+        violation = _find_purity_violation(expr.base_expr)
+        if violation is not None:
+            return violation
+        for _, field_expr in expr.overrides:
             violation = _find_purity_violation(field_expr)
             if violation is not None:
                 return violation

@@ -34,6 +34,11 @@ from ..contracts.output_contract import (
     validate_output_bundle,
     validate_variant_output_bundle,
 )
+from .pure_expr import (
+    PureExprEvaluationError,
+    canonical_json_for_pure_value,
+    evaluate_pure_expr,
+)
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from .conditions import EqualsConditionNode, ExistsConditionNode, NotExistsConditionNode
@@ -59,6 +64,7 @@ from .executable_ir import (
     MatchCaseMarkerNode,
     MatchJoinNode,
     NodeResultAddress,
+    PureProjectionStepConfig,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
 )
@@ -2809,6 +2815,8 @@ class WorkflowExecutor:
             return 'assert'
         if execution_kind is ExecutableNodeKind.SET_SCALAR:
             return 'set_scalar'
+        if execution_kind is ExecutableNodeKind.PURE_PROJECTION:
+            return 'pure_projection'
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             return 'increment_scalar'
         if execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
@@ -3802,6 +3810,14 @@ class WorkflowExecutor:
                 self._execute_set_scalar(step),
             )
 
+        if execution_kind is ExecutableNodeKind.PURE_PROJECTION:
+            return self._execute_top_level_publish_and_persist(
+                step,
+                step_name,
+                state,
+                self._execute_pure_projection(step, state),
+            )
+
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3949,6 +3965,8 @@ class WorkflowExecutor:
             result = self._execute_assert(step, state, context=context, scope=scope)
         elif execution_kind is ExecutableNodeKind.SET_SCALAR:
             result = self._execute_set_scalar(step)
+        elif execution_kind is ExecutableNodeKind.PURE_PROJECTION:
+            result = self._execute_pure_projection(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             result = self._execute_increment_scalar(step, state)
         elif execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
@@ -8348,6 +8366,119 @@ class WorkflowExecutor:
             candidate_value=step['set_scalar'].get('value'),
         )
 
+    def _execute_pure_projection(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        config = step.get("pure_projection")
+        if not isinstance(config, dict):
+            return self._contract_violation_result(
+                "Pure projection execution failed",
+                {"reason": "missing_pure_projection_config"},
+            )
+        payload = config.get("payload")
+        binding_refs = config.get("binding_refs")
+        payload_digest = config.get("payload_digest")
+        output_contracts = config.get("output_contracts")
+        if not isinstance(payload, dict) or not isinstance(binding_refs, dict) or not isinstance(payload_digest, str):
+            return self._contract_violation_result(
+                "Pure projection execution failed",
+                {"reason": "invalid_pure_projection_config"},
+            )
+        resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+            step,
+            state,
+            context=scope,
+        )
+        if path_error is not None:
+            return path_error
+        bundle_path = None
+        if isinstance(resolved_output_bundle, dict):
+            raw_path = resolved_output_bundle.get("path")
+            if isinstance(raw_path, str) and raw_path:
+                bundle_path = (self.workspace / raw_path).resolve()
+        if bundle_path is not None:
+            bundle_parent_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
+            if bundle_parent_error is not None:
+                return bundle_parent_error
+            reused_result, reuse_error = self._reuse_pure_projection_bundle(
+                bundle_path=bundle_path,
+                payload=payload,
+                payload_digest=payload_digest,
+            )
+            if reuse_error is not None:
+                return reuse_error
+            if reused_result is not None:
+                try:
+                    artifacts = self._pure_projection_artifacts(
+                        reused_result,
+                        output_contracts=output_contracts,
+                    )
+                except OutputContractError as exc:
+                    return self._contract_violation_result(
+                        "Pure projection execution failed",
+                        {"reason": "invalid_reused_pure_projection_result", "violations": exc.violations},
+                    )
+                return {
+                    "status": "completed",
+                    "exit_code": 0,
+                    "duration_ms": 0,
+                    "artifacts": artifacts,
+                    "debug": {"pure_projection": {"reused_bundle": True}},
+                }
+        resolved_bindings, binding_error = self._resolve_pure_projection_bindings(
+            binding_refs,
+            state,
+            scope=scope,
+        )
+        if binding_error is not None:
+            return binding_error
+        try:
+            result_value = evaluate_pure_expr(payload, resolved_bindings=resolved_bindings)
+            artifacts = self._pure_projection_artifacts(
+                result_value,
+                output_contracts=output_contracts,
+            )
+        except OutputContractError as exc:
+            return self._contract_violation_result(
+                "Pure projection execution failed",
+                {"reason": "pure_projection_contract_invalid", "violations": exc.violations},
+            )
+        except PureExprEvaluationError as exc:
+            context: Dict[str, Any] = {"error": str(exc)}
+            if exc.metadata:
+                context["metadata"] = exc.metadata
+            if exc.source is not None:
+                context["source"] = exc.source
+            return self._v214_failure_result(
+                exc.code,
+                str(exc),
+                context=context,
+            )
+        except Exception as exc:
+            return self._v214_failure_result(
+                "pure_projection_failed",
+                "Pure projection evaluation failed",
+                context={"error": str(exc)},
+            )
+        if bundle_path is not None:
+            bundle_record = {
+                "pure_expr_schema_version": payload.get("pure_expr_schema_version"),
+                "payload_digest": payload_digest,
+                "result": result_value,
+            }
+            self._atomic_write_text(bundle_path, canonical_json_for_pure_value(bundle_record))
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": artifacts,
+            "debug": {"pure_projection": {"reused_bundle": False}},
+        }
+
     def _execute_increment_scalar(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         node = step['increment_scalar']
         artifact_name = node.get('artifact')
@@ -8390,6 +8521,96 @@ class WorkflowExecutor:
                 artifact_name: validated_value,
             },
         }
+
+    def _resolve_pure_projection_bindings(
+        self,
+        value: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        if isinstance(value, dict):
+            if set(value) == {"ref"} and isinstance(value.get("ref"), str):
+                return self._resolve_ref_value(value["ref"], state, scope=scope)
+            resolved: dict[str, Any] = {}
+            for key, item in value.items():
+                resolved_item, error = self._resolve_pure_projection_bindings(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved[str(key)] = resolved_item
+            return resolved, None
+        if isinstance(value, list):
+            resolved_list: list[Any] = []
+            for item in value:
+                resolved_item, error = self._resolve_pure_projection_bindings(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved_list.append(resolved_item)
+            return resolved_list, None
+        return value, None
+
+    def _reuse_pure_projection_bundle(
+        self,
+        *,
+        bundle_path: Path,
+        payload: Mapping[str, Any],
+        payload_digest: str,
+    ) -> tuple[Any | None, Optional[Dict[str, Any]]]:
+        if not bundle_path.exists():
+            return None, None
+        try:
+            bundle_record = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return None, self._v214_failure_result(
+                "pure_projection_resume_invalid",
+                "Pure projection bundle could not be loaded during resume",
+                context={"path": str(bundle_path), "error": str(exc)},
+            )
+        if not isinstance(bundle_record, dict):
+            return None, self._v214_failure_result(
+                "pure_projection_resume_invalid",
+                "Pure projection bundle must decode to an object",
+                context={"path": str(bundle_path)},
+            )
+        if bundle_record.get("pure_expr_schema_version") != payload.get("pure_expr_schema_version"):
+            return None, self._v214_failure_result(
+                "pure_projection_resume_schema_mismatch",
+                "Pure projection resume bundle schema version does not match the current payload",
+                context={"path": str(bundle_path)},
+            )
+        if bundle_record.get("payload_digest") != payload_digest:
+            return None, self._v214_failure_result(
+                "pure_projection_resume_digest_mismatch",
+                "Pure projection resume bundle payload digest does not match the current payload",
+                context={"path": str(bundle_path)},
+            )
+        return bundle_record.get("result"), None
+
+    def _pure_projection_artifacts(
+        self,
+        result_value: Any,
+        *,
+        output_contracts: Any,
+    ) -> Dict[str, Any]:
+        if not isinstance(output_contracts, dict):
+            raise OutputContractError([{"message": "pure projection output contracts must be an object"}])
+        artifacts: dict[str, Any] = {}
+        for output_name, contract in output_contracts.items():
+            if not isinstance(output_name, str) or not isinstance(contract, dict):
+                continue
+            if output_name == "return":
+                candidate = result_value
+            elif output_name == "return__variant":
+                candidate = result_value.get("variant") if isinstance(result_value, dict) else None
+            else:
+                candidate = result_value
+                for field_name in output_name.removeprefix("return__").split("__"):
+                    if not isinstance(candidate, dict):
+                        candidate = None
+                        break
+                    candidate = candidate.get(field_name)
+            artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
+        return artifacts
 
     def _latest_published_scalar_value(
         self,

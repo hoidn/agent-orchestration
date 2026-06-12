@@ -26,6 +26,22 @@ MODULE_FIXTURES = FIXTURES / "modules"
 INVALID_IF_NOT_BOOL_FIXTURE = FIXTURES / "invalid" / "if_condition_not_bool.orc"
 INVALID_IF_EFFECTFUL_FIXTURE = FIXTURES / "invalid" / "if_condition_effectful.orc"
 INVALID_IF_NOT_PROJECTABLE_FIXTURE = FIXTURES / "invalid" / "if_condition_not_projectable.orc"
+INVALID_PURE_EXPR_OPERATOR_UNSUPPORTED_FIXTURE = FIXTURES / "invalid" / "pure_expr_operator_unsupported.orc"
+INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE = FIXTURES / "invalid" / "pure_expr_union_equality.orc"
+INVALID_PURE_EXPR_FLOAT_EQUALITY_FIXTURE = FIXTURES / "invalid" / "pure_expr_float_equality.orc"
+INVALID_PURE_EXPR_PATH_STRING_CONCAT_FIXTURE = FIXTURES / "invalid" / "pure_expr_path_string_concat.orc"
+INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE = FIXTURES / "invalid" / "pure_expr_optional_access_unproved.orc"
+INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE = (
+    FIXTURES / "invalid" / "pure_expr_computed_if_variant_ref_unproved.orc"
+)
+PURE_EXPR_HELPER_DIAGNOSTIC_FIXTURES = frozenset(
+    {
+        INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE,
+        INVALID_PURE_EXPR_FLOAT_EQUALITY_FIXTURE,
+        INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE,
+        INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE,
+    }
+)
 
 
 def _compiler_module():
@@ -1911,6 +1927,12 @@ def test_semantic_ir_invalid_from_promoted_effect_validation_preserves_subject_b
         (INVALID_IF_NOT_BOOL_FIXTURE, "if_condition_not_bool"),
         (INVALID_IF_EFFECTFUL_FIXTURE, "if_condition_has_effect"),
         (INVALID_IF_NOT_PROJECTABLE_FIXTURE, "if_condition_not_projectable"),
+        (INVALID_PURE_EXPR_OPERATOR_UNSUPPORTED_FIXTURE, "pure_expr_operator_unsupported"),
+        (INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE, "pure_expr_union_equality_forbidden"),
+        (INVALID_PURE_EXPR_FLOAT_EQUALITY_FIXTURE, "pure_expr_float_equality_forbidden"),
+        (INVALID_PURE_EXPR_PATH_STRING_CONCAT_FIXTURE, "pure_expr_path_string_concat_forbidden"),
+        (INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE, "pure_expr_optional_access_unproved"),
+        (INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE, "variant_ref_unproved"),
     ],
 )
 def test_rendered_diagnostic_reports_if_condition_not_bool(
@@ -1937,4 +1959,7 @@ def test_rendered_diagnostic_reports_if_condition_not_bool(
     assert diagnostic.code == expected_code
     assert f"[{expected_code}]" in rendered
     assert fixture_path.name in rendered
-    assert "workflow-lisp > defworkflow" in rendered
+    if fixture_path in PURE_EXPR_HELPER_DIAGNOSTIC_FIXTURES:
+        assert "workflow-lisp > defun" in rendered
+    else:
+        assert "workflow-lisp > defworkflow" in rendered

@@ -9,7 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 from ..contracts import GeneratedInternalInput, derive_workflow_signature_contracts
-from ..conditionals import render_condition_predicate
+from ..conditionals import PureExprCondition, render_condition_predicate
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     CallExpr,
@@ -23,8 +23,10 @@ from ..expressions import (
     MatchArm,
     MatchExpr,
     NameExpr,
+    PureOpExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
+    RecordUpdateExpr,
     RecordExpr,
     UnionVariantExpr,
 )
@@ -48,6 +50,7 @@ from ..lowering.control_dispatch import _binding_local_value_from_terminal
 from ..lowering.origins import LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
 from ..lowering.generated_paths import allocate_generated_result_bundle, allocation_reason
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
+from ..lowering.pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
 from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation
 from ..lowering.phase_flow import (
@@ -84,6 +87,7 @@ from .model import (
     WccPerform,
     WccPhaseScope,
     WccPhaseTargetAtom,
+    WccPureOp,
     WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
@@ -454,7 +458,7 @@ def _lower_one_wcc_workflow(
     )
 
     for hidden_input_name, origin in terminal.hidden_inputs.items():
-        authored_inputs[hidden_input_name] = {"kind": "relpath", "type": "relpath"}
+        authored_inputs[hidden_input_name] = {"type": "relpath"}
         context.generated_input_spans[hidden_input_name] = origin
         context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
     for allocation in context.generated_path_allocations:
@@ -462,7 +466,7 @@ def _lower_one_wcc_workflow(
         reason = allocation_reason(allocation)
         if not isinstance(hidden_input_name, str) or reason is None:
             continue
-        authored_inputs.setdefault(hidden_input_name, {"kind": "relpath", "type": "relpath"})
+        authored_inputs.setdefault(hidden_input_name, {"type": "relpath"})
         origin = context.generated_path_spans.get(allocation.concrete_path_template)
         if origin is not None:
             context.generated_input_spans.setdefault(hidden_input_name, origin)
@@ -1079,10 +1083,68 @@ def _defunctionalize_if(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     step_name = context.step_name_prefix
     step_id = lowering_core._normalize_generated_step_id(step_name)
-    condition = render_condition_predicate(
-        body.condition_shape,
+    condition_steps: list[dict[str, Any]] = []
+    condition_expr = _frontend_expr_from_wcc_value(body.condition)
+    resolved_condition_expr = _resolve_inline_expr_value(
+        condition_expr,
         local_values=local_values,
     )
+    pure_condition_expr = (
+        resolved_condition_expr
+        if resolved_condition_expr is not condition_expr
+        and is_pure_projection_expr(resolved_condition_expr)
+        and not isinstance(resolved_condition_expr, (LiteralExpr, NameExpr, FieldAccessExpr))
+        else condition_expr
+        if isinstance(body.condition_shape, PureExprCondition)
+        or (
+            is_pure_projection_expr(condition_expr)
+            and not isinstance(condition_expr, (LiteralExpr, NameExpr, FieldAccessExpr))
+        )
+        else None
+    )
+    if pure_condition_expr is not None:
+        static_condition = try_evaluate_static_pure_expr(
+            pure_condition_expr,
+            result_type=PrimitiveTypeRef(name="Bool"),
+            context=context,
+            local_values=local_values,
+        )
+        if isinstance(static_condition, bool):
+            condition = {
+                "compare": {
+                    "left": static_condition,
+                    "op": "eq",
+                    "right": True,
+                }
+            }
+        else:
+            condition_step_name = f"{step_name}__condition"
+            condition_step_id = lowering_core._normalize_generated_step_id(condition_step_name)
+            lowered_condition = lower_pure_projection_step(
+                pure_condition_expr,
+                result_type=PrimitiveTypeRef(name="Bool"),
+                context=lowering_core._copy_context_with_step_prefix(
+                    context,
+                    step_name_prefix=condition_step_name,
+                ),
+                local_values=local_values,
+                step_name=condition_step_name,
+                step_id=condition_step_id,
+                stable_target="if_condition",
+            )
+            condition_steps.append(lowered_condition.step)
+            condition = {
+                "compare": {
+                    "left": {"ref": lowered_condition.output_refs["return"]},
+                    "op": "eq",
+                    "right": True,
+                }
+            }
+    else:
+        condition = render_condition_predicate(
+            body.condition_shape,
+            local_values=local_values,
+        )
     output_contracts = lowering_core._output_contracts_for_type(
         body.metadata.type_ref,
         context=context,
@@ -1154,6 +1216,7 @@ def _defunctionalize_if(
     )
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=step_origin)
     return [
+        *condition_steps,
         {
             "name": step_name,
             "id": step_id,
@@ -1168,7 +1231,7 @@ def _defunctionalize_if(
                 "outputs": else_outputs,
                 "steps": else_steps,
             },
-        }
+        },
     ], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
@@ -1412,6 +1475,23 @@ def _lower_wcc_terminal_export(
         context=context,
         local_values=local_values,
     )
+    if output_refs is None and is_pure_projection_expr(expr):
+        lowered_projection = lower_pure_projection_step(
+            expr,
+            result_type=type_ref,
+            context=context,
+            local_values=local_values,
+            step_name=context.step_name_prefix,
+            step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
+            stable_target="terminal_projection",
+        )
+        return [lowered_projection.step], _TerminalResult(
+            step_name=context.step_name_prefix,
+            step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
+            output_refs=lowered_projection.output_refs,
+            output_kind="projection",
+            hidden_inputs={},
+        )
     if output_refs is None:
         raise LispFrontendCompileError(
             (
@@ -2073,6 +2153,33 @@ def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, ob
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,
         )
+    if isinstance(value, WccPureOp):
+        if value.operator == "record-update":
+            if not value.args:
+                raise TypeError("record-update WCC pure op requires a base argument")
+            return RecordUpdateExpr(
+                base_expr=_frontend_expr_from_wcc_value_with_env(value.args[0], env),
+                overrides=tuple(
+                    (
+                        field_name,
+                        _frontend_expr_from_wcc_value_with_env(field_value, env),
+                    )
+                    for field_name, field_value in zip(value.field_names, value.args[1:], strict=True)
+                ),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        return PureOpExpr(
+            operator=value.operator,
+            args=tuple(
+                _frontend_expr_from_wcc_value_with_env(arg, env)
+                for arg in value.args
+            ),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
     if isinstance(value, WccInject):
         return UnionVariantExpr(
             type_name=value.union_name,
@@ -2190,6 +2297,30 @@ def _frontend_expr_from_wcc_value(value: WccValue):
                 (field_name, _frontend_expr_from_wcc_value(field_value))
                 for field_name, field_value in value.fields
             ),
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        )
+    if isinstance(value, WccPureOp):
+        if value.operator == "record-update":
+            if not value.args:
+                raise TypeError("record-update WCC pure op requires a base argument")
+            return RecordUpdateExpr(
+                base_expr=_frontend_expr_from_wcc_value(value.args[0]),
+                overrides=tuple(
+                    (
+                        field_name,
+                        _frontend_expr_from_wcc_value(field_value),
+                    )
+                    for field_name, field_value in zip(value.field_names, value.args[1:], strict=True)
+                ),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
+        return PureOpExpr(
+            operator=value.operator,
+            args=tuple(_frontend_expr_from_wcc_value(arg) for arg in value.args),
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
             expansion_stack=value.metadata.expansion_stack,

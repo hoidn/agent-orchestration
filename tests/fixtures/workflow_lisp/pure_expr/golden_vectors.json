@@ -1,0 +1,522 @@
+[
+  {
+    "name": "eq_string",
+    "operator": "=",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "=",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "ready" },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "ready" }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "ne_enum",
+    "operator": "!=",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "!=",
+        "args": [
+          {
+            "kind": "literal",
+            "type": { "kind": "enum", "name": "Decision", "allowed": ["APPROVE", "REVISE"] },
+            "value": "APPROVE"
+          },
+          {
+            "kind": "literal",
+            "type": { "kind": "enum", "name": "Decision", "allowed": ["APPROVE", "REVISE"] },
+            "value": "REVISE"
+          }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "lt_int",
+    "operator": "<",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {
+        "counter": {
+          "type": {
+            "kind": "record",
+            "name": "CounterState",
+            "fields": [
+              { "name": "count", "type": { "kind": "primitive", "name": "Int" } },
+              { "name": "limit", "type": { "kind": "primitive", "name": "Int" } }
+            ]
+          }
+        }
+      },
+      "expr": {
+        "kind": "op",
+        "operator": "<",
+        "args": [
+          {
+            "kind": "field_access",
+            "base": { "kind": "binding", "name": "counter" },
+            "field": "count"
+          },
+          {
+            "kind": "field_access",
+            "base": { "kind": "binding", "name": "counter" },
+            "field": "limit"
+          }
+        ]
+      }
+    },
+    "resolved_bindings": {
+      "counter": { "count": 2, "limit": 5 }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "lte_int",
+    "operator": "<=",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "<=",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 5 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 5 }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "gt_float",
+    "operator": ">",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": ">",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Float" }, "value": 3.5 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Float" }, "value": 1.25 }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "gte_float",
+    "operator": ">=",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": ">=",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Float" }, "value": 3.5 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Float" }, "value": 3.5 }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "and_bool",
+    "operator": "and",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "and",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": true },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": true },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": true }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "or_bool",
+    "operator": "or",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "or",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": false },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": false },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": true }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "not_bool",
+    "operator": "not",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "not",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Bool" }, "value": false }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "add_int",
+    "operator": "+",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "+",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 1 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 2 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 3 }
+        ]
+      }
+    },
+    "expected_value": 6
+  },
+  {
+    "name": "sub_int",
+    "operator": "-",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "-",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 8 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 3 }
+        ]
+      }
+    },
+    "expected_value": 5
+  },
+  {
+    "name": "mul_int",
+    "operator": "*",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "*",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 4 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 5 }
+        ]
+      }
+    },
+    "expected_value": 20
+  },
+  {
+    "name": "min_int",
+    "operator": "min",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "min",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 9 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 4 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 6 }
+        ]
+      }
+    },
+    "expected_value": 4
+  },
+  {
+    "name": "max_int",
+    "operator": "max",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "max",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 9 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 4 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 6 }
+        ]
+      }
+    },
+    "expected_value": 9
+  },
+  {
+    "name": "string_concat_nested",
+    "operator": "string/concat",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "String" },
+      "bindings": {
+        "status": { "type": { "kind": "primitive", "name": "String" } },
+        "maybe_reason": { "type": { "kind": "optional", "item": { "kind": "primitive", "name": "String" } } }
+      },
+      "expr": {
+        "kind": "op",
+        "operator": "string/concat",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "status=" },
+          { "kind": "binding", "name": "status" },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": ";reason=" },
+          {
+            "kind": "op",
+            "operator": "or-else",
+            "args": [
+              { "kind": "binding", "name": "maybe_reason" },
+              { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "none" }
+            ]
+          }
+        ]
+      }
+    },
+    "resolved_bindings": {
+      "status": "READY",
+      "maybe_reason": null
+    },
+    "expected_value": "status=READY;reason=none"
+  },
+  {
+    "name": "string_empty",
+    "operator": "string/empty?",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "string/empty?",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "" }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
+    "name": "symbol_name",
+    "operator": "symbol/name",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "String" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "symbol/name",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Symbol" }, "value": "selected-item" }
+        ]
+      }
+    },
+    "expected_value": "selected-item"
+  },
+  {
+    "name": "some_present",
+    "operator": "some?",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {
+        "maybe_count": { "type": { "kind": "optional", "item": { "kind": "primitive", "name": "Int" } } }
+      },
+      "expr": {
+        "kind": "op",
+        "operator": "some?",
+        "args": [
+          { "kind": "binding", "name": "maybe_count" }
+        ]
+      }
+    },
+    "resolved_bindings": {
+      "maybe_count": 7
+    },
+    "expected_value": true
+  },
+  {
+    "name": "or_else_none",
+    "operator": "or-else",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "String" },
+      "bindings": {
+        "maybe_reason": { "type": { "kind": "optional", "item": { "kind": "primitive", "name": "String" } } }
+      },
+      "expr": {
+        "kind": "op",
+        "operator": "or-else",
+        "args": [
+          { "kind": "binding", "name": "maybe_reason" },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "fallback" }
+        ]
+      }
+    },
+    "resolved_bindings": {
+      "maybe_reason": null
+    },
+    "expected_value": "fallback"
+  },
+  {
+    "name": "record_update_replace",
+    "operator": "record-update",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": {
+        "kind": "record",
+        "name": "CounterState",
+        "fields": [
+          { "name": "count", "type": { "kind": "primitive", "name": "Int" } },
+          { "name": "label", "type": { "kind": "primitive", "name": "String" } },
+          { "name": "enabled", "type": { "kind": "primitive", "name": "Bool" } }
+        ]
+      },
+      "bindings": {
+        "state": {
+          "type": {
+            "kind": "record",
+            "name": "CounterState",
+            "fields": [
+              { "name": "count", "type": { "kind": "primitive", "name": "Int" } },
+              { "name": "label", "type": { "kind": "primitive", "name": "String" } },
+              { "name": "enabled", "type": { "kind": "primitive", "name": "Bool" } }
+            ]
+          }
+        }
+      },
+      "expr": {
+        "kind": "record_update",
+        "record_type": {
+          "kind": "record",
+          "name": "CounterState",
+          "fields": [
+            { "name": "count", "type": { "kind": "primitive", "name": "Int" } },
+            { "name": "label", "type": { "kind": "primitive", "name": "String" } },
+            { "name": "enabled", "type": { "kind": "primitive", "name": "Bool" } }
+          ]
+        },
+        "base": { "kind": "binding", "name": "state" },
+        "fields": [
+          {
+            "name": "count",
+            "value": {
+              "kind": "op",
+              "operator": "+",
+              "args": [
+                {
+                  "kind": "field_access",
+                  "base": { "kind": "binding", "name": "state" },
+                  "field": "count"
+                },
+                { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 1 }
+              ]
+            }
+          },
+          {
+            "name": "label",
+            "value": { "kind": "literal", "type": { "kind": "primitive", "name": "String" }, "value": "updated" }
+          }
+        ]
+      }
+    },
+    "resolved_bindings": {
+      "state": { "count": 1, "label": "seed", "enabled": true }
+    },
+    "expected_value": { "count": 2, "label": "updated", "enabled": true }
+  },
+  {
+    "name": "overflow_add",
+    "operator": "+",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "+",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 9223372036854775807 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 1 }
+        ]
+      }
+    },
+    "expected_error_code": "pure_expr_overflow"
+  },
+  {
+    "name": "overflow_sub",
+    "operator": "-",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "-",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": -9223372036854775808 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 1 }
+        ]
+      }
+    },
+    "expected_error_code": "pure_expr_overflow"
+  },
+  {
+    "name": "overflow_mul",
+    "operator": "*",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Int" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "*",
+        "args": [
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 4611686018427387904 },
+          { "kind": "literal", "type": { "kind": "primitive", "name": "Int" }, "value": 4 }
+        ]
+      }
+    },
+    "expected_error_code": "pure_expr_overflow"
+  }
+]

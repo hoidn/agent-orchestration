@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
+
 
 class FormKind(Enum):
     """Classification for compiler-known authored heads."""
@@ -213,6 +215,23 @@ _FORM_SPECS = (
         admitted_top_level=False,
         elaboration_route="record",
         rationale="Record construction elaborates through the core expression elaborator.",
+    ),
+    *(
+        _spec(
+            operator_name,
+            kind=FormKind.CORE_SPECIAL,
+            owner_module="expressions",
+            introduced_in="workflow_lisp_generic_core_expression_surface",
+            remove_by=None,
+            macro_bindable=False,
+            admitted_top_level=False,
+            elaboration_route="record_update" if operator_name == "record-update" else "pure_op",
+            feature_tags=("pure_expression_core",),
+            rationale=(
+                "Closed pure operator heads elaborate through the shared pure-expression route."
+            ),
+        )
+        for operator_name in PURE_EXPR_OPERATOR_CATALOG
     ),
     _spec(
         "loop-state",

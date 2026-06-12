@@ -27,11 +27,13 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    PureOpExpr,
     ProcedureCallExpr,
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RecordUpdateExpr,
     RecordExpr,
     ResourceTransitionExpr,
     ResumeOrStartExpr,
@@ -106,6 +108,10 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return ()
     if isinstance(expr, RecordExpr):
         return tuple(field_expr for _, field_expr in expr.fields)
+    if isinstance(expr, PureOpExpr):
+        return expr.args
+    if isinstance(expr, RecordUpdateExpr):
+        return (expr.base_expr,) + tuple(field_expr for _, field_expr in expr.overrides)
     if isinstance(expr, LoopStateSeedExpr):
         return tuple(field.value_expr for field in expr.fields)
     if isinstance(expr, LoopStateUpdateExpr):

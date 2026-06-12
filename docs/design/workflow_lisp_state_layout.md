@@ -90,6 +90,23 @@ Resume must reconstruct the same concrete generated path for the same run and
 call-frame/loop identity. A new run may receive a different private concrete
 path while preserving the same semantic identity in debug output.
 
+## Current Pure Projection Bundle Roles
+
+The current checkout adds one projection-specific generated path role:
+
+- `PURE_PROJECTION_BUNDLE`
+  Compiler/runtime-private bundle transport for a visible generated
+  `pure_projection` step. These allocations are `PRIVATE_GENERATED`, resume at
+  `STEP_VISIT` scope, and normally render through a generated managed
+  write-root input rather than a user-authored path.
+- `ENTRYPOINT_MANAGED_WRITE_ROOT`
+  Companion allocation that gives the generated write-root input a concrete
+  run-scoped `.json` path under `.orchestrate/workflow_lisp/entry/...`.
+- managed write-root input bridge
+  The generated input name remains private runtime boundary surface. Loaded
+  bundles must classify it as a managed write-root input rather than exposing
+  it as a public authored workflow input.
+
 ## Validation Responsibilities
 
 State layout validation checks:
@@ -102,11 +119,15 @@ State layout validation checks:
 - generated names are stable across compile/resume where required
 - generated private write paths are collision-proof across parallel/repeated
   runs unless explicitly authored as stable workspace artifacts
+- `pure_projection_bundle` allocations round-trip through the same managed
+  write-root bridge as other private generated result bundles
 
 ## Required Invariants
 
 - State layout has deterministic semantic identity.
 - Private generated write paths are run-isolated by default.
+- Generated pure projection bundles remain private transport, not public
+  authored workflow inputs.
 - State paths are source-mapped when generated from frontend forms.
 - Private executable context bindings remain private workflow inputs; public
   authored boundaries expose only user-bindable inputs.

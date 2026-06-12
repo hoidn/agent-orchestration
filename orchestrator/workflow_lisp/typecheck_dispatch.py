@@ -51,9 +51,11 @@ from .expressions import (
     PhaseTargetExpr,
     ProcRefLiteralExpr,
     ProduceOneOfExpr,
+    PureOpExpr,
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RecordUpdateExpr,
     ResourceTransitionExpr,
     RecordExpr,
     ResumeOrStartExpr,
@@ -123,6 +125,7 @@ from .typecheck_effects import (
     validate_command_argv as _validate_command_argv,
     validate_semantic_command_adapter_usage as _validate_semantic_command_adapter_usage,
 )
+from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
 from .typecheck_proofs import (
     ProofFact,
     ProofScope,
@@ -135,6 +138,7 @@ from .spans import SourceSpan
 from .syntax import SyntaxNode
 from .type_env import (
     FrontendTypeEnvironment,
+    OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
     ProcRefTypeRef,
@@ -492,7 +496,23 @@ def _typecheck(
             type_ref=resolved.residual_type_ref,
             effect=EMPTY_EFFECT_SUMMARY,
         )
+    if isinstance(expr, (PureOpExpr, RecordUpdateExpr)):
+        return _typecheck_pure_expr(
+            expr,
+            context=context,
+            recurse=recurse,
+            typed_factory=_typed,
+        )
     if type(expr) is FieldAccessExpr:
+        typed_base = recurse(expr.base)
+        if isinstance(typed_base.type_ref, OptionalTypeRef):
+            _raise_error(
+                f"field `{expr.fields[0]}` requires `some?` or `or-else` before optional access",
+                code="pure_expr_optional_access_unproved",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         return _typecheck_field_access_expr(
             expr,
             context=context,

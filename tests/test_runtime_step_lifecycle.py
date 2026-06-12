@@ -11,12 +11,31 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
+PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
     workflow_file = workspace / "workflow.yaml"
     workflow_file.write_text(yaml.dump(workflow), encoding="utf-8")
     return workflow_file
+
+
+def _compile_pure_projection_bundle(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        PURE_EXPR_SELECTOR_PROJECTION,
+        source_roots=(VALID_FIXTURES,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return result.validated_bundles_by_name["pure_expr_selector_action_projection::orchestrate"]
 
 
 def test_long_running_step_updates_current_step_heartbeat(tmp_path: Path):
@@ -272,6 +291,56 @@ def test_set_scalar_persists_local_artifacts_in_step_state(tmp_path: Path):
 
     assert state["steps"]["InitializeCount"]["status"] == "completed"
     assert state["steps"]["InitializeCount"]["artifacts"] == {"failed_count": 1}
+
+
+def test_pure_projection_resume_reuses_committed_bundle(tmp_path: Path):
+    loaded = _compile_pure_projection_bundle(tmp_path)
+    step_name = loaded.surface.steps[0].name
+
+    state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-resume")
+    state_manager.initialize(str(PURE_EXPR_SELECTOR_PROJECTION), bound_inputs={"approved": False, "status": "WAIT"})
+
+    first = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+
+    assert first["steps"][step_name]["debug"]["pure_projection"]["reused_bundle"] is False
+
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {step_name: {"status": "failed", "exit_code": 1}}
+    state_manager._write_state()
+
+    resumed = WorkflowExecutor(loaded, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed["steps"][step_name]["status"] == "completed"
+    assert resumed["steps"][step_name]["artifacts"] == {"return__status": "WAIT", "return__ready": False}
+    assert resumed["steps"][step_name]["debug"]["pure_projection"]["reused_bundle"] is True
+
+
+def test_pure_projection_resume_fails_closed_on_schema_mismatch(tmp_path: Path):
+    loaded = _compile_pure_projection_bundle(tmp_path)
+    step_name = loaded.surface.steps[0].name
+
+    state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-schema-mismatch")
+    state_manager.initialize(str(PURE_EXPR_SELECTOR_PROJECTION), bound_inputs={"approved": True, "status": "WAIT"})
+
+    WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+    bundle_path = tmp_path / next(
+        value
+        for name, value in state_manager.state.bound_inputs.items()
+        if name.startswith("__write_root__") and isinstance(value, str)
+    )
+    bundle_record = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle_record["pure_expr_schema_version"] = 999
+    bundle_path.write_text(json.dumps(bundle_record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {step_name: {"status": "failed", "exit_code": 1}}
+    state_manager._write_state()
+
+    resumed = WorkflowExecutor(loaded, tmp_path, state_manager).execute(resume=True)
+    project = resumed["steps"][step_name]
+
+    assert project["status"] == "failed"
+    assert project["error"]["type"] == "pure_projection_resume_schema_mismatch"
 
 
 def test_resume_skips_only_until_restart_point_not_after_loop_back(tmp_path: Path):

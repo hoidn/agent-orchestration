@@ -19,6 +19,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+PURE_EXPR_SELECTOR_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc")
 
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
@@ -498,6 +499,42 @@ def test_semantic_ir_projects_statement_taxonomy_facets(tmp_path: Path) -> None:
         for effect in snapshot_source_map["workflows"][snapshot_workflow_name]["generated_semantic_effects"]
     )
 
+
+def test_semantic_ir_promotes_pure_projection_generated_effects(tmp_path: Path) -> None:
+    pure_projection_result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=PURE_EXPR_SELECTOR_FIXTURE,
+        module_name="pure_expr_selector",
+        entry_workflow="orchestrate",
+    )
+    pure_projection_bundle = pure_projection_result.validated_bundle
+    pure_projection_source_map = json.loads(
+        pure_projection_result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    )
+    pure_projection_workflow_name = next(iter(pure_projection_source_map["workflows"]))
+    pure_projection_effect = next(
+        effect
+        for effect in pure_projection_bundle.semantic_ir.effects.values()
+        if effect.effect_kind == "pure_projection"
+    )
+
+    assert pure_projection_effect.details["pure_expr_schema_version"] == 1
+    assert pure_projection_effect.details["payload_digest"].startswith("sha256:")
+    assert "__write_root__" in pure_projection_effect.details["output_bundle_path"]
+    assert "result_bundle" in pure_projection_effect.details["output_bundle_path"]
+    assert any(
+        effect["effect_kind"] == "pure_projection"
+        for effect in pure_projection_source_map["workflows"][pure_projection_workflow_name]["generated_semantic_effects"]
+    )
+    assert any(
+        entry.layout_kind == "pure_projection_bundle"
+        and entry.details.get("generated_input_name")
+        == "__write_root__pure_expr_selector_action_projection_orchestrate__result_bundle"
+        for entry in pure_projection_bundle.semantic_ir.state_layout.values()
+    )
+
+
+def test_semantic_ir_builds_resource_transition_bundle(tmp_path: Path) -> None:
     build_module = importlib.import_module("orchestrator.workflow_lisp.build")
     request_cls = getattr(build_module, "FrontendBuildRequest")
     resource_source = Path("tests/fixtures/workflow_lisp/valid/resource_stdlib_transition.orc").read_text(

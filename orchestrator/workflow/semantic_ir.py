@@ -26,7 +26,7 @@ from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, Workflow
 
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
 _PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
-_PROMOTED_GENERATED_EFFECT_KINDS = frozenset({"snapshot_capture", "pointer_materialization"})
+_PROMOTED_GENERATED_EFFECT_KINDS = frozenset({"snapshot_capture", "pointer_materialization", "pure_projection"})
 _PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
 
 
@@ -844,6 +844,12 @@ def validate_workflow_semantic_ir(
                 effect=effect,
                 runtime_snapshot_operations=runtime_snapshot_operations,
             )
+        elif effect.effect_kind == "pure_projection":
+            _validate_pure_projection_effect(
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+            )
         elif effect.effect_kind == _PROVIDER_BUNDLE_PATH_PROJECTION_KIND:
             _validate_provider_bundle_path_projection_effect(
                 semantic_ir=semantic_ir,
@@ -1616,6 +1622,60 @@ def _generated_promoted_effect_details(
             }
         )
 
+    if effect_kind == "pure_projection":
+        if surface_step.kind is not SurfaceStepKind.PURE_PROJECTION:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a pure_projection surface",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        payload_digest = details.get("payload_digest")
+        schema_version = details.get("pure_expr_schema_version")
+        result_type = details.get("result_type")
+        output_bundle_path = details.get("output_bundle_path")
+        if (
+            not isinstance(payload_digest, str)
+            or not payload_digest
+            or not isinstance(schema_version, int)
+            or not isinstance(result_type, Mapping)
+            or not isinstance(output_bundle_path, str)
+            or not output_bundle_path
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires pure projection details",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        projection = surface_step.pure_projection
+        if not isinstance(projection, Mapping):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a pure_projection payload",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        surface_digest = projection.get("payload_digest")
+        if not isinstance(surface_digest, str) or surface_digest != payload_digest:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent payload digest lineage",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        output_bundle = surface_step.common.output_bundle
+        if not isinstance(output_bundle, Mapping) or output_bundle.get("path") != output_bundle_path:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent output bundle lineage",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        return MappingProxyType(
+            {
+                "payload_digest": payload_digest,
+                "pure_expr_schema_version": schema_version,
+                "result_type": dict(result_type),
+                "output_bundle_path": output_bundle_path,
+            }
+        )
+
     if surface_step.kind is not SurfaceStepKind.MATERIALIZE_ARTIFACTS:
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: promoted effect `{effect_key}` requires a materialize_artifacts surface",
@@ -2056,6 +2116,49 @@ def _validate_pointer_materialization_effect(
     if "materialize_artifacts" not in runtime_snapshot_operations.get(statement.step_id, ()):
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires a matching materialize-artifacts runtime surface",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+
+def _validate_pure_projection_effect(
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    if statement.step_kind != SurfaceStepKind.PURE_PROJECTION.value:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: pure projection effect `{effect.effect_id}` requires a pure_projection statement",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    payload_digest = effect.details.get("payload_digest")
+    schema_version = effect.details.get("pure_expr_schema_version")
+    result_type = effect.details.get("result_type")
+    output_bundle_path = effect.details.get("output_bundle_path")
+    if not isinstance(payload_digest, str) or not payload_digest.startswith("sha256:"):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: pure projection effect `{effect.effect_id}` requires a stable payload digest",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(schema_version, int):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: pure projection effect `{effect.effect_id}` requires a schema version",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(result_type, Mapping):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: pure projection effect `{effect.effect_id}` requires a result type descriptor",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(output_bundle_path, str) or not output_bundle_path:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: pure projection effect `{effect.effect_id}` requires an output bundle path",
             workflow_name=workflow_name,
             subject_refs=_subject_refs_for_statement(workflow_name, statement),
         )

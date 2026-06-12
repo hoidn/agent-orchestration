@@ -264,7 +264,9 @@ def _derive_generated_semantic_effects(
     context: Any,
     workflow_origin: LoweringOrigin,
 ) -> tuple[GeneratedSemanticEffectBinding, ...]:
-    effects: list[GeneratedSemanticEffectBinding] = []
+    effects: list[GeneratedSemanticEffectBinding] = list(
+        getattr(context, "generated_semantic_effects", ()) or ()
+    )
     for step in _walk_generated_steps(raw_steps):
         step_id = step.get("id")
         if not isinstance(step_id, str) or not step_id:

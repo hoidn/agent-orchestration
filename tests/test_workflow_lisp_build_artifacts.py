@@ -38,6 +38,7 @@ DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH = (
 DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = FIXTURES / "valid" / "design_delta_work_item_runtime"
 ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
+PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 RUNTIME_CLOSURE_MARKERS = (
     "workflow_lisp_runtime_closure",
     "closure_families",
@@ -88,6 +89,24 @@ def _design_delta_parent_drain_request(
     )
 
 
+def _build_pure_expr_selector_projection(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=PURE_EXPR_SELECTOR_FIXTURE,
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.json",
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
 def _build_design_delta_parent_drain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -129,7 +148,7 @@ def _validate_review_findings_retirement_metadata() -> dict[str, object]:
         "expiry_condition": (
             "retain until typed review-findings validation parity replaces the command bridge"
         ),
-        "evidence_refs": ["validate_review_findings_v1"],
+        "evidence_refs": ("validate_review_findings_v1",),
     }
 
 
@@ -219,6 +238,7 @@ def _selector_projection_request(tmp_path: Path):
     request_cls = getattr(build, "FrontendBuildRequest")
     providers_path = tmp_path / "selector_providers.json"
     prompts_path = tmp_path / "selector_prompts.json"
+    commands_path = tmp_path / "selector_commands.json"
     providers_path.write_text(
         json.dumps({"providers.selector": "codex"}, indent=2) + "\n",
         encoding="utf-8",
@@ -235,6 +255,24 @@ def _selector_projection_request(tmp_path: Path):
         + "\n",
         encoding="utf-8",
     )
+    commands_path.write_text(
+        json.dumps(
+            {
+                "validate_review_findings_v1": {
+                    "kind": "external_tool",
+                    "stable_command": [
+                        "python",
+                        "-m",
+                        "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                    ],
+                    **_validate_review_findings_retirement_metadata(),
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return request_cls(
         source_path=REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "selector.orc",
         source_roots=(REPO_ROOT / "workflows" / "library",),
@@ -242,7 +280,7 @@ def _selector_projection_request(tmp_path: Path):
         provider_externs_path=providers_path,
         prompt_externs_path=prompts_path,
         imported_workflow_bundles_path=None,
-        command_boundaries_path=None,
+        command_boundaries_path=commands_path,
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
@@ -802,6 +840,7 @@ def _wcc_m4_full_fixture_source_map_payload(tmp_path: Path) -> dict[str, object]
             "validate_review_findings_v1": ExternalToolBinding(
                 name="validate_review_findings_v1",
                 stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+                **_validate_review_findings_retirement_metadata(),
             ),
         },
         validate_shared=True,
@@ -3122,6 +3161,41 @@ def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp
         effect["effect_kind"] == "pointer_materialization"
         for effect in workflow["generated_semantic_effects"]
     )
+
+
+def test_build_artifacts_expose_pure_projection_effects_and_generated_paths(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.lowering import _observed_statement_families
+
+    result = _build_pure_expr_selector_projection(tmp_path)
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    workflow_name = next(name for name in source_map["workflows"] if name.endswith("::orchestrate"))
+    workflow = source_map["workflows"][workflow_name]
+    lowered = next(
+        workflow_result
+        for workflow_result in result.compile_result.entry_result.lowered_workflows
+        if workflow_result.typed_workflow.definition.name == workflow_name
+    )
+
+    assert any(
+        effect["effect_kind"] == "pure_projection"
+        for effect in workflow["generated_semantic_effects"]
+    )
+    assert any(
+        allocation["semantic_role"] == "pure_projection_bundle"
+        for allocation in workflow["generated_path_allocations"]
+    )
+    assert any(
+        effect["effect_kind"] == "pure_projection"
+        for effect in semantic_ir["effects"].values()
+    )
+    assert "pure_projection" in _observed_statement_families(lowered.authored_mapping["steps"])
+    managed_write_root_input = next(
+        name
+        for name in lowered.authored_mapping["inputs"]
+        if name.startswith("__write_root__")
+    )
+    assert lowered.authored_mapping["inputs"][managed_write_root_input] == {"type": "relpath"}
 
 
 def test_review_loop_command_boundary_surfaces_validate_review_findings_adapter(

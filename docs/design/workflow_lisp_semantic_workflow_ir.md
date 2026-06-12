@@ -99,11 +99,16 @@ The current contract is implemented in
 - `SemanticTypeEntry`, `SemanticContractEntry`, and `SemanticRefEntry` record
   the typed catalog for types, contracts, and resolved references.
 - `SemanticEffectEntry` records explicit effects, including promoted generated
-  or adapter-backed effects that survive as shared semantic metadata.
+  or adapter-backed effects that survive as shared semantic metadata. In the
+  current checkout this includes generated `pure_projection` effects that carry
+  payload digest, pure-expression schema version, result-type descriptor, and
+  private output-bundle lineage.
 - `SemanticProofEntry` records semantic proof surfaces such as variant or other
   checked proof obligations.
 - `SemanticStateLayoutEntry` records typed state-layout and presentation-key
-  linkage instead of leaving runtime-facing layout meaning implicit.
+  linkage instead of leaving runtime-facing layout meaning implicit. That
+  includes `pure_projection_bundle`, entrypoint managed write-root, and managed
+  write-root-input entries for generated projection bundles.
 - `SemanticSourceMapBridgeEntry` records traceability bridges from semantic
   subjects back to authored or generated origins.
 - `SemanticCallEdge` records workflow-call lineage.
@@ -194,10 +199,11 @@ build path.
   it in build outputs alongside adjacent artifacts.
 - `tests/test_workflow_semantic_ir.py` provides current evidence for catalog
   population, source-map and executable bridges, command-boundary coverage,
-  promoted effects, and `semantic_ir_invalid` rejection behavior.
+  promoted effects including `pure_projection`, and `semantic_ir_invalid`
+  rejection behavior.
 - `tests/test_workflow_lisp_build_artifacts.py` provides current evidence for
-  `semantic_ir.json` emission, schema-version locking, and build-manifest
-  lineage.
+  `semantic_ir.json` emission, schema-version locking, build-manifest lineage,
+  and generated-path visibility for pure projection bundles.
 
 Those artifacts are durable evidence for the implemented surface. They do not
 change the rule that Semantic IR is derived from shared validated structures

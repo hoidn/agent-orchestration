@@ -225,6 +225,7 @@ def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ..
             GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
             GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
             GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+            GeneratedPathSemanticRole.PURE_PROJECTION_BUNDLE,
             GeneratedPathSemanticRole.ENTRYPOINT_MANAGED_WRITE_ROOT,
             GeneratedPathSemanticRole.GENERATED_INTERNAL_INPUT_BINDING,
         }

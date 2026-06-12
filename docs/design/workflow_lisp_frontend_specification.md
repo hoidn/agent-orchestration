@@ -1277,6 +1277,38 @@ Lowering:
 The runtime remains deterministic and sequential unless the core runtime
 explicitly supports parallelism.
 
+### 10.2 Closed Pure-Expression Surface
+
+Workflow Lisp now accepts a closed, effect-free pure-expression surface that is
+shared by compile-time folding and runtime projection execution. The runtime
+evaluator owns the semantics; the frontend typechecks and lowers into that
+shared payload rather than maintaining a separate evaluator.
+
+Maximal runtime-visible pure regions lower through WCC/schema 2 into one
+generated `pure_projection` step with a validated payload, typed binding refs,
+payload digest, and a private managed result bundle. Literal-only trees may
+still fold away entirely at compile time through the same evaluator.
+
+Supported operators are exact and closed:
+
+| Group | Operators | Allowed operand/result shapes | Notes |
+| --- | --- | --- | --- |
+| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality, deep union equality, or deep record equality. |
+| Ordering | `<`, `<=`, `>`, `>=` | `Int x Int`, `Float x Float` -> `Bool` | Ordering is allowed for `Float`; equality is not. |
+| Boolean | `and`, `or`, `not` | `Bool` -> `Bool` | Computed `Bool` values remain proof-neutral. |
+| Arithmetic | `+`, `-`, `*`, `min`, `max` | `Int` -> `Int` | `+`, `-`, and `*` fail closed on signed 64-bit overflow. |
+| String | `string/concat`, `string/empty?`, `symbol/name` | `String`/`Symbol` | Path values are not strings for concatenation. |
+| Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
+| Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
+
+Deliberate exclusions stay enforced by typed diagnostics:
+
+- no division or modulo;
+- no path string concatenation;
+- no collection operators;
+- no regex, time, IO, randomness, workflow calls, provider calls, or command execution;
+- no proof creation from computed equality/comparison alone.
+
 ## 11. Pattern Matching
 
 ```lisp
@@ -1340,7 +1372,16 @@ flowchart TD
   selected)
 ```
 
-For union values, `match` is preferred.
+Computed pure `Bool` conditions are allowed when the condition is effect-free
+and typechecks as `Bool`. They may lower into a generated `pure_projection`
+boundary when the condition is not already a literal or direct reference.
+
+That widening does not create proof. A computed pure `Bool` condition may route
+control flow, but it does not unlock variant-specific fields, optional payload
+access, or union narrowing. `match` remains the only construct that establishes
+variant proof context.
+
+For union values, `match` is preferred and remains the required proof surface.
 
 The compiler should warn on:
 

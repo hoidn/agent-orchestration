@@ -25,6 +25,7 @@ The current checkout defines these validation-relevant base families:
 - `CoreCommandStep`
 - `CoreProviderStep`
 - `CoreAdjudicatedProviderStep`
+- `CorePureProjectionStep`
 - `CoreWaitForStep`
 - `CoreAssertStep`
 - `CoreSetScalarStep`
@@ -79,9 +80,11 @@ facets instead of standalone `CoreStmt` dataclasses:
   statement family.
 - Promoted semantic effects
   `resource_transition` and `ledger_update` come from certified-adapter command
-  boundaries; `snapshot_capture` and `pointer_materialization` come from
-  lowering-generated effects. These remain promoted Semantic IR effects, not
-  standalone Core statements.
+  boundaries; `snapshot_capture`, `pointer_materialization`, and
+  `pure_projection` come from lowering-generated semantics. The first two stay
+  promoted Semantic IR effects; `pure_projection` is now also represented by a
+  shared generated statement family with attached payload and private-bundle
+  lineage.
 - State and write-root facets
   Resume checkpoints, presentation keys, and managed write-root inputs remain
   derived state-layout entries keyed to validated workflow identity.
@@ -119,6 +122,7 @@ Ownership remains split across existing shared layers:
 | `CoreCommandStep` | `command`, shared `common`, command-boundary metadata | command boundary row, publication refs, snapshot plans when attached | `command_call`; promoted `resource_transition` / `ledger_update` for certified adapters | no new proof family; ordinary lexical scope | resume checkpoints and presentation keys; managed write-root inputs only when inherited from workflow provenance | step origin, core node, executable nodes, command-boundary lineage, generated semantic effects | Core AST + Semantic IR + runtime plan + source map |
 | `CoreProviderStep` | provider binding, prompt surfaces, `common` | prompt surface row, publication refs | `provider_call`; promoted `snapshot_capture` / `pointer_materialization` when lowering generates them | `variant_output` / `requires_variant` proof rows when attached | resume checkpoints and presentation keys | step origin, core node, executable nodes, generated semantic effects | Core AST + Semantic IR + source map |
 | `CoreAdjudicatedProviderStep` | adjudicated provider config, evaluator metadata, `common` | publication refs and prompt-delivery projections from adjudication surfaces | provider-family execution effect surface | no separate proof family beyond attached variant facets | ordinary state/projection ownership | step origin, core node, executable nodes | Core AST + shared adjudication + Semantic IR |
+| `CorePureProjectionStep` | validated pure-expression payload, typed binding refs, `common.output_bundle` | generated result-bundle projection plus flattened output contracts | promoted `pure_projection` semantic effect with payload digest/schema lineage | no proof creation; remains effect-free pure computation | private generated `pure_projection_bundle` plus managed write-root bridge for the concrete bundle path | step origin, core node, executable nodes, generated semantic effects, generated-path lineage | Core AST + Semantic IR + runtime plan + source map |
 | `CoreWaitForStep` | `wait_for` config | statement row and runtime node only | none beyond wait/runtime control | no proof context | resume checkpoints and presentation keys | step origin, core node, executable nodes | Core AST + runtime plan |
 | `CoreAssertStep` | typed predicate | statement row and runtime node only | none | no proof context | resume checkpoints and presentation keys | step origin, core node, executable nodes | Core AST + runtime plan |
 | `CoreSetScalarStep` | scalar artifact target and literal/ref value | publication refs when attached | none | no proof context | ordinary scalar artifact state only | step origin, core node, executable nodes | Core AST + runtime plan |
@@ -137,12 +141,14 @@ The earlier one-row-per-family draft no longer matches the current checkout
 literally. The current contract is:
 
 - `CoreForEach` is a real shared base family and belongs in the inventory.
+- `CorePureProjectionStep` is now a real shared generated base family used for
+  runtime-visible pure computation and private projection-bundle transport.
 - `publish`, `consume_bundle`, `variant_output`, and `pre_snapshot` are current
   attached facets, not standalone `CoreStmt` dataclasses.
 - `resource_transition` is currently represented through certified-adapter
   command boundaries plus promoted Semantic IR effects, not through a
   `CoreResourceTransitionCandidate` dataclass.
-- `snapshot_capture` and `pointer_materialization` are promoted generated
+- `snapshot_capture` and `pointer_materialization` are still promoted generated
   effects with source-map lineage, not statement families.
 - Source maps, runtime-plan summaries, build artifacts, and observability views
   remain derived projections. They must not become semantic authority.

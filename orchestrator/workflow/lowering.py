@@ -37,6 +37,7 @@ from .executable_ir import (
     ManagedJobsRoutes,
     NodeResultAddress,
     ProviderStepConfig,
+    PureProjectionStepConfig,
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
     SelectVariantOutputStepConfig,
@@ -860,6 +861,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.WAIT_FOR: ExecutableNodeKind.WAIT_FOR,
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
         SurfaceStepKind.SET_SCALAR: ExecutableNodeKind.SET_SCALAR,
+        SurfaceStepKind.PURE_PROJECTION: ExecutableNodeKind.PURE_PROJECTION,
         SurfaceStepKind.INCREMENT_SCALAR: ExecutableNodeKind.INCREMENT_SCALAR,
         SurfaceStepKind.MATERIALIZE_ARTIFACTS: ExecutableNodeKind.MATERIALIZE_ARTIFACTS,
         SurfaceStepKind.SELECT_VARIANT_OUTPUT: ExecutableNodeKind.SELECT_VARIANT_OUTPUT,
@@ -977,6 +979,11 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             common=common,
             set_scalar=step.set_scalar,
         )
+    if step.kind is SurfaceStepKind.PURE_PROJECTION:
+        return PureProjectionStepConfig(
+            common=common,
+            pure_projection=step.pure_projection,
+        )
     if step.kind is SurfaceStepKind.INCREMENT_SCALAR:
         return IncrementScalarStepConfig(
             common=common,
@@ -1034,6 +1041,7 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.WAIT_FOR: "wait_for",
         ExecutableNodeKind.ASSERT: "assert",
         ExecutableNodeKind.SET_SCALAR: "set_scalar",
+        ExecutableNodeKind.PURE_PROJECTION: "pure_projection",
         ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
         ExecutableNodeKind.MATERIALIZE_ARTIFACTS: "materialize_artifacts",
         ExecutableNodeKind.SELECT_VARIANT_OUTPUT: "select_variant_output",

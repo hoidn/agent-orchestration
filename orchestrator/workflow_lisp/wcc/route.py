@@ -25,12 +25,14 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    PureOpExpr,
     ProduceOneOfExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
     RecordExpr,
+    RecordUpdateExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
@@ -706,6 +708,30 @@ def _validate_wcc_m4_expr_supported(
         for _, override_expr in expr.overrides:
             _validate_wcc_m4_expr_supported(
                 override_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
+    if isinstance(expr, RecordUpdateExpr):
+        _validate_wcc_m4_expr_supported(
+            expr.base_expr,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
+        for _, override_expr in expr.overrides:
+            _validate_wcc_m4_expr_supported(
+                override_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
+    if isinstance(expr, PureOpExpr):
+        for arg_expr in expr.args:
+            _validate_wcc_m4_expr_supported(
+                arg_expr,
                 workflow_name=workflow_name,
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,

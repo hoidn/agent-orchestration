@@ -150,6 +150,13 @@ _TYPE_CODES = frozenset(
         "loop_state_runtime_transport_forbidden",
         "loop_state_unresolved_type_parameter",
         "loop_state_not_projectable",
+        "pure_expr_operator_unsupported",
+        "pure_expr_operand_type_mismatch",
+        "pure_expr_union_equality_forbidden",
+        "pure_expr_float_equality_forbidden",
+        "pure_expr_path_string_concat_forbidden",
+        "pure_expr_optional_access_unproved",
+        "pure_expr_overflow",
     }
 )
 _LOWERING_SURFACE_CODES = frozenset(
@@ -165,6 +172,7 @@ _LOWERING_SURFACE_CODES = frozenset(
         "review_loop_special_lowerer_used",
         "union_return_variant_ambiguous",
         "union_return_variant_incompatible",
+        "pure_expr_payload_too_large",
     }
 )
 _MODULE_CODES = frozenset(

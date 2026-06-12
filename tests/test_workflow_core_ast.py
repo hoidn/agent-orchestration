@@ -9,6 +9,12 @@ import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
+PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
 
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
@@ -53,6 +59,19 @@ def _write_imported_workflow(workspace: Path) -> None:
             ],
         },
     )
+
+
+def _compile_pure_projection_bundle(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        PURE_EXPR_SELECTOR_PROJECTION,
+        source_roots=(VALID_FIXTURES,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return result.validated_bundles_by_name["pure_expr_selector_action_projection::orchestrate"]
 
 
 def _write_core_ast_workflow(workspace: Path) -> Path:
@@ -584,10 +603,11 @@ def test_core_ast_records_current_base_statement_family_inventory(tmp_path: Path
     primary = WorkflowLoader(tmp_path).load_bundle(_write_core_ast_workflow(tmp_path))
     control = WorkflowLoader(tmp_path).load_bundle(_write_control_taxonomy_workflow(tmp_path))
     adjudicated = WorkflowLoader(tmp_path).load_bundle(_write_adjudicated_provider_workflow(tmp_path))
+    pure_projection = _compile_pure_projection_bundle(tmp_path)
 
     emitted_kinds = {
         statement["kind"]
-        for bundle in (primary, control, adjudicated)
+        for bundle in (primary, control, adjudicated, pure_projection)
         for statement in core_ast_module.workflow_core_ast_to_json(bundle.core_workflow_ast)["body"]
     }
     finalization = core_ast_module.workflow_core_ast_to_json(control.core_workflow_ast)["finalization"]
@@ -602,6 +622,7 @@ def test_core_ast_records_current_base_statement_family_inventory(tmp_path: Path
         "increment_scalar",
         "match",
         "materialize_artifacts",
+        "pure_projection",
         "provider",
         "repeat_until",
         "select_variant_output",
@@ -611,6 +632,18 @@ def test_core_ast_records_current_base_statement_family_inventory(tmp_path: Path
     assert finalization is not None
     assert finalization["step_id"] == "root.finally.cleanup"
     assert [statement["kind"] for statement in finalization["statements"]] == ["command"]
+
+
+def test_core_ast_serializes_pure_projection_statement_payload(tmp_path: Path) -> None:
+    core_ast_module = importlib.import_module("orchestrator.workflow.core_ast")
+    bundle = _compile_pure_projection_bundle(tmp_path)
+
+    body = core_ast_module.workflow_core_ast_to_json(bundle.core_workflow_ast)["body"]
+
+    assert [statement["kind"] for statement in body] == ["pure_projection"]
+    assert body[0]["pure_projection"]["payload"]["pure_expr_schema_version"] == 1
+    assert body[0]["pure_projection"]["output_contracts"]["return__status"]["type"] == "string"
+    assert body[0]["common"]["output_bundle"]["path"] == "${inputs.__write_root__pure_expr_selector_action_projection_orchestrate__result_bundle}"
 
 
 def test_core_ast_structural_blocks_preserve_nested_lineage(tmp_path: Path) -> None:

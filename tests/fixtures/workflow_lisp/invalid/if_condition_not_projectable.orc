@@ -7,12 +7,16 @@
     :must-exist true)
   (defrecord ImplementationSummary
     (report WorkReport))
+  (defun identity-bool
+    ((value Bool))
+    -> Bool
+    value)
   (defworkflow invalid-if-condition-not-projectable
     ((ready Bool)
      (report_path WorkReport)
      (fallback_path WorkReport))
     -> ImplementationSummary
-    (if (let* ((alias ready)) alias)
+    (if (identity-bool ready)
       (record ImplementationSummary
         :report report_path)
       (record ImplementationSummary

@@ -27,6 +27,7 @@ from .model import (
     WccOpaqueFrontendValue,
     WccPhaseTargetAtom,
     WccPerform,
+    WccPureOp,
     WccRecJoin,
     WccRecordAtom,
     WccValue,
@@ -267,6 +268,21 @@ def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue
                 normalized_field = _generated_name_atom(normalized_field.metadata, purpose=f"inject:{field_name}")
             normalized_fields.append((field_name, normalized_field))
         return tuple(pending), replace(value, fields=tuple(normalized_fields))
+    if isinstance(value, WccPureOp):
+        pending: list[_PendingLet] = []
+        normalized_args: list[WccValue] = []
+        for index, arg in enumerate(value.args):
+            arg_prefix, normalized_arg = _normalize_value(arg)
+            pending.extend(arg_prefix)
+            if not isinstance(normalized_arg, _WCC_ATOM_TYPES):
+                generated = _generated_pending_let(normalized_arg, purpose=f"pure-op:{value.operator}:{index}")
+                pending.append(generated)
+                normalized_arg = _generated_name_atom(
+                    normalized_arg.metadata,
+                    purpose=f"pure-op:{value.operator}:{index}",
+                )
+            normalized_args.append(normalized_arg)
+        return tuple(pending), replace(value, args=tuple(normalized_args))
     raise TypeError(f"unsupported WCC M1 ANF node: {type(value).__name__}")
 
 

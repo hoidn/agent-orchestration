@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+from ..conditionals import PureExprCondition
 from ..expressions import (
     ContinueExpr,
     DoneExpr,
@@ -18,6 +19,8 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    PureOpExpr,
+    RecordUpdateExpr,
     RecordExpr,
     UnionVariantExpr,
 )
@@ -43,6 +46,7 @@ from .context import (
     _TerminalResult,
 )
 from .origins import LoweringOrigin, _origin_from_context_source, _record_step_origin
+from .pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
 from .values import (
     _assign_nested_local_value,
     _build_record_step_local_value,
@@ -797,10 +801,68 @@ def _lower_loop_body_expr(
             hidden_inputs={},
         )
     if isinstance(expr, IfExpr):
-        condition = lowering_core.render_condition_predicate(
-            lowering_core.classify_condition_expr(expr.condition_expr, type_ref=PrimitiveTypeRef(name="Bool")),
+        resolved_condition_expr = _resolve_inline_expr_value(
+            expr.condition_expr,
             local_values=local_values,
         )
+        condition_shape = lowering_core.classify_condition_expr(
+            expr.condition_expr,
+            type_ref=PrimitiveTypeRef(name="Bool"),
+        )
+        condition_steps: list[dict[str, Any]] = []
+        pure_condition_expr = (
+            resolved_condition_expr
+            if resolved_condition_expr is not expr.condition_expr
+            and is_pure_projection_expr(resolved_condition_expr)
+            and not isinstance(resolved_condition_expr, (LiteralExpr, NameExpr, FieldAccessExpr))
+            else expr.condition_expr if isinstance(condition_shape, PureExprCondition) else None
+        )
+        if pure_condition_expr is not None:
+            static_condition = try_evaluate_static_pure_expr(
+                pure_condition_expr,
+                result_type=PrimitiveTypeRef(name="Bool"),
+                context=context,
+                local_values=local_values,
+            )
+            if isinstance(static_condition, bool):
+                condition = {
+                    "compare": {
+                        "left": static_condition,
+                        "op": "eq",
+                        "right": True,
+                    }
+                }
+            else:
+                condition_step_name = f"{body_step_name}__condition"
+                condition_step_id = _normalize_generated_step_id(condition_step_name)
+                lowered_condition = lower_pure_projection_step(
+                    pure_condition_expr,
+                    result_type=PrimitiveTypeRef(name="Bool"),
+                    context=_copy_context_with_composition_scope(
+                        context,
+                        scope_id=condition_step_name,
+                        parent_scope_id=context.composition_scope_id,
+                        scope_kind="pure_projection",
+                        owner_step_name=condition_step_name,
+                    ),
+                    local_values=local_values,
+                    step_name=condition_step_name,
+                    step_id=condition_step_id,
+                    stable_target="loop_if_condition",
+                )
+                condition_steps.append(lowered_condition.step)
+                condition = {
+                    "compare": {
+                        "left": {"ref": _loop_body_scope_value(lowered_condition.output_refs["return"])},
+                        "op": "eq",
+                        "right": True,
+                    }
+                }
+        else:
+            condition = lowering_core.render_condition_predicate(
+                condition_shape,
+                local_values=local_values,
+            )
         branch_local_values = {
             name: _loop_parent_scope_value(value)
             for name, value in local_values.items()
@@ -872,6 +934,7 @@ def _lower_loop_body_expr(
         step_id = _normalize_generated_step_id(body_step_name)
         _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
         return [
+            *condition_steps,
             {
                 "name": body_step_name,
                 "id": step_id,
@@ -886,7 +949,7 @@ def _lower_loop_body_expr(
                     "outputs": else_outputs,
                     "steps": else_steps,
                 },
-            }
+            },
         ], _TerminalResult(
             step_name=body_step_name,
             step_id=step_id,
@@ -959,6 +1022,8 @@ def _lower_loop_terminal_expr(
     active_variant_name: str | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     step_id = _normalize_generated_step_id(body_step_name)
+    emitted_steps: list[dict[str, Any]] = []
+    resolved_state_expr = _resolve_loop_pure_projection_expr(state_expr, local_values=local_values)
     projected_values = [
         {
             "name": LOOP_STATUS_OUTPUT_NAME,
@@ -966,19 +1031,45 @@ def _lower_loop_terminal_expr(
             "contract": {"kind": "scalar", "type": "enum", "allowed": list(LOOP_STATUS_ALLOWED)},
         }
     ]
-    projected_values.extend(
-        _loop_projection_materialize_values(
-            state_expr,
-            projection=state_projection,
-            local_values=local_values,
+    state_projection_output_refs: dict[str, str] = {}
+    if resolved_state_expr is not None:
+        state_step_name = f"{body_step_name}__state"
+        state_step_id = _normalize_generated_step_id(state_step_name)
+        lowered_state = lower_pure_projection_step(
+            resolved_state_expr,
+            result_type=_resolve_lowering_expr_type(resolved_state_expr, context=context),
             context=context,
-            active_variant_name=active_variant_name,
-            allow_missing_target_fields=state_projection.optional_relpath_fields,
-            allow_missing_active_fields=(
-                active_variant_name is None and state_projection.union_projection is not None
-            ),
+            local_values=local_values,
+            step_name=state_step_name,
+            step_id=state_step_id,
+            stable_target="loop_state_projection",
+            output_contracts={
+                field.generated_name: internal_loop_contract(
+                    field,
+                    allow_missing_target_fields=state_projection.optional_relpath_fields,
+                )
+                for field in state_projection.flattened_fields
+            },
         )
-    )
+        emitted_steps.append(lowered_state.step)
+        state_projection_output_refs = {
+            output_name: _loop_body_scope_value(output_ref)
+            for output_name, output_ref in lowered_state.output_refs.items()
+        }
+    else:
+        projected_values.extend(
+            _loop_projection_materialize_values(
+                state_expr,
+                projection=state_projection,
+                local_values=local_values,
+                context=context,
+                active_variant_name=active_variant_name,
+                allow_missing_target_fields=state_projection.optional_relpath_fields,
+                allow_missing_active_fields=(
+                    active_variant_name is None and state_projection.union_projection is not None
+                ),
+            )
+        )
     if result_expr is None:
         if on_exhausted_result_expr is None:
             projected_values.extend(
@@ -1007,21 +1098,59 @@ def _lower_loop_terminal_expr(
                 )
             )
     else:
-        projected_values.extend(
-            _loop_projection_materialize_values(
-                result_expr,
-                projection=result_projection,
-                local_values=local_values,
+        resolved_result_expr = _resolve_loop_pure_projection_expr(result_expr, local_values=local_values)
+        if resolved_result_expr is not None:
+            result_step_name = f"{body_step_name}__result"
+            result_step_id = _normalize_generated_step_id(result_step_name)
+            lowered_result = lower_pure_projection_step(
+                resolved_result_expr,
+                result_type=result_type,
                 context=context,
-                active_variant_name=active_variant_name,
-                allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
-                allow_missing_active_fields=(
-                    active_variant_name is None and result_projection.union_projection is not None
-                ),
+                local_values=local_values,
+                step_name=result_step_name,
+                step_id=result_step_id,
+                stable_target="loop_result_projection",
+                output_contracts={
+                    field.generated_name: internal_loop_contract(
+                        field,
+                        allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+                    )
+                    for field in result_projection.flattened_fields
+                },
             )
-        )
+            emitted_steps.append(lowered_result.step)
+            for output_name, output_ref in lowered_result.output_refs.items():
+                projected_values.append(
+                    {
+                        "name": output_name,
+                        "source": {"ref": _loop_body_scope_value(output_ref)},
+                        "contract": internal_loop_contract(
+                            next(
+                                field
+                                for field in result_projection.flattened_fields
+                                if field.generated_name == output_name
+                            ),
+                            allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+                        ),
+                    }
+                )
+        else:
+            projected_values.extend(
+                _loop_projection_materialize_values(
+                    result_expr,
+                    projection=result_projection,
+                    local_values=local_values,
+                    context=context,
+                    active_variant_name=active_variant_name,
+                    allow_missing_target_fields=_loop_result_optional_relpath_fields(result_projection),
+                    allow_missing_active_fields=(
+                        active_variant_name is None and result_projection.union_projection is not None
+                    ),
+                )
+            )
     values: list[dict[str, Any]] = []
     output_refs: dict[str, str] = {}
+    output_refs.update(state_projection_output_refs)
     for value in projected_values:
         source = value.get("source")
         if not isinstance(source, dict):
@@ -1038,13 +1167,14 @@ def _lower_loop_terminal_expr(
         values.append(value)
         output_refs[value["name"]] = f"root.steps.{body_step_name}.artifacts.{value['name']}"
     _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
-    return [
+    emitted_steps.append(
         _materialize_values_step(
             step_name=body_step_name,
             step_id=step_id,
             values=values,
         )
-    ], _TerminalResult(
+    )
+    return emitted_steps, _TerminalResult(
         step_name=body_step_name,
         step_id=step_id,
         output_refs=output_refs,
@@ -1084,6 +1214,23 @@ def _loop_output_contracts(
         }
     )
     return outputs
+
+
+def _is_loop_pure_projection_candidate(expr: Any) -> bool:
+    return is_pure_projection_expr(expr) and not isinstance(expr, (LiteralExpr, NameExpr, FieldAccessExpr))
+
+
+def _resolve_loop_pure_projection_expr(expr: Any, *, local_values: Mapping[str, Any]) -> Any | None:
+    if _is_loop_pure_projection_candidate(expr):
+        return expr
+    if not isinstance(expr, NameExpr):
+        return None
+    resolved = _resolve_inline_expr_value(expr, local_values=local_values)
+    if resolved is expr:
+        return None
+    if _is_loop_pure_projection_candidate(resolved):
+        return resolved
+    return None
 
 
 def _canonicalize_loop_materialize_scope_refs(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:

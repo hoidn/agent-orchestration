@@ -25,10 +25,12 @@ from ..expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    PureOpExpr,
     ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
+    RecordUpdateExpr,
     RecordExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
@@ -37,6 +39,7 @@ from ..expressions import (
 )
 from ..type_env import (
     FrontendTypeEnvironment,
+    OptionalTypeRef,
     PrimitiveTypeRef,
     ProcRefTypeRef,
     RecordTypeRef,
@@ -71,6 +74,7 @@ from .model import (
     WccPhaseScope,
     WccPhaseTargetAtom,
     WccPerform,
+    WccPureOp,
     WccProduceOneOfPayload,
     WccRecJoin,
     WccRecordAtom,
@@ -903,6 +907,103 @@ def _elaborate_expr_to_value(
                 ),
                 type_name=expr.type_name,
                 fields=tuple(fields),
+            ),
+        )
+    if isinstance(expr, PureOpExpr):
+        result_type = _infer_expr_type(
+            expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        prefix: list[WccLet] = []
+        args: list[WccValue] = []
+        for index, arg_expr in enumerate(expr.args):
+            arg_body = _elaborate_expr_to_body(
+                arg_expr,
+                scope=scope.child_scope("pure-op-arg", authored_binding_name=str(index)),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            arg_prefix, arg_value = _body_to_prefix_and_value(arg_body)
+            prefix.extend(arg_prefix)
+            args.append(arg_value)
+        return (
+            tuple(prefix),
+            WccPureOp(
+                metadata=scope.value_metadata(
+                    role=f"pure-op:{expr.operator}",
+                    type_ref=result_type,
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                operator=expr.operator,
+                args=tuple(args),
+            ),
+        )
+    if isinstance(expr, RecordUpdateExpr):
+        result_type = _infer_expr_type(
+            expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
+        prefix: list[WccLet] = []
+        base_body = _elaborate_expr_to_body(
+            expr.base_expr,
+            scope=scope.child_scope("record-update-base", authored_binding_name="base"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        base_prefix, base_value = _body_to_prefix_and_value(base_body)
+        prefix.extend(base_prefix)
+        args: list[WccValue] = [base_value]
+        field_names: list[str] = []
+        for field_name, field_expr in expr.overrides:
+            field_body = _elaborate_expr_to_body(
+                field_expr,
+                scope=scope.child_scope("record-update-field", authored_binding_name=field_name),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+            field_prefix, field_value = _body_to_prefix_and_value(field_body)
+            prefix.extend(field_prefix)
+            field_names.append(field_name)
+            args.append(field_value)
+        return (
+            tuple(prefix),
+            WccPureOp(
+                metadata=scope.value_metadata(
+                    role="pure-op:record-update",
+                    type_ref=result_type,
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                operator="record-update",
+                args=tuple(args),
+                field_names=tuple(field_names),
             ),
         )
     if isinstance(expr, UnionVariantExpr):
@@ -2185,6 +2286,14 @@ def _infer_expr_type(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
         )
+    if isinstance(expr, RecordUpdateExpr):
+        return _infer_expr_type(
+            expr.base_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        )
     if isinstance(expr, FieldAccessExpr):
         current: TypeRef = value_env[expr.base.name]
         for field_name in expr.fields:
@@ -2202,6 +2311,35 @@ def _infer_expr_type(
         return _require_record_type(expr, type_env=type_env)
     if isinstance(expr, UnionVariantExpr):
         return _require_union_type(expr, type_env=type_env)
+    if isinstance(expr, PureOpExpr):
+        arg_types = tuple(
+            _infer_expr_type(
+                arg,
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+            for arg in expr.args
+        )
+        operator = expr.operator
+        if operator in {"=", "!=", "<", "<=", ">", ">=", "and", "or", "not", "some?"}:
+            return PrimitiveTypeRef(name="Bool")
+        if operator in {"+", "-", "*", "min", "max"}:
+            if not arg_types:
+                raise TypeError(f"pure operator `{operator}` requires arguments during WCC inference")
+            return arg_types[0]
+        if operator == "or-else":
+            if len(arg_types) != 2:
+                raise TypeError("pure operator `or-else` requires exactly two operands during WCC inference")
+            if isinstance(arg_types[0], OptionalTypeRef):
+                return arg_types[0].item_type_ref
+            return arg_types[1]
+        if operator in {"string/concat", "symbol/name"}:
+            return PrimitiveTypeRef(name="String")
+        if operator == "string/empty?":
+            return PrimitiveTypeRef(name="Bool")
+        raise TypeError(f"unsupported WCC pure operator inference `{operator}`")
     if isinstance(expr, ContinueExpr):
         state_type = _infer_expr_type(
             expr.state_expr,

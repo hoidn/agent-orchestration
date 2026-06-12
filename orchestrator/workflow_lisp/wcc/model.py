@@ -225,6 +225,14 @@ class WccRecordAtom:
 
 
 @dataclass(frozen=True)
+class WccPureOp:
+    metadata: WccNodeMetadata
+    operator: str
+    args: tuple["WccValue", ...]
+    field_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class WccOpaqueFrontendValue:
     metadata: WccNodeMetadata
     expr: object
@@ -241,7 +249,7 @@ class WccInject:
     fields: tuple[tuple[str, WccValue], ...]
 
 
-WccValue = WccAtom | WccInject
+WccValue = WccAtom | WccInject | WccPureOp
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
+from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
+
 from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .form_registry import FormKind, get_form_spec
@@ -78,6 +80,28 @@ class RecordExpr:
 
     type_name: str
     fields: tuple[tuple[str, "ExprNode"], ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class PureOpExpr:
+    """One closed pure operator application."""
+
+    operator: str
+    args: tuple["ExprNode", ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class RecordUpdateExpr:
+    """One record-update expression over an existing record value."""
+
+    base_expr: "ExprNode"
+    overrides: tuple[tuple[str, "ExprNode"], ...]
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
@@ -471,6 +495,8 @@ ExprNode = (
     | LiteralExpr
     | FieldAccessExpr
     | RecordExpr
+    | PureOpExpr
+    | RecordUpdateExpr
     | LoopStateSeedExpr
     | LoopStateUpdateExpr
     | UnionVariantExpr
@@ -721,6 +747,14 @@ def _elaborate_list(
             bound_names=bound_names,
             procedure_names=procedure_names,
         )
+    if _looks_like_pure_operator_head(head.resolved_name):
+        _raise_error(
+            f"unsupported pure operator `{head.display_name}`",
+            code="pure_expr_operator_unsupported",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
+        )
     _raise_error(
         f"unknown same-file procedure callee `{head.display_name}`",
         code="procedure_call_unknown",
@@ -877,6 +911,8 @@ def _route_proc_ref(
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
     return {
         "record": _elaborate_record,
+        "pure_op": _elaborate_pure_op,
+        "record_update": _elaborate_record_update,
         "loop_state": _elaborate_loop_state,
         "variant": _elaborate_variant,
         "let_star": _elaborate_letstar,
@@ -904,6 +940,14 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "finalize_selected_item": _elaborate_finalize_selected_item,
         "backlog_drain": _elaborate_backlog_drain,
     }
+
+
+def _looks_like_pure_operator_head(name: str) -> bool:
+    if name in PURE_EXPR_OPERATOR_CATALOG:
+        return True
+    if "/" in name:
+        return True
+    return name in {"and", "or", "not", "min", "max", "some?", "or-else", "record-update"}
 
 
 def _elaborate_record(
@@ -957,6 +1001,90 @@ def _elaborate_record(
     return RecordExpr(
         type_name=type_identifier.resolved_name,
         fields=tuple(fields),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_pure_op(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> PureOpExpr:
+    head = syntax_head(datum)
+    assert head is not None
+    return PureOpExpr(
+        operator=head.resolved_name,
+        args=tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in datum.items[1:]
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_record_update(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> RecordUpdateExpr:
+    if len(datum.items) < 4:
+        _raise_error(
+            "`record-update` requires a base expression and at least one keyword/value override",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    raw_fields = datum.items[2:]
+    if len(raw_fields) % 2 != 0:
+        _raise_error(
+            "`record-update` requires keyword/value override pairs",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    overrides: list[tuple[str, ExprNode]] = []
+    for index in range(0, len(raw_fields), 2):
+        keyword_node = raw_fields[index]
+        value_node = raw_fields[index + 1]
+        if not isinstance(keyword_node, SyntaxKeyword):
+            _raise_error(
+                "`record-update` overrides must start with keywords",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        overrides.append(
+            (
+                keyword_node.value[1:],
+                _elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            )
+        )
+    return RecordUpdateExpr(
+        base_expr=_elaborate(
+            datum.items[1],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        overrides=tuple(overrides),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -1,0 +1,82 @@
+[
+  {
+    "operator": "=",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "!=",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "<",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "<=",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": ">",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": ">=",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "and",
+    "fixture_path": "tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc"
+  },
+  {
+    "operator": "or",
+    "fixture_path": "tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc"
+  },
+  {
+    "operator": "not",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "+",
+    "fixture_path": "tests/fixtures/workflow_lisp/valid/pure_expr_loop_counter.orc"
+  },
+  {
+    "operator": "-",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "*",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "min",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "max",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "string/concat",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "string/empty?",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "symbol/name",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "some?",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "or-else",
+    "fixture_path": "tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc"
+  },
+  {
+    "operator": "record-update",
+    "fixture_path": "tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc"
+  }
+]

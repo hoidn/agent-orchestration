@@ -31,6 +31,7 @@ class ExecutableNodeKind(str, Enum):
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
+    PURE_PROJECTION = "pure_projection"
     INCREMENT_SCALAR = "increment_scalar"
     MATERIALIZE_ARTIFACTS = "materialize_artifacts"
     SELECT_VARIANT_OUTPUT = "select_variant_output"
@@ -235,6 +236,14 @@ class SetScalarStepConfig:
 
 
 @dataclass(frozen=True)
+class PureProjectionStepConfig:
+    """Executable pure_projection-step config."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    pure_projection: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class IncrementScalarStepConfig:
     """Executable increment_scalar-step config."""
 
@@ -293,6 +302,7 @@ ExecutableStepConfig = (
     | WaitForStepConfig
     | AssertStepConfig
     | SetScalarStepConfig
+    | PureProjectionStepConfig
     | IncrementScalarStepConfig
     | MaterializeArtifactsStepConfig
     | SelectVariantOutputStepConfig
@@ -446,6 +456,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     WaitForStepConfig,
     AssertStepConfig,
     SetScalarStepConfig,
+    PureProjectionStepConfig,
     IncrementScalarStepConfig,
     MaterializeArtifactsStepConfig,
     SelectVariantOutputStepConfig,
@@ -467,6 +478,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
     ExecutableNodeKind.SET_SCALAR: SetScalarStepConfig,
+    ExecutableNodeKind.PURE_PROJECTION: PureProjectionStepConfig,
     ExecutableNodeKind.INCREMENT_SCALAR: IncrementScalarStepConfig,
     ExecutableNodeKind.MATERIALIZE_ARTIFACTS: MaterializeArtifactsStepConfig,
     ExecutableNodeKind.SELECT_VARIANT_OUTPUT: SelectVariantOutputStepConfig,

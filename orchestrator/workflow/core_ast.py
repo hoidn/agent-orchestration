@@ -143,6 +143,14 @@ class CoreSetScalarStep:
 
 
 @dataclass(frozen=True)
+class CorePureProjectionStep:
+    meta: CoreStmtMeta
+    common: Any
+    pure_projection: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class CoreIncrementScalarStep:
     meta: CoreStmtMeta
     common: Any
@@ -515,6 +523,13 @@ def _build_statement(
             set_scalar=step.set_scalar,
             _surface_step=step,
         )
+    if step.kind is SurfaceStepKind.PURE_PROJECTION:
+        return CorePureProjectionStep(
+            meta=meta,
+            common=step.common,
+            pure_projection=step.pure_projection,
+            _surface_step=step,
+        )
     if step.kind is SurfaceStepKind.INCREMENT_SCALAR:
         return CoreIncrementScalarStep(
             meta=meta,
@@ -857,6 +872,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["assert_predicate"] = statement.assert_predicate
     elif isinstance(statement, CoreSetScalarStep):
         kwargs["set_scalar"] = statement.set_scalar
+    elif isinstance(statement, CorePureProjectionStep):
+        kwargs["pure_projection"] = statement.pure_projection
     elif isinstance(statement, CoreIncrementScalarStep):
         kwargs["increment_scalar"] = statement.increment_scalar
     elif isinstance(statement, CoreMaterializeArtifactsStep):
@@ -1045,6 +1062,9 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
         return payload
     if isinstance(statement, CoreSetScalarStep):
         payload.update({"kind": "set_scalar", "set_scalar": _json_data(statement.set_scalar)})
+        return payload
+    if isinstance(statement, CorePureProjectionStep):
+        payload.update({"kind": "pure_projection", "pure_projection": _json_data(statement.pure_projection)})
         return payload
     if isinstance(statement, CoreIncrementScalarStep):
         payload.update({"kind": "increment_scalar", "increment_scalar": _json_data(statement.increment_scalar)})

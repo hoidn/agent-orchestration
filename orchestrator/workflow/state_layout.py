@@ -37,6 +37,7 @@ class GeneratedPathSemanticRole(str, Enum):
     COMMAND_RESULT_BUNDLE = "command_result_bundle"
     PROVIDER_RESULT_BUNDLE = "provider_result_bundle"
     VARIANT_PROJECTION_BUNDLE = "variant_projection_bundle"
+    PURE_PROJECTION_BUNDLE = "pure_projection_bundle"
     MATERIALIZED_VALUE_VIEW = "materialized_value_view"
     REUSABLE_CALL_WRITE_ROOT = "reusable_call_write_root"
     ENTRYPOINT_MANAGED_WRITE_ROOT = "entrypoint_managed_write_root"
@@ -248,6 +249,7 @@ def derive_entrypoint_managed_write_root_allocations(
                 GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
                 GeneratedPathSemanticRole.VARIANT_PROJECTION_BUNDLE,
+                GeneratedPathSemanticRole.PURE_PROJECTION_BUNDLE,
             }
             or not isinstance(allocation.generated_input_name, str)
             or allocation.generated_input_name in recorded_entry_inputs

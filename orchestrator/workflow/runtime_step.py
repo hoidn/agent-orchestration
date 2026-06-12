@@ -17,6 +17,7 @@ from .executable_ir import (
     ForEachStepConfig,
     IncrementScalarStepConfig,
     MaterializeArtifactsStepConfig,
+    PureProjectionStepConfig,
     ProviderStepConfig,
     RepeatUntilStepConfig,
     SelectVariantOutputStepConfig,
@@ -259,6 +260,11 @@ class RuntimeStep(Mapping[str, Any]):
                 return thaw_runtime_value(config.set_scalar)
             raise KeyError(key)
 
+        if isinstance(config, PureProjectionStepConfig):
+            if key == "pure_projection":
+                return thaw_runtime_value(config.pure_projection)
+            raise KeyError(key)
+
         if isinstance(config, IncrementScalarStepConfig):
             if key == "increment_scalar":
                 return thaw_runtime_value(config.increment_scalar)
@@ -367,6 +373,10 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, SetScalarStepConfig):
             yield "set_scalar"
+            return
+
+        if isinstance(config, PureProjectionStepConfig):
+            yield "pure_projection"
             return
 
         if isinstance(config, IncrementScalarStepConfig):

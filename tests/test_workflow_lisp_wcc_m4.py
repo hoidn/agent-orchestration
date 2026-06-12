@@ -29,6 +29,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccLoopDone,
     WccLoopRole,
     WccNameAtom,
+    WccPureOp,
     WccRecJoin,
 )
 
@@ -38,6 +39,8 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 VALID_FIXTURES = FIXTURES / "valid"
 MODULE_FIXTURES = FIXTURES / "modules" / "valid"
 CHARACTERIZATION_SOURCES = FIXTURES / "characterization" / "sources"
+PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
+PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
 
 
 def _span() -> SourceSpan:
@@ -112,6 +115,33 @@ def _skip_lets(body):
     return current
 
 
+def _walk_steps(steps):
+    for step in steps:
+        yield step
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            nested = repeat_until.get("steps", [])
+            if isinstance(nested, list):
+                yield from _walk_steps(nested)
+        branch = step.get("if")
+        if isinstance(branch, dict):
+            for key in ("then", "else"):
+                case = branch.get(key)
+                if isinstance(case, dict):
+                    nested = case.get("steps", [])
+                    if isinstance(nested, list):
+                        yield from _walk_steps(nested)
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            cases = match_block.get("cases", {})
+            if isinstance(cases, dict):
+                for case in cases.values():
+                    if isinstance(case, dict):
+                        nested = case.get("steps", [])
+                        if isinstance(nested, list):
+                            yield from _walk_steps(nested)
+
+
 def test_normalize_lowering_route_accepts_wcc_m4() -> None:
     assert normalize_lowering_route("wcc_m4") is LoweringRoute.WCC_M4
     assert normalize_lowering_route(LoweringRoute.WCC_M4) is LoweringRoute.WCC_M4
@@ -166,6 +196,81 @@ def test_wcc_m4_accepts_generic_imported_workflow_call_module_graph(
     )
 
     assert result.lowered_workflows
+
+
+def test_wcc_m4_pure_op_elaboration_preserves_operation_metadata(tmp_path: Path) -> None:
+    type_env, workflows, workflow_return_types, procedure_return_types = _compile_fixture(
+        PURE_EXPR_SELECTOR_PROJECTION,
+        tmp_path=tmp_path,
+    )
+    typed_workflow = workflows["orchestrate"]
+
+    body = elaborate_typed_workflow(
+        typed_workflow,
+        type_env=type_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
+    )
+
+    assert isinstance(body, WccHalt)
+    assert isinstance(body.result, WccPureOp)
+    assert body.result.operator == "record-update"
+    assert body.result.metadata.node_id.startswith("wcc-node:wcc_m4:")
+    assert body.result.metadata.scope_id.startswith("wcc-scope:wcc_m4:")
+
+
+def test_wcc_m4_pure_projection_runtime_regions_emit_visible_projection_steps(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        PURE_EXPR_LOOP_COUNTER,
+        provider_externs={},
+        prompt_externs={},
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    all_steps = list(_walk_steps(result.lowered_workflows[0].authored_mapping["steps"]))
+    pure_projection_steps = [step for step in all_steps if "pure_projection" in step]
+
+    assert pure_projection_steps
+    assert any(step["name"].endswith("__condition") for step in pure_projection_steps)
+    assert all(step["output_bundle"]["fields"] for step in pure_projection_steps)
+
+
+def test_wcc_m4_constant_folds_literal_only_pure_expression_without_projection_step(tmp_path: Path) -> None:
+    module_path = tmp_path / "literal_fold.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule literal_fold)",
+                "  (export fold)",
+                "  (defworkflow fold () -> Int",
+                "    (+ 1 (+ 2 3)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        module_path,
+        provider_externs={},
+        prompt_externs={},
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    steps = list(_walk_steps(result.lowered_workflows[0].authored_mapping["steps"]))
+
+    assert not any("pure_projection" in step for step in steps)
+    materialize = next(step for step in steps if "materialize_artifacts" in step)
+    assert materialize["materialize_artifacts"]["values"][0]["source"]["literal"] == 6
 
 
 def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:

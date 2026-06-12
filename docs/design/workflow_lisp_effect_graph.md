@@ -38,6 +38,20 @@ EffectEntry(
 )
 ```
 
+## Generated Visibility Effects
+
+The current checkout also promotes a small set of generated visibility effects
+into Semantic IR so runtime-visible generated structure is inspectable without
+inventing fake authored statements:
+
+- `snapshot_capture`
+- `pointer_materialization`
+- `pure_projection`
+
+`pure_projection` is visibility for one generated runtime projection boundary,
+not evidence that the authored expression gained provider, command, IO, or
+state-mutation effects. The underlying pure-expression tree remains effect-free.
+
 ## Pure Forms
 
 Pure helpers may compute names, paths, records, constants, and schemas. They
@@ -53,6 +67,11 @@ The compiler rejects pure forms that:
 - inspect wall-clock time
 - generate random values
 - mutate workflow state
+
+When lowering emits a runtime-visible `pure_projection` step, Semantic IR may
+carry a generated `pure_projection` effect with payload digest, schema version,
+and private bundle lineage. That effect is observational metadata for the
+generated boundary, not permission to treat the expression body as effectful.
 
 ## Macro Boundary
 

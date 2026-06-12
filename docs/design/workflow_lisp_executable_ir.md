@@ -63,6 +63,13 @@ state-projection linkage, materialization actions, routing structure, and the
 other runtime-facing data needed for downstream derivations. It no longer
 contains macros, unresolved procedures, or frontend-only type forms.
 
+The current executable-node inventory also includes
+`ExecutableNodeKind.PURE_PROJECTION` with `PureProjectionStepConfig`. That node
+kind executes one validated pure-expression payload against resolved binding
+refs, validates flattened output contracts, and commits a private generated
+bundle that can be reused on resume when payload digest and schema version
+match.
+
 ## Validation Ownership
 
 Executable IR validation is owned by the shared workflow layer, not by ad hoc
@@ -139,6 +146,10 @@ Workflow Lisp build path:
   `tests/test_workflow_lisp_diagnostics.py` provide the current repo evidence
   for schema/version locking, emitted artifacts, and executable-pass
   revalidation behavior.
+- `tests/test_runtime_step_lifecycle.py` and
+  `tests/test_workflow_lisp_pure_projection_runtime.py` provide current
+  evidence that runtime views expose `pure_projection` and that resume reuses
+  only schema/digest-compatible projection bundles.
 
 Those artifacts are durable evidence for the implemented layer; they do not
 change the rule that validated executable IR is the authority and the other
