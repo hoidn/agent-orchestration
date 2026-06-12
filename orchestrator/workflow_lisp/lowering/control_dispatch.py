@@ -48,6 +48,11 @@ from .context import (
 )
 from .effects import _lower_provider_result
 from .origins import LoweringOrigin, _record_step_origin
+from .pure_projection import (
+    is_pure_projection_expr,
+    lower_pure_projection_step,
+    output_contracts_for_boundary_type,
+)
 from .values import (
     _build_output_step_local_value,
     _resolve_inline_expr_value,
@@ -411,6 +416,20 @@ def _lower_effectful_binding_expr(
             local_values=local_values,
             step_name_prefix=step_name_prefix,
         )
+    pure_projection_candidate = _pure_projection_binding_candidate(
+        expr,
+        local_values=local_values,
+    )
+    if pure_projection_candidate is not None:
+        return _lower_pure_projection_binding_expr(
+            pure_projection_candidate,
+            source_expr=expr,
+            binding_name=step_name_prefix.rsplit("__", 1)[-1],
+            binding_type=binding_type,
+            context=context,
+            local_values=local_values,
+            step_name_prefix=step_name_prefix,
+        )
     return _lower_expression(
         TypedExpr(
             expr=expr,
@@ -423,6 +442,59 @@ def _lower_effectful_binding_expr(
             step_name_prefix=step_name_prefix,
         ),
         local_values=local_values,
+    )
+
+
+def _pure_projection_binding_candidate(
+    expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> Any | None:
+    candidate = _resolve_inline_expr_value(expr, local_values=local_values)
+    if candidate is None or isinstance(candidate, (str, Mapping)):
+        return None
+    if is_pure_projection_expr(candidate):
+        return candidate
+    return None
+
+
+def _lower_pure_projection_binding_expr(
+    expr: Any,
+    *,
+    source_expr: Any,
+    binding_name: str,
+    binding_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    step_name_prefix: str,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    lowered = lower_pure_projection_step(
+        expr,
+        result_type=binding_type,
+        context=context,
+        local_values=local_values,
+        step_name=step_name_prefix,
+        step_id=_normalize_generated_step_id(step_name_prefix),
+        source_expr=source_expr,
+        stable_target="binding_projection",
+        output_contracts=output_contracts_for_boundary_type(
+            binding_type,
+            generated_name=binding_name,
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+        ),
+    )
+    return [lowered.step], _TerminalResult(
+        step_name=step_name_prefix,
+        step_id=_normalize_generated_step_id(step_name_prefix),
+        output_refs=lowered.output_refs,
+        output_kind="projection",
+        hidden_inputs={},
+        returned_union_type_name=(
+            binding_type.name
+            if isinstance(binding_type, UnionTypeRef)
+            else None
+        ),
     )
 
 

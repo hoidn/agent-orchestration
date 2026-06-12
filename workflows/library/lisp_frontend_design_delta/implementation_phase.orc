@@ -7,7 +7,7 @@
   (import lisp_frontend_design_delta/types :only
     (ArtifactChecksPath ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkPath
       ArtifactWorkTargetPath BaselineDesignDoc CheckCommandsPath ImplementationPhaseResult
-      PlanDoc TargetDesignDoc))
+      ImplementationReviewDecision ImplementationState PlanDoc TargetDesignDoc))
   (export implementation-phase)
 
   (defrecord RunCtx
@@ -30,11 +30,11 @@
 
   (defunion ImplementationAttempt
     (COMPLETED
-      (implementation_state String)
+      (implementation_state ImplementationState)
       (execution_report ArtifactWorkTargetPath))
     (BLOCKED
-      (implementation_state String)
-      (implementation_review_decision String)
+      (implementation_state ImplementationState)
+      (implementation_review_decision ImplementationReviewDecision)
       (progress_report ArtifactWorkTargetPath)
       (blocker_class BlockerClass)))
 
@@ -44,16 +44,6 @@
     (plan_path PlanDoc)
     (execution_report_target_path ArtifactWorkTargetPath)
     (implementation_review_report_target_path ArtifactReviewTargetPath))
-
-  (defunion NormalizedImplementationPhaseResult
-    (COMPLETED
-      (implementation_review_decision String)
-      (checks_report ArtifactChecksTargetPath)
-      (implementation_review_report ArtifactReviewTargetPath))
-    (BLOCKED
-      (implementation_review_decision String)
-      (checks_report ArtifactChecksTargetPath)
-      (implementation_review_report ArtifactReviewTargetPath)))
 
   (defproc run-checks
     ((check_commands_path CheckCommandsPath)
@@ -152,40 +142,21 @@
                     :review (proc-ref review-implementation)
                     :fix (proc-ref fix-implementation)
                     :max 40))
-                (normalized-review
+                (review-decision
                   (match review
                     ((APPROVED approved)
-                     (variant NormalizedImplementationPhaseResult COMPLETED
-                       :implementation_review_decision "APPROVE"
-                       :checks_report checks_report_target_path
-                       :implementation_review_report implementation_review_report_target_path))
+                     ImplementationReviewDecision.APPROVE)
                     ((BLOCKED blocked)
-                     (variant NormalizedImplementationPhaseResult COMPLETED
-                       :implementation_review_decision "REVISE"
-                       :checks_report checks_report_target_path
-                       :implementation_review_report implementation_review_report_target_path))
+                     ImplementationReviewDecision.REVISE)
                     ((EXHAUSTED exhausted)
-                     (variant NormalizedImplementationPhaseResult COMPLETED
-                       :implementation_review_decision "REVISE"
-                       :checks_report checks_report_target_path
-                       :implementation_review_report implementation_review_report_target_path)))))
-           (match normalized-review
-             ((COMPLETED normalized)
-              (record ImplementationPhaseResult
-                :implementation-state completed.implementation_state
-                :implementation-review-decision normalized.implementation_review_decision
-                :execution-report completed.execution_report
-                :progress-report progress_report_target_path
-                :checks-report normalized.checks_report
-                :implementation-review-report normalized.implementation_review_report))
-             ((BLOCKED normalized)
-              (record ImplementationPhaseResult
-                :implementation-state completed.implementation_state
-                :implementation-review-decision normalized.implementation_review_decision
-                :execution-report completed.execution_report
-                :progress-report progress_report_target_path
-                :checks-report normalized.checks_report
-                :implementation-review-report normalized.implementation_review_report)))))
+                     ImplementationReviewDecision.REVISE))))
+           (record ImplementationPhaseResult
+             :implementation-state completed.implementation_state
+             :implementation-review-decision review-decision
+             :execution-report completed.execution_report
+             :progress-report progress_report_target_path
+             :checks-report checks_report_target_path
+             :implementation-review-report implementation_review_report_target_path)))
         ((BLOCKED blocked)
         (record ImplementationPhaseResult
            :implementation-state blocked.implementation_state

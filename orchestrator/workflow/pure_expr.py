@@ -818,7 +818,20 @@ def _coerce_value(value: Any, descriptor: Mapping[str, Any], *, context: str) ->
             if field_name not in value:
                 _raise("pure_expr_operand_type_mismatch", f"{context} is missing variant field `{field_name}`")
             result[field_name] = _coerce_value(value[field_name], field["type"], context=f"{context}.{field_name}")
-        extra = sorted(set(value) - set(expected_names) - {"variant"})
+        if kind == "variant_case":
+            extra = []
+        else:
+            known_union_fields = {
+                field["name"]
+                for variant in descriptor.get("variants", ())
+                for field in variant.get("fields", ())
+                if isinstance(field, Mapping) and isinstance(field.get("name"), str)
+            }
+            extra = sorted(
+                name
+                for name in (set(value) - set(expected_names) - {"variant"})
+                if name not in known_union_fields
+            )
         if extra:
             _raise("pure_expr_operand_type_mismatch", f"{context} has unexpected variant fields: {', '.join(extra)}")
         return result

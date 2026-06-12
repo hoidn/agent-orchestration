@@ -5,7 +5,7 @@
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop))
   (import lisp_frontend_design_delta/types :only
-    (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanDraftResult
+    (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanReviewDecision
       ProgressLedger SteeringDoc TargetDesignDoc WorkReport))
   (export
     DesignDeltaPlanPhaseResult
@@ -29,6 +29,9 @@
   (defrecord PlanSubject
     (plan_path PlanDoc))
 
+  (defrecord PlanDraftResult
+    (plan_path PlanDoc))
+
   (defrecord PlanPhaseInputs
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
@@ -42,7 +45,7 @@
     (APPROVED
       (approved_plan_path PlanDoc)
       (approved_plan_review_report_path ReviewReportPath)
-      (plan_review_decision String)
+      (plan_review_decision PlanReviewDecision)
       (findings ReviewFindings))
     (BLOCKED
       (blocked_plan_path PlanDoc)
@@ -101,15 +104,15 @@
      (plan_review_report_target_path ArtifactReviewTargetPath))
     -> DesignDeltaPlanPhaseResult
     (with-phase phase-ctx plan
-      (let* ((draft
-               (provider-result providers.plan.draft
-                 :prompt prompts.plan.draft
-                 :inputs (steering
-                          target_design
-                          baseline_design
-                          work_item_context
-                          progress_ledger
-                          plan_target_path)
+        (let* ((draft
+                 (provider-result providers.plan.draft
+                   :prompt prompts.plan.draft
+                   :inputs (steering
+                            target_design
+                            baseline_design
+                            work_item_context
+                            progress_ledger
+                            plan_target_path)
                  :returns PlanDraftResult))
              (completed
                (record PlanSubject
@@ -136,7 +139,7 @@
            (variant DesignDeltaPlanPhaseResult APPROVED
              :approved_plan_path completed.plan_path
              :approved_plan_review_report_path approved.review_report
-             :plan_review_decision "APPROVE"
+             :plan_review_decision PlanReviewDecision.APPROVE
              :findings
                (record ReviewFindings
                  :schema_version approved.findings.schema_version

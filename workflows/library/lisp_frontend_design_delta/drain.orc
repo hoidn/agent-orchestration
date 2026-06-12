@@ -5,14 +5,15 @@
   (import lisp_frontend_design_delta/design_gap_architect :only
     (ArchitectureTargets ArchitectureValidationBundleTarget CommandAdapterContractDoc
       DraftBundleTarget draft-design-gap-architecture validate-design-gap-architecture))
+  (import lisp_frontend_design_delta/projections :only (project-selector-action))
   (import lisp_frontend_design_delta/selector :only
-    (SelectorPublicResult select-next-work))
+    (select-next-work))
   (import lisp_frontend_design_delta/transitions :only
     (drain-run-state write-drain-status))
   (import lisp_frontend_design_delta/types :only
     (ArtifactWorkPath BaselineDesignDoc DesignDeltaDrainAction DrainIterationStatus DrainResult
-      DrainState PlanDraftResult ProgressLedger RunStatePath SelectionBundlePath SelectionStatus StateFile
-      StateFileExisting SteeringDoc TargetDesignDoc WorkItemResult WorkReport WorkReportTarget))
+      DrainState PlanDraftResult ProgressLedger RunStatePath StateFile StateFileExisting SteeringDoc
+      TargetDesignDoc WorkItemResult WorkReport WorkReportTarget))
   (import lisp_frontend_design_delta/work_item :only (run-work-item))
   (export drain)
 
@@ -95,23 +96,6 @@
          (state_root state_root))
       :returns DrainSummary))
 
-  (defproc project-selector-action
-    ((selection SelectorPublicResult))
-    -> DesignDeltaDrainAction
-    :effects ((uses-command project_lisp_frontend_selector_action))
-    :lowering inline
-    (command-result project_lisp_frontend_selector_action
-      :adapter project_lisp_frontend_selector_action
-      :inputs
-        ((selection_status selection.selection_status)
-         (selection_bundle_path selection.selection_bundle_path)
-         (is_selected selection.is_selected)
-         (is_design_gap selection.is_design_gap)
-         (is_done selection.is_done)
-         (is_blocked selection.is_blocked)
-         (blocked_reason selection.blocked_reason))
-      :returns DesignDeltaDrainAction))
-
   (defworkflow drain
     ((phase-ctx PhaseCtx)
      (steering_path SteeringDoc)
@@ -146,7 +130,7 @@
                       :drain-summary state.last-summary)
       (fn (state)
         (let* ((selection
-                 (call select-next-work
+               (call select-next-work
                    :steering steering_path
                    :target_design target_design_path
                    :baseline_design baseline_design_path
@@ -154,7 +138,10 @@
                    :progress_ledger progress_ledger_path
                    :run_state state.run-state))
                (action
-                 (project-selector-action selection)))
+                 (call project-selector-action
+                   :selection_status selection.selection_status
+                   :selection_bundle_path selection.selection_bundle_path
+                   :blocked_reason selection.blocked_reason)))
           (match action
             ((DONE done)
              (let* ((status

@@ -54,6 +54,7 @@ from ..type_env import (
 from ..typecheck_context import TypedExpr
 from ..loops import LoopControlTypeRef
 from ..loop_state import carrier_metadata_for_expr
+from ..lowering.pure_projection import is_pure_projection_expr
 from ..workflows import TypedWorkflowDef
 from .model import (
     WccBody,
@@ -227,7 +228,7 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    if isinstance(expr, IfExpr):
+    if isinstance(expr, IfExpr) and not is_pure_projection_expr(expr):
         return _elaborate_if_to_body(
             expr,
             scope=scope,
@@ -510,7 +511,7 @@ def _elaborate_let_star(
                 active_phase_scope=active_phase_scope,
             )
 
-        if isinstance(binding_expr, IfExpr):
+        if isinstance(binding_expr, IfExpr) and not is_pure_projection_expr(binding_expr):
             tail = build(
                 index + 1,
                 next_env,
@@ -1094,6 +1095,26 @@ def _elaborate_expr_to_value(
             )
         )
         return prefix, value
+    if isinstance(expr, IfExpr):
+        return (
+            (),
+            WccOpaqueFrontendValue(
+                metadata=scope.value_metadata(
+                    role="opaque:IfExpr",
+                    type_ref=_infer_expr_type(
+                        expr,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                expr=expr,
+            ),
+        )
     raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
 
 

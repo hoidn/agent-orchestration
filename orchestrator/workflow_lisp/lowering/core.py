@@ -55,6 +55,7 @@ from ..definitions import elaborate_definition_module
 from ..contracts import (
     GeneratedInternalInput,
     WorkflowBoundaryProjection,
+    derive_union_workflow_boundary_projection,
     derive_reusable_state_contract_metadata,
     derive_structured_result_contract,
     derive_workflow_boundary_fields,
@@ -1153,21 +1154,46 @@ def _output_contracts_for_type(
     """Flatten one return-like type into shared output contracts."""
 
     if isinstance(type_ref, UnionTypeRef):
-        return {
-            f"return__{output_name}": definition
-            for output_name, definition in _union_output_contracts(
-                type_ref,
-                payload=derive_structured_result_contract(
-                    type_ref,
-                    workflow_name=context.workflow_name,
-                    step_id=context.step_name_prefix,
-                    span=span,
-                    form_path=form_path,
-                ).payload,
-                span=span,
-                form_path=form_path,
-            ).items()
+        projection = derive_union_workflow_boundary_projection(
+            type_ref,
+            span=span,
+            form_path=form_path,
+        )
+        variant_names = tuple(projection.variant_fields)
+        shared_names = {field.generated_name for field in projection.shared_fields}
+        variant_name_map = {
+            field.generated_name: variant_name
+            for variant_name, variant_fields in projection.variant_fields.items()
+            for field in variant_fields
         }
+        contracts: dict[str, dict[str, Any]] = {}
+        for field in derive_workflow_boundary_fields(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=span,
+            form_path=form_path,
+        ):
+            definition = dict(field.contract_definition)
+            metadata: dict[str, Any] = {
+                "projection_class": "union_workflow_boundary",
+                "return_kind": "union",
+                "union_output_group": "return",
+                "discriminant_output": projection.discriminant_field.generated_name,
+            }
+            if field.generated_name == projection.discriminant_field.generated_name:
+                metadata["field_role"] = "discriminant"
+                metadata["active_variants"] = list(variant_names)
+            elif field.generated_name in shared_names:
+                metadata["field_role"] = "shared"
+                metadata["active_variants"] = list(variant_names)
+            else:
+                active_variant = variant_name_map.get(field.generated_name)
+                metadata["field_role"] = "variant" if active_variant is not None else "unknown"
+                metadata["active_variants"] = [active_variant] if active_variant is not None else []
+            definition["projection"] = metadata
+            contracts[field.generated_name] = definition
+        return contracts
     return {
         field.generated_name: dict(field.contract_definition)
         for field in derive_workflow_boundary_fields(

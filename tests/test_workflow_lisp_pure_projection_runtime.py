@@ -204,6 +204,58 @@ def _compile_runtime_enum_member_bundle(tmp_path: Path):
     return result.validated_bundles_by_name["pure_expr_runtime_enum_member::project"]
 
 
+def _compile_runtime_union_variant_bundle(tmp_path: Path):
+    module_path = tmp_path / "pure_expr_runtime_union_variant.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pure_expr_runtime_union_variant)",
+                "  (export project)",
+                "  (defpath SelectionBundlePath",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist true)",
+                "  (defenum SelectionStatus",
+                "    SELECT_BACKLOG_ITEM",
+                "    BLOCKED)",
+                "  (defunion ProjectionDecision",
+                "    (SELECTED_ITEM",
+                "      (selected_item_selection_bundle SelectionBundlePath))",
+                "    (BLOCKED",
+                "      (blocked_reason String)))",
+                "  (defworkflow project",
+                "    ((selection_status SelectionStatus)",
+                "     (selection_bundle_path SelectionBundlePath)",
+                "     (blocked_reason String))",
+                "    -> ProjectionDecision",
+                "    (let* ((is-selected",
+                "             (= selection_status SelectionStatus.SELECT_BACKLOG_ITEM)))",
+                "      (if is-selected",
+                "        (variant ProjectionDecision SELECTED_ITEM",
+                "          :selected_item_selection_bundle selection_bundle_path)",
+                "        (variant ProjectionDecision BLOCKED",
+                "          :blocked_reason blocked_reason))))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return result.validated_bundles_by_name["pure_expr_runtime_union_variant::project"]
+
+
 def _compile_invalid_pure_projection_fixture(
     fixture_path: Path,
     tmp_path: Path,
@@ -318,6 +370,33 @@ def test_pure_projection_runtime_executes_enum_member_equality(tmp_path: Path) -
 
     assert project["status"] == "completed"
     assert project["artifacts"] == {"return__ready": True, "return__status": "DONE"}
+
+
+def test_pure_projection_runtime_skips_inactive_union_variant_outputs(tmp_path: Path) -> None:
+    bundle = _compile_runtime_union_variant_bundle(tmp_path)
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "state" / "selector_selected.json").write_text("{}\n", encoding="utf-8")
+    state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-union-variant")
+    state_manager.initialize(
+        str(tmp_path / "pure_expr_runtime_union_variant.orc"),
+        bound_inputs={
+            "selection_status": "SELECT_BACKLOG_ITEM",
+            "selection_bundle_path": "state/selector_selected.json",
+            "blocked_reason": "",
+        },
+    )
+
+    result = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    workflow_step = result["steps"].get(bundle.surface.name)
+    if workflow_step is None:
+        workflow_step = result["steps"][f"{bundle.surface.name}__terminal_projection"]
+
+    assert result["status"] == "completed"
+    assert workflow_step["status"] == "completed"
+    assert workflow_step["artifacts"] == {
+        "return__variant": "SELECTED_ITEM",
+        "return__selected_item_selection_bundle": "state/selector_selected.json",
+    }
 
 
 def test_compile_strict_effectful_boundary_fixture_preserves_required_lints(

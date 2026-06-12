@@ -363,6 +363,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
             "required_family_evidence_roles": [
                 "parent_callable_compile",
                 "parent_callable_smoke",
+                "projection_retirement_parity",
                 "resource_transition_parity",
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
@@ -397,12 +398,28 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "resource_kind": "drain-run-state",
                 }
             ],
+            "family_evidence_artifacts": [
+                {
+                    "artifact_id": "projection_dual_run_report",
+                    "path": (
+                        "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/"
+                        "migration-parity/design_delta_parent_drain_projection_dual_run_report.json"
+                    ),
+                    "evidence_role": "projection_retirement_parity",
+                    "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+                }
+            ],
         }
     )
     return target
 
 
-def _add_parent_family_evidence(report: dict[str, object], *, route: str = "wcc_m4") -> None:
+def _add_parent_family_evidence(
+    report: dict[str, object],
+    *,
+    repo_root: Path,
+    route: str = "wcc_m4",
+) -> None:
     target_identity = report["target_identity"]
     target_identity.update(
         {
@@ -412,6 +429,7 @@ def _add_parent_family_evidence(report: dict[str, object], *, route: str = "wcc_
             "required_family_evidence_roles": [
                 "parent_callable_compile",
                 "parent_callable_smoke",
+                "projection_retirement_parity",
                 "resource_transition_parity",
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
@@ -428,12 +446,52 @@ def _add_parent_family_evidence(report: dict[str, object], *, route: str = "wcc_
                     "resource_kind": "drain-run-state",
                 }
             ],
+            "family_evidence_artifacts": [
+                {
+                    "artifact_id": "projection_dual_run_report",
+                    "path": (
+                        "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/"
+                        "migration-parity/design_delta_parent_drain_projection_dual_run_report.json"
+                    ),
+                    "evidence_role": "projection_retirement_parity",
+                    "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+                }
+            ],
         }
     )
     report["route_identity"] = {
         "readiness_label": "parent_callable_candidate",
         "lowering_route": route,
         "lowering_schema_version": 2,
+    }
+    runtime_audit_path = repo_root / str(target_identity["runtime_audit_artifacts"][0]["path"])
+    _write_text(runtime_audit_path, '{"transition":"write-drain-status"}\n')
+    family_evidence_path = repo_root / str(target_identity["family_evidence_artifacts"][0]["path"])
+    _write_json(
+        family_evidence_path,
+        {
+            "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+        },
+    )
+    report["evidence_freshness"]["runtime_audit_artifacts"] = {
+        "drain_status_transition_audit": {
+            "path": str(target_identity["runtime_audit_artifacts"][0]["path"]),
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "resource_kind": "drain-run-state",
+            "exists": True,
+            "sha256": _sha256_file(runtime_audit_path),
+        }
+    }
+    report["evidence_freshness"]["family_evidence_artifacts"] = {
+        "projection_dual_run_report": {
+            "path": str(target_identity["family_evidence_artifacts"][0]["path"]),
+            "evidence_role": "projection_retirement_parity",
+            "declared_schema_version": "workflow_lisp_projection_dual_run_report.v1",
+            "exists": True,
+            "sha256": _sha256_file(family_evidence_path),
+        }
     }
     evidence = report["evidence"]
     for role in target_identity["required_family_evidence_roles"]:
@@ -449,6 +507,7 @@ def _add_parent_family_identity(report: dict[str, object]) -> None:
             "required_family_evidence_roles": [
                 "parent_callable_compile",
                 "parent_callable_smoke",
+                "projection_retirement_parity",
                 "resource_transition_parity",
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
@@ -463,6 +522,17 @@ def _add_parent_family_identity(report: dict[str, object]) -> None:
                     ),
                     "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
                     "resource_kind": "drain-run-state",
+                }
+            ],
+            "family_evidence_artifacts": [
+                {
+                    "artifact_id": "projection_dual_run_report",
+                    "path": (
+                        "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/"
+                        "migration-parity/design_delta_parent_drain_projection_dual_run_report.json"
+                    ),
+                    "evidence_role": "projection_retirement_parity",
+                    "schema_version": "workflow_lisp_projection_dual_run_report.v1",
                 }
             ],
         }
@@ -726,10 +796,10 @@ def test_compute_non_regressive_rejects_expired_smoke_waiver() -> None:
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
 
 
-def test_compute_non_regressive_accepts_targeted_dry_run_waiver_with_parent_smoke() -> None:
+def test_compute_non_regressive_accepts_targeted_dry_run_waiver_with_parent_smoke(tmp_path: Path) -> None:
     module = _parity_module()
     report = _valid_report_payload(workflow_family="design_delta_parent_drain")
-    _add_parent_family_evidence(report)
+    _add_parent_family_evidence(report, repo_root=tmp_path)
     report["evidence"]["dry_run"] = {
         "status": "waived",
         "waiver": {
@@ -743,10 +813,10 @@ def test_compute_non_regressive_accepts_targeted_dry_run_waiver_with_parent_smok
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is True
 
 
-def test_compute_non_regressive_rejects_dry_run_waiver_without_targeted_smoke() -> None:
+def test_compute_non_regressive_rejects_dry_run_waiver_without_targeted_smoke(tmp_path: Path) -> None:
     module = _parity_module()
     report = _valid_report_payload(workflow_family="design_delta_parent_drain")
-    _add_parent_family_evidence(report)
+    _add_parent_family_evidence(report, repo_root=tmp_path)
     report["evidence"]["dry_run"] = {
         "status": "waived",
         "waiver": {
@@ -805,10 +875,10 @@ def test_design_delta_parent_drain_target_rejects_leaf_only_evidence_for_non_reg
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
 
 
-def test_design_delta_parent_drain_requires_route_schema_identity() -> None:
+def test_design_delta_parent_drain_requires_route_schema_identity(tmp_path: Path) -> None:
     module = _parity_module()
     report = _valid_report_payload(workflow_family="design_delta_parent_drain")
-    _add_parent_family_evidence(report, route="legacy")
+    _add_parent_family_evidence(report, repo_root=tmp_path, route="legacy")
 
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
 
@@ -1067,7 +1137,7 @@ def test_design_delta_parent_drain_non_regressive_still_not_promotable(
         output_root=output_root,
     )
     report["promotion_eligibility"] = dict(target.promotion_eligibility)
-    _add_parent_family_evidence(report)
+    _add_parent_family_evidence(report, repo_root=tmp_path)
     report["non_regressive"] = module.compute_non_regressive(
         report,
         today=date(2026, 6, 2),
@@ -2579,6 +2649,56 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
     assert report["boundary_authority_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["compile_artifacts"]["required"]["adapter_census"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "pass"
+
+
+def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _write_json(
+        build_root / "adapter_census.json",
+        {
+            "workflow_family": "design_delta_parent_drain",
+            "rows": [
+                {
+                    "binding_name": "project_lisp_frontend_selector_action",
+                    "retirement_status": "retired",
+                    "liveness": "live",
+                }
+            ],
+        },
+    )
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        {
+            "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+            "artifact_id": "projection_dual_run_report",
+            "workflow_family": "design_delta_parent_drain",
+            "overall_status": "pass",
+            "all_passed": True,
+            "adapters": {
+                "project_lisp_frontend_selector_action": {
+                    "status": "pass",
+                    "comparison_mapping_id": "selector_action_projection.v1",
+                    "cases": [],
+                }
+            },
+        },
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    assert evidence["status"] == "fail"
+    assert "still live" in " ".join(evidence.get("reasons", []))
 
 
 def test_run_parity_target_fails_boundary_parity_when_g0_report_has_unclassified_or_public_leaks(

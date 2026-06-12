@@ -805,6 +805,12 @@ def _parse_command_boundaries_manifest(
                     binding_name=name,
                     manifest_path=manifest_path,
                 ),
+                retirement_status=_require_optional_string_field(
+                    raw_entry.get("retirement_status"),
+                    field_name="retirement_status",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
             )
             continue
         if kind == "certified_adapter":
@@ -944,6 +950,12 @@ def _parse_command_boundaries_manifest(
                 evidence_refs=_require_optional_string_array(
                     raw_entry.get("evidence_refs"),
                     field_name="evidence_refs",
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
+                retirement_status=_require_optional_string_field(
+                    raw_entry.get("retirement_status"),
+                    field_name="retirement_status",
                     binding_name=name,
                     manifest_path=manifest_path,
                 ),
@@ -1300,6 +1312,21 @@ def _serialize_design_delta_adapter_census(
         fixture_ids = tuple(getattr(binding, "fixture_ids", ()) or ())
         negative_fixture_ids = tuple(getattr(binding, "negative_fixture_ids", ()) or ())
         replacement_path = getattr(binding, "replacement_path", None)
+        liveness = "live" if lineage_by_name.get(name) else "unreferenced"
+        retirement_status = getattr(binding, "retirement_status", None)
+        if retirement_status == "retired" and liveness != "unreferenced":
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="command_adapter_retired_while_live",
+                        message=(
+                            "design-delta command boundary is marked retired but still has compiled "
+                            f"invocation lineage: {name}"
+                        ),
+                        path=DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
+                    ),
+                )
+            )
         rows.append(
             {
                 "workflow_family": "design_delta_parent_drain",
@@ -1315,6 +1342,7 @@ def _serialize_design_delta_adapter_census(
                 "bridge_owner": getattr(binding, "bridge_owner", None),
                 "expiry_condition": getattr(binding, "expiry_condition", None),
                 "evidence_refs": list(getattr(binding, "evidence_refs", ()) or ()),
+                "retirement_status": retirement_status,
                 "fixture_ids": list(fixture_ids),
                 "negative_fixture_ids": list(negative_fixture_ids),
                 "owner_module": getattr(binding, "owner_module", None),
@@ -1331,7 +1359,7 @@ def _serialize_design_delta_adapter_census(
                     else None
                 ),
                 "invocation_sites": lineage_by_name.get(name, []),
-                "liveness": "live" if lineage_by_name.get(name) else "unreferenced",
+                "liveness": liveness,
             }
         )
     return {

@@ -1393,6 +1393,12 @@ def _compile_nested_entrypoint_fixture(
             "run_checks": ExternalToolBinding(
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
+                **_g0_retirement_metadata(
+                    name="run_checks",
+                    retirement_class="genuine_system",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="bounded repo-local checks",
+                ),
             ),
             "validate_review_findings_v1": ExternalToolBinding(
                 name="validate_review_findings_v1",
@@ -1400,6 +1406,12 @@ def _compile_nested_entrypoint_fixture(
                     "python",
                     "-m",
                     "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+                **_g0_retirement_metadata(
+                    name="validate_review_findings_v1",
+                    retirement_class="validation",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="typed review findings validation",
                 ),
             ),
         },
@@ -2776,6 +2788,12 @@ def test_design_delta_migration_stdlib_review_revise_loop_fixture_compiles(
             "validate_review_findings_v1": ExternalToolBinding(
                 name="validate_review_findings_v1",
                 stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+                **_g0_retirement_metadata(
+                    name="validate_review_findings_v1",
+                    retirement_class="validation",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="typed review findings validation",
+                ),
             )
         },
         validate_shared=True,
@@ -3051,6 +3069,12 @@ def test_design_delta_plan_phase_candidate_compiles_with_stdlib_review_loop(tmp_
                     "-m",
                     "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
                 ),
+                **_g0_retirement_metadata(
+                    name="validate_review_findings_v1",
+                    retirement_class="validation",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="typed review findings validation",
+                ),
             )
         },
         validate_shared=True,
@@ -3294,6 +3318,12 @@ def test_design_delta_architect_candidate_compiles_draft_and_validation_leaves(
                     "python",
                     "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
                 ),
+                **_g0_retirement_metadata(
+                    name="validate_lisp_frontend_design_gap_architecture",
+                    retirement_class="validation",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="typed architecture validation",
+                ),
             ),
         },
         validate_shared=True,
@@ -3375,13 +3405,13 @@ def test_design_delta_work_item_library_module_stays_closure_only(
     }
 
     assert {
-        "lisp_frontend_design_delta/work_item::classify-work-item-terminal",
         "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+        "lisp_frontend_design_delta/work_item::route-blocked-implementation",
         "lisp_frontend_design_delta/work_item::run-work-item",
     }.issubset(lowered_names)
-    assert any("route-blocked-implementation" in name for name in lowered_names)
-    assert any("finalize-approved-review-state" in name for name in lowered_names)
-    assert any("finalize-approved-nonblocked" in name for name in lowered_names)
+    assert not any("classify-work-item-terminal" in name for name in lowered_names)
+    assert not any("finalize-approved-review-state" in name for name in lowered_names)
+    assert not any("finalize-approved-nonblocked" in name for name in lowered_names)
 
 
 def test_design_delta_work_item_candidate_rejects_invalid_work_item_source_at_command_boundary(
@@ -3537,7 +3567,7 @@ def test_design_delta_parent_drain_entrypoint_owns_loop_control(
         step.get("call") for step in loop_steps if isinstance(step.get("call"), str)
     }
     assert "lisp_frontend_design_delta/selector::select-next-work" in loop_call_targets
-    assert any(str(target).endswith("::project-selector-action.v1") for target in loop_call_targets)
+    assert "lisp_frontend_design_delta/projections::project-selector-action" in loop_call_targets
     assert "lisp_frontend_design_delta/selector::select-next-action" not in loop_call_targets
     assert "lisp_frontend_design_delta/work_item::run-work-item" in loop_call_targets
     assert (

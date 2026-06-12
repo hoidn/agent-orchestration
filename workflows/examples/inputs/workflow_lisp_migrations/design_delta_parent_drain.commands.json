@@ -115,7 +115,8 @@
     "expiry_condition": "g2 typed projection route replaces selector-action adapter",
     "evidence_refs": [
       "design_delta_selector_action_projection_ok"
-    ]
+    ],
+    "retirement_status": "retired"
   },
   "validate_lisp_frontend_design_gap_architecture": {
     "kind": "external_tool",
@@ -186,11 +187,11 @@
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "SelectionCtx + ItemCtx private bootstrap + typed projection",
     "invocation_protocol": "json_object_positional_arg",
-    "retirement_class": "typed_projection",
-    "retirement_label": "retire_to_projection",
-    "replacement_surface": "typed work-item input projection",
+    "retirement_class": "manifest_assembly",
+    "retirement_label": "keep_bridge",
+    "replacement_surface": "SelectionCtx + ItemCtx private bootstrap with future generated path and materialized view retirement",
     "bridge_owner": "lisp_frontend_design_delta/work_item",
-    "expiry_condition": "g2 typed projection route replaces work-item input materialization",
+    "expiry_condition": "retain until later G4/G7 context/bootstrap work replaces manifest assembly and path materialization",
     "evidence_refs": [
       "design_delta_work_item_inputs_ok"
     ]
@@ -262,7 +263,8 @@
     "expiry_condition": "g2 typed outcome classification replaces terminal classifier adapter",
     "evidence_refs": [
       "design_delta_work_item_terminal_ok"
-    ]
+    ],
+    "retirement_status": "retired"
   },
   "select_lisp_frontend_blocked_recovery_route": {
     "kind": "certified_adapter",
@@ -331,7 +333,8 @@
     "expiry_condition": "g2 typed outcome classification replaces blocked-recovery router",
     "evidence_refs": [
       "design_delta_blocked_recovery_route_ok"
-    ]
+    ],
+    "retirement_status": "retired"
   },
   "record_terminal_work_item": {
     "kind": "certified_adapter",

@@ -51,6 +51,7 @@ G0_RETIREMENT_ALLOWED_LABELS = frozenset(
         "unknown_requires_design",
     }
 )
+G2_RETIREMENT_ALLOWED_STATUSES = frozenset({"retired"})
 DESIGN_DELTA_G0_HELPER_NAMES = frozenset(
     {
         "run_neurips_backlog_checks",
@@ -92,6 +93,7 @@ class ExternalToolBinding:
     bridge_owner: str | None = None
     expiry_condition: str | None = None
     evidence_refs: tuple[str, ...] = ()
+    retirement_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +145,7 @@ class CertifiedAdapterBinding:
     bridge_owner: str | None = None
     expiry_condition: str | None = None
     evidence_refs: tuple[str, ...] = ()
+    retirement_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -276,6 +279,7 @@ def _validate_g0_retirement_metadata(
         "bridge_owner": getattr(binding, "bridge_owner", None),
         "expiry_condition": getattr(binding, "expiry_condition", None),
         "evidence_refs": getattr(binding, "evidence_refs", ()),
+        "retirement_status": getattr(binding, "retirement_status", None),
     }
     missing = [
         field_name
@@ -336,6 +340,19 @@ def _validate_g0_retirement_metadata(
             LispFrontendDiagnostic(
                 code="command_adapter_missing_contract",
                 message=f"design-delta command boundary `{name}` requires non-empty string `evidence_refs`",
+                span=_environment_span(),
+                phase="typecheck",
+            )
+        )
+    retirement_status = values["retirement_status"]
+    if retirement_status is not None and retirement_status not in G2_RETIREMENT_ALLOWED_STATUSES:
+        diagnostics.append(
+            LispFrontendDiagnostic(
+                code="command_adapter_missing_contract",
+                message=(
+                    f"design-delta command boundary `{name}` uses unknown retirement_status "
+                    f"`{retirement_status}`"
+                ),
                 span=_environment_span(),
                 phase="typecheck",
             )

@@ -13,6 +13,7 @@
     ArtifactWorkTargetPath
     BaselineDesignDoc
     BlockedRecoveryDecision
+    BlockedRecoveryRoute
     BlockedRecoveryReason
     BlockedRecoveryOutcome
     CheckCommandsPath
@@ -25,10 +26,17 @@
     DrainTerminalStatus
     ImplementationAttempt
     ImplementationPhaseResult
+    ImplementationReviewDecision
+    ImplementationState
+    ArtifactJustification
+    BoundaryJustification
+    DesignDeltaDrainAction
+    DrainState
     PlanDoc
     PlanDocTarget
     PlanDraftResult
     PlanPhaseResult
+    PlanReviewDecision
     PreSelectionRoute
     RecoveredGapAttempt
     RecoveryDrainStatus
@@ -46,6 +54,7 @@
     TargetDesignDoc
     WorkItemResult
     WorkItemSource
+    WorkItemTerminalDecision
     WorkItemTerminalReason
     WorkItemTerminalRoute
     WorkReport
@@ -95,6 +104,12 @@
     user_decision_required
     unsupported_blocker)
 
+  (defenum BlockedRecoveryRoute
+    GAP_DESIGN_REVISION_REQUIRED
+    TARGET_DESIGN_REVISION_REQUIRED
+    PREREQUISITE_GAP_REQUIRED
+    TERMINAL_BLOCKED)
+
   (defenum ArchitectureValidationResult
     VALID
     BLOCKED
@@ -113,6 +128,19 @@
     BACKLOG_ITEM
     DESIGN_GAP)
 
+  (defenum PlanReviewDecision
+    APPROVE
+    REVISE)
+
+  (defenum ImplementationState
+    COMPLETED
+    BLOCKED)
+
+  (defenum ImplementationReviewDecision
+    APPROVE
+    REVISE
+    NOT_APPLICABLE)
+
   (defenum WorkItemTerminalReason
     plan_blocked
     plan_review_exhausted
@@ -124,6 +152,12 @@
     PLAN_REVIEW_EXHAUSTED
     IMPLEMENTATION_BLOCKED
     IMPLEMENTATION_REVIEW_EXHAUSTED)
+
+  (defunion WorkItemTerminalDecision
+    (COMPLETE)
+    (PLAN_REVIEW_EXHAUSTED)
+    (IMPLEMENTATION_BLOCKED)
+    (IMPLEMENTATION_REVIEW_EXHAUSTED))
 
   (defenum DesignGapId
     DESIGN_GAP)
@@ -306,7 +340,7 @@
     (plan_path PlanDoc))
 
   (defrecord ResolvedWorkItemInputs
-    (work_item_source String)
+    (work_item_source WorkItemSource)
     (work_item_id String)
     (work_item_context_path WorkReport)
     (check_commands_path CheckCommandsPath)
@@ -318,11 +352,13 @@
     (progress_report_target_path ArtifactWorkTargetPath)
     (checks_report_target_path ArtifactChecksTargetPath)
     (implementation_review_report_target_path ArtifactReviewTargetPath)
+    (item_summary_pointer_path WorkReportTarget)
+    (drain_status_path StateFile)
     (item_summary_target_path WorkReportTarget))
 
   (defrecord ImplementationPhaseResult
-    (implementation-state String)
-    (implementation-review-decision String)
+    (implementation-state ImplementationState)
+    (implementation-review-decision ImplementationReviewDecision)
     (execution-report ArtifactWorkTargetPath)
     (progress-report ArtifactWorkTargetPath)
     (checks-report ArtifactChecksTargetPath)
@@ -339,14 +375,55 @@
       (reason String)
       (summary WorkReport)))
 
+  (defrecord DrainState
+    (status String)
+    (iteration-count Int)
+    (run-state RunStatePath)
+    (item-count Int)
+    (last-summary WorkReport)
+    (last-progress WorkReport)
+    (blocker-reason String)
+    (recovery-reason String))
+
+  (defunion DesignDeltaDrainAction
+    (SELECTED_ITEM
+      (selected_item_selection_bundle SelectionBundlePath))
+    (DRAFT_DESIGN_GAP
+      (design_gap_selection_bundle SelectionBundlePath))
+    (BLOCKED_RECOVERY
+      (blocked_recovery_selection_bundle SelectionBundlePath)
+      (blocked_recovery_reason String))
+    (DONE)
+    (BLOCKED
+      (blocked_reason String))
+    (EXHAUSTED
+      (exhausted_reason String)))
+
+  (defrecord BoundaryJustification
+    (boundary_id String)
+    (reason String)
+    (route String)
+    (schema_version Int)
+    (readiness_label String)
+    (parity_constrained Bool))
+
+  (defrecord ArtifactJustification
+    (artifact_id String)
+    (reason String)
+    (route String)
+    (schema_version Int)
+    (readiness_label String)
+    (parity_constrained Bool))
+
   (defunion DrainResult
     (DONE
       (run-state RunStatePath)
-      (drain-summary ArtifactWorkPath))
+      (drain-summary WorkReport))
     (BLOCKED
       (reason String)
       (run-state RunStatePath)
-      (drain-summary ArtifactWorkPath))
+      (drain-summary WorkReport))
     (EXHAUSTED
+      (reason String)
       (run-state RunStatePath)
-      (drain-summary ArtifactWorkPath))))
+      (drain-summary WorkReport))))

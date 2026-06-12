@@ -3875,6 +3875,19 @@ projection workflows as interior typed dataflow only. They do not fire on those
 projection boundaries, and they continue to fire unchanged on every effectful
 workflow boundary.
 
+For promoted migration routes, retiring a certified routing adapter in favor of
+an effect-free projection workflow requires both evidence lanes:
+
+- a declared dual-run artifact that compares the adapter lane against the typed
+  projection lane on bounded vectors; and
+- compiled liveness showing the retired adapter is `unreferenced` on the
+  promoted route.
+
+This rule allows a shared authored projection module such as
+`workflows/library/lisp_frontend_design_delta/projections.orc` to own routing
+decisions directly while keeping remaining non-routing bridges live until their
+later retirement tranche.
+
 ## Part XVII. Testing Strategy
 
 ## 94. Unit Tests

@@ -728,10 +728,43 @@ def _defunctionalize_body(
                 updated_locals[body.bound_name] = local_value
         else:
             binding_expr = _frontend_expr_from_wcc_binding_value(body.bound_value)
-            updated_locals[body.bound_name] = _resolve_wcc_inline_expr_value(
+            resolved_binding = _resolve_wcc_inline_expr_value(
                 binding_expr,
                 local_values=updated_locals,
             )
+            if (
+                isinstance(binding_expr, IfExpr)
+                and resolved_binding is not None
+                and not isinstance(resolved_binding, (str, Mapping))
+                and is_pure_projection_expr(resolved_binding)
+            ):
+                binding_step_name = _binding_step_prefix(context, body.bound_name)
+                binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
+                lowered_projection = lower_pure_projection_step(
+                    resolved_binding,
+                    result_type=binding_type,
+                    context=context,
+                    local_values=updated_locals,
+                    step_name=binding_step_name,
+                    step_id=binding_step_id,
+                    stable_target="binding_projection",
+                )
+                binding_steps = [lowered_projection.step]
+                binding_terminal = _TerminalResult(
+                    step_name=binding_step_name,
+                    step_id=binding_step_id,
+                    output_refs=lowered_projection.output_refs,
+                    output_kind="projection",
+                    hidden_inputs={},
+                )
+                binding_hidden_inputs.update(binding_terminal.hidden_inputs)
+                updated_locals[body.bound_name] = _binding_local_value_from_terminal(
+                    binding_expr,
+                    binding_type=binding_type,
+                    binding_terminal=binding_terminal,
+                )
+            else:
+                updated_locals[body.bound_name] = resolved_binding
         nested_steps, nested_terminal = _defunctionalize_body(
             body.body,
             context=lowering_core._context_with_local_type_binding(
@@ -1593,8 +1626,35 @@ def _wcc_terminal_output_refs_for_expr(
             return output_refs
     flattened_refs = _flatten_inline_output_refs(resolved_expr)
     if flattened_refs:
-        return flattened_refs
+        expected_output_names = _expected_terminal_output_names(
+            type_ref,
+            context=context,
+        )
+        if expected_output_names and all(name in flattened_refs for name in expected_output_names):
+            return {
+                output_name: flattened_refs[output_name]
+                for output_name in expected_output_names
+            }
     return None
+
+
+def _expected_terminal_output_names(
+    type_ref: TypeRef,
+    *,
+    context: _LoweringContext,
+) -> tuple[str, ...]:
+    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        return tuple(
+            field.generated_name
+            for field in lowering_core.derive_workflow_boundary_fields(
+                type_ref,
+                generated_name="return",
+                source_path=("return",),
+                span=context.signature.span,
+                form_path=context.signature.form_path,
+            )
+        )
+    return ("return",)
 
 
 def _wcc_projected_output_refs_for_resolved_value(

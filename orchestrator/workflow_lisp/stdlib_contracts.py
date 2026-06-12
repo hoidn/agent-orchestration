@@ -302,6 +302,14 @@ STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME: Mapping[str, CertifiedAdapterBinding]
             replacement_path=None,
             invocation_protocol="json_object_positional_arg",
             declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+            retirement_class="validation",
+            retirement_label="keep_bridge",
+            replacement_surface="typed review findings validation bridge",
+            bridge_owner="std/phase",
+            expiry_condition=(
+                "retain until typed review-findings validation parity replaces the command bridge"
+            ),
+            evidence_refs=("validate_review_findings_v1",),
         ),
     }
 )

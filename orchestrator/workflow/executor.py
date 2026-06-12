@@ -8844,7 +8844,13 @@ class WorkflowExecutor:
         for output_name, contract in output_contracts.items():
             if not isinstance(output_name, str) or not isinstance(contract, dict):
                 continue
+            if self._is_inactive_pure_projection_union_output(contract, result_value):
+                continue
             if output_name in {"return", "result"}:
+                candidate = result_value
+            elif contract.get("kind") == "scalar" and not isinstance(result_value, dict):
+                # Generated scalar pure-projection bindings may use authored boundary
+                # names instead of the generic "return" output label.
                 candidate = result_value
             else:
                 path_parts = output_name.split("__")
@@ -8863,6 +8869,26 @@ class WorkflowExecutor:
                 candidate = result_value.get("variant") if isinstance(result_value, dict) else None
             artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
         return artifacts
+
+    @staticmethod
+    def _is_inactive_pure_projection_union_output(contract: Mapping[str, Any], result_value: Any) -> bool:
+        projection = contract.get("projection")
+        if not isinstance(projection, Mapping):
+            return False
+        if projection.get("projection_class") != "union_workflow_boundary":
+            return False
+        if projection.get("field_role") != "variant":
+            return False
+        if not isinstance(result_value, dict):
+            return False
+        active_variant = result_value.get("variant")
+        if not isinstance(active_variant, str):
+            return False
+        active_variants = projection.get("active_variants")
+        if not isinstance(active_variants, list):
+            return False
+        allowed_variants = {variant for variant in active_variants if isinstance(variant, str)}
+        return active_variant not in allowed_variants
 
     def _latest_published_scalar_value(
         self,
@@ -8977,6 +9003,11 @@ class WorkflowExecutor:
     ) -> Dict[str, Any] | None:
         """Resolve one structured statement's declared outputs into validated artifacts."""
         artifacts: Dict[str, Any] = {}
+        active_union_variants = self._resolve_structured_output_discriminants(
+            outputs,
+            state,
+            scope=scope,
+        )
         for output_name, spec in outputs.items():
             validation_spec: Any = spec
             source: Any = None
@@ -8988,6 +9019,11 @@ class WorkflowExecutor:
                 ref = binding.get('ref') if isinstance(binding, dict) else None
                 source = {"ref": ref} if isinstance(ref, str) and ref else None
             else:
+                continue
+            if self._is_inactive_structured_union_output(
+                validation_spec,
+                active_union_variants=active_union_variants,
+            ):
                 continue
 
             if source is None:
@@ -9030,6 +9066,71 @@ class WorkflowExecutor:
                     },
                 )
         return artifacts
+
+    def _resolve_structured_output_discriminants(
+        self,
+        outputs: Mapping[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        active_variants: Dict[str, Any] = {}
+        for output_name, spec in outputs.items():
+            validation_spec: Any = spec.definition if isinstance(spec, ExecutableContract) else spec
+            boundary = self._structured_output_boundary_metadata(validation_spec)
+            if boundary.get("field_role") != "discriminant":
+                continue
+            group = str(boundary.get("union_output_group") or output_name)
+            binding = validation_spec.get("from") if isinstance(validation_spec, Mapping) else None
+            ref = binding.get("ref") if isinstance(binding, Mapping) else None
+            source = spec.source_address if isinstance(spec, ExecutableContract) else None
+            if source is None and isinstance(ref, str) and ref:
+                source = {"ref": ref}
+            if source is None:
+                continue
+            try:
+                raw_value = self._resolve_runtime_value(source, state, scope=scope)
+                active_variants[group] = validate_contract_value(
+                    raw_value,
+                    validation_spec,
+                    workspace=self.workspace,
+                )
+            except (OutputContractError, PredicateEvaluationError, ReferenceResolutionError):
+                continue
+        return active_variants
+
+    @staticmethod
+    def _structured_output_boundary_metadata(validation_spec: Any) -> Mapping[str, Any]:
+        if not isinstance(validation_spec, Mapping):
+            return {}
+        metadata = validation_spec.get("workflow_boundary")
+        if isinstance(metadata, Mapping):
+            return metadata
+        metadata = validation_spec.get("projection")
+        if isinstance(metadata, Mapping):
+            return metadata
+        return {}
+
+    def _is_inactive_structured_union_output(
+        self,
+        validation_spec: Any,
+        *,
+        active_union_variants: Mapping[str, Any],
+    ) -> bool:
+        boundary = self._structured_output_boundary_metadata(validation_spec)
+        if boundary.get("return_kind") != "union":
+            return False
+        if boundary.get("field_role") != "variant":
+            return False
+        group = str(boundary.get("union_output_group") or "")
+        active_variant = active_union_variants.get(group)
+        if not isinstance(active_variant, str):
+            return False
+        active_variants = boundary.get("active_variants")
+        if not isinstance(active_variants, (list, tuple)):
+            return False
+        allowed_variants = {variant for variant in active_variants if isinstance(variant, str)}
+        return active_variant not in allowed_variants
 
     def _execute_structured_if_branch(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Record one lowered branch marker for a structured if/else statement."""

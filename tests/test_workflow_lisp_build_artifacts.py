@@ -3805,6 +3805,18 @@ def test_design_delta_parent_drain_boundary_authority_registry_covers_expected_r
     }
 
 
+def test_design_delta_parent_drain_boundary_authority_registry_uses_checkout_owned_metadata() -> None:
+    registry_payload = _load_design_delta_boundary_authority_registry()
+
+    leaked_test_rows = [
+        (row["workflow_name"], row["field_name"], row["surface_kind"])
+        for row in registry_payload["rows"]
+        if row["owner"] == "tests" or row["replacement_tranche"] == "test"
+    ]
+
+    assert leaked_test_rows == []
+
+
 def test_design_delta_parent_drain_boundary_authority_expected_rows_include_generated_and_managed_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

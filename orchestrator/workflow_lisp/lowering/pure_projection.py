@@ -14,7 +14,7 @@ from orchestrator.workflow.pure_expr import (
 )
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 
-from ..contracts import derive_workflow_boundary_fields
+from ..contracts import derive_union_workflow_boundary_projection, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     EnumMemberExpr,
@@ -741,16 +741,13 @@ def _output_contracts_for_type(
     form_path: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
-        return {
-            field.generated_name: dict(field.contract_definition)
-            for field in derive_workflow_boundary_fields(
-                type_ref,
-                generated_name="return",
-                source_path=("return",),
-                span=span,
-                form_path=form_path,
-            )
-        }
+        return _structured_output_contracts(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=span,
+            form_path=form_path,
+        )
     return {
         "return": {
             "kind": "scalar",
@@ -768,7 +765,7 @@ def _scalar_contract_type(type_ref: TypeRef) -> str:
     if isinstance(type_ref, PrimitiveTypeRef):
         if type_ref.allowed_values:
             return "enum"
-        name_map = {"Bool": "bool", "Int": "int", "Float": "float", "String": "string", "Symbol": "string"}
+        name_map = {"Bool": "bool", "Int": "integer", "Float": "float", "String": "string", "Symbol": "string"}
         return name_map.get(type_ref.name, "string")
     if isinstance(type_ref, PathTypeRef):
         return "relpath"
@@ -785,16 +782,13 @@ def output_contracts_for_boundary_type(
     """Build output contracts for one arbitrary boundary name prefix."""
 
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
-        return {
-            field.generated_name: dict(field.contract_definition)
-            for field in derive_workflow_boundary_fields(
-                type_ref,
-                generated_name=generated_name,
-                source_path=(generated_name,),
-                span=span,
-                form_path=form_path,
-            )
-        }
+        return _structured_output_contracts(
+            type_ref,
+            generated_name=generated_name,
+            source_path=(generated_name,),
+            span=span,
+            form_path=form_path,
+        )
     return {
         generated_name: {
             "kind": "scalar",
@@ -822,6 +816,63 @@ def _output_bundle_fields(output_contracts: Mapping[str, Mapping[str, Any]]) -> 
         }
         fields.append(field)
     return fields
+
+
+def _structured_output_contracts(
+    type_ref: RecordTypeRef | UnionTypeRef,
+    *,
+    generated_name: str,
+    source_path: tuple[str, ...],
+    span,
+    form_path: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    fields = derive_workflow_boundary_fields(
+        type_ref,
+        generated_name=generated_name,
+        source_path=source_path,
+        span=span,
+        form_path=form_path,
+    )
+    if not isinstance(type_ref, UnionTypeRef):
+        return {
+            field.generated_name: dict(field.contract_definition)
+            for field in fields
+        }
+
+    projection = derive_union_workflow_boundary_projection(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
+    variant_names = tuple(projection.variant_fields)
+    shared_names = {field.generated_name for field in projection.shared_fields}
+    variant_name_map = {
+        field.generated_name: variant_name
+        for variant_name, variant_fields in projection.variant_fields.items()
+        for field in variant_fields
+    }
+    contracts: dict[str, dict[str, Any]] = {}
+    for field in fields:
+        definition = dict(field.contract_definition)
+        metadata: dict[str, Any] = {
+            "projection_class": "union_workflow_boundary",
+            "return_kind": "union",
+            "union_output_group": "return",
+            "discriminant_output": projection.discriminant_field.generated_name,
+        }
+        if field.generated_name == projection.discriminant_field.generated_name:
+            metadata["field_role"] = "discriminant"
+            metadata["active_variants"] = list(variant_names)
+        elif field.generated_name in shared_names:
+            metadata["field_role"] = "shared"
+            metadata["active_variants"] = list(variant_names)
+        else:
+            active_variant = variant_name_map.get(field.generated_name)
+            metadata["field_role"] = "variant" if active_variant is not None else "unknown"
+            metadata["active_variants"] = [active_variant] if active_variant is not None else []
+        definition["projection"] = metadata
+        contracts[field.generated_name] = definition
+    return contracts
 
 
 def _output_json_pointer(output_name: str) -> str:

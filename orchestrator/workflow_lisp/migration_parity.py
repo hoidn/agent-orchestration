@@ -90,6 +90,7 @@ class ParityTarget:
     promotion_eligibility: Mapping[str, Any]
     compile_artifacts: Mapping[str, tuple[str, ...]]
     runtime_audit_artifacts: tuple[Mapping[str, str], ...]
+    family_evidence_artifacts: tuple[Mapping[str, object], ...]
     evidence_commands: Mapping[str, EvidenceCommand]
 
 
@@ -197,6 +198,10 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
                 promotion_eligibility=promotion_eligibility,
                 compile_artifacts=normalized_compile_artifacts,
                 runtime_audit_artifacts=_parse_runtime_audit_artifacts(
+                    raw_target,
+                    workflow_family=workflow_family,
+                ),
+                family_evidence_artifacts=_parse_family_evidence_artifacts(
                     raw_target,
                     workflow_family=workflow_family,
                 ),
@@ -350,6 +355,7 @@ def run_parity_target(
             compile_payload=compile_payload,
             build_manifest=build_manifest,
             workflow_boundary=workflow_boundary,
+            adapter_census=adapter_census,
             boundary_authority_report=boundary_authority_report,
             repo_root=repo_root,
         )
@@ -863,6 +869,10 @@ def _build_target_identity(
         )
     if target.runtime_audit_artifacts:
         identity["runtime_audit_artifacts"] = [dict(entry) for entry in target.runtime_audit_artifacts]
+    if target.family_evidence_artifacts:
+        identity["family_evidence_artifacts"] = [
+            dict(entry) for entry in target.family_evidence_artifacts
+        ]
     return identity
 
 
@@ -932,6 +942,28 @@ def _build_runtime_audit_artifact_freshness(
     return freshness
 
 
+def _build_family_evidence_artifact_freshness(
+    family_evidence_artifacts: Sequence[Mapping[str, object]],
+    *,
+    repo_root: Path,
+) -> dict[str, object]:
+    freshness: dict[str, object] = {}
+    for artifact in family_evidence_artifacts:
+        artifact_id = str(artifact["artifact_id"])
+        artifact_path = str(artifact["path"])
+        resolved_path = repo_root / artifact_path
+        entry: dict[str, object] = {
+            "path": artifact_path,
+            "evidence_role": str(artifact["evidence_role"]),
+            "declared_schema_version": str(artifact["schema_version"]),
+            "exists": resolved_path.exists(),
+        }
+        if resolved_path.exists():
+            entry["sha256"] = _sha256_file(resolved_path)
+        freshness[artifact_id] = entry
+    return freshness
+
+
 def _build_evidence_freshness(
     *,
     target: ParityTarget,
@@ -953,6 +985,11 @@ def _build_evidence_freshness(
     if target.runtime_audit_artifacts:
         freshness["runtime_audit_artifacts"] = _build_runtime_audit_artifact_freshness(
             target.runtime_audit_artifacts,
+            repo_root=repo_root,
+        )
+    if target.family_evidence_artifacts:
+        freshness["family_evidence_artifacts"] = _build_family_evidence_artifact_freshness(
+            target.family_evidence_artifacts,
             repo_root=repo_root,
         )
     compile_manifest_path = None
@@ -1084,6 +1121,7 @@ def _parent_family_evidence(
     compile_payload: Mapping[str, Any] | None,
     build_manifest: Mapping[str, Any] | None,
     workflow_boundary: Mapping[str, Any] | None,
+    adapter_census: Mapping[str, Any] | None,
     boundary_authority_report: Mapping[str, Any] | None,
     repo_root: Path,
 ) -> tuple[dict[str, object], dict[str, object]]:
@@ -1119,6 +1157,12 @@ def _parent_family_evidence(
         elif role == "resource_transition_parity":
             role_evidence[role] = _resource_transition_parity_evidence(
                 target=target,
+                repo_root=repo_root,
+            )
+        elif role == "projection_retirement_parity":
+            role_evidence[role] = _projection_retirement_parity_evidence(
+                target=target,
+                adapter_census=adapter_census,
                 repo_root=repo_root,
             )
         elif role == "public_private_boundary_parity":
@@ -1530,6 +1574,134 @@ def _runtime_audit_transition_parity_evidence(
     }
 
 
+def _projection_retirement_parity_evidence(
+    *,
+    target: ParityTarget,
+    adapter_census: Mapping[str, Any] | None = None,
+    repo_root: Path,
+) -> dict[str, object]:
+    artifacts = [
+        artifact
+        for artifact in target.family_evidence_artifacts
+        if artifact.get("evidence_role") == "projection_retirement_parity"
+    ]
+    if not artifacts:
+        return {
+            "status": "fail",
+            "reason": "target does not declare projection_retirement_parity family_evidence_artifacts",
+        }
+    results: dict[str, object] = {}
+    reasons: list[str] = []
+    for artifact in artifacts:
+        artifact_id = str(artifact["artifact_id"])
+        artifact_path = repo_root / str(artifact["path"])
+        declared_schema_version = str(artifact["schema_version"])
+        artifact_status = "pass"
+        artifact_reasons: list[str] = []
+        payload: Mapping[str, Any] | None = None
+        if not artifact_path.exists():
+            artifact_status = "fail"
+            artifact_reasons.append(f"missing family evidence artifact `{artifact_id}`")
+        else:
+            try:
+                loaded = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` is unreadable: {exc}"
+                )
+            else:
+                if not isinstance(loaded, Mapping):
+                    artifact_status = "fail"
+                    artifact_reasons.append(
+                        f"family evidence artifact `{artifact_id}` must be a JSON object"
+                    )
+                else:
+                    payload = loaded
+        if payload is not None:
+            if payload.get("schema_version") != declared_schema_version:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` has wrong schema_version"
+                )
+            if payload.get("artifact_id") != artifact_id:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not report its declared artifact_id"
+                )
+            if payload.get("workflow_family") != target.workflow_family:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not match workflow_family `{target.workflow_family}`"
+                )
+            if payload.get("overall_status") != "pass" or payload.get("all_passed") is not True:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not record a passing dual-run result"
+                )
+            adapters = payload.get("adapters")
+            if not isinstance(adapters, Mapping) or not adapters:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not declare adapter results"
+                )
+            elif adapter_census is None:
+                artifact_status = "fail"
+                artifact_reasons.append("missing adapter_census compile artifact")
+            else:
+                if adapter_census.get("workflow_family") != target.workflow_family:
+                    artifact_status = "fail"
+                    artifact_reasons.append(
+                        "adapter_census compile artifact does not match target workflow_family"
+                    )
+                rows = adapter_census.get("rows")
+                if not isinstance(rows, list):
+                    artifact_status = "fail"
+                    artifact_reasons.append("adapter_census compile artifact does not contain row data")
+                else:
+                    rows_by_name = {
+                        str(row.get("binding_name")): row
+                        for row in rows
+                        if isinstance(row, Mapping) and isinstance(row.get("binding_name"), str)
+                    }
+                    for adapter_name in adapters:
+                        if not isinstance(adapter_name, str):
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                f"family evidence artifact `{artifact_id}` uses a non-string adapter name"
+                            )
+                            continue
+                        row = rows_by_name.get(adapter_name)
+                        if row is None:
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                f"adapter_census compile artifact is missing `{adapter_name}`"
+                            )
+                            continue
+                        if row.get("retirement_status") != "retired":
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                f"adapter `{adapter_name}` is not marked retired in adapter_census"
+                            )
+                        if row.get("liveness") != "unreferenced":
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                f"retired adapter `{adapter_name}` is still live"
+                            )
+        results[artifact_id] = {
+            "status": artifact_status,
+            "path": str(artifact["path"]),
+            "schema_version": declared_schema_version,
+            **({"reasons": artifact_reasons} if artifact_reasons else {}),
+        }
+        reasons.extend(artifact_reasons)
+    return {
+        "status": "fail" if reasons else "pass",
+        "artifacts": results,
+        **({"reason": reasons[0], "reasons": reasons} if reasons else {}),
+    }
+
+
 def _public_private_boundary_parity_evidence(
     workflow_boundary: Mapping[str, Any] | None,
     *,
@@ -1848,6 +2020,41 @@ def _validate_evidence_freshness(
                 elif expected_sha != _sha256_file(current_file):
                     raise ValueError(
                         f"runtime_audit_artifacts.{artifact_id}.sha256 does not match current artifact"
+                    )
+
+    expected_family_artifacts = report.get("target_identity", {}).get("family_evidence_artifacts", ())
+    if isinstance(expected_family_artifacts, list) and expected_family_artifacts:
+        freshness_family_artifacts = evidence_freshness.get("family_evidence_artifacts")
+        if not isinstance(freshness_family_artifacts, Mapping):
+            mark_incomplete("missing family_evidence_artifacts freshness")
+        else:
+            for artifact in expected_family_artifacts:
+                if not isinstance(artifact, Mapping):
+                    mark_incomplete("family_evidence_artifacts target identity row is invalid")
+                    continue
+                artifact_id = _string_or_none(artifact.get("artifact_id"))
+                artifact_path = _string_or_none(artifact.get("path"))
+                if not artifact_id or not artifact_path:
+                    mark_incomplete("family_evidence_artifacts target identity row is incomplete")
+                    continue
+                freshness_artifact = freshness_family_artifacts.get(artifact_id)
+                if not isinstance(freshness_artifact, Mapping):
+                    mark_incomplete(f"missing family evidence freshness row `{artifact_id}`")
+                    continue
+                if freshness_artifact.get("path") != artifact_path:
+                    raise ValueError(
+                        f"family_evidence_artifacts.{artifact_id}.path does not match current target path"
+                    )
+                current_file = repo_root / artifact_path
+                if not current_file.exists():
+                    mark_incomplete(f"missing family evidence artifact `{artifact_id}`")
+                    continue
+                expected_sha = _string_or_none(freshness_artifact.get("sha256"))
+                if not expected_sha:
+                    mark_incomplete(f"missing family evidence artifact digest `{artifact_id}`")
+                elif expected_sha != _sha256_file(current_file):
+                    raise ValueError(
+                        f"family_evidence_artifacts.{artifact_id}.sha256 does not match current artifact"
                     )
 
     return evidence_complete, reasons
@@ -2271,6 +2478,35 @@ def _parse_runtime_audit_artifacts(
                 "path": _require_string(artifact, "path"),
                 "transition_name": _require_string(artifact, "transition_name"),
                 "resource_kind": _require_string(artifact, "resource_kind"),
+            }
+        )
+    return tuple(normalized)
+
+
+def _parse_family_evidence_artifacts(
+    payload: Mapping[str, Any],
+    *,
+    workflow_family: str,
+) -> tuple[Mapping[str, object], ...]:
+    raw_artifacts = payload.get("family_evidence_artifacts")
+    if raw_artifacts is None:
+        return ()
+    artifacts = _require_object_list(payload, "family_evidence_artifacts")
+    normalized: list[Mapping[str, object]] = []
+    seen_ids: set[str] = set()
+    for artifact in artifacts:
+        artifact_id = _require_string(artifact, "artifact_id")
+        if artifact_id in seen_ids:
+            raise ValueError(
+                f"family_evidence_artifacts duplicates artifact_id `{artifact_id}` for `{workflow_family}`"
+            )
+        seen_ids.add(artifact_id)
+        normalized.append(
+            {
+                "artifact_id": artifact_id,
+                "path": _require_string(artifact, "path"),
+                "evidence_role": _require_string(artifact, "evidence_role"),
+                "schema_version": _require_string(artifact, "schema_version"),
             }
         )
     return tuple(normalized)

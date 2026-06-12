@@ -13,6 +13,7 @@
     ArtifactWorkTargetPath
     BaselineDesignDoc
     BlockedRecoveryDecision
+    BlockedRecoveryRoute
     BlockedRecoveryReason
     BlockedRecoveryOutcome
     CheckCommandsPath
@@ -25,6 +26,8 @@
     DrainTerminalStatus
     ImplementationAttempt
     ImplementationPhaseResult
+    ImplementationReviewDecision
+    ImplementationState
     ArtifactJustification
     BoundaryJustification
     DesignDeltaDrainAction
@@ -33,6 +36,7 @@
     PlanDocTarget
     PlanDraftResult
     PlanPhaseResult
+    PlanReviewDecision
     PreSelectionRoute
     RecoveredGapAttempt
     RecoveryDrainStatus
@@ -50,6 +54,7 @@
     TargetDesignDoc
     WorkItemResult
     WorkItemSource
+    WorkItemTerminalDecision
     WorkItemTerminalReason
     WorkItemTerminalRoute
     WorkReport
@@ -99,6 +104,12 @@
     user_decision_required
     unsupported_blocker)
 
+  (defenum BlockedRecoveryRoute
+    GAP_DESIGN_REVISION_REQUIRED
+    TARGET_DESIGN_REVISION_REQUIRED
+    PREREQUISITE_GAP_REQUIRED
+    TERMINAL_BLOCKED)
+
   (defenum ArchitectureValidationResult
     VALID
     BLOCKED
@@ -117,6 +128,19 @@
     BACKLOG_ITEM
     DESIGN_GAP)
 
+  (defenum PlanReviewDecision
+    APPROVE
+    REVISE)
+
+  (defenum ImplementationState
+    COMPLETED
+    BLOCKED)
+
+  (defenum ImplementationReviewDecision
+    APPROVE
+    REVISE
+    NOT_APPLICABLE)
+
   (defenum WorkItemTerminalReason
     plan_blocked
     plan_review_exhausted
@@ -128,6 +152,12 @@
     PLAN_REVIEW_EXHAUSTED
     IMPLEMENTATION_BLOCKED
     IMPLEMENTATION_REVIEW_EXHAUSTED)
+
+  (defunion WorkItemTerminalDecision
+    (COMPLETE)
+    (PLAN_REVIEW_EXHAUSTED)
+    (IMPLEMENTATION_BLOCKED)
+    (IMPLEMENTATION_REVIEW_EXHAUSTED))
 
   (defenum DesignGapId
     DESIGN_GAP)
@@ -310,7 +340,7 @@
     (plan_path PlanDoc))
 
   (defrecord ResolvedWorkItemInputs
-    (work_item_source String)
+    (work_item_source WorkItemSource)
     (work_item_id String)
     (work_item_context_path WorkReport)
     (check_commands_path CheckCommandsPath)
@@ -327,8 +357,8 @@
     (item_summary_target_path WorkReportTarget))
 
   (defrecord ImplementationPhaseResult
-    (implementation-state String)
-    (implementation-review-decision String)
+    (implementation-state ImplementationState)
+    (implementation-review-decision ImplementationReviewDecision)
     (execution-report ArtifactWorkTargetPath)
     (progress-report ArtifactWorkTargetPath)
     (checks-report ArtifactChecksTargetPath)
