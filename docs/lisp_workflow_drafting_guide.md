@@ -27,6 +27,7 @@ Design references:
 - [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
+- [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
 
 Use this guide for authoring judgment. Use
 [Capability Status Matrix](capability_status_matrix.md) for current
@@ -293,7 +294,11 @@ The currently implemented authoring surface includes:
 - `defmacro`
 - modules, imports, and exports
 - `let*`
-- `if`
+- `if`, including computed pure `Bool` conditions
+- the closed pure-expression operator surface (`=`, `!=`, `<`, `<=`, `>`,
+  `>=`, `and`, `or`, `not`, `+`, `-`, `*`, `min`, `max`, `string/concat`,
+  `string/empty?`, `symbol/name`, `some?`, `or-else`, `record-update`),
+  lowering through compiler-generated `pure_projection` steps; see Section 9A
 - `match`
 - `loop/recur`
 - `call`
@@ -501,8 +506,10 @@ Bad:
 attempt.execution-report
 ```
 
-A general `if` or string predicate is not proof unless the frontend/compiler
-explicitly supports that proof form.
+A computed pure `Bool` condition, such as `(= status "READY")`, may route
+control flow, but it is proof-neutral: it does not unlock variant-specific
+fields, optional payloads, or union narrowing. `match` remains the only
+construct that establishes variant proof.
 
 ### 3.8 Do Not Hand-Manage Runtime State
 
@@ -806,7 +813,10 @@ Use `defun` for pure helper logic.
 ```
 
 A `defun` may construct records, construct symbolic paths, select fields,
-combine strings, compute constants, and build type-level descriptors.
+combine strings, compute constants, and build type-level descriptors. Pure
+computation inside a `defun` uses the closed pure-expression operator surface
+(Section 9A); the body either folds at compile time or lowers to the same
+pure-expression payload the runtime evaluator executes.
 
 A `defun` may not read files, write files, call providers, call workflows, run
 commands, inspect wall-clock time, or generate random values.
@@ -1032,6 +1042,78 @@ certified adapters with declared typed fields. Queue or ledger movement still
 belongs in `resource-transition`, and reusable-state gating still belongs in
 `resume-or-start`.
 
+## 9A. Pure Computation And Typed Projection
+
+If the logic is a comparison, a count, a boolean combination, a default, a
+reason string, or typed record/union construction over values you already
+have, write it in the language. Do not shell out.
+
+The operator surface is closed and shared by compile-time folding and the
+runtime evaluator (normative table:
+[Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md),
+Section 10.2):
+
+| Group | Operators |
+| --- | --- |
+| Equality | `=`, `!=` over `String`, `Int`, `Bool`, `Symbol`, same-type enums |
+| Ordering | `<`, `<=`, `>`, `>=` over `Int` pairs or `Float` pairs |
+| Boolean | `and`, `or`, `not` |
+| Arithmetic | `+`, `-`, `*`, `min`, `max` over `Int`, fail-closed on 64-bit overflow |
+| String | `string/concat`, `string/empty?`, `symbol/name` |
+| Option | `some?`, `or-else` |
+| Record | `record-update` |
+
+There is deliberately no division, float equality, path-string concatenation,
+collection operators, regex, time, randomness, or IO. If a workflow seems to
+need one of those, that is a design question for the adapter-retirement
+target
+(`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`),
+not a reason to fall back to a command step or grow the surface informally.
+
+Typed projection example — compare, default, and construct without Python:
+
+```lisp
+(defworkflow orchestrate
+  ((approved Bool)
+   (status String))
+  -> SelectorSummary
+  (record-update
+    (record SelectorSummary
+      :status status
+      :ready false)
+    :ready (or approved (= status "READY"))))
+```
+
+Choosing the surface:
+
+| Behavior | Use |
+| --- | --- |
+| Compare, count, combine, default, build a reason string or typed value | Pure expressions / `defun` |
+| Produce a typed record/union from existing typed values for routing or publication | Pure typed projection (same operators; visible generated step) |
+| External tool, process spawn, network, git, real shell work | `command-result` with a certified adapter |
+| Durable state mutation: queue, ledger, run-state | `resource-transition` (Section 13.4), never a bare command step |
+
+What lowering generates: maximal pure regions become one compiler-generated
+`pure_projection` step with a validated payload, payload digest, and a
+private managed result bundle (`PURE_PROJECTION_BUNDLE`, resume-safe at step
+scope). The step is visibility, not authority transfer: the expression body
+stays effect-free, the generated bundle path is private, and
+`pure_projection` is not an authored surface. Literal-only expressions may
+fold away at compile time; the runtime evaluator owns the semantics either
+way.
+
+Failures are typed and fail-closed — expect `pure_expr_overflow`,
+`pure_expr_float_equality_forbidden`, `pure_expr_union_equality_forbidden`,
+`pure_expr_path_string_concat_forbidden`, or
+`pure_expr_operator_unsupported`, never silent coercion.
+
+Copy-safe fixtures:
+`tests/fixtures/workflow_lisp/valid/pure_expr_loop_counter.orc` and
+`tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc`.
+
+Routing is not proof. `(if (= status "READY") ...)` may choose a branch; it
+never makes union variant fields readable. See Section 10.
+
 ## 10. Pattern Matching And Variant Proof
 
 Use `match` to consume union results.
@@ -1059,15 +1141,25 @@ explicitly permits them.
 Use `variant` to build a union value; use `match` to prove which variant you
 have before reading variant-specific fields.
 
-Do not use general predicates as proof:
+Computed scalar predicates may route; they never prove.
+
+Routing on a genuine scalar is fine:
 
 ```lisp
-;; Bad
-(if (= implementation.status COMPLETED)
+(if (>= state.count max-iterations)
+  (done ...)
+  (continue ...))
+```
+
+Simulating `match` with a comparison to reach variant fields is not:
+
+```lisp
+;; Bad: routes on a status mirror, then reads an unproved variant field
+(if (= implementation.status "COMPLETED")
     implementation.execution-report
     ...)
 
-;; Better
+;; Better: proof comes from match
 (match implementation
   ((COMPLETED c)
     c.execution-report)
@@ -1075,6 +1167,10 @@ Do not use general predicates as proof:
   ((BLOCKED b)
     ...))
 ```
+
+If the value is a union, use `match`. If a record carries a status enum that
+mirrors a union's discriminant, the record is probably a fake outcome type
+(Section 28).
 
 ## 11. Contexts And Derived State
 
@@ -1113,6 +1209,25 @@ internal reusable call, Workflow Lisp now records that omission as private
 executable-context metadata. Public authored inputs stay public; runtime-owned
 context bindings, managed write roots, and YAML-compatibility bridge values
 stay off the public boundary.
+
+### 11.1 Boundary Authority Classes
+
+Classify every path-like boundary value of a parent-callable candidate by
+authority before exposing it:
+
+| Class | Meaning | Treatment |
+| --- | --- | --- |
+| `public_authored` | The caller genuinely chooses the value: steering doc, target design, explicit output root | Keep public |
+| `compatibility_bridge` | YAML-era state/artifact path kept for parity or existing consumers | Keep temporarily, labeled, with a retirement route |
+| `runtime_derived` | Derivable from run context, resource identity, or `StateLayout` | Bind internally; not a public input |
+| `generated_internal` | Compiler/runtime-owned bundle, write root, temp, or sidecar | Allocate privately |
+| `materialized_view` | Deterministic rendering of a typed value | Allocate as a view; never semantic authority |
+
+If most of a workflow's inputs are bookkeeping paths, the boundary is
+YAML-shaped: derive or hide the internals and keep only authored inputs plus
+labeled bridges public. The classification taxonomy, census evidence, and
+promotion gates are owned by
+`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`.
 
 Use helpers:
 
@@ -1444,6 +1559,30 @@ Every loop must have:
 
 Exhaustion should be a typed result when it is part of workflow semantics.
 
+Loop state carries typed values, not file-path authority. Counters are `Int`
+fields updated in-language; statuses and reasons are typed values; durable
+state is a typed result or resource reference, not a `state/...` path
+threaded through every iteration and re-read from disk. The pure-expression
+surface makes the value-carrying shape direct:
+
+```lisp
+(loop/recur
+  :max 6
+  :state (record CounterState
+           :count 0
+           :label "seed")
+  (fn (state)
+    (if (< state.count 3)
+      (continue
+        (record-update state
+          :count (+ state.count 1)
+          :label "tick"))
+      (done
+        (record CounterResult
+          :count state.count
+          :label state.label)))))
+```
+
 ### 17.1 `loop-state`
 
 Use `loop-state` when `loop/recur` needs a typed local carrier but the carrier
@@ -1513,6 +1652,12 @@ Effect kinds include:
 If a procedure's effects are hard to explain, the procedure is probably too
 broad.
 
+Semantic IR also promotes a small set of generated visibility effects
+(`snapshot_capture`, `pointer_materialization`, `pure_projection`) so
+generated runtime structure stays inspectable. A `pure_projection` entry is
+observational metadata for one generated projection boundary; it does not
+mean the authored expression gained provider, command, IO, or state effects.
+
 ## 19. Source Maps And Debugging
 
 Debug high-level `.orc` in this order.
@@ -1562,6 +1707,7 @@ After compile/lowering succeeds, use ordinary runtime artifacts:
 - artifact registry
 - provider result bundles
 - command result bundles
+- generated `pure_projection` result bundles (private managed paths)
 
 When a runtime failure references a generated executable step, the diagnostic
 should also reference the high-level `.orc` source form.
@@ -1579,6 +1725,9 @@ The frontend and lint tools should warn on brittle authoring patterns.
 | `resource_move_without_transition` | Shell move plus hidden ledger update | `resource-transition` or certified adapter |
 | `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match` |
 | `manual_state_path` | Hand-built state path | Context helper such as `with-phase` |
+| `command_step_for_pure_computation` | Python/`jq` step that only compares, counts, defaults, or formats | Closed pure-expression surface / typed projection (Section 9A) |
+| `loop_state_carries_path_authority` | Loop state threading state-file paths between iterations | Typed value state plus `record-update` (Section 17) |
+| `low_level_state_path_in_high_level_module` | `state/...` path types on a high-level public boundary | Derived context, private bindings, or a labeled compatibility bridge (Section 11.1) |
 
 ## 21. YAML Compatibility Surfaces
 
@@ -1650,6 +1799,7 @@ Behavior inventory:
 | Selected-item fan-in scripts | `finalize-selected-item` |
 | Top-level select/run/gap/repeat | `backlog-drain` |
 | Markdown line extraction | Structured result; legacy adapter only if necessary |
+| Compare/count/default/format helper script | Closed pure-expression surface or typed projection |
 
 For each migrated workflow, measure:
 
@@ -2034,6 +2184,7 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need to move a file and update the ledger." | "This is a `resource-transition`." |
 | "I need a custom review loop." | "Can this be `review-revise-loop`?" |
 | "I need to select/run/gap/repeat." | "This is `backlog-drain`." |
+| "I need a tiny Python helper to compare, count, or format." | "This is pure computation; use the operator surface and typed projection." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
 | "The generated YAML is weird." | "Inspect the Core AST, executable IR, Semantic IR, and source map; YAML is only a projection." |
 
