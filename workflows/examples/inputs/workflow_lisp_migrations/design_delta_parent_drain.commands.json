@@ -222,25 +222,25 @@
     "input_signature": [
       {
         "name": "plan_review_decision",
-        "type_name": "String",
+        "type_name": "PlanReviewDecision",
         "required": true,
         "transport_key": "plan_review_decision"
       },
       {
         "name": "implementation_state",
-        "type_name": "String",
+        "type_name": "ImplementationState",
         "required": true,
         "transport_key": "implementation_state"
       },
       {
         "name": "implementation_review_decision",
-        "type_name": "String",
+        "type_name": "ImplementationReviewDecision",
         "required": true,
         "transport_key": "implementation_review_decision"
       },
       {
         "name": "work_item_source",
-        "type_name": "String",
+        "type_name": "WorkItemSource",
         "required": true,
         "transport_key": "work_item_source"
       }
@@ -297,19 +297,19 @@
       },
       {
         "name": "work_item_source",
-        "type_name": "String",
+        "type_name": "WorkItemSource",
         "required": true,
         "transport_key": "work_item_source"
       },
       {
         "name": "blocked_recovery_route",
-        "type_name": "String",
+        "type_name": "BlockedRecoveryRoute",
         "required": true,
         "transport_key": "blocked_recovery_route"
       },
       {
         "name": "reason",
-        "type_name": "String",
+        "type_name": "BlockedRecoveryReason",
         "required": true,
         "transport_key": "reason"
       }
@@ -374,7 +374,7 @@
       },
       {
         "name": "work_item_source",
-        "type_name": "String",
+        "type_name": "WorkItemSource",
         "required": true,
         "transport_key": "work_item_source"
       },
@@ -427,7 +427,8 @@
     "bridge_owner": "lisp_frontend_design_delta/work_item",
     "expiry_condition": "g3 typed resource transition replaces terminal work-item recorder",
     "evidence_refs": [
-      "design_delta_record_terminal_ok"
+      "design_delta_record_terminal_ok",
+      "design_delta_record_terminal_work_item_enum_bridge"
     ]
   },
   "record_blocked_recovery_outcome": {
@@ -471,13 +472,13 @@
       },
       {
         "name": "work_item_source",
-        "type_name": "String",
+        "type_name": "WorkItemSource",
         "required": true,
         "transport_key": "work_item_source"
       },
       {
         "name": "recovery_route",
-        "type_name": "String",
+        "type_name": "BlockedRecoveryRoute",
         "required": true,
         "transport_key": "recovery_route"
       },
@@ -566,7 +567,8 @@
     "bridge_owner": "lisp_frontend_design_delta/work_item",
     "expiry_condition": "g3 typed resource transition replaces blocked-recovery recorder",
     "evidence_refs": [
-      "design_delta_record_blocked_recovery_ok"
+      "design_delta_record_blocked_recovery_ok",
+      "design_delta_record_blocked_recovery_outcome_enum_bridge"
     ]
   },
   "write_lisp_frontend_drain_status": {

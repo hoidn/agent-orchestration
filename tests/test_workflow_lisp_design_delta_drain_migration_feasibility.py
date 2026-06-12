@@ -30,6 +30,7 @@ from orchestrator.workflow_lisp.command_boundaries import (
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
     TransitionBindingMetadata,
 )
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
@@ -45,6 +46,14 @@ CHARACTERIZATION_FIXTURES = WORKFLOW_LISP_FIXTURES / "characterization" / "sourc
 # separate parent-callable `run-work-item` export.
 DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_work_item_runtime"
+)
+DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.commands.json"
 )
 NESTED_IMPLEMENTATION_PHASE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
@@ -115,6 +124,25 @@ def _state_contains_artifact_value(state: object, artifact_name: str, expected_v
         )
     if isinstance(state, list):
         return any(_state_contains_artifact_value(value, artifact_name, expected_value) for value in state)
+    return False
+
+
+def _state_contains_failed_contract_violation(state: object, *, reason: str) -> bool:
+    if isinstance(state, dict):
+        error = state.get("error")
+        if (
+            state.get("status") == "failed"
+            and isinstance(error, dict)
+            and error.get("type") == "contract_violation"
+            and isinstance(error.get("context"), dict)
+            and error["context"].get("reason") == reason
+        ):
+            return True
+        return any(
+            _state_contains_failed_contract_violation(value, reason=reason) for value in state.values()
+        )
+    if isinstance(state, list):
+        return any(_state_contains_failed_contract_violation(value, reason=reason) for value in state)
     return False
 
 
@@ -248,6 +276,7 @@ def _design_delta_work_item_provider_externs() -> dict[str, str]:
         "providers.implementation.execute": "fake-implementation-execute",
         "providers.implementation.review": "fake-implementation-review",
         "providers.implementation.fix": "fake-implementation-fix",
+        "providers.selector": "fake-selector",
         "providers.work-item.recovery-classifier": "fake-work-item-recovery",
     }
 
@@ -270,11 +299,22 @@ def _design_delta_work_item_prompt_externs() -> dict[str, str]:
             "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
             "classify_blocked_implementation_recovery.md"
         ),
+        "prompts.selector.select-next-work": (
+            "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+        ),
     }
 
 
+def _design_delta_checked_in_command_boundaries() -> dict[str, object]:
+    payload = json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8"))
+    return _parse_command_boundaries_manifest(
+        payload,
+        manifest_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
+    )
+
+
 def _design_delta_work_item_command_boundaries() -> dict[str, object]:
-    return {
+    command_boundaries = {
         "run_neurips_backlog_checks": ExternalToolBinding(
             name="run_neurips_backlog_checks",
             stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
@@ -342,25 +382,25 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             input_signature=(
                 CertifiedAdapterInputField(
                     name="plan_review_decision",
-                    type_name="String",
+                    type_name="PlanReviewDecision",
                     required=True,
                     transport_key="plan_review_decision",
                 ),
                 CertifiedAdapterInputField(
                     name="implementation_state",
-                    type_name="String",
+                    type_name="ImplementationState",
                     required=True,
                     transport_key="implementation_state",
                 ),
                 CertifiedAdapterInputField(
                     name="implementation_review_decision",
-                    type_name="String",
+                    type_name="ImplementationReviewDecision",
                     required=True,
                     transport_key="implementation_review_decision",
                 ),
                 CertifiedAdapterInputField(
                     name="work_item_source",
-                    type_name="String",
+                    type_name="WorkItemSource",
                     required=True,
                     transport_key="work_item_source",
                 ),
@@ -387,19 +427,19 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
                 ),
                 CertifiedAdapterInputField(
                     name="work_item_source",
-                    type_name="String",
+                    type_name="WorkItemSource",
                     required=True,
                     transport_key="work_item_source",
                 ),
                 CertifiedAdapterInputField(
                     name="blocked_recovery_route",
-                    type_name="String",
+                    type_name="BlockedRecoveryRoute",
                     required=True,
                     transport_key="blocked_recovery_route",
                 ),
                 CertifiedAdapterInputField(
                     name="reason",
-                    type_name="String",
+                    type_name="BlockedRecoveryReason",
                     required=True,
                     transport_key="reason",
                 ),
@@ -417,7 +457,7 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             input_signature=(
                 CertifiedAdapterInputField("run_state_path", "RunStatePath", True, "run_state_path"),
                 CertifiedAdapterInputField("work_item_id", "String", True, "work_item_id"),
-                CertifiedAdapterInputField("work_item_source", "String", True, "work_item_source"),
+                CertifiedAdapterInputField("work_item_source", "WorkItemSource", True, "work_item_source"),
                 CertifiedAdapterInputField("reason", "String", True, "reason"),
                 CertifiedAdapterInputField(
                     "item_summary_target_path",
@@ -455,8 +495,13 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             input_signature=(
                 CertifiedAdapterInputField("run_state_path", "RunStatePath", True, "run_state_path"),
                 CertifiedAdapterInputField("work_item_id", "String", True, "work_item_id"),
-                CertifiedAdapterInputField("work_item_source", "String", True, "work_item_source"),
-                CertifiedAdapterInputField("recovery_route", "String", True, "recovery_route"),
+                CertifiedAdapterInputField("work_item_source", "WorkItemSource", True, "work_item_source"),
+                CertifiedAdapterInputField(
+                    "recovery_route",
+                    "BlockedRecoveryRoute",
+                    True,
+                    "recovery_route",
+                ),
                 CertifiedAdapterInputField("reason", "BlockedRecoveryReason", True, "reason"),
                 CertifiedAdapterInputField(
                     "target_design_review_decision",
@@ -503,6 +548,15 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             ),
         ),
     }
+    checked_in_boundaries = _design_delta_checked_in_command_boundaries()
+    for binding_name in (
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+    ):
+        command_boundaries[binding_name] = checked_in_boundaries[binding_name]
+    return command_boundaries
 
 
 def _design_delta_parent_drain_provider_externs() -> dict[str, str]:
@@ -815,7 +869,13 @@ def _compile_design_delta_parent_call_runtime_entrypoint(tmp_path: Path):
 def _copy_design_delta_work_item_runtime_modules(tmp_path: Path) -> Path:
     module_dir = tmp_path / "lisp_frontend_design_delta"
     module_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("plan_phase.orc", "implementation_phase.orc", "types.orc", "work_item.orc"):
+    for name in (
+        "plan_phase.orc",
+        "implementation_phase.orc",
+        "transitions.orc",
+        "types.orc",
+        "work_item.orc",
+    ):
         source = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / name
         _write_module(module_dir / name, source.read_text(encoding="utf-8"))
     return module_dir / "work_item.orc"
@@ -1891,8 +1951,6 @@ def _design_delta_work_item_bound_inputs() -> dict[str, str]:
         "baseline_design_path": "docs/design/baseline.md",
         "progress_ledger_path": "state/progress_ledger.json",
         "run_state_path": "state/run_state.json",
-        "implementation_execute_provider": "codex",
-        "implementation_review_provider": "codex",
     }
 
 
@@ -1930,6 +1988,11 @@ def _execute_design_delta_work_item_route(
     recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
     recovery_reason: str = "implementation_architecture_under_scoped",
     review_sequence: tuple[str, ...] = ("APPROVE",),
+    materialized_work_item_source_override: str | None = None,
+    plan_review_decision_override: str | None = None,
+    implementation_state_override: str | None = None,
+    blocked_recovery_route_override: str | None = None,
+    blocked_recovery_reason_override: str | None = None,
 ):
     workflow_path, result = _compile_design_delta_work_item_runtime_entrypoint(tmp_path)
     bundle = result.entry_result.validated_bundles["lisp_frontend_design_delta/work_item::run-work-item"]
@@ -1944,6 +2007,11 @@ def _execute_design_delta_work_item_route(
         recovery_route=recovery_route,
         recovery_reason=recovery_reason,
         review_sequence=review_sequence,
+        materialized_work_item_source_override=materialized_work_item_source_override,
+        plan_review_decision_override=plan_review_decision_override,
+        implementation_state_override=implementation_state_override,
+        blocked_recovery_route_override=blocked_recovery_route_override,
+        blocked_recovery_reason_override=blocked_recovery_reason_override,
     )
 
 
@@ -1960,13 +2028,25 @@ def _execute_design_delta_work_item_bundle(
     recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
     recovery_reason: str = "implementation_architecture_under_scoped",
     review_sequence: tuple[str, ...] = ("APPROVE",),
+    materialized_work_item_source_override: str | None = None,
+    plan_review_decision_override: str | None = None,
+    implementation_state_override: str | None = None,
+    blocked_recovery_route_override: str | None = None,
+    blocked_recovery_reason_override: str | None = None,
 ):
 
     _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
     _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
     _write_design_delta_runtime_run_checks_script(tmp_path)
     _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
-    _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
+    _write_design_delta_work_item_runtime_inputs(
+        tmp_path,
+        work_item_source=(
+            materialized_work_item_source_override
+            if materialized_work_item_source_override is not None
+            else work_item_source
+        ),
+    )
 
     provider_calls: list[str] = []
     review_index = 0
@@ -2069,7 +2149,7 @@ def _execute_design_delta_work_item_bundle(
                 payload = {
                     "variant": "APPROVE",
                     "review_report": "artifacts/review/plan_review_report.md",
-                    "review_decision": "APPROVE",
+                    "review_decision": plan_review_decision_override or "APPROVE",
                     "findings": {
                         "schema_version": "ReviewFindings.v1",
                         "items_path": "artifacts/work/plan_findings.json",
@@ -2110,7 +2190,7 @@ def _execute_design_delta_work_item_bundle(
                 execution_report.write_text("# execution report\n", encoding="utf-8")
                 payload = {
                     "variant": "COMPLETED",
-                    "implementation_state": "COMPLETED",
+                    "implementation_state": implementation_state_override or "COMPLETED",
                     "execution_report": "artifacts/work/execution_report.md",
                 }
             else:
@@ -2172,8 +2252,8 @@ def _execute_design_delta_work_item_bundle(
             bundle_path.write_text(
                 json.dumps(
                     {
-                        "blocked_recovery_route": recovery_route,
-                        "reason": recovery_reason,
+                        "blocked_recovery_route": blocked_recovery_route_override or recovery_route,
+                        "reason": blocked_recovery_reason_override or recovery_reason,
                         "summary": "design-gap recovery requested",
                     }
                 )
@@ -3089,6 +3169,62 @@ def test_design_delta_work_item_library_module_stays_closure_only(
     assert any("finalize-approved-nonblocked" in name for name in lowered_names)
 
 
+def test_design_delta_work_item_candidate_rejects_invalid_work_item_source_at_command_boundary(
+    tmp_path: Path,
+) -> None:
+    _workspace, state, _provider_calls = _execute_design_delta_work_item_route(
+        tmp_path,
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        materialized_work_item_source_override="UNSCOPED",
+    )
+
+    assert _state_contains_failed_contract_violation(state, reason="invalid_enum_value")
+
+
+def test_design_delta_work_item_candidate_rejects_invalid_plan_review_decision_at_provider_boundary(
+    tmp_path: Path,
+) -> None:
+    _workspace, state, _provider_calls = _execute_design_delta_work_item_route(
+        tmp_path,
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        plan_review_decision_override="SHIP_IT",
+    )
+
+    assert _state_contains_failed_contract_violation(state, reason="invalid_enum_value")
+
+
+def test_design_delta_work_item_candidate_rejects_invalid_implementation_state_at_provider_boundary(
+    tmp_path: Path,
+) -> None:
+    _workspace, state, _provider_calls = _execute_design_delta_work_item_route(
+        tmp_path,
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        implementation_state_override="WAITING",
+    )
+
+    assert _state_contains_failed_contract_violation(state, reason="invalid_enum_value")
+
+
+def test_design_delta_work_item_candidate_rejects_invalid_blocked_recovery_route_at_provider_boundary(
+    tmp_path: Path,
+) -> None:
+    _workspace, state, _provider_calls = _execute_design_delta_work_item_route(
+        tmp_path,
+        plan_variant="APPROVED",
+        implementation_variant="BLOCKED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        blocked_recovery_route_override="TERMINAL",
+    )
+
+    assert _state_contains_failed_contract_violation(state, reason="invalid_enum_value")
+
+
 def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     tmp_path: Path,
 ) -> None:
@@ -3255,7 +3391,6 @@ def test_design_delta_parent_family_commands_use_production_adapter_interfaces(
             f'"{key}"' in payload
             for key in {"run_state_path", "drain_status", "summary_path", "state_root"}
         )
-
 
 def test_design_delta_selector_action_projection_rejects_inconsistent_status(
     tmp_path: Path,

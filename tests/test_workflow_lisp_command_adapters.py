@@ -574,11 +574,49 @@ def test_design_delta_parent_drain_manifest_keeps_contract_behavior_class_and_pa
     assert getattr(projection, "expiry_condition")
     assert getattr(projection, "evidence_refs")
 
+    classify_terminal = bindings["classify_lisp_frontend_work_item_terminal"]
+    classify_signature = {
+        field.name: field.type_name for field in classify_terminal.input_signature
+    }
+    assert classify_signature == {
+        "plan_review_decision": "PlanReviewDecision",
+        "implementation_state": "ImplementationState",
+        "implementation_review_decision": "ImplementationReviewDecision",
+        "work_item_source": "WorkItemSource",
+    }
+
+    blocked_recovery_route = bindings["select_lisp_frontend_blocked_recovery_route"]
+    blocked_recovery_signature = {
+        field.name: field.type_name for field in blocked_recovery_route.input_signature
+    }
+    assert blocked_recovery_signature["terminal_route"] == "String"
+    assert blocked_recovery_signature["work_item_source"] == "WorkItemSource"
+    assert blocked_recovery_signature["blocked_recovery_route"] == "BlockedRecoveryRoute"
+    assert blocked_recovery_signature["reason"] == "BlockedRecoveryReason"
+
     record_terminal = bindings["record_terminal_work_item"]
     assert getattr(record_terminal, "transition_binding").transition_name == (
         "lisp_frontend_design_delta/transitions::record-terminal-work-item"
     )
     assert getattr(record_terminal, "transition_binding").contract_role == "migration_backend"
+    assert {field.name: field.type_name for field in record_terminal.input_signature}["work_item_source"] == (
+        "WorkItemSource"
+    )
+    assert set(getattr(record_terminal, "evidence_refs")) >= {
+        "design_delta_record_terminal_ok",
+        "design_delta_record_terminal_work_item_enum_bridge",
+    }
+
+    record_blocked_recovery = bindings["record_blocked_recovery_outcome"]
+    signature_by_name = {
+        field.name: field.type_name for field in record_blocked_recovery.input_signature
+    }
+    assert signature_by_name["work_item_source"] == "WorkItemSource"
+    assert signature_by_name["recovery_route"] == "BlockedRecoveryRoute"
+    assert set(getattr(record_blocked_recovery, "evidence_refs")) >= {
+        "design_delta_record_blocked_recovery_ok",
+        "design_delta_record_blocked_recovery_outcome_enum_bridge",
+    }
 
     backlog_checks = bindings["run_neurips_backlog_checks"]
     assert getattr(backlog_checks, "retirement_class") == "genuine_system"
@@ -968,6 +1006,84 @@ def test_command_result_adapter_preserves_typed_json_scalar_payloads(tmp_path: P
     assert step["command"][2] == (
         '{"count":${inputs.inputs__count|json},"flag":${inputs.inputs__flag|json},'
         '"name":${inputs.inputs__name|json}}'
+    )
+
+
+def test_command_result_adapter_preserves_enum_member_strings_for_json_object_payloads(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "certified_adapter_enum_payload.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum WorkItemSource",
+                "    BACKLOG_ITEM",
+                "    DESIGN_GAP)",
+                "  (defrecord AdapterInputs",
+                "    (work_item_source WorkItemSource))",
+                "  (defrecord NormalizedPayload",
+                "    (summary String))",
+                "  (defworkflow normalize-enum",
+                "    ((inputs AdapterInputs))",
+                "    -> NormalizedPayload",
+                "    (command-result normalize_enum",
+                "      :adapter normalize_enum",
+                "      :inputs",
+                "        ((work_item_source inputs.work_item_source))",
+                "      :returns NormalizedPayload)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    command_boundaries = _parse_command_boundaries_manifest(
+        {
+            "normalize_enum": {
+                "kind": "certified_adapter",
+                "stable_command": ["python", "scripts/normalize_enum.py"],
+                "input_contract": {"type": "object"},
+                "output_type_name": "NormalizedPayload",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": ["normalize_enum_ok"],
+                "negative_fixture_ids": ["normalize_enum_bad"],
+                "behavior_class": "structured_result",
+                "input_signature": [
+                    {
+                        "name": "work_item_source",
+                        "type_name": "WorkItemSource",
+                        "required": True,
+                        "transport_key": "work_item_source",
+                    }
+                ],
+                "artifact_contracts": ["normalized_payload_bundle"],
+                "state_writes": [],
+                "error_codes": ["normalize_enum_invalid_payload"],
+                "owner_module": "std/phase",
+                "replacement_path": None,
+                "invocation_protocol": "json_object_positional_arg",
+            }
+        },
+        manifest_path=None,
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries=command_boundaries,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    step = lowered["steps"][0]
+
+    assert step["command"][:2] == ["python", "scripts/normalize_enum.py"]
+    assert step["command"][2] == (
+        '{"work_item_source":${inputs.inputs__work_item_source|json}}'
     )
 
 

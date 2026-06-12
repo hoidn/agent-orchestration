@@ -139,6 +139,70 @@ def _load_design_delta_boundary_authority_registry() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH.read_text(encoding="utf-8"))
 
 
+def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[str, object]:
+    build = _build_module()
+    request = _design_delta_parent_drain_request(tmp_path)
+    command_boundary_manifest = json.loads(
+        request.command_boundaries_path.read_text(encoding="utf-8")
+    )
+    command_boundaries = build._parse_command_boundaries_manifest(
+        command_boundary_manifest,
+        manifest_path=request.command_boundaries_path,
+    )
+    compile_result = compile_stage3_entrypoint(
+        request.source_path,
+        source_roots=request.source_roots,
+        provider_externs=json.loads(request.provider_externs_path.read_text(encoding="utf-8")),
+        prompt_externs=json.loads(request.prompt_externs_path.read_text(encoding="utf-8")),
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    boundary_projection = build._serialize_workflow_boundary_projection(
+        compile_result,
+        selected_name=request.entry_workflow,
+    )
+    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    checked_in_registry = _load_design_delta_boundary_authority_registry()
+    rows_by_key = {
+        (row["workflow_name"], row["field_name"], row["surface_kind"]): row
+        for row in checked_in_registry["rows"]
+    }
+    default_authority_class = {
+        "public_input": "public_authored",
+        "flattened_output": "materialized_view",
+        "generated_internal_input": "generated_internal",
+        "compatibility_bridge_input": "compatibility_bridge",
+        "managed_write_root": "generated_internal",
+        "runtime_context_input": "runtime_derived",
+    }
+    rows = []
+    for (workflow_name, field_name), expected in sorted(expected_rows.items()):
+        key = (workflow_name, field_name, expected["surface_kind"])
+        row = dict(rows_by_key.get(key, {}))
+        if not row:
+            row = {
+                "workflow_name": workflow_name,
+                "field_name": field_name,
+                "surface_kind": expected["surface_kind"],
+                "authority_class": default_authority_class[expected["surface_kind"]],
+                "path_like": expected["path_like"],
+                "owner": "tests",
+                "justification": (
+                    "Synthesized from compiled boundary projection for adapter-census build coverage."
+                ),
+                "replacement_tranche": "test",
+                "parity_constrained": True,
+            }
+        else:
+            row["path_like"] = expected["path_like"]
+        rows.append(row)
+    return {
+        "schema_version": "workflow_lisp_design_delta_boundary_authority.v1",
+        "rows": rows,
+    }
+
+
 def _validate_review_findings_retirement_metadata() -> dict[str, object]:
     return {
         "retirement_class": "validation",
@@ -3623,11 +3687,19 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    # This assertion is about adapter-census emission through the real build
+    # surface, not the separately-owned checked-in boundary-authority registry.
+    registry_payload = _aligned_design_delta_boundary_authority_registry(
+        tmp_path / "aligned-registry"
+    )
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=registry_payload,
+    )
 
     assert "adapter_census" in result.artifact_paths
     assert result.manifest.artifact_status["adapter_census"] == "emitted"
-
     payload = json.loads(result.artifact_paths["adapter_census"].read_text(encoding="utf-8"))
     assert payload["workflow_family"] == "design_delta_parent_drain"
     rows_by_name = {row["binding_name"]: row for row in payload["rows"]}
@@ -3652,11 +3724,19 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
         "contract_role": "migration_backend",
         "backend_selector": "record_terminal_work_item",
     }
+    assert set(rows_by_name["record_terminal_work_item"]["evidence_refs"]) >= {
+        "design_delta_record_terminal_ok",
+        "design_delta_record_terminal_work_item_enum_bridge",
+    }
     assert rows_by_name["record_blocked_recovery_outcome"]["transition_binding"] == {
         "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
         "resource_kind": "drain-run-state",
         "contract_role": "migration_backend",
         "backend_selector": "record_blocked_recovery_outcome",
+    }
+    assert set(rows_by_name["record_blocked_recovery_outcome"]["evidence_refs"]) >= {
+        "design_delta_record_blocked_recovery_ok",
+        "design_delta_record_blocked_recovery_outcome_enum_bridge",
     }
     assert rows_by_name["write_lisp_frontend_drain_status"]["transition_binding"] == {
         "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",

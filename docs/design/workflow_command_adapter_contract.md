@@ -136,6 +136,14 @@ the frontend validates typed inputs, renders one JSON object positional
 argument in declared field order, and reuses the existing structured-result
 command bundle path.
 
+For promoted `input_signature` rows, each declared `type_name` resolves in the
+calling module's type environment. Family-owned enum and path types are valid
+signature targets when the calling route imports them. During a bridge window,
+if a family narrows an authored value that still crosses a live certified
+adapter boundary, the checked-in adapter signature must narrow in the same
+tranche. The JSON transport may remain the same member string or path string,
+but the declared signature is the typed contract.
+
 The adapter command must be a stable script or executable, not an inline
 `python -c`, `python -`, `bash -c`, heredoc, or nested `subprocess.run` shell.
 
