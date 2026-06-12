@@ -276,6 +276,13 @@ except the resuming runtime.
 6. Variant proof scopes survive resume soundly: restored by re-proof from
    validated values, never by trusting recorded claims.
 7. Public boundary inspection can prove goal 2 mechanically.
+8. Resumability never enters the author's vocabulary: authors reason
+   about program state in ordinary lexical and evaluation terms, and the
+   language surface gains no resume forms, annotations, or types. The
+   only authored resume-adjacent surfaces that remain are
+   `resume-or-start` (a domain-reuse decision, not an execution-position
+   mechanism) and certified resume protocols on adapters at the FFI
+   edge.
 
 ## 6. Non-Goals
 

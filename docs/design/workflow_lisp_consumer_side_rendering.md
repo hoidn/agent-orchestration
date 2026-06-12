@@ -220,6 +220,13 @@ through the type system.
    reference is the reference case). A view reference survives in a
    result type only as a labeled `compatibility_bridge` field while
    parity requires it.
+8. The authoring model reads as ordinary typed programming: the output
+   signature is the single source of result truth, standard evaluation
+   semantics determine what is published, and no file or materialization
+   vocabulary appears in authored surfaces outside the justified timed
+   residue. Visible ceremony is acceptable only where the ceremony is
+   itself the semantics — a timed publication's timing, an explicit
+   effect — and is otherwise a defect this design exists to remove.
 
 ## 6. Non-Goals
 
