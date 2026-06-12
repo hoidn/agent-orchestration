@@ -3539,20 +3539,29 @@ Map[K,V]
 
 ## 83. `std/context`
 
-```text
-RunCtx
-PhaseCtx
-ItemCtx
-DrainCtx
-SelectionCtx
-RecoveryCtx
-```
+The current checkout ships `orchestrator/workflow_lisp/stdlib_modules/std/context.orc`
+as an ordinary stdlib type module exporting these records:
 
-```lisp
-(run-ctx ...)
-(phase-ctx ctx phase-name)
-(item-ctx ctx selected)
-```
+- `RunCtx`
+- `PhaseCtx`
+- `ItemCtx`
+- `DrainCtx`
+- `SelectionCtx`
+- `RecoveryCtx`
+
+These remain Workflow Lisp library records, not runtime-owned domain nouns.
+Private executable-context recognition is structural and `RunCtx`-anchored:
+legacy family names remain as compatibility labels, while hidden promoted-entry
+bindings record schema-versioned per-input role metadata in
+`PrivateExecContextBinding.projection_hints`:
+
+- `context_binding_schema_version = 1`
+- `context_input_roles[input_name] in {run_anchor:run-id, run_anchor:state-root, run_anchor:artifact-root, compile_time_default}`
+
+The runtime bootstrap lane derives only `RunCtx` anchor values directly at
+execution time. Any additional generated context input must already carry a
+compile-time default or the compile fails closed. Author-facing workflow
+boundaries still expose only public authored inputs.
 
 Author-facing workflow boundaries expose only public authored inputs. Generated
 private executable-context bindings, managed write roots, and compatibility

@@ -2794,8 +2794,20 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
     assert binding.source_param_name == "phase-ctx"
     assert binding.context_family == "PhaseCtx"
     assert binding.bridge_class == "runtime_owned_context"
+    assert binding.required_capabilities == ("run",)
     assert binding.derived_phase_identity == "plan-gate-wrapper"
     assert set(binding.generated_input_names) == set(_workflow_runtime_context_inputs(bundle))
+    assert binding.projection_hints == {
+        "context_binding_schema_version": 1,
+        "context_input_roles": {
+            "phase-ctx__run__run-id": "run_anchor:run-id",
+            "phase-ctx__run__state-root": "run_anchor:state-root",
+            "phase-ctx__run__artifact-root": "run_anchor:artifact-root",
+            "phase-ctx__phase-name": "compile_time_default",
+            "phase-ctx__state-root": "compile_time_default",
+            "phase-ctx__artifact-root": "compile_time_default",
+        },
+    }
 
     assert workflow_projection["boundary"]["public_input_names"] == sorted(
         _workflow_public_input_contracts(bundle)

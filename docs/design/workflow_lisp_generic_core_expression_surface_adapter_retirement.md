@@ -750,6 +750,13 @@ authority.
 
 - Add `materialize-view` over canonical JSON and versioned registered text
   renderers.
+- Keep the renderer interface invocable independently of file allocation:
+  `(typed value, renderer id, renderer version) -> deterministic bytes` as a
+  callable seam, with file allocation layered on top. The candidate
+  follow-on target (`workflow_lisp_consumer_side_rendering.md`) renders
+  typed values at the prompt-composition and observability seams without
+  durable allocation; G4 must not foreclose that by welding rendering to
+  path allocation.
 - Add `StateLayout` allocation role string `materialized_value_view`
   (design shorthand may say `materialized_view`, but the shipped generated-path
   role string stays `materialized_value_view`).
@@ -794,6 +801,13 @@ core handles the record carries, not from the record's name.
   `RunCtx` without exposing them publicly.
 - Differential tests prove type-driven classification matches existing
   behavior before old name tables are deleted.
+
+Implementation note: the current checkout has landed the structural classifier,
+schema-versioned `context_input_roles` binding metadata, the role-driven
+executor lane, `std/context.orc`, and acceptance fixtures for unknown
+`ExperimentCtx`, imported `std/context` records, and `RunCtx`-only Drain
+construction. The legacy name tables remain in place as labeled compatibility
+until G8 deletion evidence is complete.
 
 ### 14.5 Normative Spec Deltas
 

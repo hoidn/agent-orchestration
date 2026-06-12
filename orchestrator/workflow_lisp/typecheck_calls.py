@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .context_classification import classify_structural_private_exec_context
 from .diagnostics import LispFrontendCompileError
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
@@ -56,7 +57,10 @@ def hidden_context_omission_allowed(
         return False
     if not isinstance(expected_type, RecordTypeRef):
         return False
-    if private_exec_context_kind(expected_type) is None:
+    if (
+        private_exec_context_kind(expected_type) is None
+        and classify_structural_private_exec_context(expected_type) is None
+    ):
         return False
 
     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})

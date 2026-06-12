@@ -187,7 +187,7 @@ document owns the answer.
 **Use this when:** Selecting, designing, or reviewing the next missing Workflow Lisp frontend increment without treating the target as a replacement specification.
 
 ### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
-**Description:** Accepted baseline and umbrella contract for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text, including the current closed pure-expression surface plus generated `pure_projection`, `materialize_view`, and declared `resource-transition` lowering contracts.
+**Description:** Accepted baseline and umbrella contract for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text, including the current closed pure-expression surface, generated `pure_projection`, `materialize_view`, declared `resource-transition`, and structural private-exec-context / `std/context` contracts.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, pure-expression, pure-projection, materialize-view, defworkflow
 **Use this when:** Reviewing the parent Workflow Lisp language contract or checking whether a scoped frontend delta preserves the baseline design.
 

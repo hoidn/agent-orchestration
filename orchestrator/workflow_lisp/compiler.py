@@ -28,6 +28,10 @@ from .command_boundaries import (
     CertifiedAdapterInputField,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
 )
+from .context_classification import (
+    classify_structural_private_exec_context,
+    record_name_lane_fallback,
+)
 from .contracts import derive_union_workflow_boundary_projection, derive_workflow_signature_contracts
 from .definitions import (
     EnumDef,
@@ -716,8 +720,11 @@ def _type_ref_contains_low_level_state_path(type_ref: TypeRef) -> bool:
     if isinstance(type_ref, PathTypeRef):
         return type_ref.definition.under == "state"
     if isinstance(type_ref, RecordTypeRef):
+        if classify_structural_private_exec_context(type_ref) is not None:
+            return False
         record_name = type_ref.name.split("::", 1)[-1]
         if record_name in _ALLOWED_CONTEXT_RECORD_TYPES:
+            record_name_lane_fallback("allowed_context_record_types")
             return False
         return any(
             _type_ref_contains_low_level_state_path(field_type)

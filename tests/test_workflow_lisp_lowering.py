@@ -3782,6 +3782,7 @@ def test_compile_stage3_entrypoint_private_exec_context_records_phase_binding_me
     assert binding.binding_id == "phase-ctx"
     assert binding.context_family == "PhaseCtx"
     assert binding.bridge_class == "runtime_owned_context"
+    assert binding.required_capabilities == ("run",)
     assert binding.derived_phase_identity == "plan-gate-wrapper"
     assert set(binding.generated_input_names) == {
         "phase-ctx__run__run-id",
@@ -3790,6 +3791,17 @@ def test_compile_stage3_entrypoint_private_exec_context_records_phase_binding_me
         "phase-ctx__phase-name",
         "phase-ctx__state-root",
         "phase-ctx__artifact-root",
+    }
+    assert binding.projection_hints == {
+        "context_binding_schema_version": 1,
+        "context_input_roles": {
+            "phase-ctx__run__run-id": "run_anchor:run-id",
+            "phase-ctx__run__state-root": "run_anchor:state-root",
+            "phase-ctx__run__artifact-root": "run_anchor:artifact-root",
+            "phase-ctx__phase-name": "compile_time_default",
+            "phase-ctx__state-root": "compile_time_default",
+            "phase-ctx__artifact-root": "compile_time_default",
+        },
     }
 
 

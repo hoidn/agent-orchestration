@@ -11,11 +11,17 @@ from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
-from ..contracts import derive_workflow_boundary_fields
+from ..context_classification import (
+    _bootstrap_role_for_field,
+    classify_structural_private_exec_context,
+    structural_bootstrap_plan,
+)
+from ..contracts import FlattenedContractField, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError
 from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr
 from ..phase import (
     PHASE_CONTEXT_NAME,
+    RUN_CONTEXT_NAME,
     private_exec_context_bootstrap_supported,
     private_exec_context_capabilities,
     private_exec_context_kind,
@@ -67,12 +73,19 @@ def _runtime_context_default_value(
 ) -> str | None:
     param_name = requirement.param_name
     phase_name = requirement.phase_name
-    if source_path == (param_name, "run", "run-id") or source_path == (param_name, "run-id"):
+    if source_path == (param_name, "run", "run-id"):
         return None
-    if source_path == (param_name, "run", "state-root") or source_path == (param_name, "state-root"):
+    if source_path == (param_name, "run", "state-root"):
         return "state/run"
-    if source_path == (param_name, "run", "artifact-root") or source_path == (param_name, "artifact-root"):
+    if source_path == (param_name, "run", "artifact-root"):
         return "artifacts/run"
+    if requirement.context_kind == RUN_CONTEXT_NAME:
+        if source_path == (param_name, "run-id"):
+            return None
+        if source_path == (param_name, "state-root"):
+            return "state/run"
+        if source_path == (param_name, "artifact-root"):
+            return "artifacts/run"
     if requirement.context_kind != PHASE_CONTEXT_NAME or phase_name is None:
         return None
     if source_path == (param_name, "phase-name"):
@@ -94,20 +107,9 @@ def _declare_runtime_context_hidden_inputs(
 ) -> dict[str, Any]:
     """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
 
-    if not private_exec_context_bootstrap_supported(requirement.context_kind):
-        raise lowering_core._compile_error(
-            code="private_exec_context_bootstrap_unsupported",
-            message=(
-                f"promoted-entry hidden binding for `{param_name}` requires unsupported "
-                f"private executable context `{requirement.context_kind}`"
-            ),
-            span=source_expr.span,
-            form_path=source_expr.form_path,
-        )
-
+    structural_classification = classify_structural_private_exec_context(param_type)
     origin = lowering_core._origin_from_context_source(context, source_expr)
-    with_bindings: dict[str, Any] = {}
-    generated_input_names: list[str] = []
+    prepared_fields: list[FlattenedContractField] = []
     for flattened_field in derive_workflow_boundary_fields(
         param_type,
         generated_name=param_name,
@@ -122,9 +124,51 @@ def _declare_runtime_context_hidden_inputs(
         )
         if default_value is not None:
             contract_definition["default"] = default_value
+        prepared_fields.append(
+            FlattenedContractField(
+                generated_name=flattened_field.generated_name,
+                source_path=flattened_field.source_path,
+                contract_definition=contract_definition,
+            )
+        )
+
+    bootstrap_plan = structural_bootstrap_plan(prepared_fields, structural_classification)
+    if bootstrap_plan is None and not private_exec_context_bootstrap_supported(requirement.context_kind):
+        unsupported_input_name = next(
+            (
+                flattened_field.generated_name
+                for flattened_field in prepared_fields
+                if structural_classification is None
+                or _bootstrap_role_for_field(
+                    source_path=flattened_field.source_path,
+                    contract_definition=flattened_field.contract_definition,
+                    anchors=structural_classification.anchors,
+                )
+                is None
+            ),
+            None,
+        )
+        raise lowering_core._compile_error(
+            code="private_exec_context_bootstrap_unsupported",
+            message=(
+                f"promoted-entry hidden binding for `{param_name}` requires unsupported "
+                f"private executable context `{requirement.context_kind}`"
+                + (
+                    f"; generated input `{unsupported_input_name}` has no run-anchor role or compile-time default"
+                    if unsupported_input_name is not None
+                    else ""
+                )
+            ),
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+        )
+
+    with_bindings: dict[str, Any] = {}
+    generated_input_names: list[str] = []
+    for flattened_field in prepared_fields:
         context.internal_generated_input_contracts.setdefault(
             flattened_field.generated_name,
-            contract_definition,
+            dict(flattened_field.contract_definition),
         )
         context.generated_input_spans.setdefault(flattened_field.generated_name, origin)
         context.internal_generated_input_reasons.setdefault(
@@ -141,8 +185,20 @@ def _declare_runtime_context_hidden_inputs(
         context_family=requirement.context_kind,
         bridge_class="runtime_owned_context",
         generated_input_names=tuple(generated_input_names),
-        required_capabilities=private_exec_context_capabilities(requirement.context_kind),
+        required_capabilities=(
+            structural_classification.derived_capabilities
+            if bootstrap_plan is not None and structural_classification is not None
+            else private_exec_context_capabilities(requirement.context_kind)
+        ),
         derived_phase_identity=requirement.phase_name,
+        projection_hints=(
+            {
+                "context_binding_schema_version": 1,
+                "context_input_roles": dict(bootstrap_plan.input_roles),
+            }
+            if bootstrap_plan is not None
+            else {}
+        ),
         source_provenance={
             "workflow_name": context.workflow_name,
             "path": str(origin.span.start.path),

@@ -8,9 +8,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .context_classification import classify_structural_private_exec_context
 from .contracts import FlattenedContractField
 from .effects import CallsWorkflowEffect, EffectSummary
-from .phase import private_exec_context_capabilities
 from .type_env import PathTypeRef, RecordTypeRef, TypeRef
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
@@ -110,9 +110,8 @@ def short_type_name(type_ref: TypeRef) -> str:
 
 
 def is_phase_context_type(type_ref: TypeRef) -> bool:
-    return (
-        isinstance(type_ref, RecordTypeRef)
-        and short_type_name(type_ref) == PHASE_CONTEXT_TYPE_NAME
+    return isinstance(type_ref, RecordTypeRef) and (
+        classify_structural_private_exec_context(type_ref) is not None
     )
 
 
@@ -220,7 +219,7 @@ def record_direct_entry_phase_context_binding(
         context_family=PHASE_CONTEXT_TYPE_NAME,
         bridge_class="runtime_owned_context",
         generated_input_names=generated_input_names,
-        required_capabilities=private_exec_context_capabilities(PHASE_CONTEXT_TYPE_NAME),
+        required_capabilities=_phase_context_capabilities(typed_workflow),
         derived_phase_identity=phase_family_entry_phase_identity(
             typed_workflow.definition.name
         ),
@@ -228,6 +227,16 @@ def record_direct_entry_phase_context_binding(
     )
     if binding not in context.private_exec_context_bindings:
         context.private_exec_context_bindings.append(binding)
+
+
+def _phase_context_capabilities(typed_workflow: Any) -> tuple[str, ...]:
+    for param_name, type_ref in typed_workflow.signature.params:
+        if param_name != "phase-ctx":
+            continue
+        classification = classify_structural_private_exec_context(type_ref)
+        if classification is not None:
+            return classification.derived_capabilities
+    return ()
 
 
 def load_design_delta_boundary_authority_registry(path: Path) -> dict[str, object]:

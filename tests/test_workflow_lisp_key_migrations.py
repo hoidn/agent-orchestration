@@ -22,6 +22,8 @@ from orchestrator.workflow_lisp.adapters import (
     write_reusable_phase_state_v1,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.lints import LINT_PROFILE_STRICT
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -31,6 +33,12 @@ WORKFLOWS = REPO_ROOT / "workflows"
 EXAMPLES = WORKFLOWS / "examples"
 MIGRATION_INPUTS = EXAMPLES / "inputs" / "workflow_lisp_migrations"
 LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
+LISP_INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid"
+EXPERIMENT_CTX_FIXTURE = LISP_FIXTURES / "context_generalization_experiment_ctx.orc"
+RUNCTX_ONLY_DRAIN_ENTRY_FIXTURE = LISP_FIXTURES / "context_generalization_runctx_only_drain_entry.orc"
+STD_CONTEXT_IMPORT_FIXTURE = LISP_FIXTURES / "context_generalization_std_context_import.orc"
+ANCHORLESS_STATE_PATH_FIXTURE = LISP_INVALID_FIXTURES / "context_generalization_anchorless_state_path.orc"
+ROLELESS_BINDING_FIXTURE = LISP_INVALID_FIXTURES / "context_generalization_roleless_binding.orc"
 
 
 def _load_json(path: Path) -> dict[str, str]:
@@ -559,6 +567,177 @@ def test_library_orc_variants_compile_independently(tmp_path: Path) -> None:
         assert lowered_names == {expected[target.name]}
 
 
+def test_promoted_entry_experiment_ctx_bootstraps_without_name_table_edits(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        EXPERIMENT_CTX_FIXTURE,
+        source_roots=(LISP_FIXTURES,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+    workflow_name = "context_generalization_experiment_ctx::entry"
+    bundle = result.validated_bundles[workflow_name]
+    binding = bundle.provenance.private_exec_context_bindings[0]
+    public_inputs = set(_workflow_public_input_contracts(bundle))
+    hidden_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+
+    assert public_inputs == set()
+    assert hidden_context_inputs == {
+        "ctx__run__run-id",
+        "ctx__run__state-root",
+        "ctx__run__artifact-root",
+    }
+    assert binding.context_family == "RunCtxAnchored"
+    assert binding.projection_hints == {
+        "context_binding_schema_version": 1,
+        "context_input_roles": {
+            "ctx__run__run-id": "run_anchor:run-id",
+            "ctx__run__state-root": "run_anchor:state-root",
+            "ctx__run__artifact-root": "run_anchor:artifact-root",
+        },
+    }
+
+    state_manager = StateManager(workspace=tmp_path, run_id="experiment-ctx-run")
+    state_manager.initialize(
+        EXPERIMENT_CTX_FIXTURE.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs={},
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "return__run_id": "experiment-ctx-run",
+        "return__state_root": "state/run",
+        "return__artifact_root": "artifacts/run",
+    }
+
+
+def test_promoted_entry_runctx_only_entry_constructs_drainctx_in_language(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        RUNCTX_ONLY_DRAIN_ENTRY_FIXTURE,
+        source_roots=(LISP_FIXTURES,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+    workflow_name = "context_generalization_runctx_only_drain_entry::entry"
+    bundle = result.validated_bundles[workflow_name]
+    hidden_context_inputs = set(_workflow_runtime_context_inputs(bundle))
+    public_inputs = set(_workflow_public_input_contracts(bundle))
+
+    assert hidden_context_inputs == {
+        "run__run-id",
+        "run__state-root",
+        "run__artifact-root",
+    }
+    assert public_inputs == {"manifest", "ledger"}
+    assert hidden_context_inputs.isdisjoint(public_inputs)
+
+    manifest_path = tmp_path / "state" / "manifest.json"
+    ledger_path = tmp_path / "state" / "ledger.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    ledger_path.write_text("{}\n", encoding="utf-8")
+
+    state_manager = StateManager(workspace=tmp_path, run_id="drain-run")
+    state_manager.initialize(
+        RUNCTX_ONLY_DRAIN_ENTRY_FIXTURE.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "manifest": "state/manifest.json",
+            "ledger": "state/ledger.json",
+        },
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "return__run_id": "drain-run",
+        "return__state_root": "state/run",
+        "return__manifest": "state/manifest.json",
+        "return__ledger": "state/ledger.json",
+    }
+
+
+def test_std_context_imported_phase_ctx_supports_hidden_binding(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        STD_CONTEXT_IMPORT_FIXTURE,
+        source_roots=(LISP_FIXTURES,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).entry_result
+    workflow_name = "context_generalization_std_context_import::entry"
+    bundle = result.validated_bundles[workflow_name]
+    binding = bundle.provenance.private_exec_context_bindings[0]
+
+    assert set(_workflow_public_input_contracts(bundle)) == set()
+    assert set(_workflow_runtime_context_inputs(bundle)) == {
+        "phase-ctx__run__run-id",
+        "phase-ctx__run__state-root",
+        "phase-ctx__run__artifact-root",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
+    }
+    assert binding.context_family == "PhaseCtx"
+
+    state_manager = StateManager(workspace=tmp_path, run_id="std-context-phase")
+    state_manager.initialize(
+        STD_CONTEXT_IMPORT_FIXTURE.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs={},
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "return__phase_name": "imported-phase",
+        "return__state_root": "state/imported-phase",
+    }
+
+
+def test_context_generalization_anchorless_state_path_fixture_rejects_low_level_state_boundary(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            ANCHORLESS_STATE_PATH_FIXTURE,
+            source_roots=(LISP_INVALID_FIXTURES,),
+            command_boundaries={
+                "emit_state_root": ExternalToolBinding(
+                    name="emit_state_root",
+                    stable_command=("python", "scripts/emit_state_root.py"),
+                ),
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lint_profile=LINT_PROFILE_STRICT,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "low_level_state_path_in_high_level_module"
+
+
+def test_context_generalization_roleless_binding_fixture_reports_unsupported_bootstrap(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            ROLELESS_BINDING_FIXTURE,
+            source_roots=(LISP_INVALID_FIXTURES,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "private_exec_context_bootstrap_unsupported"
+    assert "ctx__experiment-root" in diagnostic.message
+
+
 def test_promoted_entry_resume_or_start_fixture_bootstraps_hidden_context(
     tmp_path: Path,
     capsys,
@@ -996,6 +1175,17 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
         bundle,
         surface=replace(bundle.surface, inputs=stripped_inputs),
     )
+    legacy_binding = replace(
+        bundle.provenance.private_exec_context_bindings[0],
+        projection_hints={},
+    )
+    legacy_compatibility_bundle = replace(
+        stripped_bundle,
+        provenance=replace(
+            bundle.provenance,
+            private_exec_context_bindings=(legacy_binding,),
+        ),
+    )
 
     def _execute(candidate_bundle, *, run_id: str) -> dict[str, object]:
         state_manager = StateManager(workspace=tmp_path, run_id=run_id)
@@ -1008,20 +1198,41 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
 
     original_state = _execute(bundle, run_id="promoted-entry-defaults")
     stripped_state = _execute(stripped_bundle, run_id="rid-123")
+    legacy_compatibility_state = _execute(
+        legacy_compatibility_bundle,
+        run_id="rid-legacy-compat",
+    )
 
     assert original_state["status"] == "completed"
-    assert stripped_state["status"] == "completed"
+    assert stripped_state["status"] == "failed"
+    assert stripped_state["error"]["context"]["reason"] == "private_exec_context_bootstrap_unsupported"
+    assert legacy_compatibility_state["status"] == "completed"
     assert original_state["workflow_outputs"] == {
         "return__label": "selected-item",
         "return__phase_name": "plan-gate-wrapper",
     }
-    assert stripped_state["workflow_outputs"] == original_state["workflow_outputs"]
-    assert stripped_state["bound_inputs"]["phase-ctx__run__run-id"] == "rid-123"
-    assert stripped_state["bound_inputs"]["phase-ctx__phase-name"] == original_state["bound_inputs"]["phase-ctx__phase-name"]
-    assert stripped_state["bound_inputs"]["phase-ctx__run__state-root"] == original_state["bound_inputs"]["phase-ctx__run__state-root"]
-    assert stripped_state["bound_inputs"]["phase-ctx__run__artifact-root"] == original_state["bound_inputs"]["phase-ctx__run__artifact-root"]
-    assert stripped_state["bound_inputs"]["phase-ctx__state-root"] == original_state["bound_inputs"]["phase-ctx__state-root"]
-    assert stripped_state["bound_inputs"]["phase-ctx__artifact-root"] == original_state["bound_inputs"]["phase-ctx__artifact-root"]
+    assert legacy_compatibility_state["workflow_outputs"] == original_state["workflow_outputs"]
+    assert legacy_compatibility_state["bound_inputs"]["phase-ctx__run__run-id"] == "rid-legacy-compat"
+    assert (
+        legacy_compatibility_state["bound_inputs"]["phase-ctx__phase-name"]
+        == original_state["bound_inputs"]["phase-ctx__phase-name"]
+    )
+    assert (
+        legacy_compatibility_state["bound_inputs"]["phase-ctx__run__state-root"]
+        == original_state["bound_inputs"]["phase-ctx__run__state-root"]
+    )
+    assert (
+        legacy_compatibility_state["bound_inputs"]["phase-ctx__run__artifact-root"]
+        == original_state["bound_inputs"]["phase-ctx__run__artifact-root"]
+    )
+    assert (
+        legacy_compatibility_state["bound_inputs"]["phase-ctx__state-root"]
+        == original_state["bound_inputs"]["phase-ctx__state-root"]
+    )
+    assert (
+        legacy_compatibility_state["bound_inputs"]["phase-ctx__artifact-root"]
+        == original_state["bound_inputs"]["phase-ctx__artifact-root"]
+    )
 
 
 @pytest.mark.parametrize("context_name", ["SelectionCtx", "RecoveryCtx"])

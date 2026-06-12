@@ -57,6 +57,13 @@ The baseline surfaces are:
 - strict migration promotion gates; and
 - centralized generated state/path allocation ownership.
 
+Subsequent post-foundation work now also consumes this baseline for
+schema-versioned private executable-context transport: promoted-entry hidden
+context bindings may carry additive role metadata in
+`PrivateExecContextBinding.projection_hints`, and the runtime resolves only
+`RunCtx` anchor values directly while compile-time defaults remain authority for
+other hidden context fields.
+
 Normative runtime behavior remains in `specs/`. If a foundation success
 criterion regresses, downstream post-foundation promotion evidence is invalid
 until the owning spec/runtime behavior and verification evidence are repaired.

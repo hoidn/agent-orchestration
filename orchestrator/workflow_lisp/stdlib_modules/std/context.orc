@@ -1,0 +1,33 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule std/context)
+  (export RunCtx PhaseCtx ItemCtx DrainCtx SelectionCtx RecoveryCtx)
+  (defrecord RunCtx
+    (run-id RunId)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root))
+  (defrecord PhaseCtx
+    (run RunCtx)
+    (phase-name Symbol)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root))
+  (defrecord ItemCtx
+    (run RunCtx)
+    (item-id String)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root)
+    (ledger Path.state-root))
+  (defrecord DrainCtx
+    (run RunCtx)
+    (state-root Path.state-root)
+    (manifest Path.state-root)
+    (ledger Path.state-root))
+  (defrecord SelectionCtx
+    (run RunCtx)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root))
+  (defrecord RecoveryCtx
+    (run RunCtx)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root)))

@@ -2005,7 +2005,7 @@ class WorkflowExecutor:
         contracts = self._workflow_input_contracts()
         bindings: Dict[str, Any] = {}
         for binding in workflow_boundary_projection(self.loaded_bundle).private_runtime_context_bindings:
-            if binding.context_family not in {"RunCtx", "PhaseCtx"}:
+            if not self._private_exec_context_binding_supported(binding=binding, contracts=contracts):
                 continue
             for input_name in binding.generated_input_names:
                 if not isinstance(input_name, str):
@@ -2014,6 +2014,7 @@ class WorkflowExecutor:
                 derived_value = self._private_exec_context_binding_value(
                     binding=binding,
                     input_name=input_name,
+                    contract=contract,
                 )
                 if derived_value is not None:
                     bindings[input_name] = derived_value
@@ -2028,10 +2029,26 @@ class WorkflowExecutor:
         *,
         binding: Any,
         input_name: str,
+        contract: Any | None = None,
     ) -> Any:
         """Derive one runtime-owned hidden context value from structured binding metadata."""
 
         if not isinstance(self.state_manager, StateManager):
+            return None
+        role_metadata = self._private_exec_context_role_metadata(binding)
+        if role_metadata is not None:
+            schema_version, roles = role_metadata
+            if schema_version != 1 or roles is None:
+                return None
+            role = roles.get(input_name)
+            if role == "run_anchor:run-id":
+                return self.state_manager.run_id
+            if role == "run_anchor:state-root":
+                return "state/run"
+            if role == "run_anchor:artifact-root":
+                return "artifacts/run"
+            if role == "compile_time_default":
+                return contract.get("default") if isinstance(contract, dict) else None
             return None
         prefix = f"{binding.source_param_name}__"
         relative_name = input_name[len(prefix):] if input_name.startswith(prefix) else input_name
@@ -2055,6 +2072,67 @@ class WorkflowExecutor:
             value_by_path["state-root"] = f"state/{phase_name}"
             value_by_path["artifact-root"] = f"artifacts/{phase_name}"
         return value_by_path.get(relative_name)
+
+    def _private_exec_context_role_metadata(
+        self,
+        binding: Any,
+    ) -> tuple[int | None, Mapping[str, str] | None] | None:
+        """Return schema-versioned role metadata when a binding opts into the new lane."""
+
+        hints = getattr(binding, "projection_hints", None)
+        if not isinstance(hints, dict) and not isinstance(hints, Mapping):
+            return None
+        has_role_hints = (
+            "context_input_roles" in hints
+            or "context_binding_schema_version" in hints
+        )
+        if not has_role_hints:
+            return None
+        schema_version = hints.get("context_binding_schema_version")
+        roles = hints.get("context_input_roles")
+        if not isinstance(schema_version, int):
+            return None if roles is None else (None, None)
+        if not isinstance(roles, Mapping):
+            return (schema_version, None)
+        normalized_roles = {
+            str(name): str(role)
+            for name, role in roles.items()
+            if isinstance(name, str) and isinstance(role, str)
+        }
+        if len(normalized_roles) != len(roles):
+            return (schema_version, None)
+        return schema_version, normalized_roles
+
+    def _private_exec_context_binding_supported(
+        self,
+        *,
+        binding: Any,
+        contracts: Mapping[str, Any],
+    ) -> bool:
+        """Return whether one hidden context binding can be resolved on this runtime."""
+
+        role_metadata = self._private_exec_context_role_metadata(binding)
+        if role_metadata is not None:
+            schema_version, roles = role_metadata
+            if schema_version != 1 or roles is None:
+                return False
+            for input_name in binding.generated_input_names:
+                if not isinstance(input_name, str):
+                    return False
+                role = roles.get(input_name)
+                if role not in {
+                    "run_anchor:run-id",
+                    "run_anchor:state-root",
+                    "run_anchor:artifact-root",
+                    "compile_time_default",
+                }:
+                    return False
+                if role == "compile_time_default":
+                    contract = contracts.get(input_name, {})
+                    if not isinstance(contract, dict) or "default" not in contract:
+                        return False
+            return True
+        return binding.context_family in {"RunCtx", "PhaseCtx"}
 
     def _runtime_context_inputs_missing_provenance(self) -> tuple[str, ...]:
         """Return hidden runtime-context inputs present in contracts but absent from provenance."""
@@ -2080,12 +2158,16 @@ class WorkflowExecutor:
     def _unsupported_private_exec_context_families(self) -> tuple[str, ...]:
         """Return private context families that this runtime cannot bootstrap."""
 
+        contracts = self._workflow_input_contracts()
         return tuple(
             sorted(
                 {
                     binding.context_family
                     for binding in workflow_boundary_projection(self.loaded_bundle).private_runtime_context_bindings
-                    if binding.context_family not in {"RunCtx", "PhaseCtx"}
+                    if not self._private_exec_context_binding_supported(
+                        binding=binding,
+                        contracts=contracts,
+                    )
                 }
             )
         )

@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
+from .context_classification import (
+    RUN_CTX_ANCHORED_CONTEXT_FAMILY,
+    classify_structural_private_exec_context,
+    legacy_private_exec_context_kind,
+)
 from .definitions import PathDef
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
@@ -92,6 +97,7 @@ def private_exec_context_capabilities(context_kind: str) -> tuple[str, ...]:
         DRAIN_CONTEXT_NAME: ("run", "drain"),
         SELECTION_CONTEXT_NAME: ("selection",),
         RECOVERY_CONTEXT_NAME: ("recovery",),
+        RUN_CTX_ANCHORED_CONTEXT_FAMILY: ("run",),
     }.get(context_kind, ())
 
 
@@ -102,21 +108,9 @@ def private_exec_context_bootstrap_supported(context_kind: str) -> bool:
 
 
 def private_exec_context_kind(type_ref: TypeRef) -> str | None:
-    """Classify one record boundary by private executable context family."""
+    """Compatibility wrapper around the frontend-local legacy family classifier."""
 
-    if _is_run_context_shape(type_ref):
-        return RUN_CONTEXT_NAME
-    if _is_phase_context_shape(type_ref):
-        return PHASE_CONTEXT_NAME
-    if _is_item_context_shape(type_ref):
-        return ITEM_CONTEXT_NAME
-    if _is_drain_context_shape(type_ref):
-        return DRAIN_CONTEXT_NAME
-    if _is_selection_context_shape(type_ref):
-        return SELECTION_CONTEXT_NAME
-    if _is_recovery_context_shape(type_ref):
-        return RECOVERY_CONTEXT_NAME
-    return None
+    return legacy_private_exec_context_kind(type_ref)
 
 
 def is_implementation_attempt_result_type(type_ref: TypeRef) -> bool:
@@ -346,6 +340,9 @@ def derive_promoted_entry_hidden_context_metadata(
     ambiguities: dict[str, tuple[str, ...]] = {}
     for param_name, type_ref in signature.params:
         context_kind = private_exec_context_kind(type_ref)
+        structural_classification = classify_structural_private_exec_context(type_ref)
+        if context_kind is None and structural_classification is None:
+            continue
         if context_kind == RUN_CONTEXT_NAME:
             requirements[param_name] = PromotedEntryHiddenContextRequirement(
                 param_name=param_name,
@@ -353,11 +350,10 @@ def derive_promoted_entry_hidden_context_metadata(
             )
             continue
         if context_kind != PHASE_CONTEXT_NAME:
-            if context_kind is not None:
-                requirements[param_name] = PromotedEntryHiddenContextRequirement(
-                    param_name=param_name,
-                    context_kind=context_kind,
-                )
+            requirements[param_name] = PromotedEntryHiddenContextRequirement(
+                param_name=param_name,
+                context_kind=context_kind or RUN_CTX_ANCHORED_CONTEXT_FAMILY,
+            )
             continue
         phase_names = tuple(sorted(_collect_with_phase_names(body_expr, ctx_name=param_name)))
         if len(phase_names) == 1:
