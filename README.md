@@ -1,11 +1,11 @@
 # Agent Orchestration
 
 A compiler and runtime for LLM-agent workflows. A workflow is a typed
-program whose steps run coding agents and shell commands. The toolchain owns
-the bookkeeping that agent pipelines normally hand-roll: where intermediate
-files live, what each step must produce, whether it actually did, and how a
-run resumes after failure. Every run leaves its state, prompts, and logs on
-disk under `.orchestrate/runs/<run_id>/`.
+program whose steps run coding agents and shell commands. The compiler and
+runtime own the bookkeeping that agent pipelines normally hand-roll: where
+intermediate files live, what each step must produce, whether it actually
+did, and how a run resumes after failure. Every run leaves its state,
+prompts, and logs on disk under `.orchestrate/runs/<run_id>/`.
 
 ## The Missing Toolchain
 
@@ -25,7 +25,7 @@ This project's thesis is that those are compiler and runtime responsibilities,
 and that workflow authoring should look like typed programming against an
 unreliable, effectful coprocessor:
 
-| A CPU toolchain gives you | Hand-rolled in agent pipelines today | Owned by the toolchain here |
+| A CPU toolchain gives you | Hand-rolled in agent pipelines today | Owned by the compiler and runtime here |
 | --- | --- | --- |
 | Storage layout: the compiler assigns addresses, you name variables | Inventing file paths for every intermediate artifact and threading them everywhere | Generated state layout: state bundles, snapshots, result bundles, and write roots are allocated by the runtime (`StateLayout`/`PathAllocator`), private by default, provenance-tracked; authored code references typed values |
 | Calling conventions: types define the ABI | Output formats described in prose, differently in every prompt | The declared result type is rendered into the prompt as a deterministic output-contract block, and the output location is a managed binding the agent receives — not a path the author invents |
@@ -41,23 +41,25 @@ In Workflow Lisp (`.orc`), the typed frontend, an implementation phase is a
 typed expression over an agent step:
 
 ```lisp
-(defunion ImplementationAttempt
+(defunion ImplementationAttempt          ; the outcome contract: a tagged union
   (COMPLETED
-    (execution-report Path.execution-report))
-  (BLOCKED
+    (execution-report Path.execution-report))  ; path type: verified to exist
+  (BLOCKED                               ; different outcome, different evidence
     (progress-report Path.progress-report)
-    (blocker-class BlockerClass)
+    (blocker-class BlockerClass)         ; an enum, not free text
     (blocker-reason String)))
 
-(let* ((attempt
-         (provider-result providers.execute
-           :prompt prompts.implementation.execute
-           :inputs (inputs.design inputs.plan)
-           :returns ImplementationAttempt)))
+(let* ((attempt                          ; attempt : ImplementationAttempt
+         (provider-result providers.execute       ; the agent role to invoke
+           :prompt prompts.implementation.execute ; compile-time prompt source
+           :inputs (inputs.design inputs.plan)    ; the prompt's typed inputs
+           :returns ImplementationAttempt)))      ; injected into the prompt as
+                                                  ; the output contract, enforced
+                                                  ; on the result, fail-closed
   (match attempt
-    ((COMPLETED c)
+    ((COMPLETED c)             ; proof: c's fields exist only in this arm
       (review-completed-implementation :report c.execution-report))
-    ((BLOCKED b)
+    ((BLOCKED b)               ; typed blocker routes onward; nothing parsed
       b)))
 ```
 
