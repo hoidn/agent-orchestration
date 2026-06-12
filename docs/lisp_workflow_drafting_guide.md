@@ -903,7 +903,14 @@ Use `provider-result` when a provider produces structured state.
   ...)
 ```
 
-The provider must produce structured output matching the return type.
+The provider must produce structured output matching the return type. The
+result travels through one channel: a validated bundle written at the
+runtime-bound output location the provider receives with its injected
+output contract. JSON printed to stdout is never the result — stdout and
+stderr are observability evidence only, for providers and commands alike.
+The bound-path bundle is the current sanctioned transport, not part of the
+authored contract: `:returns` declares the contract, and any future result
+channel must pass the same fail-closed validation.
 
 Markdown reports may be written and referenced by fields in the structured
 result, but the report is not parsed later for semantic state.
