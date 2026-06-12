@@ -39,6 +39,7 @@ DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = FIXTURES / "valid" / "design_delta_work_
 ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
+MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
 RUNTIME_CLOSURE_MARKERS = (
     "workflow_lisp_runtime_closure",
     "closure_families",
@@ -101,6 +102,24 @@ def _build_pure_expr_selector_projection(tmp_path: Path):
             prompt_externs_path=CLI_FIXTURES / "prompts.json",
             imported_workflow_bundles_path=None,
             command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
+def _build_materialize_view_allocated_target(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE,
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="orchestrate",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
             emit_debug_yaml=False,
             workspace_root=tmp_path,
         )
@@ -448,6 +467,18 @@ def _design_delta_work_item_request(tmp_path: Path):
                             "type_name": "SelectionBundlePath",
                             "required": True,
                             "transport_key": "selection_path",
+                        },
+                        {
+                            "name": "manifest_path",
+                            "type_name": "StateFileExisting",
+                            "required": True,
+                            "transport_key": "manifest_path",
+                        },
+                        {
+                            "name": "architecture_bundle_path",
+                            "type_name": "StateFile",
+                            "required": True,
+                            "transport_key": "architecture_bundle_path",
                         }
                     ],
                     "artifact_contracts": ["materialize_lisp_frontend_work_item_inputs_bundle"],
@@ -456,11 +487,17 @@ def _design_delta_work_item_request(tmp_path: Path):
                     "owner_module": "lisp_frontend_design_delta/work_item",
                     "replacement_path": "SelectionCtx + ItemCtx private bootstrap + typed projection",
                     "invocation_protocol": "json_object_positional_arg",
-                    "retirement_class": "typed_projection",
-                    "retirement_label": "retire_to_projection",
-                    "replacement_surface": "typed work-item input projection",
+                    "retirement_class": "manifest_assembly",
+                    "retirement_label": "keep_bridge",
+                    "replacement_surface": (
+                        "SelectionCtx + ItemCtx private bootstrap with future generated path "
+                        "and materialized view retirement"
+                    ),
                     "bridge_owner": "lisp_frontend_design_delta/work_item",
-                    "expiry_condition": "g2 typed projection route replaces work-item input materialization",
+                    "expiry_condition": (
+                        "retain until later G4/G7 context/bootstrap work replaces manifest "
+                        "assembly and path materialization"
+                    ),
                     "evidence_refs": ["design_delta_work_item_inputs_ok"],
                 },
                 "classify_lisp_frontend_work_item_terminal": {
@@ -599,6 +636,17 @@ def _design_delta_work_item_request(tmp_path: Path):
             indent=2,
         )
         + "\n",
+        encoding="utf-8",
+    )
+    commands_path.write_text(
+        (
+            REPO_ROOT
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.commands.json"
+        ).read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     return request_cls(
@@ -1509,6 +1557,11 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
         diagnostics=(diagnostic,),
         emit_debug_yaml=False,
         source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
+        workflow_boundary_projection_payload=json.loads(
+            result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+        ),
+        adapter_census_payload=None,
+        boundary_authority_report_payload=None,
     )
     payload = json.loads(artifact_paths["diagnostics"].read_text(encoding="utf-8"))
 
@@ -1863,26 +1916,7 @@ def test_build_artifacts_emit_private_artifact_catalog(tmp_path: Path) -> None:
     )
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
 
-    assert executable_ir["private_artifacts"]["context_docs"] == {
-        "artifact_id": "context_docs",
-        "contract": {
-            "definition": {
-                "items": {
-                    "must_exist_target": True,
-                    "type": "relpath",
-                    "under": "docs/design",
-                },
-                "kind": "collection",
-                "type": "list",
-            },
-            "kind": "collection",
-            "name": "context_docs",
-            "source_address": None,
-            "value_type": "list",
-        },
-        "origin": "workflow_lisp_lowering",
-        "prompt_render_mode": "json",
-    }
+    assert executable_ir["private_artifacts"] == {}
 
 
 def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
@@ -1910,8 +1944,8 @@ def test_semantic_ir_private_artifact_catalog_bridge(tmp_path: Path) -> None:
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
     semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
 
-    assert result.validated_bundle.ir.private_artifacts["context_docs"].artifact_id == "context_docs"
-    assert executable_ir["private_artifacts"]["context_docs"]["artifact_id"] == "context_docs"
+    assert result.validated_bundle.ir.private_artifacts == {}
+    assert executable_ir["private_artifacts"] == {}
     assert semantic_ir["workflows"][result.selected_workflow_name]["workflow_name"] == result.selected_workflow_name
 
 
@@ -2608,17 +2642,17 @@ def test_design_delta_work_item_command_boundary_lineage_records_family_adapters
         )
         for command in command_scripts
     )
-    assert any(
+    assert all(
         command[:2]
-        == (
+        != (
             "python",
             "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
         )
         for command in command_scripts
     )
-    assert any(
+    assert all(
         command[:2]
-        == (
+        != (
             "python",
             "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
         )
@@ -2763,20 +2797,23 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
     assert binding.derived_phase_identity == "plan-gate-wrapper"
     assert set(binding.generated_input_names) == set(_workflow_runtime_context_inputs(bundle))
 
-    assert workflow_projection["boundary"] == {
-        "public_input_names": sorted(_workflow_public_input_contracts(bundle)),
-        "private_runtime_context_bindings": [
-            {
-                "binding_id": "phase-ctx",
-                "source_param_name": "phase-ctx",
-                "context_family": "PhaseCtx",
-                "bridge_class": "runtime_owned_context",
-                "derived_phase_identity": "plan-gate-wrapper",
-                "generated_input_names": sorted(_workflow_runtime_context_inputs(bundle)),
-            }
-        ],
-        "private_managed_write_root_inputs": [],
-        "private_compatibility_bridge_inputs": [],
+    assert workflow_projection["boundary"]["public_input_names"] == sorted(
+        _workflow_public_input_contracts(bundle)
+    )
+    assert workflow_projection["boundary"]["private_runtime_context_bindings"] == [
+        {
+            "binding_id": "phase-ctx",
+            "source_param_name": "phase-ctx",
+            "context_family": "PhaseCtx",
+            "bridge_class": "runtime_owned_context",
+            "derived_phase_identity": "plan-gate-wrapper",
+            "generated_input_names": sorted(_workflow_runtime_context_inputs(bundle)),
+        }
+    ]
+    assert workflow_projection["boundary"]["private_managed_write_root_inputs"] == []
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == []
+    assert workflow_projection["boundary"]["pure_projection_classification"] == {
+        "structural": True
     }
 
 
@@ -3262,6 +3299,39 @@ def test_build_artifacts_expose_pure_projection_effects_and_generated_paths(tmp_
     assert lowered.authored_mapping["inputs"][managed_write_root_input] == {"type": "relpath"}
 
 
+def test_build_artifacts_expose_materialize_view_effects_and_generated_paths(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.lowering import _observed_statement_families
+
+    result = _build_materialize_view_allocated_target(tmp_path)
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    workflow_name = next(name for name in source_map["workflows"] if name.endswith("::orchestrate"))
+    workflow = source_map["workflows"][workflow_name]
+    lowered = next(
+        workflow_result
+        for workflow_result in result.compile_result.entry_result.lowered_workflows
+        if workflow_result.typed_workflow.definition.name == workflow_name
+    )
+
+    effect = next(
+        effect
+        for effect in workflow["generated_semantic_effects"]
+        if effect["effect_kind"] == "materialize_view"
+    )
+
+    assert effect["details"]["renderer_id"] == "canonical-json"
+    assert effect["details"]["authority_class"] == "materialized_view"
+    assert any(
+        allocation["semantic_role"] == "materialized_value_view"
+        for allocation in workflow["generated_path_allocations"]
+    )
+    assert any(
+        entry["effect_kind"] == "materialize_view"
+        for entry in semantic_ir["effects"].values()
+    )
+    assert "materialize_view" in _observed_statement_families(lowered.authored_mapping["steps"])
+
+
 def test_review_loop_command_boundary_surfaces_validate_review_findings_adapter(
     tmp_path: Path,
 ) -> None:
@@ -3372,6 +3442,7 @@ def test_review_loop_bundle_preserves_distinct_review_report_and_findings_seed_p
             "validate_review_findings_v1": ExternalToolBinding(
                 name="validate_review_findings_v1",
                 stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
+                **_validate_review_findings_retirement_metadata(),
             )
         },
         validate_shared=True,

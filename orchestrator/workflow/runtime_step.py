@@ -16,6 +16,7 @@ from .executable_ir import (
     FinalizationStepNode,
     ForEachStepConfig,
     IncrementScalarStepConfig,
+    MaterializeViewStepConfig,
     MaterializeArtifactsStepConfig,
     PureProjectionStepConfig,
     ProviderStepConfig,
@@ -271,6 +272,11 @@ class RuntimeStep(Mapping[str, Any]):
                 return thaw_runtime_value(config.pure_projection)
             raise KeyError(key)
 
+        if isinstance(config, MaterializeViewStepConfig):
+            if key == "materialize_view":
+                return thaw_runtime_value(config.materialize_view)
+            raise KeyError(key)
+
         if isinstance(config, IncrementScalarStepConfig):
             if key == "increment_scalar":
                 return thaw_runtime_value(config.increment_scalar)
@@ -387,6 +393,10 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, PureProjectionStepConfig):
             yield "pure_projection"
+            return
+
+        if isinstance(config, MaterializeViewStepConfig):
+            yield "materialize_view"
             return
 
         if isinstance(config, IncrementScalarStepConfig):

@@ -273,7 +273,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
         if workflow.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
     )
     assert lowered.typed_workflow.definition.name == "review_revise_design_docs::review-revise-design-docs"
-    assert lowered.private_artifact_ids == ("context_docs",)
+    assert lowered.private_artifact_ids == ()
     context_docs_contract = lowered.authored_mapping["inputs"]["context_docs"]
     assert context_docs_contract == {
         "kind": "collection",
@@ -284,8 +284,7 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
             "must_exist_target": True,
         },
     }
-    assert "pointer" not in lowered.authored_mapping["artifacts"]["context_docs"]
-    assert "pointer" not in lowered.authored_mapping["artifacts"]["review_focus"]
+    assert "artifacts" not in lowered.authored_mapping
 
 
 def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Path) -> None:

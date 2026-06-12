@@ -45,6 +45,7 @@ class SurfaceStepKind(str, Enum):
     SET_SCALAR = "set_scalar"
     RESOURCE_TRANSITION = "resource_transition"
     PURE_PROJECTION = "pure_projection"
+    MATERIALIZE_VIEW = "materialize_view"
     INCREMENT_SCALAR = "increment_scalar"
     MATERIALIZE_ARTIFACTS = "materialize_artifacts"
     SELECT_VARIANT_OUTPUT = "select_variant_output"
@@ -253,6 +254,7 @@ class SurfaceStep:
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     pure_projection: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    materialize_view: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     increment_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     materialize_artifacts: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     select_variant_output: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

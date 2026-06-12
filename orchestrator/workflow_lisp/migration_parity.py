@@ -1165,6 +1165,12 @@ def _parent_family_evidence(
                 adapter_census=adapter_census,
                 repo_root=repo_root,
             )
+        elif role == "view_retirement_parity":
+            role_evidence[role] = _view_retirement_parity_evidence(
+                target=target,
+                adapter_census=adapter_census,
+                repo_root=repo_root,
+            )
         elif role == "public_private_boundary_parity":
             role_evidence[role] = _public_private_boundary_parity_evidence(
                 workflow_boundary,
@@ -1688,6 +1694,177 @@ def _projection_retirement_parity_evidence(
                             artifact_reasons.append(
                                 f"retired adapter `{adapter_name}` is still live"
                             )
+        results[artifact_id] = {
+            "status": artifact_status,
+            "path": str(artifact["path"]),
+            "schema_version": declared_schema_version,
+            **({"reasons": artifact_reasons} if artifact_reasons else {}),
+        }
+        reasons.extend(artifact_reasons)
+    return {
+        "status": "fail" if reasons else "pass",
+        "artifacts": results,
+        **({"reason": reasons[0], "reasons": reasons} if reasons else {}),
+    }
+
+
+def _view_retirement_parity_evidence(
+    *,
+    target: ParityTarget,
+    adapter_census: Mapping[str, Any] | None = None,
+    repo_root: Path,
+) -> dict[str, object]:
+    artifacts = [
+        artifact
+        for artifact in target.family_evidence_artifacts
+        if artifact.get("evidence_role") == "view_retirement_parity"
+    ]
+    if not artifacts:
+        return {
+            "status": "fail",
+            "reason": "target does not declare view_retirement_parity family_evidence_artifacts",
+        }
+    results: dict[str, object] = {}
+    reasons: list[str] = []
+    for artifact in artifacts:
+        artifact_id = str(artifact["artifact_id"])
+        artifact_path = repo_root / str(artifact["path"])
+        declared_schema_version = str(artifact["schema_version"])
+        artifact_status = "pass"
+        artifact_reasons: list[str] = []
+        payload: Mapping[str, Any] | None = None
+        if not artifact_path.exists():
+            artifact_status = "fail"
+            artifact_reasons.append(f"missing family evidence artifact `{artifact_id}`")
+        else:
+            try:
+                loaded = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` is unreadable: {exc}"
+                )
+            else:
+                if not isinstance(loaded, Mapping):
+                    artifact_status = "fail"
+                    artifact_reasons.append(
+                        f"family evidence artifact `{artifact_id}` must be a JSON object"
+                    )
+                else:
+                    payload = loaded
+        if payload is not None:
+            if payload.get("schema_version") != declared_schema_version:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` has wrong schema_version"
+                )
+            if payload.get("artifact_id") != artifact_id:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not report its declared artifact_id"
+                )
+            if payload.get("workflow_family") != target.workflow_family:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not match workflow_family `{target.workflow_family}`"
+                )
+            if payload.get("overall_status") != "pass" or payload.get("all_passed") is not True:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not record a passing dual-run result"
+                )
+            adapters = payload.get("adapters")
+            finalizer_payload = (
+                adapters.get("finalize_lisp_frontend_drain_summary")
+                if isinstance(adapters, Mapping)
+                else None
+            )
+            if not isinstance(adapters, Mapping) or not adapters:
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    f"family evidence artifact `{artifact_id}` does not declare adapter results"
+                )
+            elif not isinstance(finalizer_payload, Mapping):
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    "family evidence artifact "
+                    f"`{artifact_id}` does not declare `finalize_lisp_frontend_drain_summary`"
+                )
+            elif finalizer_payload.get("status") != "pass":
+                artifact_status = "fail"
+                artifact_reasons.append(
+                    "family evidence artifact "
+                    f"`{artifact_id}` does not record a passing finalizer adapter result"
+                )
+            if adapter_census is None:
+                artifact_status = "fail"
+                artifact_reasons.append("missing adapter_census compile artifact")
+            else:
+                if adapter_census.get("workflow_family") != target.workflow_family:
+                    artifact_status = "fail"
+                    artifact_reasons.append(
+                        "adapter_census compile artifact does not match target workflow_family"
+                    )
+                rows = adapter_census.get("rows")
+                if not isinstance(rows, list):
+                    artifact_status = "fail"
+                    artifact_reasons.append("adapter_census compile artifact does not contain row data")
+                else:
+                    row = next(
+                        (
+                            candidate
+                            for candidate in rows
+                            if isinstance(candidate, Mapping)
+                            and candidate.get("binding_name") == "finalize_lisp_frontend_drain_summary"
+                        ),
+                        None,
+                    )
+                    if row is None:
+                        artifact_status = "fail"
+                        artifact_reasons.append(
+                            "adapter_census compile artifact is missing `finalize_lisp_frontend_drain_summary`"
+                        )
+                    else:
+                        if row.get("behavior_class") != "outcome_finalization":
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                "finalizer adapter does not retain `outcome_finalization` behavior_class"
+                            )
+                        if row.get("retirement_class") != "view_writer":
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                "finalizer adapter does not retain `view_writer` retirement_class"
+                            )
+                        if row.get("retirement_label") != "retire_to_view":
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                "finalizer adapter does not retain `retire_to_view` retirement_label"
+                            )
+                        if row.get("retirement_status") is not None:
+                            artifact_status = "fail"
+                            artifact_reasons.append(
+                                "finalizer adapter retirement_status changed before retirement is approved"
+                            )
+                        if row.get("liveness") != "live":
+                            artifact_status = "fail"
+                            artifact_reasons.append("finalizer adapter is not still live")
+                        view_binding = row.get("view_binding")
+                        if not isinstance(view_binding, Mapping):
+                            artifact_status = "fail"
+                            artifact_reasons.append("finalizer adapter is missing view_binding metadata")
+                        else:
+                            expected_view_binding = {
+                                "view_name": "design_delta_drain_summary_view",
+                                "renderer_id": "canonical-json",
+                                "renderer_version": 1,
+                                "contract_role": "replacement_candidate",
+                            }
+                            for key, expected_value in expected_view_binding.items():
+                                if view_binding.get(key) != expected_value:
+                                    artifact_status = "fail"
+                                    artifact_reasons.append(
+                                        f"finalizer adapter view_binding.{key} does not match `{expected_value}`"
+                                    )
         results[artifact_id] = {
             "status": artifact_status,
             "path": str(artifact["path"]),

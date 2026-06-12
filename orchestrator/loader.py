@@ -4396,6 +4396,18 @@ class WorkflowLoader:
                                 'allowed': deepcopy(contract.get('allowed')) if isinstance(contract.get('allowed'), list) else None,
                             }
 
+            materialize_view = step.get('materialize_view')
+            if isinstance(materialize_view, dict):
+                output_contracts = materialize_view.get('output_contracts')
+                if isinstance(output_contracts, dict):
+                    for artifact_name, spec in output_contracts.items():
+                        if not isinstance(artifact_name, str) or not isinstance(spec, dict):
+                            continue
+                        outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
+                            spec,
+                            persisted=step.get('persist_artifacts_in_state', True) is not False,
+                        )
+
             for field_name in ('set_scalar', 'increment_scalar'):
                 node = step.get(field_name)
                 if not isinstance(node, dict):

@@ -26,6 +26,7 @@ from .command_boundaries import (
     ExternalToolBinding,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
     TransitionBindingMetadata,
+    ViewBindingMetadata,
 )
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
@@ -916,6 +917,11 @@ def _parse_command_boundaries_manifest(
                     binding_name=name,
                     manifest_path=manifest_path,
                 ),
+                view_binding=_require_view_binding(
+                    raw_entry.get("view_binding"),
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
                 declared_promoted_fields=declared_promoted_fields,
                 retirement_class=_require_optional_string_field(
                     raw_entry.get("retirement_class"),
@@ -1186,6 +1192,58 @@ def _require_transition_binding(
     )
 
 
+def _require_view_binding(
+    value: object,
+    *,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> ViewBindingMetadata | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`view_binding` for `{binding_name}` must be an object",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    renderer_version = value.get("renderer_version")
+    if not isinstance(renderer_version, int):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`view_binding.renderer_version` for `{binding_name}` must be an integer",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    return ViewBindingMetadata(
+        view_name=_require_string_field(
+            value.get("view_name", ""),
+            field_name="view_binding.view_name",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+        renderer_id=_require_string_field(
+            value.get("renderer_id", ""),
+            field_name="view_binding.renderer_id",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+        renderer_version=renderer_version,
+        contract_role=_require_string_field(
+            value.get("contract_role", ""),
+            field_name="view_binding.contract_role",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+    )
+
+
 def _select_entry_workflow(
     compile_result: LinkedStage3CompileResult,
     *,
@@ -1356,6 +1414,17 @@ def _serialize_design_delta_adapter_census(
                     }
                     if isinstance(binding, CertifiedAdapterBinding)
                     and binding.transition_binding is not None
+                    else None
+                ),
+                "view_binding": (
+                    {
+                        "view_name": binding.view_binding.view_name,
+                        "renderer_id": binding.view_binding.renderer_id,
+                        "renderer_version": binding.view_binding.renderer_version,
+                        "contract_role": binding.view_binding.contract_role,
+                    }
+                    if isinstance(binding, CertifiedAdapterBinding)
+                    and binding.view_binding is not None
                     else None
                 ),
                 "invocation_sites": lineage_by_name.get(name, []),

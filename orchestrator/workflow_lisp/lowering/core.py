@@ -80,6 +80,7 @@ from ..expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    MaterializeViewExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
@@ -977,12 +978,18 @@ def _normalize_top_level_terminal(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     """Ensure public workflow outputs lower from a concrete root step."""
 
-    if terminal.output_kind == "projection":
-        return steps, terminal
-
     if all(
-        isinstance(source_ref, str) and source_ref.startswith("root.steps.")
-        for source_ref in terminal.output_refs.values()
+        isinstance(source_ref, str)
+        and (
+            source_ref.startswith("root.steps.")
+            or (
+                isinstance(context.output_projection_metadata.get(output_name), Mapping)
+                and context.output_projection_metadata[output_name].get("projection_class")
+                == "provider_bundle_path_projection"
+                and context.output_projection_metadata[output_name].get("bundle_path_ref") == source_ref
+            )
+        )
+        for output_name, source_ref in terminal.output_refs.items()
     ):
         return steps, terminal
 
@@ -1057,6 +1064,8 @@ def _observed_statement_families(steps: Sequence[Mapping[str, Any]]) -> tuple[st
                 observed.add("materialize_artifacts")
             if "pure_projection" in step:
                 observed.add("pure_projection")
+            if "materialize_view" in step:
+                observed.add("materialize_view")
             if "call" in step:
                 observed.add("workflow_call")
             if step.get("publishes"):
@@ -1089,6 +1098,7 @@ def _observed_statement_families(steps: Sequence[Mapping[str, Any]]) -> tuple[st
         "match",
         "materialize_artifacts",
         "pure_projection",
+        "materialize_view",
         "workflow_call",
         "publishes",
     )
@@ -1578,6 +1588,7 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
+            MaterializeViewExpr,
         ),
     ):
         return context.type_env.resolve_type(

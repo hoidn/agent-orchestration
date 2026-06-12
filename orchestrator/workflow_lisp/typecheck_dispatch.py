@@ -20,6 +20,7 @@ from .effects import (
     CallsWorkflowEffect,
     EffectSummary,
     ProcedureCallEdge,
+    WriteEffect,
     UsesCommandEffect,
     UsesProviderEffect,
     effect_summary_from_direct,
@@ -46,6 +47,7 @@ from .expressions import (
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
+    MaterializeViewExpr,
     MatchArm,
     MatchExpr,
     NameExpr,
@@ -156,6 +158,7 @@ from .workflow_refs import (
     workflow_ref_target_name,
     workflow_ref_type_from_signature,
 )
+from orchestrator.workflow.view_renderer import ViewRendererError, resolve_view_renderer
 
 if TYPE_CHECKING:
     from .functions import FunctionCatalog
@@ -214,6 +217,16 @@ def _first_transition_runtime_forbidden_type(type_ref: TypeRef) -> str | None:
                     return forbidden
         return None
     return None
+
+
+def _materialize_view_path_contracts_compatible(
+    target_type: PathTypeRef,
+    returns_type: PathTypeRef,
+) -> bool:
+    return (
+        target_type.definition.kind == returns_type.definition.kind
+        and target_type.definition.under == returns_type.definition.under
+    )
 
 def typecheck_expression(
     expr: ExprNode,
@@ -1517,6 +1530,96 @@ def _typecheck(
                             subject=_effect_subject(expr.spec.transition_name),
                             event_name=_effect_subject(expr.spec.event_name),
                         ),
+                    ),
+                ),
+            ),
+        )
+    if isinstance(expr, MaterializeViewExpr):
+        typed_value = _typecheck(
+            expr.value_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
+        )
+        returns_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(returns_type, PathTypeRef):
+            _raise_error(
+                "`materialize-view :returns` must resolve to a path type",
+                code="materialize_view_target_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        try:
+            descriptor = resolve_view_renderer(expr.renderer_id, expr.renderer_version)
+        except ViewRendererError:
+            _raise_error(
+                f"unknown materialize-view renderer `{expr.renderer_id}` v{expr.renderer_version}",
+                code="materialize_view_renderer_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        forbidden = _first_transition_runtime_forbidden_type(typed_value.type_ref)
+        if forbidden is not None:
+            _raise_error(
+                f"`materialize-view :value` cannot carry runtime-forbidden type `{forbidden}`",
+                code="materialize_view_value_type_invalid",
+                span=expr.value_expr.span,
+                form_path=expr.value_expr.form_path,
+            )
+        if descriptor.accepted_shape == "path_value" and not isinstance(typed_value.type_ref, PathTypeRef):
+            _raise_error(
+                "`materialize-view` path-line rendering requires a path-typed value",
+                code="materialize_view_value_type_invalid",
+                span=expr.value_expr.span,
+                form_path=expr.value_expr.form_path,
+            )
+        typed_target = None
+        if expr.target_expr is not None:
+            typed_target = _typecheck(
+                expr.target_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            if not isinstance(typed_target.type_ref, PathTypeRef) or not _materialize_view_path_contracts_compatible(
+                typed_target.type_ref,
+                returns_type,
+            ):
+                _raise_error(
+                    "`materialize-view :target` must be a compatible path contract for `:returns`",
+                    code="materialize_view_target_contract_invalid",
+                    span=expr.target_expr.span,
+                    form_path=expr.target_expr.form_path,
+                )
+        return _typed(
+            expr=expr,
+            type_ref=returns_type,
+            effect=merge_effect_summaries(
+                typed_value.effect_summary,
+                typed_target.effect_summary if typed_target is not None else EMPTY_EFFECT_SUMMARY,
+                effect_summary_from_direct(
+                    direct_effects=(
+                        WriteEffect(subject=_effect_subject(expr.view_name)),
                     ),
                 ),
             ),

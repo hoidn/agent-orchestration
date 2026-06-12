@@ -156,6 +156,9 @@ Workflow Lisp build path:
   `tests/test_workflow_lisp_pure_projection_runtime.py` provide current
   evidence that runtime views expose `pure_projection` and that resume reuses
   only schema/digest-compatible projection bundles.
+- `tests/test_workflow_lisp_materialize_view_runtime.py` provides current
+  evidence that generated `materialize_view` nodes serialize into executable
+  IR, render deterministic bytes, and fail closed on resume drift.
 - `tests/test_workflow_lisp_resource_transition_runtime.py` provides current
   evidence that generated `resource_transition` nodes serialize into executable
   IR, execute through the runtime, and expose the expected runtime-view debug

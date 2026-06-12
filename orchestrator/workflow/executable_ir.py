@@ -33,6 +33,7 @@ class ExecutableNodeKind(str, Enum):
     SET_SCALAR = "set_scalar"
     RESOURCE_TRANSITION = "resource_transition"
     PURE_PROJECTION = "pure_projection"
+    MATERIALIZE_VIEW = "materialize_view"
     INCREMENT_SCALAR = "increment_scalar"
     MATERIALIZE_ARTIFACTS = "materialize_artifacts"
     SELECT_VARIANT_OUTPUT = "select_variant_output"
@@ -253,6 +254,14 @@ class PureProjectionStepConfig:
 
 
 @dataclass(frozen=True)
+class MaterializeViewStepConfig:
+    """Executable materialize_view-step config."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    materialize_view: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class IncrementScalarStepConfig:
     """Executable increment_scalar-step config."""
 
@@ -313,6 +322,7 @@ ExecutableStepConfig = (
     | SetScalarStepConfig
     | ResourceTransitionStepConfig
     | PureProjectionStepConfig
+    | MaterializeViewStepConfig
     | IncrementScalarStepConfig
     | MaterializeArtifactsStepConfig
     | SelectVariantOutputStepConfig
@@ -468,6 +478,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     SetScalarStepConfig,
     ResourceTransitionStepConfig,
     PureProjectionStepConfig,
+    MaterializeViewStepConfig,
     IncrementScalarStepConfig,
     MaterializeArtifactsStepConfig,
     SelectVariantOutputStepConfig,
@@ -491,6 +502,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.SET_SCALAR: SetScalarStepConfig,
     ExecutableNodeKind.RESOURCE_TRANSITION: ResourceTransitionStepConfig,
     ExecutableNodeKind.PURE_PROJECTION: PureProjectionStepConfig,
+    ExecutableNodeKind.MATERIALIZE_VIEW: MaterializeViewStepConfig,
     ExecutableNodeKind.INCREMENT_SCALAR: IncrementScalarStepConfig,
     ExecutableNodeKind.MATERIALIZE_ARTIFACTS: MaterializeArtifactsStepConfig,
     ExecutableNodeKind.SELECT_VARIANT_OUTPUT: SelectVariantOutputStepConfig,

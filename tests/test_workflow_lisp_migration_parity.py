@@ -364,6 +364,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                 "parent_callable_compile",
                 "parent_callable_smoke",
                 "projection_retirement_parity",
+                "view_retirement_parity",
                 "resource_transition_parity",
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
@@ -407,6 +408,15 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     ),
                     "evidence_role": "projection_retirement_parity",
                     "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+                },
+                {
+                    "artifact_id": "view_dual_run_report",
+                    "path": (
+                        "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/"
+                        "migration-parity/design_delta_parent_drain_view_dual_run_report.json"
+                    ),
+                    "evidence_role": "view_retirement_parity",
+                    "schema_version": "workflow_lisp_view_dual_run_report.v1",
                 }
             ],
         }
@@ -430,6 +440,7 @@ def _add_parent_family_evidence(
                 "parent_callable_compile",
                 "parent_callable_smoke",
                 "projection_retirement_parity",
+                "view_retirement_parity",
                 "resource_transition_parity",
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
@@ -455,6 +466,15 @@ def _add_parent_family_evidence(
                     ),
                     "evidence_role": "projection_retirement_parity",
                     "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+                },
+                {
+                    "artifact_id": "view_dual_run_report",
+                    "path": (
+                        "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/"
+                        "migration-parity/design_delta_parent_drain_view_dual_run_report.json"
+                    ),
+                    "evidence_role": "view_retirement_parity",
+                    "schema_version": "workflow_lisp_view_dual_run_report.v1",
                 }
             ],
         }
@@ -466,15 +486,6 @@ def _add_parent_family_evidence(
     }
     runtime_audit_path = repo_root / str(target_identity["runtime_audit_artifacts"][0]["path"])
     _write_text(runtime_audit_path, '{"transition":"write-drain-status"}\n')
-    family_evidence_path = repo_root / str(target_identity["family_evidence_artifacts"][0]["path"])
-    _write_json(
-        family_evidence_path,
-        {
-            "schema_version": "workflow_lisp_projection_dual_run_report.v1",
-            "workflow_family": "design_delta_parent_drain",
-            "status": "pass",
-        },
-    )
     report["evidence_freshness"]["runtime_audit_artifacts"] = {
         "drain_status_transition_audit": {
             "path": str(target_identity["runtime_audit_artifacts"][0]["path"]),
@@ -484,15 +495,50 @@ def _add_parent_family_evidence(
             "sha256": _sha256_file(runtime_audit_path),
         }
     }
-    report["evidence_freshness"]["family_evidence_artifacts"] = {
-        "projection_dual_run_report": {
-            "path": str(target_identity["family_evidence_artifacts"][0]["path"]),
-            "evidence_role": "projection_retirement_parity",
-            "declared_schema_version": "workflow_lisp_projection_dual_run_report.v1",
+    family_freshness: dict[str, object] = {}
+    for artifact in target_identity["family_evidence_artifacts"]:
+        family_evidence_path = repo_root / str(artifact["path"])
+        artifact_id = str(artifact["artifact_id"])
+        schema_version = str(artifact["schema_version"])
+        if artifact["evidence_role"] == "projection_retirement_parity":
+            payload = {
+                "schema_version": schema_version,
+                "artifact_id": artifact_id,
+                "workflow_family": "design_delta_parent_drain",
+                "overall_status": "pass",
+                "all_passed": True,
+                "adapters": {
+                    "project_lisp_frontend_selector_action": {
+                        "status": "pass",
+                        "comparison_mapping_id": "selector_action_projection.v1",
+                        "cases": [],
+                    }
+                },
+            }
+        else:
+            payload = {
+                "schema_version": schema_version,
+                "artifact_id": artifact_id,
+                "workflow_family": "design_delta_parent_drain",
+                "overall_status": "pass",
+                "all_passed": True,
+                "adapters": {
+                    "finalize_lisp_frontend_drain_summary": {
+                        "status": "pass",
+                        "comparison_mapping_id": "drain_summary_view.v1",
+                        "cases": [],
+                    }
+                },
+            }
+        _write_json(family_evidence_path, payload)
+        family_freshness[artifact_id] = {
+            "path": str(artifact["path"]),
+            "evidence_role": artifact["evidence_role"],
+            "declared_schema_version": schema_version,
             "exists": True,
             "sha256": _sha256_file(family_evidence_path),
         }
-    }
+    report["evidence_freshness"]["family_evidence_artifacts"] = family_freshness
     evidence = report["evidence"]
     for role in target_identity["required_family_evidence_roles"]:
         evidence[role] = {"status": "pass"}
@@ -508,6 +554,7 @@ def _add_parent_family_identity(report: dict[str, object]) -> None:
                 "parent_callable_compile",
                 "parent_callable_smoke",
                 "projection_retirement_parity",
+                "view_retirement_parity",
                 "resource_transition_parity",
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
@@ -533,6 +580,15 @@ def _add_parent_family_identity(report: dict[str, object]) -> None:
                     ),
                     "evidence_role": "projection_retirement_parity",
                     "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+                },
+                {
+                    "artifact_id": "view_dual_run_report",
+                    "path": (
+                        "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/"
+                        "migration-parity/design_delta_parent_drain_view_dual_run_report.json"
+                    ),
+                    "evidence_role": "view_retirement_parity",
+                    "schema_version": "workflow_lisp_view_dual_run_report.v1",
                 }
             ],
         }
@@ -1335,110 +1391,52 @@ def test_run_parity_target_records_parent_family_evidence_roles(
 
     _write_text(tmp_path / str(target.candidate), "(workflow-lisp)\n")
     _write_text(tmp_path / str(target.yaml_primary), "steps: []\n")
-    command_manifest = {
-        helper: {
-            "kind": "certified_adapter",
-            "stable_command": ["python", f"{helper}.py"],
-            "behavior_class": "outcome_finalization",
-            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
-            "effects": ["structured_result"],
-            "fixture_ids": [f"{helper}_ok"],
-            "negative_fixture_ids": [f"{helper}_bad"],
-            "owner_module": "lisp_frontend_design_delta/drain",
-            "replacement_path": "runtime-native transition",
-            "invocation_protocol": "json_object_positional_arg",
-        }
-        for helper in (
-            "record_terminal_work_item",
-            "record_blocked_recovery_outcome",
-            "write_lisp_frontend_drain_status",
-            "finalize_lisp_frontend_drain_summary",
-        )
-    }
-    _write_json(tmp_path / str(target.command_boundaries_file), command_manifest)
-    build_root = tmp_path / "build"
-    build_root.mkdir(parents=True, exist_ok=True)
-    _write_json(
-        build_root / "core_workflow_ast.json",
-        {
-            "body": [
-                {
-                    "kind": "repeat_until",
-                    "statements": [
-                        {
-                            "kind": "call",
-                            "call_alias": "lisp_frontend_design_delta/selector::select-next-work",
-                        },
-                        {
-                            "kind": "call",
-                            "call_alias": "%drain.lisp_frontend_design_delta/drain::project-selector-action.v1",
-                        },
-                        {
-                            "kind": "call",
-                            "call_alias": "lisp_frontend_design_delta/work_item::run-work-item",
-                        },
-                        {
-                            "kind": "call",
-                            "call_alias": (
-                                "lisp_frontend_design_delta/design_gap_architect::"
-                                "draft-design-gap-architecture"
-                            ),
-                        },
-                    ],
-                }
-            ]
-        },
+    checked_in_commands = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        ).read_text(encoding="utf-8")
     )
-    for artifact_name in ("semantic_ir", "source_map"):
-        (build_root / f"{artifact_name}.json").write_text("{}", encoding="utf-8")
-    (build_root / "workflow_boundary_projection.json").write_text(
+    _write_json(tmp_path / str(target.command_boundaries_file), checked_in_commands)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    runtime_audit_artifact = target.runtime_audit_artifacts[0]
+    _write_text(
+        tmp_path / runtime_audit_artifact["path"],
         json.dumps(
             {
-                "workflows": [
-                    {
-                        "workflow_name": "lisp_frontend_design_delta/drain::drain",
-                        "display_name": "lisp_frontend_design_delta/drain::drain",
-                        "boundary": {
-                            "public_input_names": ["steering_path", "target_design_path"],
-                            "private_runtime_context_bindings": [
-                                {
-                                    "binding_id": "phase-ctx",
-                                    "source_param_name": "phase-ctx",
-                                    "context_family": "PhaseCtx",
-                                    "bridge_class": "runtime_owned_context",
-                                    "generated_input_names": ["phase-ctx__run-id"],
-                                }
-                            ],
-                            "private_managed_write_root_inputs": ["__write_root__drain_summary"],
-                            "private_compatibility_bridge_inputs": ["manifest_path"],
-                        },
-                    }
-                ]
+                "transition_name": runtime_audit_artifact["transition_name"],
+                "resource_kind": runtime_audit_artifact["resource_kind"],
+                "outcome_code": "committed",
             }
-        ),
-        encoding="utf-8",
+        )
+        + "\n",
     )
-    _write_json(
-        build_root / "manifest.json",
-        {
-            "shared_validation_status": "validated",
-            "lowering_route": "wcc_m4",
-            "lowering_schema_version": 2,
-            "compiled_workflow_checksum": "sha256:compiled-workflow",
-            "artifact_paths": {
-                "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
-                "semantic_ir": str(build_root / "semantic_ir.json"),
-                "source_map": str(build_root / "source_map.json"),
-                "workflow_boundary_projection": str(build_root / "workflow_boundary_projection.json"),
-            },
-            "artifact_status": {
-                "core_workflow_ast": "emitted",
-                "semantic_ir": "emitted",
-                "source_map": "emitted",
-                "workflow_boundary_projection": "emitted",
-            },
-        },
-    )
+    for artifact in target.family_evidence_artifacts:
+        payload = {
+            "schema_version": artifact["schema_version"],
+            "artifact_id": artifact["artifact_id"],
+            "workflow_family": "design_delta_parent_drain",
+            "overall_status": "pass",
+            "all_passed": True,
+            "adapters": (
+                {
+                    "project_lisp_frontend_selector_action": {
+                        "status": "pass",
+                        "comparison_mapping_id": "selector_action_projection.v1",
+                        "cases": [],
+                    }
+                }
+                if artifact["evidence_role"] == "projection_retirement_parity"
+                else {
+                    "finalize_lisp_frontend_drain_summary": {
+                        "status": "pass",
+                        "comparison_mapping_id": "drain_summary_view.v1",
+                        "cases": [],
+                    }
+                }
+            ),
+        }
+        _write_json(tmp_path / str(artifact["path"]), payload)
 
     def _fake_run_command(
         command: object,
@@ -2492,7 +2490,20 @@ def _write_design_delta_g0_build_manifest(
                         },
                         {
                             "kind": "call",
+                            "call_alias": (
+                                "%drain.lisp_frontend_design_delta/drain::project-selector-action.v1"
+                            ),
+                        },
+                        {
+                            "kind": "call",
                             "call_alias": "lisp_frontend_design_delta/work_item::run-work-item",
+                        },
+                        {
+                            "kind": "call",
+                            "call_alias": (
+                                "lisp_frontend_design_delta/design_gap_architect::"
+                                "draft-design-gap-architecture"
+                            ),
                         },
                     ],
                 }
@@ -2533,11 +2544,33 @@ def _write_design_delta_g0_build_manifest(
                 "workflow_family": "design_delta_parent_drain",
                 "rows": [
                     {
+                        "binding_name": "project_lisp_frontend_selector_action",
+                        "behavior_class": "typed_projection",
+                        "retirement_class": "projection_adapter",
+                        "retirement_label": "retire_to_projection",
+                        "retirement_status": "retired",
+                        "liveness": "unreferenced",
+                    },
+                    {
                         "binding_name": "record_terminal_work_item",
                         "behavior_class": "resource_transition",
                         "retirement_class": "resource_transition",
                         "retirement_label": "retire_to_transition",
-                    }
+                    },
+                    {
+                        "binding_name": "finalize_lisp_frontend_drain_summary",
+                        "behavior_class": "outcome_finalization",
+                        "retirement_class": "view_writer",
+                        "retirement_label": "retire_to_view",
+                        "retirement_status": None,
+                        "liveness": "live",
+                        "view_binding": {
+                            "view_name": "design_delta_drain_summary_view",
+                            "renderer_id": "canonical-json",
+                            "renderer_version": 1,
+                            "contract_role": "replacement_candidate",
+                        },
+                    },
                 ],
             },
         )
@@ -2699,6 +2732,57 @@ def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapt
     evidence = report["evidence"]["projection_retirement_parity"]
     assert evidence["status"] == "fail"
     assert "still live" in " ".join(evidence.get("reasons", []))
+
+
+def test_run_parity_target_fails_view_retirement_parity_when_finalizer_view_binding_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    adapter_census_path = build_root / "adapter_census.json"
+    payload = json.loads(adapter_census_path.read_text(encoding="utf-8"))
+    payload["rows"] = [
+        {
+            key: value
+            for key, value in row.items()
+            if key != "view_binding"
+        }
+        if row.get("binding_name") == "finalize_lisp_frontend_drain_summary"
+        else row
+        for row in payload["rows"]
+    ]
+    _write_json(adapter_census_path, payload)
+    _write_json(
+        tmp_path
+        / "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/migration-parity/design_delta_parent_drain_view_dual_run_report.json",
+        {
+            "schema_version": "workflow_lisp_view_dual_run_report.v1",
+            "artifact_id": "view_dual_run_report",
+            "workflow_family": "design_delta_parent_drain",
+            "overall_status": "pass",
+            "all_passed": True,
+            "adapters": {
+                "finalize_lisp_frontend_drain_summary": {
+                    "status": "pass",
+                    "comparison_mapping_id": "drain_summary_view.v1",
+                    "cases": [],
+                }
+            },
+        },
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["view_retirement_parity"]
+    assert evidence["status"] == "fail"
+    assert "view_binding" in " ".join(evidence.get("reasons", []))
 
 
 def test_run_parity_target_fails_boundary_parity_when_g0_report_has_unclassified_or_public_leaks(

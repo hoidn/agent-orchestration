@@ -456,6 +456,8 @@ def compile_stage3_module(
         additional_diagnostics=(
             *_collect_stage3_required_lint_diagnostics(
                 state.typed_workflows,
+                lowering_route=normalized_lowering_route,
+                workflow_catalog=state.workflow_catalog,
                 bridge_backing_input_names=frozenset(
                     resource.backing_path_input
                     for resource in (state.module.resources if state.module is not None else ())
@@ -527,13 +529,16 @@ _ALLOWED_CONTEXT_RECORD_TYPES = frozenset(
 def _collect_stage3_required_lint_diagnostics(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
+    lowering_route: LoweringRoute,
+    workflow_catalog: WorkflowCatalog | None = None,
     bridge_backing_input_names: frozenset[str] = frozenset(),
 ) -> tuple[LispFrontendDiagnostic, ...]:
     diagnostics: list[LispFrontendDiagnostic] = []
+    supports_structural_projection_boundary_classification = lowering_route is not LoweringRoute.LEGACY
     for workflow in typed_workflows:
         signature = workflow.signature
-        is_structural_pure_projection = is_structural_pure_projection_effect_summary(
-            workflow.effect_summary
+        is_structural_pure_projection = supports_structural_projection_boundary_classification and (
+            is_structural_pure_projection_effect_summary(workflow.effect_summary)
         )
         if is_structural_pure_projection:
             exposes_low_level_state_path = False
@@ -1937,6 +1942,8 @@ def _compile_stage3_graph(
             validated_bundles=validated_exports if validate_shared else {},
             diagnostics=_collect_stage3_required_lint_diagnostics(
                 typed_workflows,
+                lowering_route=normalized_lowering_route,
+                workflow_catalog=workflow_catalog,
                 bridge_backing_input_names=frozenset(
                     resource.backing_path_input
                     for resource in definition_module.resources

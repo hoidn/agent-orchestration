@@ -24,6 +24,7 @@ from ..expressions import (
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
+    MaterializeViewExpr,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
@@ -328,6 +329,7 @@ def _elaborate_expr_to_body(
             ProduceOneOfExpr,
             ResumeOrStartExpr,
             ResourceTransitionExpr,
+            MaterializeViewExpr,
             FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
@@ -2206,6 +2208,17 @@ def _elaborate_effect_expr_to_binding_value(
             returns_type_name=None,
             operation_payload=expr,
         )
+    if isinstance(expr, MaterializeViewExpr):
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:materialize_view", **metadata_kwargs),
+            perform_kind="materialize_view",
+            target_name=expr.view_name,
+            prompt_name=None,
+            positional_args=(),
+            keyword_args=(),
+            returns_type_name=expr.returns_type_name,
+            operation_payload=expr,
+        )
     if isinstance(expr, CallExpr):
         return WccPerform(
             metadata=scope.value_metadata(role="perform:workflow_call", **metadata_kwargs),
@@ -2628,7 +2641,17 @@ def _infer_expr_type(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    if isinstance(expr, (ProviderResultExpr, CommandResultExpr, RunProviderPhaseExpr, ProduceOneOfExpr, ResumeOrStartExpr)):
+    if isinstance(
+        expr,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ResumeOrStartExpr,
+            MaterializeViewExpr,
+        ),
+    ):
         return _resolve_wcc_type_name(
             expr.returns_type_name,
             type_env=type_env,

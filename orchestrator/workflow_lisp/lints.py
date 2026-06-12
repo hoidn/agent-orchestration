@@ -81,6 +81,17 @@ REQUIRED_LINT_REGISTRY: dict[str, RequiredLintRule] = {
         primary_surface="lowered_surface",
         replacement_hint="use artifact values or structured bundles as authority",
     ),
+    "materialized_view_used_as_semantic_authority": RequiredLintRule(
+        code="materialized_view_used_as_semantic_authority",
+        summary="materialized views are representations and cannot be semantic authority",
+        owning_pass="authority",
+        authority_layer="frontend",
+        default_severity="error",
+        strict_severity="error",
+        surface_status="active",
+        primary_surface="typed_ast",
+        replacement_hint="use canonical state bundles or structured values as authority",
+    ),
     "resource_move_without_transition": RequiredLintRule(
         code="resource_move_without_transition",
         summary="resource movement must use resource-transition or a certified adapter",

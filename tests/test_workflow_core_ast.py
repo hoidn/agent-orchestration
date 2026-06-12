@@ -74,6 +74,54 @@ def _compile_pure_projection_bundle(tmp_path: Path):
     return result.validated_bundles_by_name["pure_expr_selector_action_projection::orchestrate"]
 
 
+def _materialize_view_core_ast_body():
+    surface_ast = importlib.import_module("orchestrator.workflow.surface_ast")
+    core_ast_module = importlib.import_module("orchestrator.workflow.core_ast")
+
+    workflow = surface_ast.SurfaceWorkflow(
+        version="2.14",
+        name="materialize-view-core-ast",
+        steps=(
+            surface_ast.SurfaceStep(
+                name="MaterializeView",
+                step_id="materialize_view",
+                kind=surface_ast.SurfaceStepKind.MATERIALIZE_VIEW,
+                common=surface_ast.SurfaceStepCommonConfig(),
+                materialize_view={
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "view_renderer_schema_version": 1,
+                    "value_type": {
+                        "kind": "record",
+                        "name": "SummaryValue",
+                        "fields": [
+                            {"name": "status", "type": {"kind": "primitive", "name": "String"}},
+                        ],
+                    },
+                    "value_document": {"status": "DONE"},
+                    "target_path": "artifacts/work/materialized-summary.json",
+                    "target_allocation_id": None,
+                    "authority_class": "materialized_view",
+                    "output_contracts": {
+                        "return": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "under": "artifacts/work",
+                            "must_exist_target": True,
+                        }
+                    },
+                },
+            ),
+        ),
+        provenance=surface_ast.WorkflowProvenance(
+            workflow_path=Path("generated.yaml"),
+            source_root=Path("."),
+        ),
+    )
+    core_ast = core_ast_module.build_core_workflow_ast(workflow, imports={}, provenance=workflow.provenance)
+    return core_ast_module.workflow_core_ast_to_json(core_ast)["body"]
+
+
 def _write_core_ast_workflow(workspace: Path) -> Path:
     _write_imported_workflow(workspace)
     return _write_yaml(
@@ -643,7 +691,20 @@ def test_core_ast_serializes_pure_projection_statement_payload(tmp_path: Path) -
     assert [statement["kind"] for statement in body] == ["pure_projection"]
     assert body[0]["pure_projection"]["payload"]["pure_expr_schema_version"] == 1
     assert body[0]["pure_projection"]["output_contracts"]["return__status"]["type"] == "string"
-    assert body[0]["common"]["output_bundle"]["path"] == "${inputs.__write_root__pure_expr_selector_action_projection_orchestrate__result_bundle}"
+    output_bundle_path = body[0]["common"]["output_bundle"]["path"]
+    assert output_bundle_path.startswith(
+        "${inputs.__write_root__pure_expr_selector_action_projection_orchestrate__"
+    )
+    assert output_bundle_path.endswith("__result_bundle}")
+
+
+def test_core_ast_serializes_materialize_view_statement_payload() -> None:
+    body = _materialize_view_core_ast_body()
+
+    assert [statement["kind"] for statement in body] == ["materialize_view"]
+    assert body[0]["materialize_view"]["renderer_id"] == "canonical-json"
+    assert body[0]["materialize_view"]["renderer_version"] == 1
+    assert body[0]["materialize_view"]["target_path"] == "artifacts/work/materialized-summary.json"
 
 
 def test_core_ast_structural_blocks_preserve_nested_lineage(tmp_path: Path) -> None:

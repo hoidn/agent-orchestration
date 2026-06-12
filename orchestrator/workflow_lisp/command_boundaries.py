@@ -8,6 +8,7 @@ from typing import Literal
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourcePosition, SourceSpan
+from orchestrator.workflow.view_renderer import ViewRendererError, resolve_view_renderer
 
 
 CertifiedAdapterBehaviorClass = Literal[
@@ -117,6 +118,16 @@ class TransitionBindingMetadata:
 
 
 @dataclass(frozen=True)
+class ViewBindingMetadata:
+    """Declared metadata for one candidate materialized-view replacement."""
+
+    view_name: str
+    renderer_id: str
+    renderer_version: int
+    contract_role: str
+
+
+@dataclass(frozen=True)
 class CertifiedAdapterBinding:
     """Command boundary with explicit typed workflow semantics."""
 
@@ -138,6 +149,7 @@ class CertifiedAdapterBinding:
     replacement_path: str | None = None
     invocation_protocol: CertifiedAdapterInvocationProtocol | str | None = None
     transition_binding: TransitionBindingMetadata | None = None
+    view_binding: ViewBindingMetadata | None = None
     declared_promoted_fields: frozenset[str] = frozenset()
     retirement_class: str | None = None
     retirement_label: str | None = None
@@ -245,6 +257,51 @@ def build_command_boundary_environment(
                             message=(
                                 f"certified adapter `{name}` uses `transition_binding` but must declare "
                                 "`contract_role` `migration_backend`"
+                            ),
+                            span=_environment_span(),
+                            phase="typecheck",
+                        )
+                    )
+                    continue
+            if binding.view_binding is not None:
+                if binding.retirement_label != "retire_to_view":
+                    diagnostics.append(
+                        LispFrontendDiagnostic(
+                            code="command_adapter_missing_contract",
+                            message=(
+                                f"certified adapter `{name}` uses `view_binding` but must declare "
+                                "`retirement_label` `retire_to_view`"
+                            ),
+                            span=_environment_span(),
+                            phase="typecheck",
+                        )
+                    )
+                    continue
+                if binding.view_binding.contract_role != "replacement_candidate":
+                    diagnostics.append(
+                        LispFrontendDiagnostic(
+                            code="command_adapter_missing_contract",
+                            message=(
+                                f"certified adapter `{name}` uses `view_binding` but must declare "
+                                "`contract_role` `replacement_candidate`"
+                            ),
+                            span=_environment_span(),
+                            phase="typecheck",
+                        )
+                    )
+                    continue
+                try:
+                    resolve_view_renderer(
+                        binding.view_binding.renderer_id,
+                        binding.view_binding.renderer_version,
+                    )
+                except ViewRendererError:
+                    diagnostics.append(
+                        LispFrontendDiagnostic(
+                            code="command_adapter_missing_contract",
+                            message=(
+                                f"certified adapter `{name}` references unknown view renderer "
+                                f"`{binding.view_binding.renderer_id}` v{binding.view_binding.renderer_version}"
                             ),
                             span=_environment_span(),
                             phase="typecheck",

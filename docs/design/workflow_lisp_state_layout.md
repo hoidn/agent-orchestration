@@ -111,6 +111,13 @@ The current checkout adds these generated path roles:
   `Resource<TState>` backing. These allocations are `PRIVATE_GENERATED`,
   resume at `RUN` scope, and hold versioned typed state rather than public
   authored workflow inputs.
+- `MATERIALIZED_VALUE_VIEW`
+  Generated path role string for compiler/runtime-managed view files. Despite
+  older design shorthand that said `materialized_view`, the shipped semantic
+  role string remains `materialized_value_view`. These allocations are
+  `PRIVATE_GENERATED` when the target is compiler-allocated, resume at
+  `STEP_VISIT` scope, and hold deterministic rendered representations rather
+  than semantic state.
 - `TRANSITION_AUDIT`
   Runtime-owned private generated JSONL ledger path for append-only
   transition-audit rows. These allocations are `PRIVATE_GENERATED`, resume at
@@ -133,6 +140,8 @@ State layout validation checks:
   write-root bridge as other private generated result bundles
 - `resource_state` and `transition_audit` allocations remain private generated
   state, not public boundary inputs or materialized view paths
+- `materialized_value_view` allocations remain rendered views, not bridge
+  backing or resume-authority state
 
 ## Required Invariants
 

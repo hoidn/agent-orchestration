@@ -19,15 +19,19 @@ from .core_ast import (
     _surface_step_from_core_statement,
 )
 from .executable_ir import ExecutableWorkflow
+from .references import ReferenceResolutionError, StructuredStepReference, parse_structured_ref
 from .runtime_plan import WorkflowRuntimePlan
 from .state_projection import WorkflowStateProjection
 from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, WorkflowProvenance, empty_frozen_mapping
 from .transition_contract import ValidatedTransitionDeclaration
+from .view_renderer import VIEW_RENDERER_SCHEMA_VERSION
 
 
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
 _PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
-_PROMOTED_GENERATED_EFFECT_KINDS = frozenset({"snapshot_capture", "pointer_materialization", "pure_projection"})
+_PROMOTED_GENERATED_EFFECT_KINDS = frozenset(
+    {"snapshot_capture", "pointer_materialization", "pure_projection", "materialize_view"}
+)
 _PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
 
 
@@ -411,6 +415,28 @@ def derive_workflow_semantic_ir(
             )
             statement_effect_ids.append(effect_id)
 
+        if step.kind is SurfaceStepKind.MATERIALIZE_VIEW:
+            effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "materialize_view")
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                effect_kind="materialize_view",
+                details=_generated_materialize_view_effect_details(
+                    workflow_name=workflow_name,
+                    statement=statements.get(statement_id)
+                    or SemanticStatement(
+                        statement_id=statement_id,
+                        workflow_name=workflow_name,
+                        step_id=statement_surface.step_id,
+                        step_name=step.name,
+                        step_kind=statement_surface.step_kind,
+                    ),
+                    surface_step=step,
+                ),
+            )
+            statement_effect_ids.append(effect_id)
+
         if step.common.requires_variant is not None or step.common.variant_output is not None:
             proof_id = _proof_id(workflow_name, statement_surface.surface_step_id)
             proofs[proof_id] = SemanticProofEntry(
@@ -636,6 +662,8 @@ def derive_workflow_semantic_ir(
         ir=ir,
         projection=projection,
         runtime_plan=runtime_plan,
+        surface=surface,
+        imports=imports,
     )
     return semantic_ir
 
@@ -646,6 +674,8 @@ def validate_workflow_semantic_ir(
     ir: ExecutableWorkflow,
     projection: WorkflowStateProjection,
     runtime_plan: WorkflowRuntimePlan,
+    surface: SurfaceWorkflow | None = None,
+    imports: Mapping[str, Any] | None = None,
 ) -> None:
     workflow_name = ir.name or ""
     workflow = semantic_ir.workflows.get(workflow_name)
@@ -887,6 +917,12 @@ def validate_workflow_semantic_ir(
                 workflow_name=workflow_name,
                 effect=effect,
             )
+        elif effect.effect_kind == "materialize_view":
+            _validate_materialize_view_effect(
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+            )
         elif effect.effect_kind == _PROVIDER_BUNDLE_PATH_PROJECTION_KIND:
             _validate_provider_bundle_path_projection_effect(
                 semantic_ir=semantic_ir,
@@ -894,6 +930,15 @@ def validate_workflow_semantic_ir(
                 workflow_name=workflow_name,
                 effect=effect,
             )
+
+    if surface is not None and imports is not None:
+        _validate_materialized_view_semantic_authority_usage(
+            semantic_ir=semantic_ir,
+            workflow=workflow,
+            workflow_name=workflow_name,
+            surface=surface,
+            imports=imports,
+        )
 
     for proof in semantic_ir.proofs.values():
         if proof.statement_id is not None and proof.statement_id not in workflow.statements:
@@ -1713,6 +1758,75 @@ def _generated_promoted_effect_details(
             }
         )
 
+    if effect_kind == "materialize_view":
+        if surface_step.kind is not SurfaceStepKind.MATERIALIZE_VIEW:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a materialize_view surface",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        payload = surface_step.materialize_view
+        if not isinstance(payload, Mapping):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a materialize_view payload",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        renderer_id = details.get("renderer_id")
+        renderer_version = details.get("renderer_version")
+        schema_version = details.get("view_renderer_schema_version")
+        value_type = details.get("value_type")
+        target_path = details.get("target_path")
+        authority_class = details.get("authority_class")
+        if (
+            not isinstance(renderer_id, str)
+            or not renderer_id
+            or not isinstance(renderer_version, int)
+            or not isinstance(schema_version, int)
+            or not isinstance(value_type, Mapping)
+            or not isinstance(authority_class, str)
+            or not authority_class
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires materialize_view details",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        surface_target_path = payload.get("target_path")
+        normalized_surface_target_path = surface_target_path
+        if (
+            isinstance(surface_target_path, Mapping)
+            and set(surface_target_path.keys()) == {"ref"}
+            and isinstance(surface_target_path.get("ref"), str)
+            and surface_target_path.get("ref")
+        ):
+            normalized_surface_target_path = surface_target_path["ref"]
+        if (
+            payload.get("renderer_id") != renderer_id
+            or payload.get("renderer_version") != renderer_version
+            or payload.get("view_renderer_schema_version") != schema_version
+            or _normalize_semantic_detail_value(payload.get("value_type")) != _normalize_semantic_detail_value(value_type)
+            or normalized_surface_target_path != target_path
+            or payload.get("authority_class") != authority_class
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent materialize_view lineage",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        normalized_details = {
+            "renderer_id": renderer_id,
+            "renderer_version": renderer_version,
+            "view_renderer_schema_version": schema_version,
+            "value_type": dict(value_type),
+            "target_path": target_path,
+            "authority_class": authority_class,
+        }
+        target_allocation_id = details.get("target_allocation_id")
+        if target_allocation_id is not None:
+            normalized_details["target_allocation_id"] = target_allocation_id
+        return MappingProxyType(normalized_details)
+
     if surface_step.kind is not SurfaceStepKind.MATERIALIZE_ARTIFACTS:
         _raise_semantic_ir_invalid(
             f"semantic_ir_invalid: promoted effect `{effect_key}` requires a materialize_artifacts surface",
@@ -1799,6 +1913,83 @@ def _generated_resource_transition_effect_details(
             "backend_kind": declaration.transition.backend.get("kind"),
         }
     )
+
+
+def _generated_materialize_view_effect_details(
+    *,
+    workflow_name: str,
+    statement: SemanticStatement,
+    surface_step: SurfaceStep,
+) -> Mapping[str, Any]:
+    payload = surface_step.materialize_view
+    if not isinstance(payload, Mapping):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires a materialize_view payload",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    renderer_id = payload.get("renderer_id")
+    renderer_version = payload.get("renderer_version")
+    schema_version = payload.get("view_renderer_schema_version")
+    value_type = payload.get("value_type")
+    target_path = payload.get("target_path")
+    authority_class = payload.get("authority_class")
+    if not isinstance(renderer_id, str) or not renderer_id:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires a renderer_id",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(renderer_version, int):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires a renderer_version",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(schema_version, int) or schema_version != VIEW_RENDERER_SCHEMA_VERSION:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires a matching renderer schema version",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(value_type, Mapping):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires a value_type descriptor",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    normalized_target_path = None
+    if isinstance(target_path, str) and target_path:
+        normalized_target_path = target_path
+    elif (
+        isinstance(target_path, Mapping)
+        and set(target_path.keys()) == {"ref"}
+        and isinstance(target_path.get("ref"), str)
+        and target_path.get("ref")
+    ):
+        normalized_target_path = target_path["ref"]
+    if normalized_target_path is None:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires a target_path",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(authority_class, str) or not authority_class:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view `{statement.step_id}` requires an authority_class",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    details = {
+        "renderer_id": renderer_id,
+        "renderer_version": renderer_version,
+        "view_renderer_schema_version": schema_version,
+        "value_type": value_type,
+        "target_path": normalized_target_path,
+        "target_allocation_id": payload.get("target_allocation_id"),
+        "authority_class": authority_class,
+    }
+    return MappingProxyType(details)
 
 
 def _subject_refs_for_node(
@@ -1983,6 +2174,194 @@ def _validate_generated_resource_transition_effect(
                 workflow_name=workflow_name,
                 subject_refs=_subject_refs_for_statement(workflow_name, statement),
             )
+
+
+def _validate_materialize_view_effect(
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    if statement.step_kind != SurfaceStepKind.MATERIALIZE_VIEW.value:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view effect `{effect.effect_id}` requires a materialize_view statement",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    for detail_key in (
+        "renderer_id",
+        "renderer_version",
+        "view_renderer_schema_version",
+        "value_type",
+        "target_path",
+        "authority_class",
+    ):
+        detail_value = effect.details.get(detail_key)
+        if detail_key == "value_type":
+            if isinstance(detail_value, Mapping):
+                continue
+        elif detail_key in {"renderer_version", "view_renderer_schema_version"}:
+            if isinstance(detail_value, int):
+                continue
+        elif isinstance(detail_value, str) and detail_value:
+            continue
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: materialize_view effect `{effect.effect_id}` is missing `{detail_key}`",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+
+def _validate_materialized_view_semantic_authority_usage(
+    *,
+    semantic_ir: SemanticWorkflowIR,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    surface: SurfaceWorkflow,
+    imports: Mapping[str, Any],
+) -> None:
+    materialized_view_step_ids = {
+        workflow.statements[effect.statement_id].step_id
+        for effect in semantic_ir.effects.values()
+        if effect.workflow_name == workflow_name
+        and effect.effect_kind == "materialize_view"
+        and effect.statement_id in workflow.statements
+        and effect.details.get("authority_class") == "materialized_view"
+    }
+    if not materialized_view_step_ids:
+        return
+
+    all_step_ids = tuple(
+        step.step_id
+        for step in _iter_surface_steps(surface)
+        if isinstance(step.step_id, str) and step.step_id
+    )
+    command_boundaries_by_step_id = {
+        boundary.step_id: boundary
+        for boundary in semantic_ir.command_boundaries.values()
+        if boundary.workflow_name == workflow_name
+    }
+
+    for step in _iter_surface_steps(surface):
+        if step.kind is SurfaceStepKind.CALL:
+            imported_bundle = imports.get(step.call_alias or "")
+            if imported_bundle is None:
+                continue
+            compatibility_bridge_inputs = frozenset(
+                name
+                for name in getattr(imported_bundle.provenance, "compatibility_bridge_inputs", ())
+                if isinstance(name, str)
+            )
+            if not compatibility_bridge_inputs:
+                continue
+            for input_name, binding in step.call_bindings.items():
+                if input_name not in compatibility_bridge_inputs:
+                    continue
+                if _value_references_materialized_view(binding, materialized_view_step_ids):
+                    _raise_materialized_view_semantic_authority_error(
+                        workflow_name=workflow_name,
+                        step_id=step.step_id,
+                        message=(
+                            "materialized_view_used_as_semantic_authority: "
+                            f"workflow call `{step.call_alias}` input `{input_name}` "
+                            "must not consume a materialized view"
+                        ),
+                    )
+
+        if step.kind is SurfaceStepKind.COMMAND:
+            boundary = command_boundaries_by_step_id.get(step.step_id)
+            if boundary is None or boundary.boundary_name != "validate_reusable_phase_state":
+                continue
+            resume_from_ref = _resume_from_ref_from_validator_command(step.command)
+            if resume_from_ref is None:
+                continue
+            if _ref_string_references_materialized_view(
+                resume_from_ref,
+                materialized_view_step_ids=materialized_view_step_ids,
+                available_step_ids=all_step_ids,
+            ):
+                _raise_materialized_view_semantic_authority_error(
+                    workflow_name=workflow_name,
+                    step_id=step.step_id,
+                    message=(
+                        "materialized_view_used_as_semantic_authority: "
+                        "`resume-or-start :resume-from` must not consume a materialized view"
+                    ),
+                )
+
+
+def _value_references_materialized_view(
+    value: Any,
+    materialized_view_step_ids: set[str],
+) -> bool:
+    if isinstance(value, StructuredStepReference):
+        return value.field == "artifacts" and value.step_name in materialized_view_step_ids
+    if isinstance(value, Mapping):
+        return any(
+            _value_references_materialized_view(item, materialized_view_step_ids)
+            for item in value.values()
+        )
+    if isinstance(value, (tuple, list)):
+        return any(
+            _value_references_materialized_view(item, materialized_view_step_ids)
+            for item in value
+        )
+    return False
+
+
+def _resume_from_ref_from_validator_command(command: Any) -> str | None:
+    if not isinstance(command, tuple) or not command:
+        return None
+    payload = command[-1]
+    if not isinstance(payload, str):
+        return None
+    try:
+        decoded = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(decoded, Mapping):
+        return None
+    resume_from = decoded.get("resume_from")
+    return resume_from if isinstance(resume_from, str) else None
+
+
+def _ref_string_references_materialized_view(
+    ref_template: str,
+    *,
+    materialized_view_step_ids: set[str],
+    available_step_ids: tuple[str, ...],
+) -> bool:
+    ref = _bundle_path_ref_from_template(ref_template)
+    if not ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
+        return False
+    try:
+        parsed = parse_structured_ref(ref, available_step_ids)
+    except ReferenceResolutionError:
+        return False
+    return parsed.field == "artifacts" and parsed.step_name in materialized_view_step_ids
+
+
+def _raise_materialized_view_semantic_authority_error(
+    *,
+    workflow_name: str,
+    step_id: str,
+    message: str,
+) -> None:
+    raise WorkflowValidationError(
+        [
+            ValidationError(
+                message=message,
+                subject_refs=(
+                    ValidationSubjectRef(
+                        subject_kind="step_id",
+                        subject_name=step_id,
+                        workflow_name=workflow_name,
+                    ),
+                ),
+            )
+        ]
+    )
 
 
 def _validate_provider_bundle_path_projection_effect(
@@ -2430,6 +2809,17 @@ def _raise_semantic_ir_invalid(
             )
         ]
     )
+
+
+def _normalize_semantic_detail_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_semantic_detail_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_normalize_semantic_detail_value(item) for item in value]
+    return value
 
 
 def _json_value(value: Any) -> Any:

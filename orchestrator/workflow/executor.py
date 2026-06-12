@@ -39,6 +39,12 @@ from .pure_expr import (
     canonical_json_for_pure_value,
     evaluate_pure_expr,
 )
+from .view_renderer import (
+    ViewRendererError,
+    render_view,
+    view_bytes_digest,
+    view_evidence_key,
+)
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from .conditions import EqualsConditionNode, ExistsConditionNode, NotExistsConditionNode
@@ -63,6 +69,7 @@ from .executable_ir import (
     LoopOutputAddress,
     MatchCaseMarkerNode,
     MatchJoinNode,
+    MaterializeViewStepConfig,
     NodeResultAddress,
     PureProjectionStepConfig,
     RepeatUntilFrameNode,
@@ -97,7 +104,12 @@ from .predicates import (
     is_numeric_predicate_value,
 )
 from .prompting import PromptComposer
-from .references import ReferenceResolutionError, ReferenceResolver, parse_structured_ref
+from .references import (
+    MaterializeViewBindingReference,
+    ReferenceResolutionError,
+    ReferenceResolver,
+    parse_structured_ref,
+)
 from .resume_planner import ResumePlanner, ResumeStateIntegrityError
 from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
@@ -2820,6 +2832,8 @@ class WorkflowExecutor:
             return 'resource_transition'
         if execution_kind is ExecutableNodeKind.PURE_PROJECTION:
             return 'pure_projection'
+        if execution_kind is ExecutableNodeKind.MATERIALIZE_VIEW:
+            return 'materialize_view'
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             return 'increment_scalar'
         if execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
@@ -3829,6 +3843,14 @@ class WorkflowExecutor:
                 self._execute_pure_projection(step, state),
             )
 
+        if execution_kind is ExecutableNodeKind.MATERIALIZE_VIEW:
+            return self._execute_top_level_publish_and_persist(
+                step,
+                step_name,
+                state,
+                self._execute_materialize_view(step, state),
+            )
+
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3980,6 +4002,8 @@ class WorkflowExecutor:
             result = self._execute_resource_transition(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.PURE_PROJECTION:
             result = self._execute_pure_projection(step, state, scope=scope)
+        elif execution_kind is ExecutableNodeKind.MATERIALIZE_VIEW:
+            result = self._execute_materialize_view(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             result = self._execute_increment_scalar(step, state)
         elif execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
@@ -7177,6 +7201,19 @@ class WorkflowExecutor:
         temp_path.write_text(content, encoding="utf-8")
         os.replace(temp_path, target)
 
+    def _atomic_write_bytes(self, target: Path, content: bytes) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target.parent / f".{target.name}.tmp-{os.getpid()}-{time.time_ns()}"
+        try:
+            temp_path.write_bytes(content)
+            os.replace(temp_path, target)
+        finally:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+
     def _workflow_input_contracts(self) -> Dict[str, Dict[str, Any]]:
         return dict(workflow_runtime_input_contracts(self.loaded_bundle))
 
@@ -8597,6 +8634,159 @@ class WorkflowExecutor:
             "debug": {"pure_projection": {"reused_bundle": False}},
         }
 
+    def _execute_materialize_view(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        config = step.get("materialize_view")
+        if not isinstance(config, dict):
+            return self._contract_violation_result(
+                "Materialize view execution failed",
+                {"reason": "missing_materialize_view_config"},
+            )
+        renderer_id = config.get("renderer_id")
+        renderer_version = config.get("renderer_version")
+        renderer_schema_version = config.get("view_renderer_schema_version")
+        value_document = config.get("value_document")
+        value_type = config.get("value_type")
+        target_path_value = config.get("target_path")
+        output_contracts = config.get("output_contracts")
+        if (
+            not isinstance(renderer_id, str)
+            or not isinstance(renderer_version, int)
+            or not isinstance(renderer_schema_version, int)
+            or not isinstance(
+                value_document,
+                (dict, list, tuple, str, int, float, bool, MaterializeViewBindingReference),
+            )
+            and value_document is not None
+            or not isinstance(value_type, Mapping)
+            or not isinstance(output_contracts, dict)
+        ):
+            return self._contract_violation_result(
+                "Materialize view execution failed",
+                {"reason": "invalid_materialize_view_config"},
+            )
+        resolved_target_value, target_binding_error = self._resolve_materialize_view_target_value(
+            target_path_value,
+            state,
+            scope=scope,
+        )
+        if target_binding_error is not None:
+            return target_binding_error
+        if not isinstance(resolved_target_value, str):
+            return self._contract_violation_result(
+                "Materialize view execution failed",
+                {"reason": "materialize_view_target_path_invalid", "path": resolved_target_value},
+            )
+        target_path = self._resolve_workspace_path(resolved_target_value)
+        if target_path is None:
+            return self._contract_violation_result(
+                "Materialize view execution failed",
+                {"reason": "materialize_view_target_path_invalid", "path": resolved_target_value},
+            )
+        resolved_value, binding_error = self._resolve_materialize_view_value(
+            value_document,
+            state,
+            scope=scope,
+        )
+        if binding_error is not None:
+            return binding_error
+        try:
+            rendered = render_view(renderer_id, renderer_version, resolved_value)
+        except ViewRendererError as exc:
+            return self._v214_failure_result(
+                "materialize_view_render_failed",
+                str(exc),
+                context={"code": exc.code, "metadata": exc.metadata},
+            )
+        except Exception as exc:
+            return self._v214_failure_result(
+                "materialize_view_render_failed",
+                "Materialize view rendering failed",
+                context={"error": str(exc)},
+            )
+        value_digest = view_bytes_digest(canonical_json_for_pure_value(resolved_value).encode("utf-8"))
+        evidence_key = view_evidence_key(
+            renderer_id,
+            renderer_version,
+            renderer_schema_version,
+            value_digest,
+        )
+        rendered_digest = view_bytes_digest(rendered)
+        evidence_path = self._materialize_view_evidence_path(target_path)
+        reused_result, reuse_error = self._reuse_materialized_view(
+            target_path=target_path,
+            evidence_path=evidence_path,
+            renderer_id=renderer_id,
+            renderer_version=renderer_version,
+            renderer_schema_version=renderer_schema_version,
+            evidence_key=evidence_key,
+            rendered_digest=rendered_digest,
+        )
+        if reuse_error is not None:
+            return reuse_error
+        if reused_result is not None:
+            artifacts = self._materialize_view_artifacts(
+                self._workspace_relative_path(target_path),
+                output_contracts=output_contracts,
+            )
+            reused_result["artifacts"] = artifacts
+            return reused_result
+        evidence_record = {
+            "view_renderer_schema_version": renderer_schema_version,
+            "renderer_id": renderer_id,
+            "renderer_version": renderer_version,
+            "value_type": dict(value_type),
+            "value_digest": value_digest,
+            "view_digest": rendered_digest,
+            "evidence_key": evidence_key,
+            "target_path": self._workspace_relative_path(target_path),
+        }
+        evidence_bytes = (canonical_json_for_pure_value(evidence_record) + "\n").encode("utf-8")
+        previous_target_bytes = self._capture_existing_file_bytes(target_path)
+        previous_evidence_bytes = self._capture_existing_file_bytes(evidence_path)
+        try:
+            self._atomic_write_bytes(target_path, rendered)
+            self._atomic_write_bytes(evidence_path, evidence_bytes)
+            artifacts = self._materialize_view_artifacts(
+                self._workspace_relative_path(target_path),
+                output_contracts=output_contracts,
+            )
+        except OutputContractError as exc:
+            self._restore_file_bytes(target_path, previous_target_bytes)
+            self._restore_file_bytes(evidence_path, previous_evidence_bytes)
+            return self._contract_violation_result(
+                "Materialize view execution failed",
+                {"reason": "materialize_view_contract_invalid", "violations": exc.violations},
+            )
+        except Exception as exc:
+            self._restore_file_bytes(target_path, previous_target_bytes)
+            self._restore_file_bytes(evidence_path, previous_evidence_bytes)
+            return self._v214_failure_result(
+                "materialize_view_render_failed",
+                "Materialize view commit failed",
+                context={"error": str(exc)},
+            )
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": artifacts,
+            "debug": {
+                "materialize_view": {
+                    "reused_view": False,
+                    "target_path": self._workspace_relative_path(target_path),
+                    "view_digest": rendered_digest,
+                    "evidence_key": evidence_key,
+                    "evidence_path": self._workspace_relative_path(evidence_path),
+                }
+            },
+        }
+
     def _resolve_resource_transition_bindings(
         self,
         value: Any,
@@ -8794,6 +8984,165 @@ class WorkflowExecutor:
                 resolved_list.append(resolved_item)
             return resolved_list, None
         return value, None
+
+    def _resolve_materialize_view_value(
+        self,
+        value: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        if isinstance(value, MaterializeViewBindingReference):
+            return self._resolve_ref_value(value.ref, state, scope=scope)
+        if isinstance(value, dict):
+            resolved: dict[str, Any] = {}
+            for key, item in value.items():
+                resolved_item, error = self._resolve_materialize_view_value(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved[str(key)] = resolved_item
+            return resolved, None
+        if isinstance(value, list):
+            resolved_list: list[Any] = []
+            for item in value:
+                resolved_item, error = self._resolve_materialize_view_value(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved_list.append(resolved_item)
+            return resolved_list, None
+        if isinstance(value, tuple):
+            resolved_list: list[Any] = []
+            for item in value:
+                resolved_item, error = self._resolve_materialize_view_value(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved_list.append(resolved_item)
+            return resolved_list, None
+        try:
+            return self._resolve_runtime_value(value, state, scope=scope), None
+        except (PredicateEvaluationError, ReferenceResolutionError) as exc:
+            return None, self._contract_violation_result(
+                "Materialize view execution failed",
+                {"reason": "unresolved_materialize_view_binding", "error": str(exc)},
+            )
+
+    def _resolve_materialize_view_target_value(
+        self,
+        value: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
+            return self._resolve_ref_value(value["ref"], state, scope=scope)
+        return self._resolve_materialize_view_value(value, state, scope=scope)
+
+    def _materialize_view_evidence_path(self, target_path: Path) -> Path:
+        return target_path.parent / f".{target_path.name}.materialize-view-evidence.json"
+
+    @staticmethod
+    def _capture_existing_file_bytes(path: Path) -> bytes | None:
+        if not path.exists():
+            return None
+        return path.read_bytes()
+
+    @staticmethod
+    def _restore_file_bytes(path: Path, previous_bytes: bytes | None) -> None:
+        try:
+            if previous_bytes is None:
+                path.unlink(missing_ok=True)
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(previous_bytes)
+        except OSError:
+            pass
+
+    def _reuse_materialized_view(
+        self,
+        *,
+        target_path: Path,
+        evidence_path: Path,
+        renderer_id: str,
+        renderer_version: int,
+        renderer_schema_version: int,
+        evidence_key: str,
+        rendered_digest: str,
+    ) -> tuple[Dict[str, Any] | None, Optional[Dict[str, Any]]]:
+        if not evidence_path.exists():
+            return None, None
+        try:
+            evidence_record = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return None, self._v214_failure_result(
+                "materialize_view_resume_schema_mismatch",
+                "Materialize view evidence could not be loaded during resume",
+                context={"path": self._workspace_relative_path(evidence_path), "error": str(exc)},
+            )
+        if not isinstance(evidence_record, dict):
+            return None, self._v214_failure_result(
+                "materialize_view_resume_schema_mismatch",
+                "Materialize view evidence must decode to an object",
+                context={"path": self._workspace_relative_path(evidence_path)},
+            )
+        if (
+            evidence_record.get("view_renderer_schema_version") != renderer_schema_version
+            or evidence_record.get("renderer_id") != renderer_id
+            or evidence_record.get("renderer_version") != renderer_version
+        ):
+            return None, self._v214_failure_result(
+                "materialize_view_resume_schema_mismatch",
+                "Materialize view evidence does not match the current renderer identity",
+                context={"path": self._workspace_relative_path(evidence_path)},
+            )
+        if evidence_record.get("evidence_key") != evidence_key:
+            return None, None
+        if not target_path.exists():
+            return None, None
+        actual_digest = view_bytes_digest(target_path.read_bytes())
+        if actual_digest != evidence_record.get("view_digest") or actual_digest != rendered_digest:
+            return None, self._v214_failure_result(
+                "materialize_view_nondeterministic_render",
+                "Materialize view bytes drifted for the recorded evidence key",
+                context={
+                    "path": self._workspace_relative_path(target_path),
+                    "recorded_digest": evidence_record.get("view_digest"),
+                    "observed_digest": actual_digest,
+                    "expected_digest": rendered_digest,
+                },
+            )
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "debug": {
+                "materialize_view": {
+                    "reused_view": True,
+                    "target_path": self._workspace_relative_path(target_path),
+                    "view_digest": actual_digest,
+                    "evidence_key": evidence_key,
+                    "evidence_path": self._workspace_relative_path(evidence_path),
+                }
+            },
+        }, None
+
+    def _materialize_view_artifacts(
+        self,
+        target_path: str,
+        *,
+        output_contracts: Any,
+    ) -> Dict[str, Any]:
+        if not isinstance(output_contracts, dict):
+            raise OutputContractError([{"message": "materialize view output contracts must be an object"}])
+        artifacts: dict[str, Any] = {}
+        for output_name, contract in output_contracts.items():
+            if not isinstance(output_name, str) or not isinstance(contract, dict):
+                continue
+            candidate = target_path
+            artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
+        return artifacts
+
+    def _workspace_relative_path(self, path: Path) -> str:
+        return path.resolve().relative_to(self.workspace.resolve()).as_posix()
 
     def _reuse_pure_projection_bundle(
         self,

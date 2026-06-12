@@ -36,6 +36,18 @@ INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE = (
     FIXTURES / "invalid" / "pure_expr_computed_if_variant_ref_unproved.orc"
 )
 INVALID_ENUM_MEMBER_UNKNOWN_FIXTURE = FIXTURES / "invalid" / "enum_member_unknown.orc"
+INVALID_MATERIALIZE_VIEW_UNKNOWN_RENDERER_FIXTURE = (
+    FIXTURES / "invalid" / "materialize_view_unknown_renderer.orc"
+)
+INVALID_MATERIALIZE_VIEW_INVALID_VALUE_TYPE_FIXTURE = (
+    FIXTURES / "invalid" / "materialize_view_invalid_value_type.orc"
+)
+INVALID_MATERIALIZE_VIEW_TARGET_CONTRACT_INVALID_FIXTURE = (
+    FIXTURES / "invalid" / "materialize_view_target_contract_invalid.orc"
+)
+INVALID_MATERIALIZED_VIEW_SEMANTIC_AUTHORITY_FIXTURE = (
+    FIXTURES / "invalid" / "materialized_view_used_as_semantic_authority.orc"
+)
 PURE_EXPR_HELPER_DIAGNOSTIC_FIXTURES = frozenset(
     {
         INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE,
@@ -190,6 +202,7 @@ def test_required_lint_registry_contains_active_and_reserved_policy_metadata() -
         "markdown_report_used_as_state": ("authority", "frontend", "error", "error", "active"),
         "variant_output_without_variant_specific_fields": ("contract", "frontend", "warn", "error", "active"),
         "pointer_used_as_semantic_authority": ("authority", "frontend", "error", "error", "active"),
+        "materialized_view_used_as_semantic_authority": ("authority", "frontend", "error", "error", "active"),
         "resource_move_without_transition": ("authority", "frontend", "error", "error", "active"),
         "recovery_gate_without_resume_or_start": ("authority", "frontend", "error", "error", "active"),
         "workflow_call_signature_erased": ("reference", "frontend", "error", "error", "active"),
@@ -1261,6 +1274,8 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
+                "  (defmodule low_level_state_path_warning)",
+                "  (export orchestrate)",
                 "  (defpath StateFile",
                 "    :kind relpath",
                 '    :under "state"',
@@ -1271,9 +1286,11 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
                 "    ((state_file StateFile))",
                 "    -> RawStateOutput",
                 "    (record RawStateOutput",
-                "      :state_file state_file)))",
+                "      :state_file state_file))",
+                ")",
             ]
-        ),
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -1310,7 +1327,7 @@ def test_compile_stage3_strict_lint_still_rejects_unrelated_public_state_path(
                 "    ((state_file StateFile))",
                 "    -> RawStateOutput",
                 "    (record RawStateOutput",
-                "      :state_file state_file)))",
+                "      :state_file state_file))",
                 ")",
             ]
         )
@@ -1995,3 +2012,233 @@ def test_rendered_diagnostic_reports_if_condition_not_bool(
         assert "workflow-lisp > defun" in rendered
     else:
         assert "workflow-lisp > defworkflow" in rendered
+
+
+@pytest.mark.parametrize(
+    ("fixture_path", "expected_code"),
+    [
+        (INVALID_MATERIALIZE_VIEW_UNKNOWN_RENDERER_FIXTURE, "materialize_view_renderer_unknown"),
+        (INVALID_MATERIALIZE_VIEW_INVALID_VALUE_TYPE_FIXTURE, "materialize_view_value_type_invalid"),
+        (INVALID_MATERIALIZE_VIEW_TARGET_CONTRACT_INVALID_FIXTURE, "materialize_view_target_contract_invalid"),
+    ],
+)
+def test_compile_stage3_reports_materialize_view_typecheck_diagnostics(
+    tmp_path: Path,
+    fixture_path: Path,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            fixture_path,
+            source_roots=(fixture_path.parent,),
+            provider_externs={},
+            prompt_externs={},
+            command_boundaries={},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = with_diagnostic_metadata(excinfo.value.diagnostics[0])
+
+    assert diagnostic.code == expected_code
+    assert diagnostic.phase == "typecheck"
+    assert diagnostic.validation_pass == "type"
+    assert fixture_path.name == Path(diagnostic.span.start.path).name
+
+
+def test_compile_stage3_reports_materialized_view_semantic_authority_diagnostic(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from orchestrator.workflow.lowering import build_loaded_workflow_bundle
+    from orchestrator.workflow.surface_ast import (
+        SurfaceStep,
+        SurfaceStepCommonConfig,
+        SurfaceWorkflow,
+        WorkflowProvenance,
+    )
+    from orchestrator.workflow.surface_ast import SurfaceStepKind as SharedSurfaceStepKind
+
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "materialized-view-resume-authority.yaml",
+        source_root=tmp_path,
+    )
+    workflow = SurfaceWorkflow(
+        version="2.14",
+        name="materialized-view-resume-authority",
+        steps=(
+            SurfaceStep(
+                name="MaterializeView",
+                step_id="MaterializeView",
+                kind=SharedSurfaceStepKind.MATERIALIZE_VIEW,
+                common=SurfaceStepCommonConfig(),
+                materialize_view={
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "view_renderer_schema_version": 1,
+                    "value_type": {
+                        "kind": "record",
+                        "name": "SummaryValue",
+                        "fields": [
+                            {
+                                "name": "status",
+                                "type": {"kind": "primitive", "name": "String"},
+                            }
+                        ],
+                    },
+                    "value_document": {"status": "READY"},
+                    "target_path": "state/generated-summary.json",
+                    "target_allocation_id": None,
+                    "authority_class": "materialized_view",
+                    "output_contracts": {
+                        "return": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "under": "state",
+                            "must_exist_target": False,
+                        }
+                    },
+                },
+            ),
+            SurfaceStep(
+                name="validate_reusable_phase_state",
+                step_id="validate_reusable_phase_state",
+                kind=SharedSurfaceStepKind.COMMAND,
+                common=SurfaceStepCommonConfig(),
+                command=(
+                    "python",
+                    "scripts/validate_reusable_state.py",
+                    json.dumps(
+                        {
+                            "resume_from": "${root.steps.MaterializeView.artifacts.return}",
+                        }
+                    ),
+                ),
+            ),
+        ),
+        provenance=provenance,
+    )
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        build_loaded_workflow_bundle(workflow, imports={})
+
+    assert any(
+        "materialized_view_used_as_semantic_authority" in str(error.message)
+        for error in excinfo.value.errors
+    )
+
+
+def test_compile_stage3_reports_materialized_view_bridge_authority_diagnostic(
+    tmp_path: Path,
+) -> None:
+    from types import MappingProxyType
+
+    from orchestrator.workflow.lowering import build_loaded_workflow_bundle
+    from orchestrator.workflow.references import StructuredStepReference
+    from orchestrator.workflow.surface_ast import (
+        ImportedWorkflowMetadata,
+        SurfaceStep,
+        SurfaceStepCommonConfig,
+        SurfaceWorkflow,
+        WorkflowProvenance,
+    )
+    from orchestrator.workflow.surface_ast import SurfaceStepKind as SharedSurfaceStepKind
+
+    shared_value_type = {
+        "kind": "record",
+        "name": "SummaryValue",
+        "fields": [
+            {
+                "name": "status",
+                "type": {"kind": "primitive", "name": "String"},
+            }
+        ],
+    }
+    callee_provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "bridge-sink.yaml",
+        source_root=tmp_path,
+        compatibility_bridge_inputs=("run_state_path",),
+    )
+    callee = SurfaceWorkflow(
+        version="2.14",
+        name="bridge-sink",
+        steps=(),
+        provenance=callee_provenance,
+    )
+    callee_bundle = build_loaded_workflow_bundle(callee, imports={})
+
+    caller_provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "materialized-view-bridge-authority.yaml",
+        source_root=tmp_path,
+    )
+    caller = SurfaceWorkflow(
+        version="2.14",
+        name="materialized-view-bridge-authority",
+        steps=(
+            SurfaceStep(
+                name="MaterializeView",
+                step_id="MaterializeView",
+                kind=SharedSurfaceStepKind.MATERIALIZE_VIEW,
+                common=SurfaceStepCommonConfig(),
+                materialize_view={
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "view_renderer_schema_version": 1,
+                    "value_type": shared_value_type,
+                    "value_document": {"status": "READY"},
+                    "target_path": "state/generated-summary.json",
+                    "target_allocation_id": None,
+                    "authority_class": "materialized_view",
+                    "output_contracts": {
+                        "return": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "under": "state",
+                            "must_exist_target": False,
+                        }
+                    },
+                },
+            ),
+            SurfaceStep(
+                name="CallBridgeSink",
+                step_id="CallBridgeSink",
+                kind=SharedSurfaceStepKind.CALL,
+                common=SurfaceStepCommonConfig(),
+                call_alias="bridge-sink",
+                call_bindings=MappingProxyType(
+                    {
+                        "run_state_path": StructuredStepReference(
+                            scope="root",
+                            step_name="MaterializeView",
+                            field="artifacts",
+                            member="return",
+                        ),
+                        "status": "READY",
+                        "reason": "unused",
+                    }
+                ),
+            ),
+        ),
+        provenance=caller_provenance,
+        imports=MappingProxyType(
+            {
+                "bridge-sink": ImportedWorkflowMetadata(
+                    alias="bridge-sink",
+                    workflow_path=callee_provenance.workflow_path,
+                    source_root=callee_provenance.source_root,
+                    compatibility_bridge_inputs=("run_state_path",),
+                    workflow_name="bridge-sink",
+                    output_names=(),
+                )
+            }
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        build_loaded_workflow_bundle(caller, imports={"bridge-sink": callee_bundle})
+
+    assert any(
+        "materialized_view_used_as_semantic_authority" in str(error.message)
+        for error in excinfo.value.errors
+    )

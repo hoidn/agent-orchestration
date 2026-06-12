@@ -159,6 +159,14 @@ class CorePureProjectionStep:
 
 
 @dataclass(frozen=True)
+class CoreMaterializeViewStep:
+    meta: CoreStmtMeta
+    common: Any
+    materialize_view: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class CoreIncrementScalarStep:
     meta: CoreStmtMeta
     common: Any
@@ -545,6 +553,13 @@ def _build_statement(
             pure_projection=step.pure_projection,
             _surface_step=step,
         )
+    if step.kind is SurfaceStepKind.MATERIALIZE_VIEW:
+        return CoreMaterializeViewStep(
+            meta=meta,
+            common=step.common,
+            materialize_view=step.materialize_view,
+            _surface_step=step,
+        )
     if step.kind is SurfaceStepKind.INCREMENT_SCALAR:
         return CoreIncrementScalarStep(
             meta=meta,
@@ -891,6 +906,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["resource_transition"] = statement.resource_transition
     elif isinstance(statement, CorePureProjectionStep):
         kwargs["pure_projection"] = statement.pure_projection
+    elif isinstance(statement, CoreMaterializeViewStep):
+        kwargs["materialize_view"] = statement.materialize_view
     elif isinstance(statement, CoreIncrementScalarStep):
         kwargs["increment_scalar"] = statement.increment_scalar
     elif isinstance(statement, CoreMaterializeArtifactsStep):
@@ -1085,6 +1102,9 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
         return payload
     if isinstance(statement, CorePureProjectionStep):
         payload.update({"kind": "pure_projection", "pure_projection": _json_data(statement.pure_projection)})
+        return payload
+    if isinstance(statement, CoreMaterializeViewStep):
+        payload.update({"kind": "materialize_view", "materialize_view": _json_data(statement.materialize_view)})
         return payload
     if isinstance(statement, CoreIncrementScalarStep):
         payload.update({"kind": "increment_scalar", "increment_scalar": _json_data(statement.increment_scalar)})

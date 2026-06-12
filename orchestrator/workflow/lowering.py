@@ -27,6 +27,7 @@ from .executable_ir import (
     ForEachStepConfig,
     IncrementScalarStepConfig,
     MaterializeArtifactsStepConfig,
+    MaterializeViewStepConfig,
     IfBranchMarkerNode,
     IfJoinNode,
     LeafExecutableNode,
@@ -864,6 +865,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.SET_SCALAR: ExecutableNodeKind.SET_SCALAR,
         SurfaceStepKind.RESOURCE_TRANSITION: ExecutableNodeKind.RESOURCE_TRANSITION,
         SurfaceStepKind.PURE_PROJECTION: ExecutableNodeKind.PURE_PROJECTION,
+        SurfaceStepKind.MATERIALIZE_VIEW: ExecutableNodeKind.MATERIALIZE_VIEW,
         SurfaceStepKind.INCREMENT_SCALAR: ExecutableNodeKind.INCREMENT_SCALAR,
         SurfaceStepKind.MATERIALIZE_ARTIFACTS: ExecutableNodeKind.MATERIALIZE_ARTIFACTS,
         SurfaceStepKind.SELECT_VARIANT_OUTPUT: ExecutableNodeKind.SELECT_VARIANT_OUTPUT,
@@ -991,6 +993,11 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             common=common,
             pure_projection=step.pure_projection,
         )
+    if step.kind is SurfaceStepKind.MATERIALIZE_VIEW:
+        return MaterializeViewStepConfig(
+            common=common,
+            materialize_view=step.materialize_view,
+        )
     if step.kind is SurfaceStepKind.INCREMENT_SCALAR:
         return IncrementScalarStepConfig(
             common=common,
@@ -1050,6 +1057,7 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.SET_SCALAR: "set_scalar",
         ExecutableNodeKind.RESOURCE_TRANSITION: "resource_transition",
         ExecutableNodeKind.PURE_PROJECTION: "pure_projection",
+        ExecutableNodeKind.MATERIALIZE_VIEW: "materialize_view",
         ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
         ExecutableNodeKind.MATERIALIZE_ARTIFACTS: "materialize_artifacts",
         ExecutableNodeKind.SELECT_VARIANT_OUTPUT: "select_variant_output",

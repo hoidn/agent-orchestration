@@ -102,8 +102,10 @@ The current contract is implemented in
   or adapter-backed effects that survive as shared semantic metadata. In the
   current checkout this includes generated `pure_projection` effects that carry
   payload digest, pure-expression schema version, result-type descriptor, and
-  private output-bundle lineage, plus generated `resource_transition` effects
-  that carry transition name, backend kind, resource kind, and private
+  private output-bundle lineage, generated `materialize_view` effects that
+  carry renderer id/version/schema, value-type descriptor, authority class, and
+  target/allocation lineage, plus generated `resource_transition` effects that
+  carry transition name, backend kind, resource kind, and private
   `resource_state` / `transition_audit` lineage for runtime-native declared
   transitions. Adapter-backed compatibility routes may still contribute
   `resource_transition` / `ledger_update` effects through
@@ -112,8 +114,9 @@ The current contract is implemented in
   checked proof obligations.
 - `SemanticStateLayoutEntry` records typed state-layout and presentation-key
   linkage instead of leaving runtime-facing layout meaning implicit. That
-  includes `pure_projection_bundle`, entrypoint managed write-root, and managed
-  write-root-input entries for generated projection bundles.
+  includes `pure_projection_bundle`, `materialized_value_view`, entrypoint
+  managed write-root, and managed write-root-input entries for generated
+  projection/view bundles.
 - `SemanticSourceMapBridgeEntry` records traceability bridges from semantic
   subjects back to authored or generated origins.
 - `SemanticCallEdge` records workflow-call lineage.

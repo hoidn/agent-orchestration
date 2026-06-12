@@ -28,6 +28,7 @@ _SHARED_VALIDATION_CODE_RE = re.compile(
     r"workflow_call_version_mismatch|"
     r"contract_refinement_weakened|"
     r"contract_refinement_type_conflict|"
+    r"materialized_view_used_as_semantic_authority|"
     r"pointer_authority_conflict|"
     r"snapshot_ref_unknown_step|"
     r"snapshot_ref_unknown_name|"

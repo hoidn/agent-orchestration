@@ -21,6 +21,7 @@ from ..expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    MaterializeViewExpr,
     MatchArm,
     MatchExpr,
     NameExpr,
@@ -58,6 +59,7 @@ from ..lowering.control_dispatch import _binding_local_value_from_terminal
 from ..lowering.origins import LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
 from ..lowering.generated_paths import allocate_generated_result_bundle, allocation_reason
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
+from ..lowering.materialize_view import lower_materialize_view_step
 from ..lowering.pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
 from ..lowering.values import ProjectedPathRef, attach_provider_bundle_identity, _flatten_inline_output_refs, _procedure_signature_local_type_bindings, _resolve_inline_expr_value, _signature_local_values
 from ..lowering.effects import LowerableCommandResult, LowerableProviderResult, _lower_command_result_operation, _lower_provider_result_operation
@@ -1799,7 +1801,14 @@ def _lower_effectful_binding(
                 context=context,
                 local_values=local_values,
             )
-        if value.perform_kind in {"run_provider_phase", "produce_one_of", "resume_or_start", "resource_transition", "finalize_selected_item"}:
+        if value.perform_kind in {
+            "run_provider_phase",
+            "produce_one_of",
+            "resume_or_start",
+            "resource_transition",
+            "finalize_selected_item",
+            "materialize_view",
+        }:
             steps, terminal = _lower_wcc_phase_effect(
                 value,
                 binding_type=binding_type,
@@ -1935,6 +1944,18 @@ def _lower_wcc_phase_effect(
         )
     if isinstance(payload, ResourceTransitionExpr):
         return _phase_stdlib_lower_resource_transition_impl(
+            TypedExpr(
+                expr=payload,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(payload, MaterializeViewExpr):
+        return lower_materialize_view_step(
             TypedExpr(
                 expr=payload,
                 type_ref=binding_type,

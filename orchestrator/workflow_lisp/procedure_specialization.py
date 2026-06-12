@@ -21,6 +21,7 @@ from .expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    MaterializeViewExpr,
     MatchExpr,
     NameExpr,
     ProcedureCallExpr,
@@ -208,6 +209,7 @@ def _private_workflow_result_type_for_expr(
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
+            MaterializeViewExpr,
         ),
     ):
         return type_env.resolve_type(

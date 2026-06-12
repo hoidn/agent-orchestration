@@ -169,6 +169,14 @@ For promoted `command-result :adapter` calls, the frontend must also validate:
 - each authored input is projectable into the declared invocation protocol;
 - the declared adapter return type matches `:returns`.
 
+For retirement bookkeeping, adapters that only render typed values to files
+should move to `retire_to_view` rather than staying in `typed_projection`.
+Their checked-in command-boundary row remains live until the consuming workflow
+flips, but it should carry additive `view_binding` metadata
+(`view_name`/renderer id+version/`replacement_candidate`) and pass the
+machine-readable `view_retirement_parity` dual-run evidence lane before any
+`retirement_status` change is allowed.
+
 ## Legacy Adapters
 
 A legacy adapter is a certified command adapter with an explicit compatibility

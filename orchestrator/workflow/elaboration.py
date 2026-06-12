@@ -521,6 +521,11 @@ def _elaborate_step(
             if kind is SurfaceStepKind.PURE_PROJECTION
             else freeze_mapping(None)
         ),
+        materialize_view=(
+            freeze_mapping(step.get("materialize_view"))
+            if kind is SurfaceStepKind.MATERIALIZE_VIEW
+            else freeze_mapping(None)
+        ),
         increment_scalar=(
             freeze_mapping(step.get("increment_scalar"))
             if kind is SurfaceStepKind.INCREMENT_SCALAR
@@ -896,6 +901,10 @@ def _surface_step_kind(
         if not allow_generated_step_kinds:
             raise ValueError("pure_projection is compiler-generated only and cannot appear in authored workflows")
         return SurfaceStepKind.PURE_PROJECTION
+    if "materialize_view" in step:
+        if not allow_generated_step_kinds:
+            raise ValueError("materialize_view is compiler-generated only and cannot appear in authored workflows")
+        return SurfaceStepKind.MATERIALIZE_VIEW
     if "increment_scalar" in step:
         return SurfaceStepKind.INCREMENT_SCALAR
     if "materialize_artifacts" in step:
@@ -920,6 +929,10 @@ def _validate_reserved_generated_step_kinds(
             if "pure_projection" in step:
                 validation_backend.add_error(
                     f"Step '{step_name}': pure_projection is compiler-generated only and cannot appear in authored workflows"
+                )
+            if "materialize_view" in step:
+                validation_backend.add_error(
+                    f"Step '{step_name}': materialize_view is compiler-generated only and cannot appear in authored workflows"
                 )
             if "resource_transition" in step:
                 validation_backend.add_error(

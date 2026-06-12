@@ -1,5 +1,6 @@
 """Integration tests for runtime step lifecycle state updates."""
 
+import importlib
 import hashlib
 import json
 import threading
@@ -36,6 +37,53 @@ def _compile_pure_projection_bundle(tmp_path: Path):
         workspace_root=tmp_path,
     )
     return result.validated_bundles_by_name["pure_expr_selector_action_projection::orchestrate"]
+
+
+def _materialize_view_bundle(tmp_path: Path):
+    lowering_module = importlib.import_module("orchestrator.workflow.lowering")
+    surface_ast = importlib.import_module("orchestrator.workflow.surface_ast")
+
+    workflow = surface_ast.SurfaceWorkflow(
+        version="2.14",
+        name="materialize-view-lifecycle",
+        steps=(
+            surface_ast.SurfaceStep(
+                name="MaterializeView",
+                step_id="materialize_view",
+                kind=surface_ast.SurfaceStepKind.MATERIALIZE_VIEW,
+                common=surface_ast.SurfaceStepCommonConfig(),
+                materialize_view={
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "view_renderer_schema_version": 1,
+                    "value_type": {
+                        "kind": "record",
+                        "name": "SummaryValue",
+                        "fields": [
+                            {"name": "status", "type": {"kind": "primitive", "name": "String"}},
+                        ],
+                    },
+                    "value_document": {"status": "DONE"},
+                    "target_path": "artifacts/work/materialized-summary.json",
+                    "target_allocation_id": None,
+                    "authority_class": "materialized_view",
+                    "output_contracts": {
+                        "return": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "under": "artifacts/work",
+                            "must_exist_target": True,
+                        }
+                    },
+                },
+            ),
+        ),
+        provenance=surface_ast.WorkflowProvenance(
+            workflow_path=tmp_path / "generated.yaml",
+            source_root=tmp_path,
+        ),
+    )
+    return lowering_module.build_loaded_workflow_bundle(workflow, imports={})
 
 
 def test_long_running_step_updates_current_step_heartbeat(tmp_path: Path):
@@ -341,6 +389,30 @@ def test_pure_projection_resume_fails_closed_on_schema_mismatch(tmp_path: Path):
 
     assert project["status"] == "failed"
     assert project["error"]["type"] == "pure_projection_resume_schema_mismatch"
+
+
+def test_materialize_view_resume_reuses_committed_view(tmp_path: Path):
+    loaded = _materialize_view_bundle(tmp_path)
+    step_name = loaded.surface.steps[0].name
+    loaded.surface.provenance.workflow_path.write_text("generated: true\n", encoding="utf-8")
+
+    state_manager = StateManager(workspace=tmp_path, run_id="materialize-view-resume")
+    state_manager.initialize("generated.yaml")
+
+    first = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+
+    assert first["steps"][step_name]["debug"]["materialize_view"]["reused_view"] is False
+
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {step_name: {"status": "failed", "exit_code": 1}}
+    state_manager._write_state()
+
+    resumed = WorkflowExecutor(loaded, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed["steps"][step_name]["status"] == "completed"
+    assert resumed["steps"][step_name]["artifacts"] == {"return": "artifacts/work/materialized-summary.json"}
+    assert resumed["steps"][step_name]["debug"]["materialize_view"]["reused_view"] is True
 
 
 def test_resume_skips_only_until_restart_point_not_after_loop_back(tmp_path: Path):

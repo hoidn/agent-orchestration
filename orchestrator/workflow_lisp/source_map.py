@@ -1039,6 +1039,7 @@ def _step_kind_from_mapping(step: Mapping[str, Any]) -> str:
         "set_scalar",
         "increment_scalar",
         "materialize_artifacts",
+        "materialize_view",
         "select_variant_output",
         "call",
         "if",

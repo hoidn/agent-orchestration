@@ -716,6 +716,12 @@
     "retirement_class": "view_writer",
     "retirement_label": "retire_to_view",
     "replacement_surface": "materialized drain summary view",
+    "view_binding": {
+      "view_name": "design_delta_drain_summary_view",
+      "renderer_id": "canonical-json",
+      "renderer_version": 1,
+      "contract_role": "replacement_candidate"
+    },
     "bridge_owner": "lisp_frontend_design_delta/drain",
     "expiry_condition": "g4 materialized value views replace drain summary finalizer",
     "evidence_refs": [

@@ -1748,6 +1748,10 @@ boundary from the runtime migration foundation:
   materialized value views, reusable-call write roots, entrypoint managed write
   roots, source-map entries, and Semantic IR layout projections must share one
   allocation/provenance boundary;
+- the authored `materialize-view` form lowers only to the generated
+  `materialize_view` runtime family on WCC/schema 2; rendered files are
+  representations only and shared validation must reject them as semantic
+  authority when consumed as bridge-backed state or `resume-or-start` state;
 - promotion-relevant private generated paths are run-isolated by default, while
   preserved non-isolated shapes are compatibility/public surfaces and not
   promotion evidence.

@@ -21,6 +21,7 @@ from ..expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    MaterializeViewExpr,
     LoopRecurExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -1031,6 +1032,21 @@ def _validate_wcc_m4_expr_supported(
         if expr.spec.request_expr is not None:
             _validate_wcc_m4_expr_supported(
                 expr.spec.request_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
+    if isinstance(expr, MaterializeViewExpr):
+        _validate_wcc_m4_expr_supported(
+            expr.value_expr,
+            workflow_name=workflow_name,
+            local_workflow_signatures=local_workflow_signatures,
+            workflow_ref_value_names=workflow_ref_value_names,
+        )
+        if expr.target_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.target_expr,
                 workflow_name=workflow_name,
                 local_workflow_signatures=local_workflow_signatures,
                 workflow_ref_value_names=workflow_ref_value_names,

@@ -22,6 +22,7 @@ from .expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    MaterializeViewExpr,
     LoopStateField,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -817,6 +818,8 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "resume-or-start"
     if isinstance(expr, ResourceTransitionExpr):
         return "resource-transition"
+    if isinstance(expr, MaterializeViewExpr):
+        return "materialize-view"
     if isinstance(expr, FinalizeSelectedItemExpr):
         return "finalize-selected-item"
     if isinstance(expr, BacklogDrainExpr):

@@ -47,6 +47,7 @@ inventing fake authored statements:
 - `snapshot_capture`
 - `pointer_materialization`
 - `pure_projection`
+- `materialize_view`
 
 `pure_projection` is visibility for one generated runtime projection boundary,
 not evidence that the authored expression gained provider, command, IO, or
@@ -78,6 +79,12 @@ When lowering emits a runtime-visible `pure_projection` step, Semantic IR may
 carry a generated `pure_projection` effect with payload digest, schema version,
 and private bundle lineage. That effect is observational metadata for the
 generated boundary, not permission to treat the expression body as effectful.
+
+When lowering emits a runtime-visible `materialize_view` step, Semantic IR may
+carry a generated `materialize_view` effect with renderer identity, renderer
+schema version, target/allocation lineage, and authority class. The effect is
+real file-rendering visibility, but the rendered file remains a representation
+only; it must not become semantic authority for bridge-backed state or resume.
 
 ## Macro Boundary
 

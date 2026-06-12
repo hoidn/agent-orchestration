@@ -22,6 +22,25 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PURE_EXPR_SELECTOR_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc")
 
 
+def _g0_retirement_metadata(
+    *,
+    retirement_class: str,
+    retirement_label: str,
+    replacement_surface: str,
+    bridge_owner: str,
+    expiry_condition: str,
+    evidence_ref: str,
+) -> dict[str, object]:
+    return {
+        "retirement_class": retirement_class,
+        "retirement_label": retirement_label,
+        "replacement_surface": replacement_surface,
+        "bridge_owner": bridge_owner,
+        "expiry_condition": expiry_condition,
+        "evidence_refs": (evidence_ref,),
+    }
+
+
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
@@ -234,6 +253,14 @@ def _compile_entrypoint_fixture(
                     "-m",
                     "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
                 ),
+                **_g0_retirement_metadata(
+                    retirement_class="validation",
+                    retirement_label="keep_bridge",
+                    replacement_surface="typed review findings validation bridge",
+                    bridge_owner="std/phase",
+                    expiry_condition="retain until typed validation replaces the command bridge",
+                    evidence_ref="validate_review_findings_v1",
+                ),
             ),
         },
         validate_shared=True,
@@ -275,6 +302,14 @@ def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
                     "python",
                     "workflows/library/scripts/run_neurips_backlog_checks.py",
                 ),
+                **_g0_retirement_metadata(
+                    retirement_class="genuine_system",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="bounded repo-local checks",
+                    bridge_owner="lisp_frontend_design_delta/implementation_phase",
+                    expiry_condition="retain while backlog checks remain an external repo-local tool",
+                    evidence_ref="run_neurips_backlog_checks",
+                ),
             ),
             "validate_review_findings_v1": ExternalToolBinding(
                 name="validate_review_findings_v1",
@@ -282,6 +317,14 @@ def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
                     "python",
                     "-m",
                     "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                ),
+                **_g0_retirement_metadata(
+                    retirement_class="validation",
+                    retirement_label="keep_bridge",
+                    replacement_surface="typed review findings validation bridge",
+                    bridge_owner="std/phase",
+                    expiry_condition="retain until typed validation replaces the command bridge",
+                    evidence_ref="validate_review_findings_v1",
                 ),
             ),
         },
@@ -292,6 +335,53 @@ def _compile_design_delta_implementation_phase_entrypoint(tmp_path: Path):
         "lisp_frontend_design_delta/implementation_phase::implementation-phase"
     ]
     return result, bundle
+
+
+def _build_materialize_view_bundle():
+    lowering_module = importlib.import_module("orchestrator.workflow.lowering")
+    surface_ast = importlib.import_module("orchestrator.workflow.surface_ast")
+
+    workflow = surface_ast.SurfaceWorkflow(
+        version="2.14",
+        name="materialize-view-semantic-ir",
+        steps=(
+            surface_ast.SurfaceStep(
+                name="MaterializeView",
+                step_id="materialize_view",
+                kind=surface_ast.SurfaceStepKind.MATERIALIZE_VIEW,
+                common=surface_ast.SurfaceStepCommonConfig(),
+                materialize_view={
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "view_renderer_schema_version": 1,
+                    "value_type": {
+                        "kind": "record",
+                        "name": "SummaryValue",
+                        "fields": [
+                            {"name": "status", "type": {"kind": "primitive", "name": "String"}},
+                        ],
+                    },
+                    "value_document": {"status": "DONE"},
+                    "target_path": "state/materialized-views/summary.json",
+                    "target_allocation_id": "alloc:test:materialized_value_view",
+                    "authority_class": "materialized_view",
+                    "output_contracts": {
+                        "return": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "under": "state",
+                            "must_exist_target": True,
+                        }
+                    },
+                },
+            ),
+        ),
+        provenance=surface_ast.WorkflowProvenance(
+            workflow_path=Path("generated.yaml"),
+            source_root=Path("."),
+        ),
+    )
+    return lowering_module.build_loaded_workflow_bundle(workflow, imports={})
 
 
 def _build_parametric_frontend_bundle(tmp_path: Path) -> object:
@@ -528,9 +618,39 @@ def test_semantic_ir_promotes_pure_projection_generated_effects(tmp_path: Path) 
     )
     assert any(
         entry.layout_kind == "pure_projection_bundle"
-        and entry.details.get("generated_input_name")
-        == "__write_root__pure_expr_selector_action_projection_orchestrate__result_bundle"
+        and str(entry.details.get("generated_input_name", "")).startswith(
+            "__write_root__pure_expr_selector_action_projection_orchestrate__"
+        )
+        and str(entry.details.get("generated_input_name", "")).endswith("__result_bundle")
         for entry in pure_projection_bundle.semantic_ir.state_layout.values()
+    )
+
+
+def test_semantic_ir_records_materialize_view_effect_details() -> None:
+    bundle = _build_materialize_view_bundle()
+
+    effect = next(
+        candidate
+        for candidate in bundle.semantic_ir.effects.values()
+        if candidate.effect_kind == "materialize_view"
+    )
+
+    assert effect.details["renderer_id"] == "canonical-json"
+    assert effect.details["renderer_version"] == 1
+    assert effect.details["view_renderer_schema_version"] == 1
+    assert effect.details["target_path"] == "state/materialized-views/summary.json"
+    assert effect.details["authority_class"] == "materialized_view"
+
+
+def test_semantic_ir_validation_keeps_legacy_callable_surface_for_materialize_view_bundle() -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    bundle = _build_materialize_view_bundle()
+
+    semantic_ir_module.validate_workflow_semantic_ir(
+        bundle.semantic_ir,
+        ir=bundle.ir,
+        projection=bundle.projection,
+        runtime_plan=bundle.runtime_plan,
     )
 
 

@@ -1,0 +1,174 @@
+{
+  "schema_version": "workflow_lisp_view_dual_run_vectors.v1",
+  "workflow_family": "design_delta_parent_drain",
+  "adapter_name": "finalize_lisp_frontend_drain_summary",
+  "comparison_mapping_id": "drain_summary_view.v1",
+  "report_path": "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/migration-parity/design_delta_parent_drain_view_dual_run_report.json",
+  "vectors": [
+    {
+      "id": "done_summary_view",
+      "kind": "positive",
+      "incumbent_inputs": {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "DONE",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "state_root": "state"
+      },
+      "replacement_inputs": {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "DONE",
+        "drain_status_reason": "finished",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "pointer_path": "artifacts/work/drain_summary_path.txt"
+      },
+      "run_state_document": {
+        "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+        "completed_items": [
+          "item-1"
+        ],
+        "completed_design_gaps": [
+          "gap-1"
+        ],
+        "blocked_items": {},
+        "blocked_design_gaps": {},
+        "history": [
+          {
+            "iteration": 1
+          },
+          {
+            "iteration": 2
+          }
+        ]
+      },
+      "expected_typed_value": {
+        "drain_status": "DONE",
+        "drain_status_reason": "finished",
+        "run_state_path": "state/run_state.json",
+        "summary_target": "artifacts/work/drain_summary.json",
+        "state_version": "lisp_frontend_autonomous_drain_run_state/v1"
+      },
+      "legacy_state_expectations": {
+        "completed_items": [
+          "item-1"
+        ],
+        "completed_design_gaps": [
+          "gap-1"
+        ],
+        "blocked_items": {},
+        "blocked_design_gaps": {},
+        "history_count": 2
+      },
+      "compatibility_expectations": {
+        "legacy_pointer_path": "state/drain_summary_path.txt",
+        "replacement_pointer_path": "artifacts/work/drain_summary_path.txt",
+        "legacy_final_run_state_path": "state/final_run_state_path.txt"
+      },
+      "accepted_differences": [
+        {
+          "id": "legacy_state_duplication_fields",
+          "description": "The legacy adapter duplicates run-state-derived counters and collections into the summary payload."
+        },
+        {
+          "id": "legacy_final_run_state_pointer_sidecar",
+          "description": "The legacy adapter emits a final_run_state_path sidecar that the replacement route intentionally does not reproduce."
+        }
+      ]
+    },
+    {
+      "id": "blocked_summary_view",
+      "kind": "positive",
+      "incumbent_inputs": {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "BLOCKED",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "state_root": "state"
+      },
+      "replacement_inputs": {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "BLOCKED",
+        "drain_status_reason": "needs_revision",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "pointer_path": "artifacts/work/drain_summary_path.txt"
+      },
+      "run_state_document": {
+        "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+        "completed_items": [],
+        "completed_design_gaps": [],
+        "blocked_items": {
+          "item-9": "needs_revision"
+        },
+        "blocked_design_gaps": {
+          "gap-9": "missing_context"
+        },
+        "history": [
+          {
+            "iteration": 1
+          }
+        ]
+      },
+      "expected_typed_value": {
+        "drain_status": "BLOCKED",
+        "drain_status_reason": "needs_revision",
+        "run_state_path": "state/run_state.json",
+        "summary_target": "artifacts/work/drain_summary.json",
+        "state_version": "lisp_frontend_autonomous_drain_run_state/v1"
+      },
+      "legacy_state_expectations": {
+        "completed_items": [],
+        "completed_design_gaps": [],
+        "blocked_items": {
+          "item-9": "needs_revision"
+        },
+        "blocked_design_gaps": {
+          "gap-9": "missing_context"
+        },
+        "history_count": 1
+      },
+      "compatibility_expectations": {
+        "legacy_pointer_path": "state/drain_summary_path.txt",
+        "replacement_pointer_path": "artifacts/work/drain_summary_path.txt",
+        "legacy_final_run_state_path": "state/final_run_state_path.txt"
+      },
+      "accepted_differences": [
+        {
+          "id": "legacy_state_duplication_fields",
+          "description": "The legacy adapter duplicates run-state-derived counters and collections into the summary payload."
+        },
+        {
+          "id": "legacy_final_run_state_pointer_sidecar",
+          "description": "The legacy adapter emits a final_run_state_path sidecar that the replacement route intentionally does not reproduce."
+        }
+      ]
+    },
+    {
+      "id": "invalid_status_rejected",
+      "kind": "negative",
+      "incumbent_inputs": {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "INVALID",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "state_root": "state"
+      },
+      "replacement_inputs": {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "INVALID",
+        "drain_status_reason": "bad_status",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "pointer_path": "artifacts/work/drain_summary_path.txt"
+      },
+      "run_state_document": {
+        "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+        "completed_items": [],
+        "completed_design_gaps": [],
+        "blocked_items": {},
+        "blocked_design_gaps": {},
+        "history": []
+      },
+      "expected_failures": {
+        "incumbent_substring": "Unexpected drain status",
+        "replacement_substring": "invalid_enum_value"
+      },
+      "accepted_differences": []
+    }
+  ]
+}

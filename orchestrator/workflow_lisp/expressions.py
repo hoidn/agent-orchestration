@@ -482,6 +482,21 @@ class ResourceTransitionExpr:
 
 
 @dataclass(frozen=True)
+class MaterializeViewExpr:
+    """One generated value-view materialization form."""
+
+    view_name: str
+    value_expr: "ExprNode"
+    renderer_id: str
+    renderer_version: int
+    target_expr: "ExprNode" | None
+    returns_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class FinalizeSelectedItemExpr:
     """One selected-item final result routing form."""
 
@@ -535,6 +550,7 @@ ExprNode = (
     | ProduceOneOfExpr
     | ResumeOrStartExpr
     | ResourceTransitionExpr
+    | MaterializeViewExpr
     | FinalizeSelectedItemExpr
     | BacklogDrainExpr
 )
@@ -957,6 +973,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "produce_one_of": _elaborate_produce_one_of,
         "resume_or_start": _elaborate_resume_or_start,
         "resource_transition": _elaborate_resource_transition,
+        "materialize_view": _elaborate_materialize_view,
         "finalize_selected_item": _elaborate_finalize_selected_item,
         "backlog_drain": _elaborate_backlog_drain,
     }
@@ -2967,6 +2984,91 @@ def _elaborate_resource_transition(
             ledger_expr=_elaborate(sections[":ledger"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
             event_name=event_identifier.resolved_name,
         ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_materialize_view(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> MaterializeViewExpr:
+    if len(datum.items) < 2:
+        _raise_error(
+            "`materialize-view` requires a view name plus keyword arguments",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    view_identifier = syntax_identifier(datum.items[1])
+    if view_identifier is None:
+        _raise_error(
+            "`materialize-view` view name must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`materialize-view`")
+    required = (":value", ":renderer", ":renderer-version", ":returns")
+    if any(sections.get(keyword) is None for keyword in required):
+        _raise_error(
+            "`materialize-view` requires :value, :renderer, :renderer-version, and :returns",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    renderer_identifier = syntax_identifier(sections[":renderer"])
+    if renderer_identifier is None:
+        _raise_error(
+            "`materialize-view :renderer` must be a symbol",
+            code="materialize_view_renderer_unknown",
+            span=sections[":renderer"].span,
+            form_path=form_path,
+            expansion_stack=sections[":renderer"].expansion_stack,
+        )
+    renderer_version = sections[":renderer-version"]
+    if not isinstance(renderer_version, SyntaxInt):
+        _raise_error(
+            "`materialize-view :renderer-version` must be an integer literal",
+            code="materialize_view_renderer_unknown",
+            span=sections[":renderer-version"].span,
+            form_path=form_path,
+            expansion_stack=sections[":renderer-version"].expansion_stack,
+        )
+    returns_identifier = syntax_identifier(sections[":returns"])
+    if returns_identifier is None:
+        _raise_error(
+            "`materialize-view :returns` must be a symbol",
+            code="materialize_view_target_contract_invalid",
+            span=sections[":returns"].span,
+            form_path=form_path,
+            expansion_stack=sections[":returns"].expansion_stack,
+        )
+    return MaterializeViewExpr(
+        view_name=view_identifier.resolved_name,
+        value_expr=_elaborate(
+            sections[":value"],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        renderer_id=renderer_identifier.resolved_name,
+        renderer_version=renderer_version.value,
+        target_expr=(
+            _elaborate(
+                sections[":target"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            if sections.get(":target") is not None
+            else None
+        ),
+        returns_type_name=returns_identifier.resolved_name,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

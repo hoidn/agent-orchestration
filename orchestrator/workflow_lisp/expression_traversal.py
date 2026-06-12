@@ -22,6 +22,7 @@ from .expressions import (
     LetProcExpr,
     LetStarExpr,
     LiteralExpr,
+    MaterializeViewExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
@@ -175,6 +176,11 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return (expr.ctx_expr, expr.resume_from_expr, expr.start_expr)
     if isinstance(expr, ResourceTransitionExpr):
         return _resource_transition_children(expr.spec)
+    if isinstance(expr, MaterializeViewExpr):
+        children: list[ExprNode] = [expr.value_expr]
+        if expr.target_expr is not None:
+            children.append(expr.target_expr)
+        return tuple(children)
     if isinstance(expr, FinalizeSelectedItemExpr):
         return _finalize_selected_item_children(expr.spec)
     if isinstance(expr, BacklogDrainExpr):

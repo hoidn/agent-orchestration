@@ -45,6 +45,13 @@ class SelfOutputReference:
 
 
 @dataclass(frozen=True)
+class MaterializeViewBindingReference:
+    """Compiler-generated value-document ref for materialize_view payloads."""
+
+    ref: str
+
+
+@dataclass(frozen=True)
 class ResolvedReference:
     """Resolved structured ref value."""
 

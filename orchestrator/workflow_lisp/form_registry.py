@@ -544,6 +544,17 @@ _FORM_SPECS = (
         rationale="Resource transitions stay compiler-owned until the runtime-native surface is promoted.",
     ),
     _spec(
+        "materialize-view",
+        kind=FormKind.TEMP_COMPILER_INTRINSIC,
+        owner_module="expressions",
+        introduced_in="workflow_lisp_frontend_refactor",
+        remove_by="runtime-native materialized value views",
+        macro_bindable=False,
+        admitted_top_level=False,
+        elaboration_route="materialize_view",
+        rationale="Materialized value views stay compiler-owned until the runtime-native generated step is promoted.",
+    ),
+    _spec(
         "finalize-selected-item",
         kind=FormKind.TEMP_COMPILER_INTRINSIC,
         owner_module="expressions",

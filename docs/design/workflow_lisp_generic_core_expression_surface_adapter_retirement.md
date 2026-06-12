@@ -143,6 +143,36 @@ Implement the work in ordered tranches:
 - G1 (P0): pure expression core, WCC atom/projection support, and runtime
   evaluator.
 - G2: pure typed projection retirement for classification/routing adapters.
+- G2A1 (external P0 prerequisite before counting Design Delta family
+  retirement evidence): consume the post-foundation phase-family boundary
+  rehabilitation surface for the real `lisp_frontend_design_delta` plan,
+  implementation, and work-item routes, so promoted high-level candidates no
+  longer depend on public low-level state-path inputs or phase-context helper
+  boundaries that fail `workflow_boundary_type_invalid`.
+- G2A2a (external P0 prerequisite before shared projection-helper proving
+  routes are counted as G2 evidence): consume the post-foundation
+  route-compatible structured-control surface for the real shared
+  selector/terminal/blocked-recovery helper routes, including the accepted WCC
+  `IfExpr` prerequisite or an accepted equivalent lowering, so projection
+  replacement does not rely on top-level-only structured `if/else` carriage
+  for nested routing logic.
+- G2A2b (external P0 prerequisite before shared projection-helper proving
+  routes are counted as G2 evidence): consume the post-foundation
+  projection-helper boundary and exportability rehabilitation surface for
+  shared selector/terminal/blocked-recovery projection helpers and proving
+  fixtures, so projection replacement does not depend on helper boundary
+  shapes that trip
+  `low_level_state_path_in_high_level_module`, field-less routing unions that
+  trip `variant_output_without_variant_specific_fields`, or helper export
+  shapes that fail `workflow_return_not_exportable` /
+  `workflow_signature_mismatch` after accepted structured-control carriage
+  exists.
+- G2A2c (external P0 prerequisite before the G2 reference-family flip):
+  consume the same accepted helper-boundary/private-binding surface on the
+  real Design Delta family modules after G2A2a and G2A2b are green, so the
+  promoted `drain` -> `work_item` replacement route does not reintroduce
+  those diagnostics when the helpers are imported and exercised through the
+  actual family compile.
 - G3 (P0): generic resource and transition runtime core.
 - G4: materialized value views.
 - G5: context generalization: `RunCtx`-only runtime bootstrap and type-driven
@@ -153,8 +183,17 @@ Implement the work in ordered tranches:
   raw semantic argv surfaces.
 
 G1 and G3 are the two load-bearing substrate tranches. They may proceed in
-parallel after G0. G8 is deletion-only and must not be selected until evidence
-from G2 through G7 proves every removed path is unused.
+parallel after G0. Generic G2 projection-substrate work may proceed after G1,
+but Design Delta family retirement evidence inside G2 is not selectable until
+G2A1's post-foundation phase-family boundary prerequisite is green for the
+same routes. Shared projection-helper proving routes are not selectable as G2
+evidence until the same routes have also cleared G2A2a's structured-control
+route-compatibility prerequisite and G2A2b's projection-helper
+boundary/exportability prerequisite. The real reference-family flip is not
+selectable until those same routes have then also cleared G2A2c's
+family-route consumption prerequisite. G8 is deletion-only and must not be
+selected until evidence from G2 through G7 proves every removed path is
+unused.
 
 ## 3. Problem And Current Evidence To Verify
 
@@ -560,6 +599,64 @@ status string cannot justify variant-specific field access.
 Replace adapters whose behavior class is `typed_projection` or
 `outcome_classification` with in-language pure projections.
 
+### 11.1A External Prerequisites For The Reference-Family Flip
+
+The G2 substrate itself depends on G0 and G1. The Design Delta reference-family
+flip inside G2 also depends on one phase-family prerequisite plus a
+decomposed projection-helper prerequisite stack owned by the post-foundation
+composition design.
+
+G2A1 clears the real `lisp_frontend_design_delta` phase-family high-level
+boundaries: the plan, implementation, and work-item routes must already carry
+private/runtime context and any retained compatibility paths across generated
+boundaries without failing promoted compilation on
+`low_level_state_path_in_high_level_module` or generic
+`workflow_boundary_type_invalid`.
+
+G2A2a clears the route-compatibility seam for the same shared helper routes.
+Shared selector-action, terminal-decision, and blocked-recovery projection
+helpers plus their proving fixtures must compile through an accepted
+structured-control carriage, including the consumed post-foundation WCC
+`IfExpr` prerequisite or an accepted equivalent lowering, rather than relying
+on top-level-only structured `if/else`.
+
+G2A2b clears the remaining shared projection-helper boundary and
+exportability seam for the same family once G2A2a is green. Shared
+selector-action, terminal-decision, and blocked-recovery projection helpers
+plus their proving fixtures must then compile through an accepted
+helper-boundary/private-binding shape or an accepted equivalent lowering,
+without widening G2 and without promoting those helper inputs/outputs to
+public high-level boundaries. In particular, the consumed post-foundation
+prerequisite must own any remaining contract work needed so that the proving
+route and shared helper route do not depend on:
+
+- helper boundaries that expose path-typed selection evidence in a shape that
+  trips `low_level_state_path_in_high_level_module`;
+- field-less routing unions or equivalent typed decisions rejected solely by
+  `variant_output_without_variant_specific_fields`; or
+- proving/helper exports that fail only because the accepted helper boundary
+  shape is unresolved, producing `workflow_return_not_exportable` or
+  `workflow_signature_mismatch`.
+
+G2A2c then consumes that same accepted helper-boundary/private-binding surface
+on the real `drain` -> `work_item` replacement route. It owns the case where
+the standalone proving helpers are green, but the actual family compile still
+fails because imported helper calls, bindings, or route-local boundary shapes
+reintroduce the same diagnostic family.
+
+This document does not reopen or duplicate those boundary contracts. It
+consumes the post-foundation phase-family and projection-helper
+rehabilitation surfaces. If a G2 implementation attempt reaches
+`projections.orc` or its proving fixtures and first fails on structured-control
+carriage for nested routing, the next selectable work is G2A2a's consumed
+post-foundation prerequisite, not a widening of G2. If that carriage is green
+and the proving routes then fail on helper boundary/exportability diagnostics,
+the next selectable work is G2A2b's consumed post-foundation prerequisite. If
+those proving routes are green and the real family replacement route then
+fails on the same boundary/exportability class when imported into the promoted
+family modules, the next selectable work is G2A2c's consumed post-foundation
+prerequisite.
+
 ### 11.2 Tasks
 
 - Re-express selector action projection from `SelectorPublicResult` to
@@ -571,6 +668,11 @@ Replace adapters whose behavior class is `typed_projection` or
 - Keep adapters callable during a bridge window.
 - Add dual-run fixtures comparing adapter output and in-language projection as
   typed values.
+- Stop and hand off to G2A1, G2A2a, G2A2b, or G2A2c, whichever prerequisite
+  still fails, when the real reference-family replacement route still fails on
+  high-level boundary carriage, route-compatible structured-control
+  validation, helper/private workflow context transport, family-union
+  carriage, or helper exportability.
 - Mark adapters `retired` in the census only after the family stops invoking
   them.
 
@@ -579,6 +681,12 @@ Replace adapters whose behavior class is `typed_projection` or
 - Named projection/classification adapters have in-language replacements.
 - Dual-run parity passes before flip.
 - The reference family has no command step for selector action projection.
+- Reference-family retirement evidence is counted only after the same routes
+  clear the consumed post-foundation phase-family boundary prerequisite,
+  the structured-control route-compatibility prerequisite, and the
+  projection-helper boundary/exportability prerequisite for shared helper
+  proving routes, and the family-route consumption prerequisite on the real
+  Design Delta modules.
 - Replacement effects are projection effects only.
 
 ## 12. Tranche G3: Generic Resource And Transition Runtime Core
@@ -642,7 +750,9 @@ authority.
 
 - Add `materialize-view` over canonical JSON and versioned registered text
   renderers.
-- Add `StateLayout` allocation role `materialized_view`.
+- Add `StateLayout` allocation role string `materialized_value_view`
+  (design shorthand may say `materialized_view`, but the shipped generated-path
+  role string stays `materialized_value_view`).
 - Add source-map and Semantic IR entries for view value type, renderer, target,
   allocation identity, and authority class.
 - Replace summary/bundle writer scripts when they only render typed state.
@@ -869,8 +979,14 @@ Add census/retirement metadata:
 
 ```text
 G0
-  -> G1 -> G2
+  -> G1 -> G2 substrate
   -> G3 -> G4
+post-foundation phase-family boundary rehabilitation
+  + post-foundation projection-helper structured-control route compatibility
+  -> post-foundation projection-helper boundary/exportability rehabilitation
+  -> post-foundation projection-helper family-route consumption
+  + G1
+  -> G2 reference-family flip
 G1 + G3 -> G5
 G3 + G5 -> G6
 G1..G6 -> G7
@@ -891,7 +1007,15 @@ Relationship to post-foundation:
 
 ## 21. Deferred Work
 
-- collection operators;
+- collection operators and structural recursion: deferred until a census
+  entry demands them. The architecture-compatible path, recorded so it is
+  not re-derived later: evaluator-level total folds over sealed `List[T]`
+  using compile-time function hooks (the existing specialization
+  machinery), and — if a family genuinely needs tree-shaped data —
+  recursive nominal unions with reference-based contract rendering,
+  confined to bundle transport and excluded from flattened public input
+  surfaces. Well-foundedness is free: values are eager and immutable, so
+  self-referential types admit only finite values;
 - broad string processing;
 - regex;
 - arbitrary JSON/file IO;
@@ -908,6 +1032,12 @@ Relationship to post-foundation:
 - G0 census and boundary reports.
 - G1 golden vectors and runtime/folding agreement.
 - G2-G4 dual-run retirement evidence.
+- G2 reference-family retirement evidence also consumes the post-foundation
+  phase-family boundary proof surface, the projection-helper
+  structured-control route-compatibility proof surface, and the
+  projection-helper boundary/exportability proof surface for shared helper
+  routes, plus the family-route consumption proof surface for the same
+  modules; pure-projection fixtures alone are not enough.
 - G3 backend-equivalence transition suite.
 - G5 type-driven vs name-driven differential tests before deletion.
 - G6 hook-redundancy evidence.
@@ -918,6 +1048,12 @@ Relationship to post-foundation:
 
 - claiming an adapter retired while a family workflow still invokes it;
 - retirement without typed dual-run comparison;
+- counting reference-family projection retirement while the same replacement
+  route still fails on high-level boundary carriage, projection-helper
+  structured-control carriage, or projection-helper
+  boundary/exportability diagnostics on either the shared helper proving
+  routes or the real family-route consumption path owned by the consumed
+  post-foundation prerequisites;
 - operator additions without census/fixture justification;
 - using materialized views as semantic authority;
 - legacy-route-only fixtures as acceptance evidence;
@@ -1010,6 +1146,12 @@ fixtures still pass and a CI guard rejects reintroduction.
   no uncited additions.
 - Workflow-semantics adapters in the reference family are retired into pure
   projections, materialized views, or transitions.
+- G2 reference-family projection retirement counts only after the same
+  replacement routes clear the consumed post-foundation phase-family boundary
+  prerequisite, the structured-control route-compatibility prerequisite, and
+  the projection-helper boundary/exportability prerequisite on shared helper
+  proving routes, and then the family-route consumption prerequisite on the
+  real Design Delta family modules.
 - Remaining Python/bash calls are certified genuine-system commands or labeled
   temporary bridges.
 - Promoted public boundaries expose only true authored inputs plus accepted

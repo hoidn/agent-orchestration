@@ -308,6 +308,7 @@
         "parent_callable_compile",
         "parent_callable_smoke",
         "projection_retirement_parity",
+        "view_retirement_parity",
         "resource_transition_parity",
         "public_private_boundary_parity",
         "boundary_artifact_justifications",
@@ -393,6 +394,12 @@
           "path": "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/migration-parity/design_delta_parent_drain_projection_dual_run_report.json",
           "evidence_role": "projection_retirement_parity",
           "schema_version": "workflow_lisp_projection_dual_run_report.v1"
+        },
+        {
+          "artifact_id": "view_dual_run_report",
+          "path": "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/migration-parity/design_delta_parent_drain_view_dual_run_report.json",
+          "evidence_role": "view_retirement_parity",
+          "schema_version": "workflow_lisp_view_dual_run_report.v1"
         }
       ],
       "evidence_commands": {
@@ -436,6 +443,7 @@
           "-m",
           "pytest",
           "tests/test_workflow_lisp_projection_dual_run.py",
+          "tests/test_workflow_lisp_view_dual_run.py",
           "-q"
         ],
         "terminal_state_parity": [

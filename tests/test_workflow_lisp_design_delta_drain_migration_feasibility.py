@@ -25,6 +25,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow.view_renderer import render_view
 from orchestrator.workflow_lisp.command_boundaries import (
     CertifiedAdapterInputField,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
@@ -66,6 +67,9 @@ PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE = (
 )
 DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE = (
     REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "runtime_transition_fixture.orc"
+)
+DESIGN_DELTA_RUNTIME_VIEW_FIXTURE = (
+    REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "runtime_view_fixture.orc"
 )
 DESIGN_DELTA_WORK_ITEM_LIBRARY_ROOT = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta"
 NESTED_SAME_FILE_CALL_FIXTURE = (
@@ -597,6 +601,7 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
         "select_lisp_frontend_blocked_recovery_route",
         "record_terminal_work_item",
         "record_blocked_recovery_outcome",
+        "finalize_lisp_frontend_drain_summary",
     ):
         command_boundaries[binding_name] = checked_in_boundaries[binding_name]
     return command_boundaries
@@ -1102,6 +1107,29 @@ def _compile_design_delta_runtime_transition_fixture_entrypoint(tmp_path: Path):
     return result, bundle
 
 
+def _compile_design_delta_runtime_view_fixture_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        DESIGN_DELTA_RUNTIME_VIEW_FIXTURE,
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/runtime_view_fixture::run-summary-view"
+    ]
+    lowered = next(
+        workflow
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == "lisp_frontend_design_delta/runtime_view_fixture::run-summary-view"
+    )
+    return result, bundle, lowered
+
+
 def _run_design_delta_runtime_transition_fixture_cli(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     run_state_path = tmp_path / "state" / "run_state.json"
     summary_path = tmp_path / "artifacts" / "work" / "drain_summary.json"
@@ -1190,8 +1218,8 @@ def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_
         return None, None
 
     lowered_names = set(lowered_by_name)
-    assert any("finalize-approved-review-state" in name for name in lowered_names)
-    assert any("finalize-approved-nonblocked" in name for name in lowered_names)
+    assert "lisp_frontend_design_delta/work_item::run-work-item" in lowered_names
+    assert any("route-blocked-implementation" in name for name in lowered_names)
     return result, lowered_by_name
 
 
@@ -2657,6 +2685,52 @@ def _execute_design_delta_runtime_transition_fixture(tmp_path: Path):
     return tmp_path, state, audit_path
 
 
+def _execute_design_delta_runtime_view_fixture(tmp_path: Path):
+    _result, bundle, lowered = _compile_design_delta_runtime_view_fixture_entrypoint(tmp_path)
+    run_state_path = tmp_path / "state" / "run_state.json"
+    summary_path = tmp_path / "artifacts" / "work" / "drain_summary.json"
+    pointer_path = tmp_path / "artifacts" / "work" / "drain_summary_path.txt"
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    provided_inputs: dict[str, str] = {
+        "run_state_path": "state/run_state.json",
+        "drain_status": "BLOCKED",
+        "drain_status_reason": "runtime_native_fixture",
+        "summary_path": "artifacts/work/drain_summary.json",
+        "pointer_path": "artifacts/work/drain_summary_path.txt",
+    }
+    binding_inputs = {
+        input_name: spec
+        for input_name, spec in runtime_inputs.items()
+        if not (isinstance(input_name, str) and input_name.startswith("__write_root__"))
+    }
+    run_id = "design-delta-runtime-view-fixture"
+    state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    state_manager.initialize(
+        DESIGN_DELTA_RUNTIME_VIEW_FIXTURE.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bind_workflow_inputs(binding_inputs, provided_inputs, tmp_path),
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
+    return tmp_path, state, bundle, lowered, summary_path, pointer_path
+
+
 def _build_module():
     return importlib.import_module("orchestrator.workflow_lisp.build")
 
@@ -3573,6 +3647,119 @@ def test_design_delta_runtime_transition_fixture_runs_via_real_cli(
     run_state = json.loads((tmp_path / "state" / "run_state.json").read_text(encoding="utf-8"))
     assert run_state["drain_status"] == "BLOCKED"
     assert run_state["drain_status_reason"] == "runtime_native_fixture"
+
+
+def test_design_delta_runtime_view_fixture_compiles_without_summary_writer_command(
+    tmp_path: Path,
+) -> None:
+    result, bundle, lowered = _compile_design_delta_runtime_view_fixture_entrypoint(tmp_path)
+
+    public_inputs = set(workflow_public_input_contracts(bundle))
+    step_kinds = [step.kind.value for step in bundle.surface.steps]
+    lowered_steps = list(_walk_lowered_steps(lowered.authored_mapping["steps"]))
+    generated_effects = [
+        effect
+        for effect in lowered.origin_map.generated_semantic_effects
+        if effect.effect_kind == "materialize_view"
+    ]
+
+    assert result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/runtime_view_fixture::run-summary-view"
+    ] is bundle
+    assert (
+        "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit"
+        in result.validated_bundles_by_name
+    )
+    assert public_inputs == {
+        "drain_status",
+        "drain_status_reason",
+        "summary_path",
+        "pointer_path",
+    }
+    assert step_kinds == ["call", "materialize_view", "materialize_view"]
+    assert all("command" not in step for step in lowered_steps)
+    assert any(
+        step.get("call") == "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit"
+        for step in lowered_steps
+    )
+    assert len(generated_effects) == 2
+
+
+def test_design_delta_checked_in_finalizer_declares_view_binding_metadata() -> None:
+    command_boundaries = _design_delta_checked_in_command_boundaries()
+    finalizer = command_boundaries["finalize_lisp_frontend_drain_summary"]
+
+    assert isinstance(finalizer, CertifiedAdapterBinding)
+    assert finalizer.behavior_class == "outcome_finalization"
+    assert finalizer.retirement_class == "view_writer"
+    assert finalizer.retirement_label == "retire_to_view"
+    assert finalizer.retirement_status is None
+    assert finalizer.view_binding is not None
+    assert finalizer.view_binding.view_name == "design_delta_drain_summary_view"
+    assert finalizer.view_binding.renderer_id == "canonical-json"
+    assert finalizer.view_binding.renderer_version == 1
+    assert finalizer.view_binding.contract_role == "replacement_candidate"
+
+
+def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_views(
+    tmp_path: Path,
+) -> None:
+    workspace, state, bundle, _lowered, summary_path, pointer_path = _execute_design_delta_runtime_view_fixture(
+        tmp_path / "runtime-view-fixture"
+    )
+    rerun_workspace, rerun_state, _rerun_bundle, _rerun_lowered, rerun_summary_path, rerun_pointer_path = (
+        _execute_design_delta_runtime_view_fixture(tmp_path / "runtime-view-fixture-rerun")
+    )
+
+    assert state["status"] == "completed"
+    assert rerun_state["status"] == "completed"
+
+    transition_step_name = bundle.surface.steps[0].name
+    transition_step = state["steps"][transition_step_name]
+    summary_step = state["steps"]["drain-summary-view"]
+    pointer_step = state["steps"]["drain-summary-pointer-view"]
+
+    assert transition_step["status"] == "completed"
+    assert transition_step["debug"]["call"]["workflow_outputs"]["return__status"] == "BLOCKED"
+    assert (
+        transition_step["debug"]["call"]["import_alias"]
+        == "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit"
+    )
+    assert summary_step["status"] == "completed"
+    assert pointer_step["status"] == "completed"
+
+    expected_summary_bytes = render_view(
+        "canonical-json",
+        1,
+        {
+            "drain_status": "BLOCKED",
+            "drain_status_reason": "runtime_native_fixture",
+            "run_state_path": "state/run_state.json",
+            "summary_target": "artifacts/work/drain_summary.json",
+            "state_version": "lisp_frontend_autonomous_drain_run_state/v1",
+        },
+    )
+    expected_pointer_bytes = render_view(
+        "posix-path-line",
+        1,
+        "artifacts/work/drain_summary.json",
+    )
+
+    assert summary_path.read_bytes() == expected_summary_bytes
+    assert pointer_path.read_bytes() == expected_pointer_bytes
+    assert rerun_summary_path.read_bytes() == expected_summary_bytes
+    assert rerun_pointer_path.read_bytes() == expected_pointer_bytes
+
+    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
+    assert run_state["drain_status"] == "BLOCKED"
+    assert run_state["drain_status_reason"] == "runtime_native_fixture"
+    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
+
+    assert bundle.surface.steps[1].materialize_view["renderer_id"] == "canonical-json"
+    assert bundle.surface.steps[2].materialize_view["renderer_id"] == "posix-path-line"
+    assert sum(
+        1 for effect in bundle.semantic_ir.effects.values() if effect.effect_kind == "materialize_view"
+    ) == 2
 
 
 def test_design_delta_parent_drain_entrypoint_owns_loop_control(

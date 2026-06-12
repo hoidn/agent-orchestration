@@ -89,6 +89,7 @@ _AUTHORITY_CODES = frozenset(
         "semantic_field_extracted_from_report",
         "markdown_report_used_as_state",
         "pointer_used_as_semantic_authority",
+        "materialized_view_used_as_semantic_authority",
         "noncanonical_pointer_sidecar",
         "published_pointer_path_instead_of_value",
         "legacy_adapter_missing_fixture",
@@ -167,6 +168,9 @@ _TYPE_CODES = frozenset(
         "pure_expr_path_string_concat_forbidden",
         "pure_expr_optional_access_unproved",
         "pure_expr_overflow",
+        "materialize_view_renderer_unknown",
+        "materialize_view_value_type_invalid",
+        "materialize_view_target_contract_invalid",
     }
 )
 _LOWERING_SURFACE_CODES = frozenset(
@@ -183,6 +187,9 @@ _LOWERING_SURFACE_CODES = frozenset(
         "union_return_variant_ambiguous",
         "union_return_variant_incompatible",
         "pure_expr_payload_too_large",
+        "materialize_view_render_failed",
+        "materialize_view_nondeterministic_render",
+        "materialize_view_resume_schema_mismatch",
     }
 )
 _MODULE_CODES = frozenset(

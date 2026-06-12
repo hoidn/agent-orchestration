@@ -1,0 +1,32 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule materialize_view_allocated_target)
+  (export orchestrate)
+  (defpath RunStatePath
+    :kind relpath
+    :under "state"
+    :must-exist true)
+  (defpath GeneratedSummaryPath
+    :kind relpath
+    :under "state"
+    :must-exist true)
+  (defrecord DrainSummaryValue
+    (status String)
+    (run_state_path RunStatePath))
+  (defrecord GeneratedSummaryResult
+    (summary_path GeneratedSummaryPath))
+  (defworkflow orchestrate
+    ((status String)
+     (run_state_path RunStatePath))
+    -> GeneratedSummaryResult
+    (let* ((summary_path
+             (materialize-view generated-summary
+               :value (record DrainSummaryValue
+                        :status status
+                        :run_state_path run_state_path)
+               :renderer canonical-json
+               :renderer-version 1
+               :returns GeneratedSummaryPath)))
+      (record GeneratedSummaryResult
+        :summary_path summary_path))))
