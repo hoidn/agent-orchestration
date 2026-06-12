@@ -314,19 +314,23 @@ Promoted entrypoints may declare per-variant result publication:
 
 ```lisp
 (defworkflow drain (...) -> DrainResult
-  :publish ((DONE    :role drain-summary  :renderer canonical-json)
-            (BLOCKED :role blocker-report :renderer markdown)))
+  :publish ((DONE    :as drain-summary)
+            (BLOCKED :as blocker-report :renderer markdown)))
             ;; variants omitted publish nothing
 ```
 
-Semantics: pure sugar. The compiler inserts the corresponding
-`materialize-view` of the returned value at each terminal arm; evaluation
-semantics distinguish the result (it is the value validated against the
-return type), and the union's runtime variant selects the policy row.
-`:publish` is not part of the caller-visible contract (invariant 5);
-interior workflows may not declare it, and a non-timed body-level
-`materialize-view` in an interior workflow trips the
-`interior_publication` lint.
+The authored vocabulary is semantic: a variant and a publication role.
+Renderers default from the role's declaration in the renderer/role
+registry; naming one inline is an explicit override, not part of the row
+shape. Authors never write `materialize-view` here and never see one —
+the compiler lowers each policy row to the kernel form at the matching
+terminal arm, with the same internal status as pure operators lowering to
+generated `pure_projection` steps. Evaluation semantics distinguish the
+published value (it is the result validated against the return type), and
+the union's runtime variant selects the row. `:publish` is not part of
+the caller-visible contract (invariant 5); interior workflows may not
+declare it, and a non-timed body-level `materialize-view` in an interior
+workflow trips the `interior_publication` lint.
 
 ### 8.5 Lane: bridges as metadata (C4)
 
@@ -423,6 +427,10 @@ consumer class, and verify the kernel seam this design depends on.
 - Frontend: `:publish` on promoted entrypoint signatures; per-variant
   rows over union results; policy totality check (every row names a
   declared variant; omissions are explicit non-publication).
+- Role-bound renderer defaults: publication role declarations carry their
+  default renderer and version, so policy rows stay in semantic
+  vocabulary (`:as <role>`); inline `:renderer` is an explicit override
+  with its own review flag.
 - Lowering: insert `materialize-view` of the returned value at terminal
   arms per policy; identical evidence to hand-written forms (sugar
   property).
