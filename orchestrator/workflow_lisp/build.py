@@ -25,6 +25,7 @@ from .command_boundaries import (
     CertifiedAdapterInputField,
     ExternalToolBinding,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+    TransitionBindingMetadata,
 )
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
@@ -903,6 +904,11 @@ def _parse_command_boundaries_manifest(
                     binding_name=name,
                     manifest_path=manifest_path,
                 ),
+                transition_binding=_require_transition_binding(
+                    raw_entry.get("transition_binding"),
+                    binding_name=name,
+                    manifest_path=manifest_path,
+                ),
                 declared_promoted_fields=declared_promoted_fields,
                 retirement_class=_require_optional_string_field(
                     raw_entry.get("retirement_class"),
@@ -1121,6 +1127,52 @@ def _require_input_signature(
     return tuple(fields)
 
 
+def _require_transition_binding(
+    value: object,
+    *,
+    binding_name: str,
+    manifest_path: Path | None,
+) -> TransitionBindingMetadata | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="command_boundary_manifest_invalid",
+                    message=f"`transition_binding` for `{binding_name}` must be an object",
+                    path=manifest_path or Path(binding_name),
+                ),
+            )
+        )
+    return TransitionBindingMetadata(
+        transition_name=_require_string_field(
+            value.get("transition_name", ""),
+            field_name="transition_binding.transition_name",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+        resource_kind=_require_string_field(
+            value.get("resource_kind", ""),
+            field_name="transition_binding.resource_kind",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+        contract_role=_require_string_field(
+            value.get("contract_role", ""),
+            field_name="transition_binding.contract_role",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+        backend_selector=_require_string_field(
+            value.get("backend_selector", ""),
+            field_name="transition_binding.backend_selector",
+            binding_name=binding_name,
+            manifest_path=manifest_path,
+        ),
+    )
+
+
 def _select_entry_workflow(
     compile_result: LinkedStage3CompileResult,
     *,
@@ -1266,6 +1318,17 @@ def _serialize_design_delta_adapter_census(
                 "negative_fixture_ids": list(negative_fixture_ids),
                 "owner_module": getattr(binding, "owner_module", None),
                 "replacement_path": replacement_path,
+                "transition_binding": (
+                    {
+                        "transition_name": binding.transition_binding.transition_name,
+                        "resource_kind": binding.transition_binding.resource_kind,
+                        "contract_role": binding.transition_binding.contract_role,
+                        "backend_selector": binding.transition_binding.backend_selector,
+                    }
+                    if isinstance(binding, CertifiedAdapterBinding)
+                    and binding.transition_binding is not None
+                    else None
+                ),
                 "invocation_sites": lineage_by_name.get(name, []),
                 "liveness": "live" if lineage_by_name.get(name) else "unreferenced",
             }

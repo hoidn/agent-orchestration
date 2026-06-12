@@ -13,6 +13,7 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_m
 from orchestrator.workflow.references import StructuredStepReference
 from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from orchestrator.workflow.surface_ast import SurfaceStep
+from orchestrator.workflow.transition_contract import validate_transition_declaration
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -49,7 +50,7 @@ from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, Phase
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourceSpan
-from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from ..type_env import ListTypeRef, MapTypeRef, OptionalTypeRef, PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
 from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, analyze_workflow_boundary_type
@@ -62,10 +63,11 @@ from .context import (
     _TerminalResult,
 )
 from .effects import _lower_provider_result
-from .generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view
+from .generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view, allocate_private_generated_path
 from .phase_drain import _selected_item_summary_pointer_path
 from .phase_flow import _build_match_projection_anchor_step
 from .origins import LoweringOrigin, _rekey_origin_map
+from .pure_projection import build_pure_projection_payload, _infer_expr_type as _infer_pure_projection_expr_type, _output_bundle_fields, _output_contracts_for_type
 from .phase_scope import _resolve_signature_expr_type
 from .values import _render_existing_output_ref, _resolve_inline_expr_value
 
@@ -198,9 +200,69 @@ def _phase_stdlib_lower_resource_transition_impl(
 
     expr = typed_expr.expr
     assert isinstance(expr, ResourceTransitionExpr)
-    binding = context.command_boundary_environment.bindings_by_name["apply_resource_transition"]
     step_name = context.step_name_prefix
     step_id = _normalize_generated_step_id(step_name)
+    if expr.spec.mode == "declared_transition":
+        bundle_allocation = allocate_generated_result_bundle(
+            context=context,
+            source_expr=expr,
+            step_name=step_name,
+            step_id=step_id,
+            semantic_role=GeneratedPathSemanticRole.COMMAND_RESULT_BUNDLE,
+        )
+        state_allocation = allocate_private_generated_path(
+            context=context,
+            source_expr=expr,
+            semantic_role=GeneratedPathSemanticRole.RESOURCE_STATE,
+            stable_target=f"{expr.spec.resource_ref_name or 'resource'}_state",
+        )
+        audit_allocation = allocate_private_generated_path(
+            context=context,
+            source_expr=expr,
+            semantic_role=GeneratedPathSemanticRole.TRANSITION_AUDIT,
+            stable_target=f"{expr.spec.transition_ref_name or 'transition'}_audit",
+        )
+        _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+        resource_transition = _declared_resource_transition_config(
+            typed_expr,
+            context=context,
+            local_values=local_values,
+            state_path=state_allocation.concrete_path_template,
+            audit_path=audit_allocation.concrete_path_template,
+        )
+        output_contracts = _output_contracts_for_type(
+            typed_expr.type_ref,
+            context=context,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        output_fields = _output_bundle_fields(output_contracts)
+        if isinstance(typed_expr.type_ref, RecordTypeRef):
+            output_fields = [
+                {
+                    **field,
+                    "name": field["name"].removeprefix("return__"),
+                }
+                for field in output_fields
+            ]
+        step = {
+            "name": step_name,
+            "id": step_id,
+            "resource_transition": resource_transition,
+            "output_bundle": {
+                "path": bundle_allocation.concrete_path_template,
+                "fields": output_fields,
+            },
+        }
+        return [step], _TerminalResult(
+            step_name=step_name,
+            step_id=step_id,
+            output_refs=_record_output_refs(step_name, typed_expr.type_ref),
+            output_kind="step",
+            hidden_inputs={bundle_allocation.generated_input_name: _origin_from_context_source(context, expr)},
+        )
+
+    binding = context.command_boundary_environment.bindings_by_name["apply_resource_transition"]
     bundle_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
@@ -573,6 +635,285 @@ def _phase_stdlib_lower_finalize_selected_item_impl(
         hidden_inputs={},
     )
 
+
+def _declared_resource_transition_config(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    state_path: str,
+    audit_path: str,
+) -> dict[str, Any]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ResourceTransitionExpr)
+    transition_def = context.type_env.resolve_transition_declaration(
+        expr.spec.transition_ref_name or "",
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    resource_def = context.type_env.resolve_resource_declaration(
+        expr.spec.resource_ref_name or "",
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    declaration = validate_transition_declaration(
+        _transition_declaration_payload(
+            transition_def,
+            resource_def=resource_def,
+            context=context,
+        )
+    )
+    config = {
+        "declaration": declaration,
+        "resource": {
+            "resource_id": resource_def.name,
+            "resource_kind": declaration.resource.resource_kind,
+            "audit_path": audit_path,
+        },
+        "request_bindings": _normalize_runtime_binding_value(
+            _resolve_inline_expr_value(expr.spec.request_expr, local_values=local_values)
+        ),
+    }
+    if resource_def.backing_kind == "bridge":
+        bridge_input = resource_def.backing_path_input or ""
+        config["resource"]["bridge_path"] = _normalize_runtime_binding_value(local_values[bridge_input])
+    else:
+        config["resource"]["state_path"] = state_path
+    if expr.spec.expected_version_expr is not None:
+        config["expected_version"] = _normalize_runtime_binding_value(
+            _resolve_inline_expr_value(expr.spec.expected_version_expr, local_values=local_values)
+        )
+    return config
+
+
+def _transition_declaration_payload(
+    transition_def: Any,
+    *,
+    resource_def: Any,
+    context: _LoweringContext,
+) -> dict[str, Any]:
+    resource_state_type = context.type_env.resolve_type(
+        resource_def.state_type_name,
+        span=resource_def.span,
+        form_path=resource_def.form_path,
+    )
+    request_type = context.type_env.resolve_type(
+        transition_def.request_type_name,
+        span=transition_def.span,
+        form_path=transition_def.form_path,
+    )
+    result_type = context.type_env.resolve_type(
+        transition_def.result_type_name,
+        span=transition_def.span,
+        form_path=transition_def.form_path,
+    )
+    transition_context = replace(
+        context,
+        local_type_bindings={
+            **dict(context.local_type_bindings),
+            "state": resource_state_type,
+            "request": request_type,
+        },
+    )
+    placeholder_values = {"state": {"ref": "state"}, "request": {"ref": "request"}}
+    preconditions = [
+        _build_transition_pure_payload(
+            precondition_expr,
+            result_type=PrimitiveTypeRef(name="Bool"),
+            context=transition_context,
+            local_values=placeholder_values,
+            state_type=resource_state_type,
+            request_type=request_type,
+        )[0]
+        for precondition_expr in transition_def.preconditions
+    ]
+    updates: list[dict[str, Any]] = []
+    for update in transition_def.updates:
+        payload: dict[str, Any] | None = None
+        if update.value_expr is not None:
+            target_type = resource_state_type.field_types[update.target]
+            value_type = target_type.item_type_ref if update.op == "append_item" and isinstance(target_type, ListTypeRef) else target_type
+            payload = _build_transition_pure_payload(
+                update.value_expr,
+                result_type=value_type,
+                context=transition_context,
+                local_values=placeholder_values,
+                state_type=resource_state_type,
+                request_type=request_type,
+            )[0]
+        update_entry = {"op": update.op, "target": update.target}
+        if payload is not None:
+            update_entry["value"] = payload
+        updates.append(update_entry)
+    result_projection = _build_transition_pure_payload(
+        transition_def.result_expr,
+        result_type=result_type,
+        context=transition_context,
+        local_values=placeholder_values,
+        state_type=resource_state_type,
+        request_type=request_type,
+    )[0]
+    audit_projection_type = _infer_pure_projection_expr_type(
+        transition_def.audit_expr,
+        context=transition_context,
+        lexical_types={},
+    )
+    audit_projection = _build_transition_pure_payload(
+        transition_def.audit_expr,
+        result_type=audit_projection_type,
+        context=transition_context,
+        local_values=placeholder_values,
+        state_type=resource_state_type,
+        request_type=request_type,
+    )[0]
+    return {
+        "transition_schema_version": 1,
+        "resource": {
+            "resource_kind": resource_def.name.replace("-", "_"),
+            "state_type": _transition_type_descriptor(resource_state_type),
+            "backing": (
+                {"kind": "bridge", "path_input": resource_def.backing_path_input}
+                if resource_def.backing_kind == "bridge"
+                else {"kind": "state_layout"}
+            ),
+        },
+        "transition": {
+            "name": transition_def.name,
+            "request_type": _transition_type_descriptor(request_type),
+            "result_type": _transition_type_descriptor(result_type),
+            "preconditions": preconditions,
+            "updates": updates,
+            "write_set": list(transition_def.write_set),
+            "idempotency_fields": list(transition_def.idempotency_fields),
+            "result_projection": result_projection,
+            "audit_projection": audit_projection,
+            "conflict_policy": transition_def.conflict_policy,
+            "backend": _transition_backend_payload(
+                transition_def,
+                context=context,
+            ),
+        },
+    }
+
+
+def _transition_backend_payload(
+    transition_def: Any,
+    *,
+    context: _LoweringContext,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"kind": transition_def.backend_kind}
+    if transition_def.backend_kind == "runtime_native":
+        return payload
+
+    binding = context.command_boundary_environment.bindings_by_name.get(
+        transition_def.backend_kind
+    )
+    if not isinstance(binding, CertifiedAdapterBinding):
+        raise _compile_error(
+            code="resource_transition_requires_runtime_backend",
+            message=(
+                f"declared transition backend `{transition_def.backend_kind}` must resolve "
+                "to a certified resource_transition adapter"
+            ),
+            span=transition_def.span,
+            form_path=transition_def.form_path,
+        )
+    payload["stable_command"] = list(binding.stable_command)
+    payload["invocation_protocol"] = binding.invocation_protocol
+    return payload
+
+
+def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
+    if isinstance(type_ref, PrimitiveTypeRef):
+        if type_ref.allowed_values:
+            return {"kind": "enum", "name": type_ref.name, "allowed": list(type_ref.allowed_values)}
+        return {"kind": "primitive", "name": type_ref.name}
+    if isinstance(type_ref, PathTypeRef):
+        return {"kind": "path", "name": type_ref.name}
+    if isinstance(type_ref, OptionalTypeRef):
+        return {"kind": "optional", "item": _transition_type_descriptor(type_ref.item_type_ref)}
+    if isinstance(type_ref, ListTypeRef):
+        return {"kind": "list", "item": _transition_type_descriptor(type_ref.item_type_ref)}
+    if isinstance(type_ref, MapTypeRef):
+        return {
+            "kind": "map",
+            "key": _transition_type_descriptor(type_ref.key_type_ref),
+            "value": _transition_type_descriptor(type_ref.value_type_ref),
+        }
+    if isinstance(type_ref, RecordTypeRef):
+        return {
+            "kind": "record",
+            "name": type_ref.name,
+            "fields": [
+                {
+                    "name": field.name,
+                    "type": _transition_type_descriptor(type_ref.field_types[field.name]),
+                }
+                for field in type_ref.definition.fields
+            ],
+        }
+    if isinstance(type_ref, UnionTypeRef):
+        return {
+            "kind": "union",
+            "name": type_ref.name,
+            "variants": [
+                {
+                    "name": variant.name,
+                    "fields": [
+                        {
+                            "name": field.name,
+                            "type": _transition_type_descriptor(type_ref.variant_field_types[variant.name][field.name]),
+                        }
+                        for field in variant.fields
+                    ],
+                }
+                for variant in type_ref.definition.variants
+            ],
+        }
+    raise TypeError(f"unsupported transition type descriptor `{type(type_ref).__name__}`")
+
+
+def _build_transition_pure_payload(
+    expr: Any,
+    *,
+    result_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    state_type: TypeRef,
+    request_type: TypeRef,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload, binding_refs = build_pure_projection_payload(
+        expr,
+        result_type=result_type,
+        context=context,
+        local_values=local_values,
+    )
+    bindings = dict(payload.get("bindings", {}))
+    bindings.setdefault("state", {"type": _transition_type_descriptor(state_type)})
+    bindings.setdefault("request", {"type": _transition_type_descriptor(request_type)})
+    payload["bindings"] = bindings
+    return payload, binding_refs
+
+
+def _normalize_runtime_binding_value(value: Any) -> Any:
+    if isinstance(value, LiteralExpr):
+        return value.value
+    if isinstance(value, GeneratedRelpathSeedExpr):
+        return value.literal_path
+    if isinstance(value, str):
+        return {"ref": value}
+    if isinstance(value, Mapping):
+        return {
+            str(key): _normalize_runtime_binding_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_normalize_runtime_binding_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_runtime_binding_value(item) for item in value]
+    return value
 
 
 def _resource_transition_payload(

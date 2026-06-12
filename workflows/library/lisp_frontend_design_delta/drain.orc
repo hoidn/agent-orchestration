@@ -7,6 +7,8 @@
       DraftBundleTarget draft-design-gap-architecture validate-design-gap-architecture))
   (import lisp_frontend_design_delta/selector :only
     (SelectorPublicResult select-next-work))
+  (import lisp_frontend_design_delta/transitions :only
+    (drain-run-state write-drain-status))
   (import lisp_frontend_design_delta/types :only
     (ArtifactWorkPath BaselineDesignDoc DesignDeltaDrainAction DrainIterationStatus DrainResult
       DrainState PlanDraftResult ProgressLedger RunStatePath SelectionBundlePath SelectionStatus StateFile

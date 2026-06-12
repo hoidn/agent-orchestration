@@ -1099,7 +1099,7 @@ def _lower_loop_terminal_expr(
             )
     else:
         resolved_result_expr = _resolve_loop_pure_projection_expr(result_expr, local_values=local_values)
-        if resolved_result_expr is not None:
+        if resolved_result_expr is not None and result_projection.union_projection is None:
             result_step_name = f"{body_step_name}__result"
             result_step_id = _normalize_generated_step_id(result_step_name)
             lowered_result = lower_pure_projection_step(

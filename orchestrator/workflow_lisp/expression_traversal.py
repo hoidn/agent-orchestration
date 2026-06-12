@@ -64,10 +64,20 @@ def _produce_one_of_children(
 
 
 def _resource_transition_children(spec: ResourceTransitionSpec) -> tuple[ExprNode, ...]:
-    children: list[ExprNode] = [spec.ctx_expr]
+    if spec.mode == "declared_transition":
+        children: list[ExprNode] = []
+        if spec.expected_version_expr is not None:
+            children.append(spec.expected_version_expr)
+        if spec.request_expr is not None:
+            children.append(spec.request_expr)
+        return tuple(children)
+    children = [spec.ctx_expr]
     if spec.when_expr is not None:
         children.append(spec.when_expr)
-    children.extend((spec.resource_expr, spec.ledger_expr))
+    if spec.resource_expr is not None:
+        children.append(spec.resource_expr)
+    if spec.ledger_expr is not None:
+        children.append(spec.ledger_expr)
     return tuple(children)
 
 

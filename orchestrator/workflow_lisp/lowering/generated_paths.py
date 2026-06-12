@@ -20,6 +20,10 @@ def _stable_identity(*parts: str | None) -> str:
     return "/".join(part for part in parts if isinstance(part, str) and part)
 
 
+def _slug_token(value: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in value).strip("-") or "generated"
+
+
 def _schema_identity_part(context: Any) -> str | None:
     schema = getattr(context, "lowering_schema_version", None)
     return f"schema:{schema}" if isinstance(schema, int) else None
@@ -194,6 +198,43 @@ def allocate_materialized_value_view(
             stable_target,
         ),
         path_template=path_template,
+    )
+
+
+def allocate_private_generated_path(
+    *,
+    context: Any,
+    source_expr: Any,
+    semantic_role: GeneratedPathSemanticRole,
+    stable_target: str,
+    path_template: str | None = None,
+    resume_scope: GeneratedPathResumeScope = GeneratedPathResumeScope.RUN,
+    privacy: GeneratedPathPrivacy = GeneratedPathPrivacy.PRIVATE_GENERATED,
+) -> GeneratedPathAllocation:
+    resolved_path_template = path_template
+    if resolved_path_template is None:
+        suffix = ".jsonl" if semantic_role == GeneratedPathSemanticRole.TRANSITION_AUDIT else ".json"
+        resolved_path_template = "/".join(
+            (
+                "state",
+                "workflow_lisp",
+                _slug_token(context.workflow_name),
+                f"{_slug_token(stable_target)}{suffix}",
+            )
+        )
+    return _allocate(
+        context=context,
+        source_expr=source_expr,
+        semantic_role=semantic_role,
+        privacy=privacy,
+        resume_scope=resume_scope,
+        stable_identity=_stable_identity(
+            _schema_identity_part(context),
+            context.workflow_name,
+            context.step_name_prefix if _schema_identity_part(context) is not None else None,
+            stable_target,
+        ),
+        path_template=resolved_path_template,
     )
 
 

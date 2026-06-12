@@ -70,6 +70,12 @@ refs, validates flattened output contracts, and commits a private generated
 bundle that can be reused on resume when payload digest and schema version
 match.
 
+It also includes `ExecutableNodeKind.RESOURCE_TRANSITION` with
+`ResourceTransitionStepConfig`. That node kind is compiler-generated only: the
+runtime receives a validated transition declaration payload, resolved resource
+metadata, resolved request bindings, and optional expected-version binding, then
+owns version checks, idempotent replay, audit append, and resume semantics.
+
 ## Validation Ownership
 
 Executable IR validation is owned by the shared workflow layer, not by ad hoc
@@ -150,6 +156,10 @@ Workflow Lisp build path:
   `tests/test_workflow_lisp_pure_projection_runtime.py` provide current
   evidence that runtime views expose `pure_projection` and that resume reuses
   only schema/digest-compatible projection bundles.
+- `tests/test_workflow_lisp_resource_transition_runtime.py` provides current
+  evidence that generated `resource_transition` nodes serialize into executable
+  IR, execute through the runtime, and expose the expected runtime-view debug
+  metadata.
 
 Those artifacts are durable evidence for the implemented layer; they do not
 change the rule that validated executable IR is the authority and the other

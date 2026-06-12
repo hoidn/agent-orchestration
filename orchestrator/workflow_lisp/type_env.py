@@ -5,8 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .definitions import EnumDef, PathDef, RecordDef, UnionDef, UnionVariant, WorkflowLispModule
+from .definitions import (
+    EnumDef,
+    PathDef,
+    RecordDef,
+    ResourceDef,
+    TransitionDef,
+    UnionDef,
+    UnionVariant,
+    WorkflowLispModule,
+)
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .modules import canonical_callable_key
 from .spans import SourcePosition, SourceSpan
 from .type_expressions import (
     ListTypeExpr,
@@ -195,11 +205,15 @@ class FrontendTypeEnvironment:
         import_scope: "ModuleImportScope | None" = None,
         canonical_name_overrides: dict[str, str] | None = None,
         schema_names: frozenset[str] = frozenset(),
+        resource_defs: Mapping[str, ResourceDef] | None = None,
+        transition_defs: Mapping[str, TransitionDef] | None = None,
     ):
         self._type_refs = dict(type_refs)
         self._import_scope = import_scope
         self._canonical_name_overrides = dict(canonical_name_overrides or {})
         self._schema_names = frozenset(schema_names)
+        self._resource_defs = dict(resource_defs or {})
+        self._transition_defs = dict(transition_defs or {})
 
     @classmethod
     def from_module(
@@ -208,6 +222,8 @@ class FrontendTypeEnvironment:
         *,
         import_scope: "ModuleImportScope | None" = None,
         imported_type_refs: dict[str, TypeRef] | None = None,
+        imported_resource_defs: Mapping[str, ResourceDef] | None = None,
+        imported_transition_defs: Mapping[str, TransitionDef] | None = None,
     ) -> "FrontendTypeEnvironment":
         type_refs: dict[str, TypeRef] = {
             name: PrimitiveTypeRef(name=name) for name in PRELUDE_PRIMITIVE_TYPE_NAMES
@@ -319,6 +335,16 @@ class FrontendTypeEnvironment:
             type_refs,
             import_scope=import_scope,
             schema_names=frozenset(schema_names),
+            resource_defs=_resource_declaration_map(
+                module,
+                import_scope=import_scope,
+                imported_resource_defs=imported_resource_defs or {},
+            ),
+            transition_defs=_transition_declaration_map(
+                module,
+                import_scope=import_scope,
+                imported_transition_defs=imported_transition_defs or {},
+            ),
         )
 
     def resolve_type(
@@ -430,6 +456,60 @@ class FrontendTypeEnvironment:
                 if field.name == field_name:
                     return True
         return False
+
+    def resolve_resource_declaration(
+        self,
+        name: str,
+        *,
+        code: str = "resource_transition_contract_invalid",
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+        expansion_stack: tuple[object, ...] = (),
+    ) -> ResourceDef:
+        lookup_name = name
+        if self._import_scope is not None:
+            lookup_name = self._import_scope.resolve_resource_name(
+                name,
+                span=span,
+                form_path=form_path,
+            )
+        resource = self._resource_defs.get(lookup_name) or self._resource_defs.get(name)
+        if resource is not None:
+            return resource
+        _raise_error(
+            f"unknown resource `{name}`",
+            code=code,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+
+    def resolve_transition_declaration(
+        self,
+        name: str,
+        *,
+        code: str = "resource_transition_contract_invalid",
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+        expansion_stack: tuple[object, ...] = (),
+    ) -> TransitionDef:
+        lookup_name = name
+        if self._import_scope is not None:
+            lookup_name = self._import_scope.resolve_transition_name(
+                name,
+                span=span,
+                form_path=form_path,
+            )
+        transition = self._transition_defs.get(lookup_name) or self._transition_defs.get(name)
+        if transition is not None:
+            return transition
+        _raise_error(
+            f"unknown transition `{name}`",
+            code=code,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
 
     @staticmethod
     def _resolve_inline_type(
@@ -743,6 +823,44 @@ def _resolve_named_type(
         form_path=form_path,
         expansion_stack=expansion_stack,
     )
+
+
+def _resource_declaration_map(
+    module: WorkflowLispModule,
+    *,
+    import_scope: "ModuleImportScope | None",
+    imported_resource_defs: Mapping[str, ResourceDef],
+) -> dict[str, ResourceDef]:
+    declarations = dict(imported_resource_defs)
+    for resource in module.resources:
+        declarations[resource.name] = resource
+        if module.module_name:
+            declarations[canonical_callable_key(module.module_name, resource.name)] = resource
+    if import_scope is not None:
+        for binding in import_scope.resource_bindings.values():
+            declaration = imported_resource_defs.get(binding.canonical_name)
+            if declaration is not None:
+                declarations[binding.member_name] = declaration
+    return declarations
+
+
+def _transition_declaration_map(
+    module: WorkflowLispModule,
+    *,
+    import_scope: "ModuleImportScope | None",
+    imported_transition_defs: Mapping[str, TransitionDef],
+) -> dict[str, TransitionDef]:
+    declarations = dict(imported_transition_defs)
+    for transition in module.transitions:
+        declarations[transition.name] = transition
+        if module.module_name:
+            declarations[canonical_callable_key(module.module_name, transition.name)] = transition
+    if import_scope is not None:
+        for binding in import_scope.transition_bindings.values():
+            declaration = imported_transition_defs.get(binding.canonical_name)
+            if declaration is not None:
+                declarations[binding.member_name] = declaration
+    return declarations
 
 
 def _render_type_expr(parsed: ParsedTypeExpr) -> str:

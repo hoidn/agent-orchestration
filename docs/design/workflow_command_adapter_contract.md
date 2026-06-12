@@ -61,7 +61,8 @@ Behavior classes:
 - `variant_selection`: chooses one result variant from evidence.
 - `assertion_gate`: checks status strings or file presence before continuing.
 - `resume_state_reuse`: decides whether prior canonical state can be reused.
-- `resource_transition`: moves a resource between queues or states.
+- `resource_transition`: moves a resource between queues or states, or mutates
+  one declared resource record behind a typed transition contract.
 - `ledger_update`: appends or updates progress/run ledgers.
 - `outcome_finalization`: routes multiple phase outcomes into one final result.
 - `report_parsing`: extracts semantic fields from human-readable text.
@@ -267,7 +268,7 @@ Do not allowlist inline glue only because it is inconvenient to migrate.
 | Pointer writes and path txt files | `materialize_artifacts` or runtime-owned optional pointer materialization. |
 | Status assertions | Typed union result plus `match`. |
 | Plan-gate recovery | `resume-or-start` with canonical reusable-state validation. |
-| Queue movement and ledger update | `resource-transition`, initially via certified adapter if needed. |
+| Queue movement and ledger update | `resource-transition`, with runtime-native as the target backend and certified adapters only as migration backends when needed. |
 | Final completed/blocked fan-in scripts | `finalize-selected-item` typed outcome router. |
 | JSON rewrite and field checking | `output_bundle`, `variant_output`, `command-result`, or `provider-result`. |
 | Exactly-one report selection | `pre_snapshot` plus `select_variant_output`. |
@@ -302,6 +303,10 @@ forms.
   lowering path still uses a certified adapter backend.
 - Reusable-state gating remains `resume-or-start`, even if the current
   implementation still depends on certified adapters behind that surface.
+
+Repeated semantically critical `resource-transition` surfaces should target the
+runtime-native backend. Certified adapters remain the migration backend when a
+family has not retired its legacy state mutation path yet.
 
 Direct promoted adapter calls for those semantic classes are rejected so the
 authored `.orc` surface keeps the semantic transition visible.

@@ -4,6 +4,8 @@
   (defmodule lisp_frontend_design_delta/work_item)
   (import lisp_frontend_design_delta/implementation_phase :only (implementation-phase))
   (import lisp_frontend_design_delta/plan_phase :only (run-plan-phase))
+  (import lisp_frontend_design_delta/transitions :only
+    (drain-run-state record-blocked-recovery-outcome record-terminal-work-item))
   (import lisp_frontend_design_delta/types :only
     (ArtifactWorkTargetPath BaselineDesignDoc BlockedRecoveryDecision BlockedRecoveryReason CheckCommandsPath ImplementationPhaseResult
       PlanDoc PlanDocTarget PlanDraftResult ProgressLedger ResolvedWorkItemInputs RunStatePath SelectionBundlePath

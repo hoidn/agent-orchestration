@@ -15,6 +15,7 @@ from ..expressions import (
     ContinueExpr,
     DoneExpr,
     FieldAccessExpr,
+    FinalizeSelectedItemExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
@@ -32,6 +33,7 @@ from ..expressions import (
     ProviderResultExpr,
     RecordUpdateExpr,
     RecordExpr,
+    ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
@@ -323,6 +325,8 @@ def _elaborate_expr_to_body(
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
+            ResourceTransitionExpr,
+            FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
         ),
@@ -453,6 +457,8 @@ def _elaborate_let_star(
                 RunProviderPhaseExpr,
                 ProduceOneOfExpr,
                 ResumeOrStartExpr,
+                ResourceTransitionExpr,
+                FinalizeSelectedItemExpr,
                 CallExpr,
                 ProcedureCallExpr,
             ),
@@ -824,7 +830,16 @@ def _elaborate_expr_to_value(
                 target_name=expr.target_name,
             ),
         )
-    if isinstance(expr, (LoopStateSeedExpr, LoopStateUpdateExpr, GeneratedRelpathSeedExpr, ProviderBundlePathExpr)):
+    if isinstance(
+        expr,
+        (
+            LoopStateSeedExpr,
+            LoopStateUpdateExpr,
+            GeneratedRelpathSeedExpr,
+            ProviderBundlePathExpr,
+            ResourceTransitionExpr,
+        ),
+    ):
         return (
             (),
             WccOpaqueFrontendValue(
@@ -1217,6 +1232,8 @@ def _elaborate_match_to_body(
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
+            ResourceTransitionExpr,
+            FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
         ),
@@ -2124,6 +2141,28 @@ def _elaborate_effect_expr_to_binding_value(
                 validation_spec=expr.validation_spec,
             ),
         )
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:finalize_selected_item", **metadata_kwargs),
+            perform_kind="finalize_selected_item",
+            target_name="finalize-selected-item",
+            prompt_name=None,
+            positional_args=(),
+            keyword_args=(),
+            returns_type_name=None,
+            operation_payload=expr,
+        )
+    if isinstance(expr, ResourceTransitionExpr):
+        return WccPerform(
+            metadata=scope.value_metadata(role="perform:resource_transition", **metadata_kwargs),
+            perform_kind="resource_transition",
+            target_name=expr.spec.transition_ref_name or expr.spec.transition_name or "resource-transition",
+            prompt_name=None,
+            positional_args=(),
+            keyword_args=(),
+            returns_type_name=None,
+            operation_payload=expr,
+        )
     if isinstance(expr, CallExpr):
         return WccPerform(
             metadata=scope.value_metadata(role="perform:workflow_call", **metadata_kwargs),
@@ -2492,6 +2531,33 @@ def _infer_expr_type(
         return _resolve_wcc_type_name(
             expr.returns_type_name,
             type_env=type_env,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        return type_env.resolve_type(
+            "SelectedItemResult",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, ResourceTransitionExpr):
+        if getattr(expr.spec, "mode", None) == "declared_transition":
+            transition_def = type_env.resolve_transition_declaration(
+                expr.spec.transition_ref_name or "",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            return type_env.resolve_type(
+                transition_def.result_type_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return type_env.resolve_type(
+            "ResourceTransitionResult",
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,

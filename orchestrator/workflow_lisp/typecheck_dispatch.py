@@ -138,6 +138,7 @@ from .spans import SourceSpan
 from .syntax import SyntaxNode
 from .type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
     OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
@@ -181,6 +182,37 @@ from .procedures import (
 
 def _effect_subject(value: str) -> tuple[str, ...]:
     return tuple(segment for segment in value.split(".") if segment)
+
+
+def _first_transition_runtime_forbidden_type(type_ref: TypeRef) -> str | None:
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        return "WorkflowRef"
+    if isinstance(type_ref, ProcRefTypeRef):
+        return "ProcRef"
+    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt"}:
+        return type_ref.name
+    if isinstance(type_ref, OptionalTypeRef):
+        return _first_transition_runtime_forbidden_type(type_ref.item_type_ref)
+    if hasattr(type_ref, "item_type_ref"):
+        return _first_transition_runtime_forbidden_type(type_ref.item_type_ref)
+    if hasattr(type_ref, "key_type_ref") and hasattr(type_ref, "value_type_ref"):
+        return _first_transition_runtime_forbidden_type(type_ref.key_type_ref) or _first_transition_runtime_forbidden_type(
+            type_ref.value_type_ref
+        )
+    if isinstance(type_ref, RecordTypeRef):
+        for field_type in type_ref.field_types.values():
+            forbidden = _first_transition_runtime_forbidden_type(field_type)
+            if forbidden is not None:
+                return forbidden
+        return None
+    if isinstance(type_ref, UnionTypeRef):
+        for field_types in type_ref.variant_field_types.values():
+            for field_type in field_types.values():
+                forbidden = _first_transition_runtime_forbidden_type(field_type)
+                if forbidden is not None:
+                    return forbidden
+        return None
+    return None
 
 def typecheck_expression(
     expr: ExprNode,
@@ -1089,6 +1121,227 @@ def _typecheck(
             effect=merge_effect_summaries(typed_context.effect_summary, typed_body.effect_summary),
         )
     if isinstance(expr, ResourceTransitionExpr):
+        if expr.spec.mode == "declared_transition":
+            transition_def = type_env.resolve_transition_declaration(
+                expr.spec.transition_ref_name or "",
+                code="transition_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            resource_def = type_env.resolve_resource_declaration(
+                expr.spec.resource_ref_name or "",
+                code="transition_resource_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            declared_resource = type_env.resolve_resource_declaration(
+                transition_def.resource_name,
+                code="transition_declaration_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            if declared_resource != resource_def:
+                _raise_error(
+                    "declared transition resource does not match `resource-transition :resource`",
+                    code="transition_resource_kind_mismatch",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            resource_state_type = type_env.resolve_type(
+                resource_def.state_type_name,
+                span=resource_def.span,
+                form_path=resource_def.form_path,
+            )
+            if not isinstance(resource_state_type, RecordTypeRef):
+                _raise_error(
+                    "declared transition resources require record state types",
+                    code="transition_declaration_invalid",
+                    span=resource_def.span,
+                    form_path=resource_def.form_path,
+                )
+            forbidden = _first_transition_runtime_forbidden_type(resource_state_type)
+            if forbidden is not None:
+                _raise_error(
+                    f"declared transition resource state cannot carry runtime-forbidden type `{forbidden}`",
+                    code="transition_declaration_invalid",
+                    span=resource_def.span,
+                    form_path=resource_def.form_path,
+                )
+            request_type = type_env.resolve_type(
+                transition_def.request_type_name,
+                span=transition_def.span,
+                form_path=transition_def.form_path,
+            )
+            forbidden = _first_transition_runtime_forbidden_type(request_type)
+            if forbidden is not None:
+                _raise_error(
+                    f"declared transition request type cannot carry runtime-forbidden type `{forbidden}`",
+                    code="transition_declaration_invalid",
+                    span=transition_def.span,
+                    form_path=transition_def.form_path,
+                )
+            result_type = type_env.resolve_type(
+                transition_def.result_type_name,
+                span=transition_def.span,
+                form_path=transition_def.form_path,
+            )
+            typed_request = _typecheck(
+                expr.spec.request_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            if typed_request.type_ref != request_type:
+                _raise_error(
+                    f"`resource-transition :request` expected `{_type_label(request_type)}` but got `{_type_label(typed_request.type_ref)}`",
+                    code="transition_request_type_mismatch",
+                    span=expr.spec.request_expr.span,
+                    form_path=expr.spec.request_expr.form_path,
+                )
+            typed_expected_version = None
+            if expr.spec.expected_version_expr is not None:
+                typed_expected_version = _typecheck(
+                    expr.spec.expected_version_expr,
+                    type_env=type_env,
+                    value_env=value_env,
+                    proof_scope=proof_scope,
+                    workflow_catalog=workflow_catalog,
+                    procedure_catalog=procedure_catalog,
+                    extern_environment=extern_environment,
+                    command_boundary_environment=command_boundary_environment,
+                    active_phase_scope=active_phase_scope,
+                    procedure_effects_by_name=procedure_effects_by_name,
+                    workflow_effects_by_name=workflow_effects_by_name,
+                    proc_ref_resolution_context=proc_ref_resolution_context,
+                )
+                if typed_expected_version.type_ref != PrimitiveTypeRef(name="String"):
+                    _raise_error(
+                        "`resource-transition :expect-version` must resolve to `String`",
+                        code="transition_declaration_invalid",
+                        span=expr.spec.expected_version_expr.span,
+                        form_path=expr.spec.expected_version_expr.form_path,
+                    )
+            transition_value_env = {
+                "state": resource_state_type,
+                "request": request_type,
+            }
+            for precondition_expr in transition_def.preconditions:
+                typed_precondition = _typecheck(
+                    precondition_expr,
+                    type_env=type_env,
+                    value_env=transition_value_env,
+                    proof_scope=proof_scope,
+                    workflow_catalog=workflow_catalog,
+                    procedure_catalog=procedure_catalog,
+                    extern_environment=extern_environment,
+                    command_boundary_environment=command_boundary_environment,
+                    active_phase_scope=active_phase_scope,
+                    procedure_effects_by_name=procedure_effects_by_name,
+                    workflow_effects_by_name=workflow_effects_by_name,
+                    proc_ref_resolution_context=proc_ref_resolution_context,
+                )
+                if typed_precondition.type_ref != PrimitiveTypeRef(name="Bool"):
+                    _raise_error(
+                        "declared transition preconditions must resolve to `Bool`",
+                        code="transition_declaration_invalid",
+                        span=precondition_expr.span,
+                        form_path=precondition_expr.form_path,
+                    )
+            for update in transition_def.updates:
+                target_type = resource_state_type.field_types.get(update.target)
+                if target_type is None:
+                    _raise_error(
+                        f"unknown transition update target `{update.target}`",
+                        code="transition_update_target_unknown",
+                        span=update.span,
+                        form_path=update.form_path,
+                    )
+                if update.op == "clear_field":
+                    if not isinstance(target_type, OptionalTypeRef):
+                        _raise_error(
+                            f"`clear-field {update.target}` requires an `Optional` state field",
+                            code="transition_declaration_invalid",
+                            span=update.span,
+                            form_path=update.form_path,
+                        )
+                    continue
+                assert update.value_expr is not None
+                typed_value = _typecheck(
+                    update.value_expr,
+                    type_env=type_env,
+                    value_env=transition_value_env,
+                    proof_scope=proof_scope,
+                    workflow_catalog=workflow_catalog,
+                    procedure_catalog=procedure_catalog,
+                    extern_environment=extern_environment,
+                    command_boundary_environment=command_boundary_environment,
+                    active_phase_scope=active_phase_scope,
+                    procedure_effects_by_name=procedure_effects_by_name,
+                    workflow_effects_by_name=workflow_effects_by_name,
+                    proc_ref_resolution_context=proc_ref_resolution_context,
+                )
+                expected_type = target_type.item_type_ref if update.op == "append_item" and isinstance(target_type, ListTypeRef) else target_type
+                if typed_value.type_ref != expected_type:
+                    _raise_error(
+                        f"transition update `{update.target}` expected `{_type_label(expected_type)}` but got `{_type_label(typed_value.type_ref)}`",
+                        code="transition_declaration_invalid",
+                        span=update.value_expr.span,
+                        form_path=update.value_expr.form_path,
+                    )
+            typed_result_expr = _typecheck(
+                transition_def.result_expr,
+                type_env=type_env,
+                value_env=transition_value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            if typed_result_expr.type_ref != result_type:
+                _raise_error(
+                    f"declared transition result projection expected `{_type_label(result_type)}` but got `{_type_label(typed_result_expr.type_ref)}`",
+                    code="transition_result_projection_type_mismatch",
+                    span=transition_def.span,
+                    form_path=transition_def.form_path,
+                )
+            _typecheck(
+                transition_def.audit_expr,
+                type_env=type_env,
+                value_env=transition_value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            return _typed(
+                expr=expr,
+                type_ref=result_type,
+                effect=merge_effect_summaries(
+                    typed_request.effect_summary,
+                    typed_expected_version.effect_summary if typed_expected_version is not None else EMPTY_EFFECT_SUMMARY,
+                ),
+            )
         resource_result = type_env.resolve_type(
             "ResourceTransitionResult",
             span=expr.span,
@@ -2611,9 +2864,18 @@ def _validate_semantic_command_adapter_usage(
     binding: "CertifiedAdapterBinding",
 ) -> None:
     effects = set(binding.effects)
+    transition_binding = getattr(binding, "transition_binding", None)
+    allow_migration_backend_call = (
+        transition_binding is not None
+        and getattr(transition_binding, "contract_role", None) == "migration_backend"
+    )
     if (
-        ("resource_transition" in effects or "ledger_update" in effects)
-        and binding.behavior_class != "resource_transition"
+        (
+            "resource_transition" in effects
+            or "ledger_update" in effects
+            or binding.behavior_class == "resource_transition"
+        )
+        and not allow_migration_backend_call
     ):
         _raise_error(
             "resource movement must use `resource-transition` or a certified resource_transition adapter",

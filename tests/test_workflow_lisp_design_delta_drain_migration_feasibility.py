@@ -4,6 +4,8 @@ import hashlib
 import importlib
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -19,12 +21,14 @@ from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_context,
+    workflow_runtime_input_contracts,
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.command_boundaries import (
     CertifiedAdapterInputField,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+    TransitionBindingMetadata,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -50,6 +54,9 @@ PARENT_CALL_IMPLEMENTATION_PHASE_FIXTURE = (
 )
 PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_parent_calls_work_item.orc"
+)
+DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE = (
+    REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "runtime_transition_fixture.orc"
 )
 NESTED_SAME_FILE_CALL_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_same_file_call_local_record.orc"
@@ -127,6 +134,26 @@ def _design_delta_prompt_externs() -> dict[str, str]:
     }
 
 
+def _g0_retirement_metadata(
+    *,
+    name: str,
+    retirement_class: str,
+    retirement_label: str,
+    replacement_surface: str,
+    bridge_owner: str = "workflow-lisp",
+    expiry_condition: str | None = None,
+    evidence_refs: tuple[str, ...] | None = None,
+) -> dict[str, object]:
+    return {
+        "retirement_class": retirement_class,
+        "retirement_label": retirement_label,
+        "replacement_surface": replacement_surface,
+        "bridge_owner": bridge_owner,
+        "expiry_condition": expiry_condition or f"test-{name}-metadata",
+        "evidence_refs": evidence_refs or (f"{name}_evidence",),
+    }
+
+
 def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
     return {
         "run_neurips_backlog_checks": ExternalToolBinding(
@@ -135,6 +162,12 @@ def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
                 "python",
                 "workflows/library/scripts/run_neurips_backlog_checks.py",
             ),
+            **_g0_retirement_metadata(
+                name="run_neurips_backlog_checks",
+                retirement_class="genuine_system",
+                retirement_label="keep_certified_system",
+                replacement_surface="bounded repo-local checks",
+            ),
         ),
         "validate_review_findings_v1": ExternalToolBinding(
             name="validate_review_findings_v1",
@@ -142,6 +175,12 @@ def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
                 "python",
                 "-m",
                 "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ),
+            **_g0_retirement_metadata(
+                name="validate_review_findings_v1",
+                retirement_class="validation",
+                retirement_label="keep_certified_system",
+                replacement_surface="typed review findings validation",
             ),
         ),
     }
@@ -159,9 +198,19 @@ def _promoted_adapter_binding(
     input_signature: tuple[CertifiedAdapterInputField, ...],
     fixture_ids: tuple[str, ...],
     negative_fixture_ids: tuple[str, ...],
+    transition_binding: TransitionBindingMetadata | None = None,
 ) -> CertifiedAdapterBinding:
     if behavior_class == "resource_transition" and effects == ("structured_result",):
         effects = ("structured_result", "resource_transition", "ledger_update")
+    retirement_class = "manifest_assembly"
+    retirement_label = "unknown_requires_design"
+    replacement_surface = replacement_path or f"typed {name} replacement"
+    if behavior_class == "resource_transition":
+        retirement_class = "resource_transition"
+        retirement_label = "retire_to_transition"
+    elif behavior_class in {"typed_projection", "outcome_finalization"}:
+        retirement_class = "typed_projection"
+        retirement_label = "retire_to_projection"
     return CertifiedAdapterBinding(
         name=name,
         stable_command=stable_command,
@@ -180,7 +229,14 @@ def _promoted_adapter_binding(
         owner_module=owner_module,
         replacement_path=replacement_path,
         invocation_protocol="json_object_positional_arg",
+        transition_binding=transition_binding,
         declared_promoted_fields=frozenset(PROMOTED_CALL_REQUIRED_METADATA_FIELDS),
+        **_g0_retirement_metadata(
+            name=name,
+            retirement_class=retirement_class,
+            retirement_label=retirement_label,
+            replacement_surface=replacement_surface,
+        ),
     )
 
 
@@ -222,6 +278,12 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
         "run_neurips_backlog_checks": ExternalToolBinding(
             name="run_neurips_backlog_checks",
             stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
+            **_g0_retirement_metadata(
+                name="run_neurips_backlog_checks",
+                retirement_class="genuine_system",
+                retirement_label="keep_certified_system",
+                replacement_surface="bounded repo-local checks",
+            ),
         ),
         "validate_review_findings_v1": ExternalToolBinding(
             name="validate_review_findings_v1",
@@ -229,6 +291,12 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
                 "python",
                 "-m",
                 "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            ),
+            **_g0_retirement_metadata(
+                name="validate_review_findings_v1",
+                retirement_class="validation",
+                retirement_label="keep_certified_system",
+                replacement_surface="typed review findings validation",
             ),
         ),
         "materialize_lisp_frontend_work_item_inputs": _promoted_adapter_binding(
@@ -367,6 +435,12 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             ),
             fixture_ids=("design_delta_record_terminal_ok",),
             negative_fixture_ids=("design_delta_record_terminal_bad",),
+            transition_binding=TransitionBindingMetadata(
+                transition_name="lisp_frontend_design_delta/transitions::record-terminal-work-item",
+                resource_kind="drain-run-state",
+                contract_role="migration_backend",
+                backend_selector="record_terminal_work_item",
+            ),
         ),
         "record_blocked_recovery_outcome": _promoted_adapter_binding(
             name="record_blocked_recovery_outcome",
@@ -421,6 +495,12 @@ def _design_delta_work_item_command_boundaries() -> dict[str, object]:
             ),
             fixture_ids=("design_delta_record_blocked_recovery_ok",),
             negative_fixture_ids=("design_delta_record_blocked_recovery_bad",),
+            transition_binding=TransitionBindingMetadata(
+                transition_name="lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+                resource_kind="drain-run-state",
+                contract_role="migration_backend",
+                backend_selector="record_blocked_recovery_outcome",
+            ),
         ),
     }
 
@@ -551,6 +631,12 @@ def _design_delta_parent_drain_command_boundaries() -> dict[str, object]:
                     "python",
                     "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
                 ),
+                **_g0_retirement_metadata(
+                    name="validate_lisp_frontend_design_gap_architecture",
+                    retirement_class="validation",
+                    retirement_label="keep_certified_system",
+                    replacement_surface="typed architecture validation",
+                ),
             ),
             "write_lisp_frontend_drain_status": _promoted_adapter_binding(
                 name="write_lisp_frontend_drain_status",
@@ -590,6 +676,12 @@ def _design_delta_parent_drain_command_boundaries() -> dict[str, object]:
                 ),
                 fixture_ids=("design_delta_drain_status_ok",),
                 negative_fixture_ids=("design_delta_drain_status_bad",),
+                transition_binding=TransitionBindingMetadata(
+                    transition_name="lisp_frontend_design_delta/transitions::write-drain-status",
+                    resource_kind="drain-run-state",
+                    contract_role="migration_backend",
+                    backend_selector="write_lisp_frontend_drain_status",
+                ),
             ),
             "finalize_lisp_frontend_drain_summary": _promoted_adapter_binding(
                 name="finalize_lisp_frontend_drain_summary",
@@ -774,6 +866,98 @@ def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
         for workflow in compiled.lowered_workflows
     }
     return result, lowered_by_name
+
+
+def _compile_design_delta_runtime_transition_fixture_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE,
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit"
+    ]
+    return result, bundle
+
+
+def _run_design_delta_runtime_transition_fixture_cli(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    run_state_path = tmp_path / "state" / "run_state.json"
+    summary_path = tmp_path / "artifacts" / "work" / "drain_summary.json"
+    state_dir = tmp_path / "orchestrator-state"
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps({"status": "BLOCKED", "reason": "runtime_native_fixture"}) + "\n",
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "orchestrator",
+            "run",
+            str(DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE),
+            "--entry-workflow",
+            "run-runtime-transition-fixture",
+            "--source-root",
+            str(REPO_ROOT / "workflows" / "library"),
+            "--provider-externs-file",
+            str(
+                REPO_ROOT
+                / "workflows"
+                / "examples"
+                / "inputs"
+                / "workflow_lisp_migrations"
+                / "design_delta_parent_drain.providers.json"
+            ),
+            "--prompt-externs-file",
+            str(
+                REPO_ROOT
+                / "workflows"
+                / "examples"
+                / "inputs"
+                / "workflow_lisp_migrations"
+                / "design_delta_parent_drain.prompts.json"
+            ),
+            "--command-boundaries-file",
+            str(
+                REPO_ROOT
+                / "workflows"
+                / "examples"
+                / "inputs"
+                / "workflow_lisp_migrations"
+                / "design_delta_parent_drain.commands.json"
+            ),
+            "--input",
+            "fixture_run_state_path=state/run_state.json",
+            "--input",
+            "summary_path=artifacts/work/drain_summary.json",
+            "--state-dir",
+            str(state_dir),
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
 
 
 def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
@@ -2098,6 +2282,59 @@ def _execute_design_delta_parent_drain_route(
     )
 
 
+def _execute_design_delta_runtime_transition_fixture(tmp_path: Path):
+    _result, bundle = _compile_design_delta_runtime_transition_fixture_entrypoint(tmp_path)
+    run_state_path = tmp_path / "state" / "run_state.json"
+    summary_path = tmp_path / "artifacts" / "work" / "drain_summary.json"
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        json.dumps({"status": "BLOCKED", "reason": "runtime_native_fixture"}) + "\n",
+        encoding="utf-8",
+    )
+
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    provided_inputs: dict[str, str] = {
+        "run_state_path": "state/run_state.json",
+        "summary_path": "artifacts/work/drain_summary.json",
+    }
+    binding_inputs = {
+        input_name: spec
+        for input_name, spec in runtime_inputs.items()
+        if not (isinstance(input_name, str) and input_name.startswith("__write_root__"))
+    }
+    run_id = "design-delta-runtime-transition-fixture"
+    bound_inputs = bind_workflow_inputs(
+        binding_inputs,
+        provided_inputs,
+        tmp_path,
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    state_manager.initialize(
+        DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=bound_inputs,
+    )
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
+    step = bundle.surface.steps[0]
+    audit_path = tmp_path / step.resource_transition["resource"]["audit_path"]
+    return tmp_path, state, audit_path
+
+
 def _build_module():
     return importlib.import_module("orchestrator.workflow_lisp.build")
 
@@ -2893,6 +3130,45 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     assert any("repeat_until" in step for step in parent_family_steps)
 
 
+def test_design_delta_runtime_transition_fixture_exposes_public_wrapper_input(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE,
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    wrapper_bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/runtime_transition_fixture::run-runtime-transition-fixture"
+    ]
+    wrapped_bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit"
+    ]
+    wrapper_public_inputs = set(workflow_public_input_contracts(wrapper_bundle))
+    wrapped_public_inputs = set(workflow_public_input_contracts(wrapped_bundle))
+
+    assert "fixture_run_state_path" in wrapper_public_inputs
+    assert "summary_path" in wrapper_public_inputs
+    assert "run_state_path" not in wrapper_public_inputs
+    assert "run_state_path" not in wrapped_public_inputs
+
+
+def test_design_delta_runtime_transition_fixture_runs_via_real_cli(
+    tmp_path: Path,
+) -> None:
+    result = _run_design_delta_runtime_transition_fixture_cli(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    run_state = json.loads((tmp_path / "state" / "run_state.json").read_text(encoding="utf-8"))
+    assert run_state["drain_status"] == "BLOCKED"
+    assert run_state["drain_status_reason"] == "runtime_native_fixture"
+
+
 def test_design_delta_parent_drain_entrypoint_owns_loop_control(
     tmp_path: Path,
 ) -> None:
@@ -3360,6 +3636,34 @@ def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
     assert not (workspace / "artifacts" / "work" / "progress_report.md").exists()
+
+
+def test_design_delta_parent_drain_smokes_runtime_transition_fixture_emits_audit_handoff(
+    tmp_path: Path,
+) -> None:
+    workspace, state, audit_path = _execute_design_delta_runtime_transition_fixture(
+        tmp_path / "runtime-transition-fixture"
+    )
+
+    assert state["status"] == "completed"
+    step_state = next(iter(state["steps"].values()))
+    assert step_state["status"] == "completed"
+    assert step_state["debug"]["resource_transition"]["backend"] == "runtime_native"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
+
+    run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
+    assert run_state["drain_status"] == "BLOCKED"
+    assert run_state["drain_status_reason"] == "runtime_native_fixture"
+    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
+
+    audit_rows = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert audit_rows[-1]["outcome_code"] == "committed"
+    assert audit_rows[-1]["transition_name"] == "write-drain-status-runtime-native"
+    assert audit_rows[-1]["resource_kind"] == "drain_run_state"
 
 
 def test_design_delta_parent_drain_smokes_selected_item_completed_path(

@@ -23,7 +23,11 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.executable_ir import validate_executable_workflow, workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
-from .command_boundaries import CertifiedAdapterInputField, PROMOTED_CALL_REQUIRED_METADATA_FIELDS
+from .command_boundaries import (
+    CertifiedAdapterBinding,
+    CertifiedAdapterInputField,
+    PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+)
 from .contracts import derive_union_workflow_boundary_projection, derive_workflow_signature_contracts
 from .definitions import (
     EnumDef,
@@ -33,6 +37,7 @@ from .definitions import (
     SchemaDef,
     UnionDef,
     UnionVariant,
+    TransitionDef,
     WorkflowLispModule,
     _expand_schema_fields,
     elaborate_definition_module,
@@ -389,7 +394,10 @@ def compile_stage3_entrypoint(
     )
     additional_diagnostics = ()
     if compile_result is not None:
-        additional_diagnostics = compile_result.diagnostics
+        additional_diagnostics = (
+            *compile_result.diagnostics,
+            *_collect_declared_transition_binding_diagnostics_for_linked_result(compile_result),
+        )
     diagnostics = _finalize_stage3_diagnostics(
         results,
         additional_diagnostics=additional_diagnostics,
@@ -444,7 +452,22 @@ def compile_stage3_module(
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
-        additional_diagnostics=_collect_stage3_required_lint_diagnostics(state.typed_workflows),
+        additional_diagnostics=(
+            *_collect_stage3_required_lint_diagnostics(
+                state.typed_workflows,
+                bridge_backing_input_names=frozenset(
+                    resource.backing_path_input
+                    for resource in (state.module.resources if state.module is not None else ())
+                    if resource.backing_kind == "bridge" and resource.backing_path_input
+                ),
+            ),
+            *_collect_declared_transition_binding_diagnostics(
+                modules=()
+                if state.module is None
+                else (state.module,),
+                command_boundary_environment=state.command_boundary_environment,
+            ),
+        ),
         lint_profile=lint_profile,
     )
     return Stage3CompileResult(
@@ -502,6 +525,8 @@ _ALLOWED_CONTEXT_RECORD_TYPES = frozenset(
 
 def _collect_stage3_required_lint_diagnostics(
     typed_workflows: tuple[TypedWorkflowDef, ...],
+    *,
+    bridge_backing_input_names: frozenset[str] = frozenset(),
 ) -> tuple[LispFrontendDiagnostic, ...]:
     diagnostics: list[LispFrontendDiagnostic] = []
     for workflow in typed_workflows:
@@ -514,12 +539,17 @@ def _collect_stage3_required_lint_diagnostics(
                 flattened_inputs=boundary_projection.flattened_inputs,
             )
             exposes_low_level_state_path = bool(
-                classification.unclassified_low_level_inputs
+                [
+                    name
+                    for name in classification.unclassified_low_level_inputs
+                    if name not in bridge_backing_input_names
+                ]
             ) or _type_ref_contains_low_level_state_path(signature.return_type_ref)
         else:
             exposes_low_level_state_path = any(
                 _type_ref_contains_low_level_state_path(type_ref)
-                for _, type_ref in signature.params
+                and name not in bridge_backing_input_names
+                for name, type_ref in signature.params
             ) or _type_ref_contains_low_level_state_path(signature.return_type_ref)
         if exposes_low_level_state_path:
             diagnostics.append(
@@ -554,6 +584,121 @@ def _collect_stage3_required_lint_diagnostics(
                     )
                 )
     return tuple(diagnostics)
+
+
+def _command_boundary_validation_span() -> SourceSpan:
+    position = SourcePosition(path="<command-boundaries>", line=1, column=1, offset=0)
+    return SourceSpan(start=position, end=position)
+
+
+def _collect_declared_transition_binding_diagnostics_for_linked_result(
+    compile_result: LinkedStage3CompileResult,
+) -> tuple[LispFrontendDiagnostic, ...]:
+    modules = tuple(
+        compiled_result.module
+        for compiled_result in compile_result.compiled_results_by_name.values()
+        if compiled_result.module is not None
+    )
+    return _collect_declared_transition_binding_diagnostics(
+        modules=modules,
+        command_boundary_environment=compile_result.entry_result.command_boundary_environment,
+    )
+
+
+def _collect_declared_transition_binding_diagnostics(
+    *,
+    modules: tuple[WorkflowLispModule, ...],
+    command_boundary_environment,
+) -> tuple[LispFrontendDiagnostic, ...]:
+    if command_boundary_environment is None or not modules:
+        return ()
+
+    transition_registry = _transition_binding_registry(modules)
+    diagnostics: list[LispFrontendDiagnostic] = []
+    for binding_name, binding in command_boundary_environment.bindings_by_name.items():
+        if not isinstance(binding, CertifiedAdapterBinding) or binding.transition_binding is None:
+            continue
+        transition_binding = binding.transition_binding
+        if transition_binding.contract_role != "migration_backend":
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=(
+                        f"certified adapter `{binding_name}` must keep transition_binding contract_role "
+                        "`migration_backend`"
+                    ),
+                    span=_command_boundary_validation_span(),
+                    phase="typecheck",
+                )
+            )
+            continue
+        if transition_binding.backend_selector != binding_name:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=(
+                        f"certified adapter `{binding_name}` transition_binding backend selector "
+                        f"`{transition_binding.backend_selector}` must match the binding name"
+                    ),
+                    span=_command_boundary_validation_span(),
+                    phase="typecheck",
+                )
+            )
+            continue
+        transition = transition_registry.get(transition_binding.transition_name)
+        if transition is None:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=(
+                        f"certified adapter `{binding_name}` references unknown declared transition "
+                        f"`{transition_binding.transition_name}`"
+                    ),
+                    span=_command_boundary_validation_span(),
+                    phase="typecheck",
+                )
+            )
+            continue
+        if transition.resource_name != transition_binding.resource_kind:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=(
+                        f"certified adapter `{binding_name}` transition_binding resource_kind "
+                        f"`{transition_binding.resource_kind}` does not match declared transition resource "
+                        f"`{transition.resource_name}`"
+                    ),
+                    span=_command_boundary_validation_span(),
+                    phase="typecheck",
+                )
+            )
+            continue
+        if transition.backend_kind != binding_name:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message=(
+                        f"certified adapter `{binding_name}` transition_binding backend "
+                        f"`{transition_binding.backend_selector}` does not match declared transition backend "
+                        f"`{transition.backend_kind}`"
+                    ),
+                    span=_command_boundary_validation_span(),
+                    phase="typecheck",
+                )
+            )
+    return tuple(diagnostics)
+
+
+def _transition_binding_registry(
+    modules: tuple[WorkflowLispModule, ...],
+) -> dict[str, TransitionDef]:
+    registry: dict[str, TransitionDef] = {}
+    for module in modules:
+        for transition in module.transitions:
+            registry.setdefault(transition.name, transition)
+            if module.module_name is not None:
+                registry[canonical_callable_key(module.module_name, transition.name)] = transition
+    return registry
 
 
 def _type_ref_contains_low_level_state_path(type_ref: TypeRef) -> bool:
@@ -1381,6 +1526,16 @@ def _command_boundary_fingerprint_payload(
                 "owner_module": binding.owner_module,
                 "replacement_path": binding.replacement_path,
                 "invocation_protocol": binding.invocation_protocol,
+                "transition_binding": (
+                    {
+                        "transition_name": binding.transition_binding.transition_name,
+                        "resource_kind": binding.transition_binding.resource_kind,
+                        "contract_role": binding.transition_binding.contract_role,
+                        "backend_selector": binding.transition_binding.backend_selector,
+                    }
+                    if binding.transition_binding is not None
+                    else None
+                ),
                 "declared_promoted_fields": sorted(binding.declared_promoted_fields),
             }
         )
@@ -1759,7 +1914,14 @@ def _compile_stage3_graph(
             typed_workflows=typed_workflows,
             lowered_workflows=lowered_workflows,
             validated_bundles=validated_exports if validate_shared else {},
-            diagnostics=_collect_stage3_required_lint_diagnostics(typed_workflows),
+            diagnostics=_collect_stage3_required_lint_diagnostics(
+                typed_workflows,
+                bridge_backing_input_names=frozenset(
+                    resource.backing_path_input
+                    for resource in definition_module.resources
+                    if resource.backing_kind == "bridge" and resource.backing_path_input
+                ),
+            ),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
         )
         compiled_results_by_name[module_name] = result

@@ -2838,6 +2838,60 @@ def _elaborate_resource_transition(
     bound_names: frozenset[str],
     procedure_names: frozenset[str],
 ) -> ResourceTransitionExpr:
+    if len(datum.items) < 2:
+        _raise_error(
+            "`resource-transition` requires either the legacy queue-move shape or the declared-transition keyword shape",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+
+    if isinstance(datum.items[1], SyntaxKeyword):
+        sections = _keyword_sections(datum.items[1:], form_path=form_path, label="`resource-transition`")
+        required = (":transition", ":resource", ":request")
+        if any(sections.get(keyword) is None for keyword in required):
+            _raise_error(
+                "`resource-transition` requires :transition, :resource, and :request for declared transitions",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        transition_identifier = syntax_identifier(sections[":transition"])
+        resource_identifier = syntax_identifier(sections[":resource"])
+        if transition_identifier is None or resource_identifier is None:
+            _raise_error(
+                "`resource-transition :transition` and `:resource` must be symbols",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        return ResourceTransitionExpr(
+            spec=ResourceTransitionSpec(
+                mode="declared_transition",
+                transition_ref_name=transition_identifier.resolved_name,
+                resource_ref_name=resource_identifier.resolved_name,
+                expected_version_expr=(
+                    _elaborate(
+                        sections[":expect-version"],
+                        form_path=form_path,
+                        bound_names=bound_names,
+                        procedure_names=procedure_names,
+                    )
+                    if sections.get(":expect-version") is not None
+                    else None
+                ),
+                request_expr=_elaborate(
+                    sections[":request"],
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+            ),
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+
     if len(datum.items) < 8:
         _raise_error(
             "`resource-transition` requires a transition name plus :ctx, :resource, :from, :to, :ledger, and :event",
@@ -2874,6 +2928,7 @@ def _elaborate_resource_transition(
         )
     return ResourceTransitionExpr(
         spec=ResourceTransitionSpec(
+            mode="legacy_queue_move",
             transition_name=transition_identifier.resolved_name,
             ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
             when_expr=(

@@ -3646,6 +3646,24 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
     assert review_findings["expiry_condition"]
     assert review_findings["evidence_refs"]
     assert review_findings["liveness"] == "live"
+    assert rows_by_name["record_terminal_work_item"]["transition_binding"] == {
+        "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
+        "resource_kind": "drain-run-state",
+        "contract_role": "migration_backend",
+        "backend_selector": "record_terminal_work_item",
+    }
+    assert rows_by_name["record_blocked_recovery_outcome"]["transition_binding"] == {
+        "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+        "resource_kind": "drain-run-state",
+        "contract_role": "migration_backend",
+        "backend_selector": "record_blocked_recovery_outcome",
+    }
+    assert rows_by_name["write_lisp_frontend_drain_status"]["transition_binding"] == {
+        "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+        "resource_kind": "drain-run-state",
+        "contract_role": "migration_backend",
+        "backend_selector": "write_lisp_frontend_drain_status",
+    }
 
 
 def test_design_delta_parent_drain_build_emits_boundary_authority_report_for_all_target_workflows(

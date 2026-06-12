@@ -15,6 +15,7 @@ from ..expressions import (
     ContinueExpr,
     DoneExpr,
     FieldAccessExpr,
+    FinalizeSelectedItemExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
@@ -33,6 +34,7 @@ from ..expressions import (
     ProviderResultExpr,
     RecordExpr,
     RecordUpdateExpr,
+    ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
@@ -987,6 +989,66 @@ def _validate_wcc_m4_expr_supported(
             local_workflow_signatures=local_workflow_signatures,
             workflow_ref_value_names=workflow_ref_value_names,
         )
+        return
+    if isinstance(expr, ResourceTransitionExpr):
+        if expr.spec.when_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.spec.when_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        if expr.spec.ctx_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.spec.ctx_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        if expr.spec.resource_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.spec.resource_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        if expr.spec.ledger_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.spec.ledger_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        if expr.spec.expected_version_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.spec.expected_version_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        if expr.spec.request_expr is not None:
+            _validate_wcc_m4_expr_supported(
+                expr.spec.request_expr,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
+        return
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        for child in (
+            expr.spec.ctx_expr,
+            expr.spec.selected_expr,
+            expr.spec.queue_transition_expr,
+            expr.spec.roadmap_expr,
+            expr.spec.plan_expr,
+            expr.spec.implementation_expr,
+        ):
+            _validate_wcc_m4_expr_supported(
+                child,
+                workflow_name=workflow_name,
+                local_workflow_signatures=local_workflow_signatures,
+                workflow_ref_value_names=workflow_ref_value_names,
+            )
         return
     if isinstance(expr, (LiteralExpr, NameExpr, PhaseTargetExpr, ProcRefLiteralExpr, GeneratedRelpathSeedExpr)):
         return

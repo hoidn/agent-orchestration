@@ -2170,25 +2170,48 @@ This replaces brittle recovery gates.
 ## 29. `resource-transition`
 
 ```lisp
-(resource-transition backlog-item
-  :ctx ctx
-  :resource selected.item
-  :from Queue.active
-  :to Queue.in-progress
-  :ledger ctx.ledger
-  :event SELECTED)
+(resource-transition
+  :transition write-drain-status
+  :resource drain-run-state
+  :expect-version current-version
+  :request (record DrainStatusRequest
+    :status "BLOCKED"
+    :reason "runtime_native_fixture"
+    :summary_path summary-path))
 ```
 
 Return type:
 
 ```lisp
-(defrecord ResourceTransitionResult
-  (resource-id String)
-  (from Queue)
-  (to Queue)
-  (new-path Path.backlog-in-progress)
-  (transition-id String))
+(defrecord DrainStatusResult
+  (status String)
+  (summary_path WorkReportTarget))
 ```
+
+The generalized authored surface is a declared `Transition<TRequest, TResult>`
+reference plus one concrete resource binding. The selected `deftransition`
+declaration owns:
+
+- request/result types;
+- preconditions;
+- update ops and write set;
+- idempotency fields;
+- result projection; and
+- audit projection.
+
+The runtime owns:
+
+- version checks;
+- precondition evaluation;
+- idempotent replay;
+- result validation;
+- append-only transition-audit rows; and
+- resume replay keyed on idempotency evidence.
+
+The legacy queue-move/resource-routing shape remains available as a
+compatibility/library route. It keeps the old `:from` / `:to` / `:ledger` /
+`:event` shape and lowers through the certified `apply_resource_transition`
+adapter until the family using it is migrated.
 
 ### 29.1 Lowering Options
 
@@ -2197,8 +2220,8 @@ supports.
 
 Valid backends:
 
-- certified command adapter + typed `output_bundle`
-- runtime-native `ResourceTransition` effect
+- legacy certified command adapter + typed `output_bundle`
+- compiler-generated runtime-native `resource_transition` statement family
 - transaction-capable state operation
 
 If it lowers to a command adapter, the adapter must be:
@@ -2209,8 +2232,13 @@ If it lowers to a command adapter, the adapter must be:
 - source-mapped
 - effect-declared
 
+Repeated semantically critical transitions target the runtime-native backend on
+the WCC/schema-2 route. Certified adapters are migration backends, not the
+long-term target, for those transitions.
+
 If the design needs true atomic file move + ledger update and the runtime lacks
-it, this form should lower to a runtime-native effect in a later core tranche.
+it, this form must stay on the compatibility route until a runtime-native
+transition contract exists; the authored surface must not overclaim atomicity.
 
 ## 30. `finalize-selected-item`
 
@@ -2900,7 +2928,7 @@ successful commit.
 
 ## 56. `resource-transition` Elaboration
 
-Possible lowering A: certified command adapter.
+Compatibility lowering A: certified command adapter.
 
 ```text
 perform certified adapter transition
@@ -2909,11 +2937,13 @@ perform certified adapter transition
   -> CorePublish
 ```
 
-Possible lowering B: runtime-native transition.
+Declared-transition lowering B: generated runtime-native transition.
 
 ```text
 perform runtime-native resource transition
-  -> CoreResourceTransition
+  -> compiler-generated resource_transition step
+  -> CoreResourceTransitionStep
+  -> ExecutableNodeKind.RESOURCE_TRANSITION
 ```
 
 Rule:
@@ -2928,6 +2958,9 @@ atomicity is adapter-certified and fixture-tested
 ```
 
 not pretend it is a core runtime transaction.
+
+For the declared runtime-native route, the runtime must own transition schema
+validation, version checks, idempotency, audit append, and replay semantics.
 
 ## 57. `review-revise-loop` Elaboration Contract
 
@@ -4010,6 +4043,10 @@ Implement:
 
 At this stage, decide whether `resource-transition` can safely lower to
 certified command adapters or needs runtime-native core support.
+
+This decision is now resolved for repeated semantically critical transitions:
+the target backend is runtime-native, while certified adapters remain the
+compatibility/migration backend.
 
 ## 105. Stage 7: NeurIPS Migration Experiment
 

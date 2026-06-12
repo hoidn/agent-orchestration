@@ -83,6 +83,7 @@ from .loaded_bundle import (
     workflow_runtime_input_contracts,
 )
 from .state_layout import GeneratedPathSemanticRole, render_generated_path_template
+from .transition_executor import TransitionExecutionError, execute_transition
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
 from .predicates import (
@@ -2815,6 +2816,8 @@ class WorkflowExecutor:
             return 'assert'
         if execution_kind is ExecutableNodeKind.SET_SCALAR:
             return 'set_scalar'
+        if execution_kind is ExecutableNodeKind.RESOURCE_TRANSITION:
+            return 'resource_transition'
         if execution_kind is ExecutableNodeKind.PURE_PROJECTION:
             return 'pure_projection'
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
@@ -3810,6 +3813,14 @@ class WorkflowExecutor:
                 self._execute_set_scalar(step),
             )
 
+        if execution_kind is ExecutableNodeKind.RESOURCE_TRANSITION:
+            return self._execute_top_level_publish_and_persist(
+                step,
+                step_name,
+                state,
+                self._execute_resource_transition(step, state),
+            )
+
         if execution_kind is ExecutableNodeKind.PURE_PROJECTION:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3965,6 +3976,8 @@ class WorkflowExecutor:
             result = self._execute_assert(step, state, context=context, scope=scope)
         elif execution_kind is ExecutableNodeKind.SET_SCALAR:
             result = self._execute_set_scalar(step)
+        elif execution_kind is ExecutableNodeKind.RESOURCE_TRANSITION:
+            result = self._execute_resource_transition(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.PURE_PROJECTION:
             result = self._execute_pure_projection(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
@@ -8366,6 +8379,111 @@ class WorkflowExecutor:
             candidate_value=step['set_scalar'].get('value'),
         )
 
+    def _execute_resource_transition(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        config = step.get("resource_transition")
+        if not isinstance(config, dict):
+            return self._contract_violation_result(
+                "Resource transition execution failed",
+                {"reason": "missing_resource_transition_config"},
+            )
+        declaration = config.get("declaration")
+        resource = config.get("resource")
+        request_bindings = config.get("request_bindings")
+        expected_version_value = config.get("expected_version")
+        if declaration is None or not hasattr(declaration, "transition"):
+            return self._contract_violation_result(
+                "Resource transition execution failed",
+                {"reason": "invalid_transition_declaration"},
+            )
+        if not isinstance(resource, Mapping) or not isinstance(request_bindings, Mapping):
+            return self._contract_violation_result(
+                "Resource transition execution failed",
+                {"reason": "invalid_resource_transition_config"},
+            )
+        resolved_resource, resource_error = self._resolve_resource_transition_bindings(
+            resource,
+            state,
+            scope=scope,
+        )
+        if resource_error is not None:
+            return resource_error
+        resolved_request, request_error = self._resolve_resource_transition_bindings(
+            request_bindings,
+            state,
+            scope=scope,
+        )
+        if request_error is not None:
+            return request_error
+        resolved_expected_version = None
+        if expected_version_value is not None:
+            resolved_expected_version, version_error = self._resolve_resource_transition_bindings(
+                expected_version_value,
+                state,
+                scope=scope,
+            )
+            if version_error is not None:
+                return version_error
+            if resolved_expected_version is not None and not isinstance(resolved_expected_version, str):
+                return self._contract_violation_result(
+                    "Resource transition execution failed",
+                    {"reason": "invalid_expected_version"},
+                )
+
+        normalized_resource = self._normalize_resource_transition_paths(dict(resolved_resource))
+        path_error = normalized_resource.pop("_path_error", None)
+        if path_error is not None:
+            return self._contract_violation_result(
+                "Resource transition execution failed",
+                {"reason": "invalid_resource_path", "field": path_error},
+            )
+
+        backend_kind = declaration.transition.backend.get("kind")
+        try:
+            transition_result = execute_transition(
+                declaration,
+                normalized_resource,
+                resolved_request,
+                resolved_expected_version,
+                backend=backend_kind,
+            )
+            artifacts = self._resource_transition_artifacts(
+                step,
+                transition_result=transition_result,
+            )
+        except OutputContractError as exc:
+            return self._contract_violation_result(
+                "Resource transition execution failed",
+                {"reason": "resource_transition_contract_invalid", "violations": exc.violations},
+            )
+        except TransitionExecutionError as exc:
+            return self._v214_failure_result(exc.code, str(exc), context=dict(exc.metadata))
+        except Exception as exc:
+            return self._v214_failure_result(
+                "resource_transition_failed",
+                "Resource transition execution failed",
+                context={"error": str(exc)},
+            )
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": artifacts,
+            "debug": {
+                "resource_transition": {
+                    "backend": backend_kind,
+                    "resource_id": normalized_resource.get("resource_id"),
+                    "version": transition_result["version"],
+                    "replayed": transition_result["replayed"],
+                }
+            },
+        }
+
     def _execute_pure_projection(
         self,
         step: Dict[str, Any],
@@ -8478,6 +8596,134 @@ class WorkflowExecutor:
             "artifacts": artifacts,
             "debug": {"pure_projection": {"reused_bundle": False}},
         }
+
+    def _resolve_resource_transition_bindings(
+        self,
+        value: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        if isinstance(value, dict):
+            if set(value) == {"ref"} and isinstance(value.get("ref"), str):
+                return self._resolve_ref_value(value["ref"], state, scope=scope)
+            resolved: dict[str, Any] = {}
+            for key, item in value.items():
+                resolved_item, error = self._resolve_resource_transition_bindings(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved[str(key)] = resolved_item
+            return resolved, None
+        if isinstance(value, (list, tuple)):
+            resolved_list: list[Any] = []
+            for item in value:
+                resolved_item, error = self._resolve_resource_transition_bindings(item, state, scope=scope)
+                if error is not None:
+                    return None, error
+                resolved_list.append(resolved_item)
+            return resolved_list, None
+        try:
+            return self._resolve_runtime_value(value, state, scope=scope), None
+        except (PredicateEvaluationError, ReferenceResolutionError) as exc:
+            return None, self._contract_violation_result(
+                "Resource transition execution failed",
+                {"reason": "unresolved_transition_binding", "error": str(exc)},
+            )
+
+    def _normalize_resource_transition_paths(self, resource: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(resource)
+        for field_name in ("state_path", "audit_path", "bridge_path"):
+            path_value = normalized.get(field_name)
+            if path_value is None:
+                continue
+            if isinstance(path_value, Path):
+                continue
+            if not isinstance(path_value, str):
+                normalized["_path_error"] = field_name
+                return normalized
+            resolved_path = self._resolve_workspace_path(path_value)
+            if resolved_path is None:
+                normalized["_path_error"] = field_name
+                return normalized
+            normalized[field_name] = resolved_path
+        secondary_paths = normalized.get("secondary_state_paths")
+        if secondary_paths is not None:
+            if not isinstance(secondary_paths, list):
+                normalized["_path_error"] = "secondary_state_paths"
+                return normalized
+            resolved_secondary_paths: list[Path] = []
+            for item in secondary_paths:
+                if isinstance(item, Path):
+                    resolved_secondary_paths.append(item)
+                    continue
+                if not isinstance(item, str):
+                    normalized["_path_error"] = "secondary_state_paths"
+                    return normalized
+                resolved_item = self._resolve_workspace_path(item)
+                if resolved_item is None:
+                    normalized["_path_error"] = "secondary_state_paths"
+                    return normalized
+                resolved_secondary_paths.append(resolved_item)
+            normalized["secondary_state_paths"] = resolved_secondary_paths
+        return normalized
+
+    def _resource_transition_artifacts(
+        self,
+        step: Dict[str, Any],
+        *,
+        transition_result: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        output_bundle = step.get("output_bundle")
+        if not isinstance(output_bundle, dict):
+            return {}
+        fields = output_bundle.get("fields")
+        if not isinstance(fields, list):
+            return {}
+        document = {
+            "result": transition_result.get("result"),
+            "version": transition_result.get("version"),
+            "replayed": transition_result.get("replayed"),
+        }
+        artifacts: Dict[str, Any] = {}
+        for spec in fields:
+            if not isinstance(spec, dict):
+                continue
+            artifact_name = spec.get("name")
+            json_pointer = spec.get("json_pointer", "")
+            if not isinstance(artifact_name, str) or not isinstance(json_pointer, str):
+                continue
+            found, candidate = self._resolve_transition_json_pointer(document, json_pointer)
+            if not found:
+                raise OutputContractError(
+                    [{"message": "resource transition output json_pointer did not resolve", "json_pointer": json_pointer}]
+                )
+            artifacts[artifact_name] = validate_contract_value(candidate, spec, workspace=self.workspace)
+        return artifacts
+
+    @staticmethod
+    def _resolve_transition_json_pointer(document: Any, pointer: str) -> tuple[bool, Any]:
+        if pointer == "":
+            return True, document
+        if not pointer.startswith("/"):
+            return False, None
+        current = document
+        for raw_token in pointer[1:].split("/"):
+            token = raw_token.replace("~1", "/").replace("~0", "~")
+            if isinstance(current, Mapping):
+                if token not in current:
+                    return False, None
+                current = current[token]
+                continue
+            if isinstance(current, list):
+                if not token.isdigit():
+                    return False, None
+                index = int(token)
+                if index >= len(current):
+                    return False, None
+                current = current[index]
+                continue
+            return False, None
+        return True, current
 
     def _execute_increment_scalar(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         node = step['increment_scalar']
@@ -8598,17 +8844,23 @@ class WorkflowExecutor:
         for output_name, contract in output_contracts.items():
             if not isinstance(output_name, str) or not isinstance(contract, dict):
                 continue
-            if output_name == "return":
+            if output_name in {"return", "result"}:
                 candidate = result_value
-            elif output_name == "return__variant":
-                candidate = result_value.get("variant") if isinstance(result_value, dict) else None
             else:
-                candidate = result_value
-                for field_name in output_name.removeprefix("return__").split("__"):
-                    if not isinstance(candidate, dict):
-                        candidate = None
-                        break
-                    candidate = candidate.get(field_name)
+                path_parts = output_name.split("__")
+                if len(path_parts) > 1:
+                    path_parts = path_parts[1:]
+                if path_parts == ["variant"]:
+                    candidate = result_value.get("variant") if isinstance(result_value, dict) else None
+                else:
+                    candidate = result_value
+                    for field_name in path_parts:
+                        if not isinstance(candidate, dict):
+                            candidate = None
+                            break
+                        candidate = candidate.get(field_name)
+            if output_name == "return__variant":
+                candidate = result_value.get("variant") if isinstance(result_value, dict) else None
             artifacts[output_name] = validate_contract_value(candidate, contract, workspace=self.workspace)
         return artifacts
 

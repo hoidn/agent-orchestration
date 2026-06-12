@@ -14,6 +14,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendDiagnostic,
     render_diagnostic,
     render_diagnostics,
+    with_diagnostic_metadata,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -41,6 +42,20 @@ PURE_EXPR_HELPER_DIAGNOSTIC_FIXTURES = frozenset(
         INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE,
         INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE,
     }
+)
+TRANSITION_DIAGNOSTIC_FIXTURES = (
+    (
+        FIXTURES / "invalid" / "resource_transition_unknown_transition.orc",
+        "transition_unknown",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_resource_kind_mismatch.orc",
+        "transition_resource_kind_mismatch",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_undeclared_update_target.orc",
+        "transition_update_target_unknown",
+    ),
 )
 
 
@@ -744,6 +759,21 @@ def test_compile_stage3_entrypoint_routes_through_validation_pipeline(tmp_path: 
         "shared_validation",
         "executable",
     ]
+
+
+@pytest.mark.parametrize(("path", "expected_code"), TRANSITION_DIAGNOSTIC_FIXTURES)
+def test_declared_resource_transition_diagnostics_classify_as_typecheck_validation(
+    path: Path,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    diagnostic = with_diagnostic_metadata(excinfo.value.diagnostics[0])
+    assert diagnostic.code == expected_code
+    assert diagnostic.phase == "typecheck"
+    assert diagnostic.validation_pass == "type"
+    assert diagnostic.authority_layer == "frontend"
 
 
 def test_compile_stage3_entrypoint_runs_source_map_and_executable_checkpoints(

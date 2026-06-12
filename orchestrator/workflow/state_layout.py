@@ -38,6 +38,8 @@ class GeneratedPathSemanticRole(str, Enum):
     PROVIDER_RESULT_BUNDLE = "provider_result_bundle"
     VARIANT_PROJECTION_BUNDLE = "variant_projection_bundle"
     PURE_PROJECTION_BUNDLE = "pure_projection_bundle"
+    RESOURCE_STATE = "resource_state"
+    TRANSITION_AUDIT = "transition_audit"
     MATERIALIZED_VALUE_VIEW = "materialized_value_view"
     REUSABLE_CALL_WRITE_ROOT = "reusable_call_write_root"
     ENTRYPOINT_MANAGED_WRITE_ROOT = "entrypoint_managed_write_root"

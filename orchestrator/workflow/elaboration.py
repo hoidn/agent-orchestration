@@ -511,6 +511,11 @@ def _elaborate_step(
         ),
         wait_for=freeze_mapping(step.get("wait_for")) if kind is SurfaceStepKind.WAIT_FOR else freeze_mapping(None),
         set_scalar=freeze_mapping(step.get("set_scalar")) if kind is SurfaceStepKind.SET_SCALAR else freeze_mapping(None),
+        resource_transition=(
+            freeze_mapping(step.get("resource_transition"))
+            if kind is SurfaceStepKind.RESOURCE_TRANSITION
+            else freeze_mapping(None)
+        ),
         pure_projection=(
             freeze_mapping(step.get("pure_projection"))
             if kind is SurfaceStepKind.PURE_PROJECTION
@@ -883,6 +888,10 @@ def _surface_step_kind(
         return SurfaceStepKind.ASSERT
     if "set_scalar" in step:
         return SurfaceStepKind.SET_SCALAR
+    if "resource_transition" in step:
+        if not allow_generated_step_kinds:
+            raise ValueError("resource_transition is compiler-generated only and cannot appear in authored workflows")
+        return SurfaceStepKind.RESOURCE_TRANSITION
     if "pure_projection" in step:
         if not allow_generated_step_kinds:
             raise ValueError("pure_projection is compiler-generated only and cannot appear in authored workflows")
@@ -911,6 +920,10 @@ def _validate_reserved_generated_step_kinds(
             if "pure_projection" in step:
                 validation_backend.add_error(
                     f"Step '{step_name}': pure_projection is compiler-generated only and cannot appear in authored workflows"
+                )
+            if "resource_transition" in step:
+                validation_backend.add_error(
+                    f"Step '{step_name}': resource_transition is compiler-generated only and cannot appear in authored workflows"
                 )
             if is_if_statement(step):
                 visit_block(step.get("then"), "then")

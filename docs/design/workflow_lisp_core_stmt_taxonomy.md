@@ -29,6 +29,7 @@ The current checkout defines these validation-relevant base families:
 - `CoreWaitForStep`
 - `CoreAssertStep`
 - `CoreSetScalarStep`
+- `CoreResourceTransitionStep`
 - `CoreIncrementScalarStep`
 - `CoreMaterializeArtifactsStep`
 - `CoreSelectVariantOutputStep`
@@ -79,12 +80,14 @@ facets instead of standalone `CoreStmt` dataclasses:
   match-case proof narrowing remains shared-validation behavior, not a new
   statement family.
 - Promoted semantic effects
-  `resource_transition` and `ledger_update` come from certified-adapter command
-  boundaries; `snapshot_capture`, `pointer_materialization`, and
-  `pure_projection` come from lowering-generated semantics. The first two stay
-  promoted Semantic IR effects; `pure_projection` is now also represented by a
-  shared generated statement family with attached payload and private-bundle
-  lineage.
+  `resource_transition` now exists in two shared forms: compiler-generated
+  `CoreResourceTransitionStep` for declared runtime-native transitions, and
+  promoted certified-adapter effects for compatibility routes that still lower
+  through `CoreCommandStep`. `ledger_update` remains adapter-promoted for those
+  compatibility routes; `snapshot_capture`, `pointer_materialization`, and
+  `pure_projection` come from lowering-generated semantics. `pure_projection`
+  is also represented by a shared generated statement family with attached
+  payload and private-bundle lineage.
 - State and write-root facets
   Resume checkpoints, presentation keys, and managed write-root inputs remain
   derived state-layout entries keyed to validated workflow identity.
@@ -126,6 +129,7 @@ Ownership remains split across existing shared layers:
 | `CoreWaitForStep` | `wait_for` config | statement row and runtime node only | none beyond wait/runtime control | no proof context | resume checkpoints and presentation keys | step origin, core node, executable nodes | Core AST + runtime plan |
 | `CoreAssertStep` | typed predicate | statement row and runtime node only | none | no proof context | resume checkpoints and presentation keys | step origin, core node, executable nodes | Core AST + runtime plan |
 | `CoreSetScalarStep` | scalar artifact target and literal/ref value | publication refs when attached | none | no proof context | ordinary scalar artifact state only | step origin, core node, executable nodes | Core AST + runtime plan |
+| `CoreResourceTransitionStep` | validated declaration payload, resolved resource metadata, resolved request/expected-version bindings | generated transition result artifacts plus state-layout lineage for `resource_state` / `transition_audit` | explicit `resource_transition` effect; compatibility `ledger_update` stays command-boundary-owned | no separate proof family; runtime declaration governs preconditions and write set | runtime-owned resource-state documents, transition-audit ledgers, and resume replay identity | step origin, core node, executable nodes, generated semantic effects, generated-path lineage | Core AST + Semantic IR + executable IR + runtime plan + source map |
 | `CoreIncrementScalarStep` | scalar artifact target and increment | publication refs when attached | none | no proof context | ordinary scalar artifact state only | step origin, core node, executable nodes | Core AST + runtime plan |
 | `CoreMaterializeArtifactsStep` | materialization value list, pointer metadata | runtime snapshot/materialization plans, publication refs when attached | lowering may later promote `pointer_materialization` | no proof context by itself | ordinary artifact/path state plus pointer authority enforcement | step origin, core node, executable nodes, generated semantic effects when present | Core AST + runtime plan + source map |
 | `CoreSelectVariantOutputStep` | selector config plus snapshot evidence | runtime snapshot plan for `select_variant_output` and selected artifact projections | none directly; consumes prior snapshot evidence | variant-specific reference validation happens in shared validation | ordinary checkpoint/presentation-key state | step origin, core node, executable nodes | Core AST + runtime plan + shared validation |
@@ -145,9 +149,10 @@ literally. The current contract is:
   runtime-visible pure computation and private projection-bundle transport.
 - `publish`, `consume_bundle`, `variant_output`, and `pre_snapshot` are current
   attached facets, not standalone `CoreStmt` dataclasses.
-- `resource_transition` is currently represented through certified-adapter
-  command boundaries plus promoted Semantic IR effects, not through a
-  `CoreResourceTransitionCandidate` dataclass.
+- `CoreResourceTransitionStep` is now a real shared generated base family for
+  declared runtime-native transitions, while certified-adapter
+  `resource_transition` / `ledger_update` compatibility routes still travel
+  through `CoreCommandStep`.
 - `snapshot_capture` and `pointer_materialization` are still promoted generated
   effects with source-map lineage, not statement families.
 - Source maps, runtime-plan summaries, build artifacts, and observability views

@@ -52,6 +52,12 @@ inventing fake authored statements:
 not evidence that the authored expression gained provider, command, IO, or
 state-mutation effects. The underlying pure-expression tree remains effect-free.
 
+Declared runtime-native `resource-transition` is a real state-mutation effect,
+not just visibility metadata. The generated step must therefore emit explicit
+`resource_transition` effect entries with backend/resource identity, while any
+still-live compatibility adapter route may additionally surface
+`resource_transition` / `ledger_update` through command-boundary metadata.
+
 ## Pure Forms
 
 Pure helpers may compute names, paths, records, constants, and schemas. They
@@ -87,6 +93,8 @@ Effect validation checks:
 - disallowed effects are rejected in pure contexts
 - workflow summaries include nested procedure effects
 - resource transitions have required capabilities
+- runtime-native resource transitions expose private `resource_state` and
+  `transition_audit` lineage
 - command and provider effects have output validation
 - semantic command behavior is either a typed procedure, a typed call, a
   certified command adapter, or a runtime-native effect

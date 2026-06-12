@@ -143,6 +143,14 @@ class CoreSetScalarStep:
 
 
 @dataclass(frozen=True)
+class CoreResourceTransitionStep:
+    meta: CoreStmtMeta
+    common: Any
+    resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class CorePureProjectionStep:
     meta: CoreStmtMeta
     common: Any
@@ -523,6 +531,13 @@ def _build_statement(
             set_scalar=step.set_scalar,
             _surface_step=step,
         )
+    if step.kind is SurfaceStepKind.RESOURCE_TRANSITION:
+        return CoreResourceTransitionStep(
+            meta=meta,
+            common=step.common,
+            resource_transition=step.resource_transition,
+            _surface_step=step,
+        )
     if step.kind is SurfaceStepKind.PURE_PROJECTION:
         return CorePureProjectionStep(
             meta=meta,
@@ -872,6 +887,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["assert_predicate"] = statement.assert_predicate
     elif isinstance(statement, CoreSetScalarStep):
         kwargs["set_scalar"] = statement.set_scalar
+    elif isinstance(statement, CoreResourceTransitionStep):
+        kwargs["resource_transition"] = statement.resource_transition
     elif isinstance(statement, CorePureProjectionStep):
         kwargs["pure_projection"] = statement.pure_projection
     elif isinstance(statement, CoreIncrementScalarStep):
@@ -1062,6 +1079,9 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
         return payload
     if isinstance(statement, CoreSetScalarStep):
         payload.update({"kind": "set_scalar", "set_scalar": _json_data(statement.set_scalar)})
+        return payload
+    if isinstance(statement, CoreResourceTransitionStep):
+        payload.update({"kind": "resource_transition", "resource_transition": _json_data(statement.resource_transition)})
         return payload
     if isinstance(statement, CorePureProjectionStep):
         payload.update({"kind": "pure_projection", "pure_projection": _json_data(statement.pure_projection)})

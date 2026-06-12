@@ -22,6 +22,7 @@ from .executable_ir import ExecutableWorkflow
 from .runtime_plan import WorkflowRuntimePlan
 from .state_projection import WorkflowStateProjection
 from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, WorkflowProvenance, empty_frozen_mapping
+from .transition_contract import ValidatedTransitionDeclaration
 
 
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
@@ -385,6 +386,28 @@ def derive_workflow_semantic_ir(
                 boundary_kind=boundary_kind,
                 boundary_name=boundary_name,
                 output_validation_surface=_output_validation_surface(step),
+            )
+            statement_effect_ids.append(effect_id)
+
+        if step.kind is SurfaceStepKind.RESOURCE_TRANSITION:
+            effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "resource_transition")
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                effect_kind="resource_transition",
+                details=_generated_resource_transition_effect_details(
+                    workflow_name=workflow_name,
+                    statement=statements.get(statement_id)
+                    or SemanticStatement(
+                        statement_id=statement_id,
+                        workflow_name=workflow_name,
+                        step_id=statement_surface.step_id,
+                        step_name=step.name,
+                        step_kind=statement_surface.step_kind,
+                    ),
+                    surface_step=step,
+                ),
             )
             statement_effect_ids.append(effect_id)
 
@@ -823,7 +846,21 @@ def validate_workflow_semantic_ir(
                     ),
                 ),
             )
-        if effect.effect_kind in _PROMOTED_ADAPTER_EFFECT_KINDS:
+        if effect.effect_kind == "resource_transition":
+            if effect.boundary_kind == "certified_adapter":
+                _validate_promoted_adapter_effect(
+                    semantic_ir,
+                    workflow=workflow,
+                    workflow_name=workflow_name,
+                    effect=effect,
+                )
+            else:
+                _validate_generated_resource_transition_effect(
+                    workflow=workflow,
+                    workflow_name=workflow_name,
+                    effect=effect,
+                )
+        elif effect.effect_kind in _PROMOTED_ADAPTER_EFFECT_KINDS:
             _validate_promoted_adapter_effect(
                 semantic_ir,
                 workflow=workflow,
@@ -1719,6 +1756,51 @@ def _generated_promoted_effect_details(
     )
 
 
+def _generated_resource_transition_effect_details(
+    *,
+    workflow_name: str,
+    statement: SemanticStatement,
+    surface_step: SurfaceStep,
+) -> Mapping[str, Any]:
+    payload = surface_step.resource_transition
+    if not isinstance(payload, Mapping):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: generated resource transition `{statement.step_id}` requires a resource_transition payload",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    declaration = payload.get("declaration")
+    resource = payload.get("resource")
+    if not isinstance(declaration, ValidatedTransitionDeclaration):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: generated resource transition `{statement.step_id}` requires a validated declaration",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(resource, Mapping):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: generated resource transition `{statement.step_id}` requires resource metadata",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    resource_id = resource.get("resource_id")
+    if not isinstance(resource_id, str) or not resource_id:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: generated resource transition `{statement.step_id}` requires a resource_id",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    return MappingProxyType(
+        {
+            "transition_kind": "resource_transition_runtime",
+            "transition_name": declaration.transition.name,
+            "resource_kind": declaration.resource.resource_kind,
+            "resource_id": resource_id,
+            "backend_kind": declaration.transition.backend.get("kind"),
+        }
+    )
+
+
 def _subject_refs_for_node(
     workflow_name: str,
     node_id: str | None,
@@ -1872,6 +1954,35 @@ def _validate_promoted_adapter_effect(
             workflow_name=workflow_name,
             subject_refs=_subject_refs_for_statement(workflow_name, statement),
         )
+
+
+def _validate_generated_resource_transition_effect(
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    if statement.step_kind != SurfaceStepKind.RESOURCE_TRANSITION.value:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: generated resource transition effect `{effect.effect_id}` requires a resource_transition statement",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if effect.details.get("transition_kind") != "resource_transition_runtime":
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: generated resource transition effect `{effect.effect_id}` requires runtime transition details",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    for detail_key in ("transition_name", "resource_kind", "resource_id", "backend_kind"):
+        detail_value = effect.details.get(detail_key)
+        if not isinstance(detail_value, str) or not detail_value:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: generated resource transition effect `{effect.effect_id}` is missing `{detail_key}`",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
 
 
 def _validate_provider_bundle_path_projection_effect(

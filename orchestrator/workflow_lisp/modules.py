@@ -57,6 +57,8 @@ class ModuleExportSurface:
     module_name: str
     types_by_name: Mapping[str, ModuleMemberBinding]
     schemas_by_name: Mapping[str, ModuleMemberBinding]
+    resources_by_name: Mapping[str, ModuleMemberBinding]
+    transitions_by_name: Mapping[str, ModuleMemberBinding]
     macros_by_name: Mapping[str, ModuleMemberBinding]
     functions_by_name: Mapping[str, ModuleMemberBinding]
     procedures_by_name: Mapping[str, ModuleMemberBinding]
@@ -68,6 +70,8 @@ class ModuleExportSurface:
         for bindings in (
             self.types_by_name,
             self.schemas_by_name,
+            self.resources_by_name,
+            self.transitions_by_name,
             self.macros_by_name,
             self.functions_by_name,
             self.procedures_by_name,
@@ -93,6 +97,8 @@ class ModuleImportScope:
     explicitly_imported_modules: frozenset[str]
     type_bindings: Mapping[str, ModuleMemberBinding]
     schema_bindings: Mapping[str, ModuleMemberBinding]
+    resource_bindings: Mapping[str, ModuleMemberBinding]
+    transition_bindings: Mapping[str, ModuleMemberBinding]
     macro_bindings: Mapping[str, ModuleMemberBinding]
     function_bindings: Mapping[str, ModuleMemberBinding]
     procedure_bindings: Mapping[str, ModuleMemberBinding]
@@ -156,6 +162,44 @@ class ModuleImportScope:
             explicitly_imported_modules=self.explicitly_imported_modules,
             imported_bindings=self.procedure_bindings,
             kind_label="procedure",
+            span=span,
+            form_path=form_path,
+        )
+        if qualified is not None:
+            return qualified.canonical_name
+        return name
+
+    def resolve_resource_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a resource reference to the canonical declaration key."""
+
+        binding = self.resource_bindings.get(name)
+        if binding is not None:
+            return binding.canonical_name
+        qualified = _resolve_qualified_binding(
+            name,
+            alias_to_module=self.alias_to_module,
+            explicitly_imported_modules=self.explicitly_imported_modules,
+            imported_bindings=self.resource_bindings,
+            kind_label="resource",
+            span=span,
+            form_path=form_path,
+        )
+        if qualified is not None:
+            return qualified.canonical_name
+        return name
+
+    def resolve_transition_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a transition reference to the canonical declaration key."""
+
+        binding = self.transition_bindings.get(name)
+        if binding is not None:
+            return binding.canonical_name
+        qualified = _resolve_qualified_binding(
+            name,
+            alias_to_module=self.alias_to_module,
+            explicitly_imported_modules=self.explicitly_imported_modules,
+            imported_bindings=self.transition_bindings,
+            kind_label="transition",
             span=span,
             form_path=form_path,
         )
@@ -354,6 +398,14 @@ def derive_export_surface(
         schema.name
         for schema in (local_module.schemas if local_module is not None else ())
     }
+    resource_names = {
+        resource.name
+        for resource in (local_module.resources if local_module is not None else ())
+    }
+    transition_names = {
+        transition.name
+        for transition in (local_module.transitions if local_module is not None else ())
+    }
     macro_catalog = local_macros or MacroCatalog(definitions_by_name={})
     local_form_names = {
         "defun": set(function_names),
@@ -372,10 +424,16 @@ def derive_export_surface(
                     type_names.add(name)
             if head == "defschema" and name is not None:
                 schema_names.add(name)
+            if head == "defresource" and name is not None:
+                resource_names.add(name)
+            if head == "deftransition" and name is not None:
+                transition_names.add(name)
             if head in local_form_names and name is not None:
                 local_form_names[head].add(name)
     exported_types: dict[str, ModuleMemberBinding] = {}
     exported_schemas: dict[str, ModuleMemberBinding] = {}
+    exported_resources: dict[str, ModuleMemberBinding] = {}
+    exported_transitions: dict[str, ModuleMemberBinding] = {}
     exported_macros: dict[str, ModuleMemberBinding] = {}
     exported_functions: dict[str, ModuleMemberBinding] = {}
     exported_procedures: dict[str, ModuleMemberBinding] = {}
@@ -405,6 +463,22 @@ def derive_export_surface(
         if exported_name in schema_names:
             exported_schemas[exported_name] = ModuleMemberBinding(
                 kind="schema",
+                module_name=module_name,
+                member_name=exported_name,
+                canonical_name=canonical_callable_key(module_name, exported_name),
+            )
+            continue
+        if exported_name in resource_names:
+            exported_resources[exported_name] = ModuleMemberBinding(
+                kind="resource",
+                module_name=module_name,
+                member_name=exported_name,
+                canonical_name=canonical_callable_key(module_name, exported_name),
+            )
+            continue
+        if exported_name in transition_names:
+            exported_transitions[exported_name] = ModuleMemberBinding(
+                kind="transition",
                 module_name=module_name,
                 member_name=exported_name,
                 canonical_name=canonical_callable_key(module_name, exported_name),
@@ -447,7 +521,7 @@ def derive_export_surface(
                 (
                     LispFrontendDiagnostic(
                         code="module_export_missing",
-                        message=f"export `{exported_name}` is not a locally defined type, macro, function, procedure, or workflow",
+                        message=f"export `{exported_name}` is not a locally defined type, schema, resource, transition, macro, function, procedure, or workflow",
                         span=syntax_module.export_directive.span if syntax_module.export_directive else syntax_module.span,
                         form_path=syntax_module.export_directive.form_path if syntax_module.export_directive else ("workflow-lisp",),
                     ),
@@ -457,6 +531,8 @@ def derive_export_surface(
         module_name=module_name,
         types_by_name=exported_types,
         schemas_by_name=exported_schemas,
+        resources_by_name=exported_resources,
+        transitions_by_name=exported_transitions,
         macros_by_name=exported_macros,
         functions_by_name=exported_functions,
         procedures_by_name=exported_procedures,
@@ -479,6 +555,8 @@ def build_import_scope(
     alias_to_module: dict[str, str] = {}
     type_bindings: dict[str, ModuleMemberBinding] = {}
     schema_bindings: dict[str, ModuleMemberBinding] = {}
+    resource_bindings: dict[str, ModuleMemberBinding] = {}
+    transition_bindings: dict[str, ModuleMemberBinding] = {}
     macro_bindings: dict[str, ModuleMemberBinding] = {}
     function_bindings: dict[str, ModuleMemberBinding] = {}
     procedure_bindings: dict[str, ModuleMemberBinding] = {}
@@ -515,6 +593,8 @@ def build_import_scope(
             surface,
             type_bindings,
             schema_bindings,
+            resource_bindings,
+            transition_bindings,
             macro_bindings,
             function_bindings,
             procedure_bindings,
@@ -566,6 +646,8 @@ def build_import_scope(
                 unqualified_schema_bindings[member_name] = binding
                 continue
             target_bindings = {
+                "resource": resource_bindings,
+                "transition": transition_bindings,
                 "macro": macro_bindings,
                 "function": function_bindings,
                 "procedure": procedure_bindings,
@@ -612,6 +694,8 @@ def build_import_scope(
         explicitly_imported_modules=frozenset(import_directive.module_name for import_directive in module.imports),
         type_bindings=type_bindings,
         schema_bindings=schema_bindings,
+        resource_bindings=resource_bindings,
+        transition_bindings=transition_bindings,
         macro_bindings=macro_bindings,
         function_bindings=function_bindings,
         procedure_bindings=procedure_bindings,
@@ -642,6 +726,8 @@ def _register_alias_bindings(
     surface: ModuleExportSurface,
     type_bindings: dict[str, ModuleMemberBinding],
     schema_bindings: dict[str, ModuleMemberBinding],
+    resource_bindings: dict[str, ModuleMemberBinding],
+    transition_bindings: dict[str, ModuleMemberBinding],
     macro_bindings: dict[str, ModuleMemberBinding],
     function_bindings: dict[str, ModuleMemberBinding],
     procedure_bindings: dict[str, ModuleMemberBinding],
@@ -653,6 +739,12 @@ def _register_alias_bindings(
     for member_name, binding in surface.schemas_by_name.items():
         schema_bindings[f"{alias}.{member_name}"] = binding
         schema_bindings[f"{surface.module_name}/{member_name}"] = binding
+    for member_name, binding in surface.resources_by_name.items():
+        resource_bindings[f"{alias}.{member_name}"] = binding
+        resource_bindings[f"{surface.module_name}/{member_name}"] = binding
+    for member_name, binding in surface.transitions_by_name.items():
+        transition_bindings[f"{alias}.{member_name}"] = binding
+        transition_bindings[f"{surface.module_name}/{member_name}"] = binding
     for member_name, binding in surface.macros_by_name.items():
         macro_bindings[f"{alias}.{member_name}"] = binding
         macro_bindings[f"{surface.module_name}/{member_name}"] = binding

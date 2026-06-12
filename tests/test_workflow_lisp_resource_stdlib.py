@@ -34,10 +34,37 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_stdlib_transition.orc"
 VALID_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
 VALID_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_selected_item.orc"
+VALID_DECLARED_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_transition_declared_runtime.orc"
 INVALID_ITEM_CTX_FIXTURE = FIXTURES / "invalid" / "item_ctx_contract_invalid.orc"
 INVALID_DRAIN_CTX_FIXTURE = FIXTURES / "invalid" / "drain_ctx_contract_invalid.orc"
 INVALID_UNCERTIFIED_FIXTURE = FIXTURES / "invalid" / "resource_transition_uncertified_adapter.orc"
 INVALID_CERTIFIED_ADAPTER_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
+INVALID_DECLARED_TRANSITION_FIXTURES = (
+    (
+        FIXTURES / "invalid" / "resource_transition_unknown_transition.orc",
+        "transition_unknown",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_resource_kind_mismatch.orc",
+        "transition_resource_kind_mismatch",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_precondition_non_bool.orc",
+        "transition_declaration_invalid",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_undeclared_update_target.orc",
+        "transition_update_target_unknown",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_result_projection_type_mismatch.orc",
+        "transition_result_projection_type_mismatch",
+    ),
+    (
+        FIXTURES / "invalid" / "resource_transition_runtime_forbidden_value.orc",
+        "proc_ref_runtime_transport_forbidden",
+    ),
+)
 
 
 def _build_syntax_module(path: Path):
@@ -112,6 +139,17 @@ def _command_boundary_environment(
             source_map_behavior="step",
             fixture_ids=("resolve_plan_gate_ok",),
             negative_fixture_ids=("resolve_plan_gate_bad",),
+        ),
+        "resolve_roadmap_sync": CertifiedAdapterBinding(
+            name="resolve_roadmap_sync",
+            stable_command=("python", "scripts/resolve_roadmap_sync.py"),
+            input_contract={"type": "object"},
+            output_type_name="RoadmapSyncResult",
+            effects=("structured_result",),
+            path_safety={"kind": "workspace_relpath"},
+            source_map_behavior="step",
+            fixture_ids=("resolve_roadmap_sync_ok",),
+            negative_fixture_ids=("resolve_roadmap_sync_bad",),
         ),
         "execute_implementation": CertifiedAdapterBinding(
             name="execute_implementation",
@@ -239,6 +277,23 @@ def test_elaborate_resource_transition_expr() -> None:
     assert type(expr).__name__ == "ResourceTransitionExpr"
 
 
+def test_elaborate_declared_resource_transition_expr() -> None:
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(resource-transition "
+            ":transition write-drain-status "
+            ":resource drain-run-state "
+            ':request (record DrainStatusRequest :status "BLOCKED"))'
+        ),
+        bound_names=frozenset(),
+    )
+
+    assert type(expr).__name__ == "ResourceTransitionExpr"
+    assert expr.spec.transition_ref_name == "write-drain-status"
+    assert expr.spec.resource_ref_name == "drain-run-state"
+    assert expr.spec.request_expr is not None
+
+
 def test_elaborate_finalize_selected_item_expr() -> None:
     expr = elaborate_expression(
         _expression_syntax(
@@ -260,6 +315,12 @@ def test_typecheck_accepts_item_ctx_contract() -> None:
     typed = _typecheck_fixture(VALID_TRANSITION_FIXTURE)
 
     assert [workflow.definition.name for workflow in typed] == ["move-selected-item"]
+
+
+def test_typecheck_accepts_declared_resource_transition_fixture() -> None:
+    typed = _typecheck_fixture(VALID_DECLARED_TRANSITION_FIXTURE)
+
+    assert [workflow.definition.name for workflow in typed] == ["orchestrate"]
 
 
 def test_typecheck_resource_transition_infers_promoted_effects() -> None:
@@ -756,6 +817,17 @@ def test_typecheck_rejects_resource_transition_with_bool_resource_operand(tmp_pa
     assert excinfo.value.diagnostics[0].code == "resource_transition_contract_invalid"
 
 
+@pytest.mark.parametrize(("path", "expected_code"), INVALID_DECLARED_TRANSITION_FIXTURES)
+def test_typecheck_declared_resource_transition_reports_typed_diagnostics(
+    path: Path,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(path)
+
+    assert excinfo.value.diagnostics[0].code == expected_code
+
+
 def test_typecheck_rejects_finalize_selected_item_with_malformed_phase_results(tmp_path: Path) -> None:
     path = tmp_path / "finalize_selected_item_wrong_phase_results.orc"
     path.write_text(
@@ -1110,9 +1182,9 @@ def test_resource_stdlib_contract_inventory_matches_lowering_families(tmp_path: 
 
     transition_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["resource-transition"]
     assert transition_contract.family == "resource_finalize_drain"
-    assert transition_contract.backend_kinds == ("certified_adapter",)
-    assert transition_contract.required_statement_families == ("command_step", "output_bundle")
-    assert transition_contract.alternative_statement_family_sets == ()
+    assert transition_contract.backend_kinds == ("certified_adapter", "runtime_native")
+    assert transition_contract.required_statement_families == ("output_bundle",)
+    assert transition_contract.alternative_statement_family_sets == (("command_step", "resource_transition"),)
     assert transition_contract.delegated_statement_family_policy == "none"
     assert transition_contract.state_root_policies == ("generated_hidden_bundle_input",)
     assert transition_contract.authority_model == "validated_structured_result_bundle"
@@ -1163,17 +1235,27 @@ def test_resource_stdlib_contract_inventory_matches_lowering_families(tmp_path: 
         "generated_step_span",
         "generated_hidden_path_span",
     )
-    _assert_contract_matches_observed_families(
-        finalize_contract,
-        steps=finalize_lowered.authored_mapping["steps"],
+
+
+def test_lowering_declared_resource_transition_emits_generated_runtime_step(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_DECLARED_TRANSITION_FIXTURE,
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
     )
-    _assert_contract_source_map_expectations(
-        finalize_contract,
-        finalize_lowered,
-        generated_paths=(
-            ".orchestrate/workflow_lisp/run-selected-item/selected_item_summary.txt",
-        ),
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
     )
+    bundle = result.validated_bundles["orchestrate"]
+    step = bundle.surface.steps[0]
+
+    assert step.kind.value == "resource_transition"
+    assert step.resource_transition["declaration"].transition.name == "write-drain-status"
+    assert step.resource_transition["resource"]["resource_id"] == "drain-run-state"
+    assert lowered.typed_workflow.definition.name == "orchestrate"
 
 
 def test_shared_validation_accepts_resource_transition_and_finalize_selected_item(tmp_path: Path) -> None:

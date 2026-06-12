@@ -415,6 +415,12 @@
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "runtime-native selected-item transition",
     "invocation_protocol": "json_object_positional_arg",
+    "transition_binding": {
+      "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
+      "resource_kind": "drain-run-state",
+      "contract_role": "migration_backend",
+      "backend_selector": "record_terminal_work_item"
+    },
     "retirement_class": "resource_transition",
     "retirement_label": "retire_to_transition",
     "replacement_surface": "runtime-native selected-item resource transition",
@@ -548,6 +554,12 @@
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "runtime-native blocked-recovery transition",
     "invocation_protocol": "json_object_positional_arg",
+    "transition_binding": {
+      "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+      "resource_kind": "drain-run-state",
+      "contract_role": "migration_backend",
+      "backend_selector": "record_blocked_recovery_outcome"
+    },
     "retirement_class": "resource_transition",
     "retirement_label": "retire_to_transition",
     "replacement_surface": "runtime-native blocked-recovery resource transition",
@@ -621,6 +633,12 @@
     "owner_module": "lisp_frontend_design_delta/drain",
     "replacement_path": "runtime-native parent drain status transition",
     "invocation_protocol": "json_object_positional_arg",
+    "transition_binding": {
+      "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+      "resource_kind": "drain-run-state",
+      "contract_role": "migration_backend",
+      "backend_selector": "write_lisp_frontend_drain_status"
+    },
     "retirement_class": "resource_transition",
     "retirement_label": "retire_to_transition",
     "replacement_surface": "runtime-native drain status transition",

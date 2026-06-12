@@ -13,14 +13,19 @@ if TYPE_CHECKING:
 class ResourceTransitionSpec:
     """Authored arguments for a `resource-transition` stdlib call."""
 
-    transition_name: str
-    ctx_expr: "ExprNode"
-    when_expr: "ExprNode | None"
-    resource_expr: "ExprNode"
-    from_queue_name: str
-    to_queue_name: str
-    ledger_expr: "ExprNode"
-    event_name: str
+    mode: str
+    transition_name: str | None = None
+    ctx_expr: "ExprNode | None" = None
+    when_expr: "ExprNode | None" = None
+    resource_expr: "ExprNode | None" = None
+    from_queue_name: str | None = None
+    to_queue_name: str | None = None
+    ledger_expr: "ExprNode | None" = None
+    event_name: str | None = None
+    transition_ref_name: str | None = None
+    resource_ref_name: str | None = None
+    expected_version_expr: "ExprNode | None" = None
+    request_expr: "ExprNode | None" = None
 
 
 @dataclass(frozen=True)

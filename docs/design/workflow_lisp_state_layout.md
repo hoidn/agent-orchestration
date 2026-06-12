@@ -90,9 +90,9 @@ Resume must reconstruct the same concrete generated path for the same run and
 call-frame/loop identity. A new run may receive a different private concrete
 path while preserving the same semantic identity in debug output.
 
-## Current Pure Projection Bundle Roles
+## Current Generated Path Roles
 
-The current checkout adds one projection-specific generated path role:
+The current checkout adds these generated path roles:
 
 - `PURE_PROJECTION_BUNDLE`
   Compiler/runtime-private bundle transport for a visible generated
@@ -106,6 +106,16 @@ The current checkout adds one projection-specific generated path role:
   The generated input name remains private runtime boundary surface. Loaded
   bundles must classify it as a managed write-root input rather than exposing
   it as a public authored workflow input.
+- `RESOURCE_STATE`
+  Runtime-owned private generated document path for native
+  `Resource<TState>` backing. These allocations are `PRIVATE_GENERATED`,
+  resume at `RUN` scope, and hold versioned typed state rather than public
+  authored workflow inputs.
+- `TRANSITION_AUDIT`
+  Runtime-owned private generated JSONL ledger path for append-only
+  transition-audit rows. These allocations are `PRIVATE_GENERATED`, resume at
+  `RUN` scope, and carry idempotency/replay evidence rather than user-authored
+  artifacts.
 
 ## Validation Responsibilities
 
@@ -121,6 +131,8 @@ State layout validation checks:
   runs unless explicitly authored as stable workspace artifacts
 - `pure_projection_bundle` allocations round-trip through the same managed
   write-root bridge as other private generated result bundles
+- `resource_state` and `transition_audit` allocations remain private generated
+  state, not public boundary inputs or materialized view paths
 
 ## Required Invariants
 
@@ -128,6 +140,9 @@ State layout validation checks:
 - Private generated write paths are run-isolated by default.
 - Generated pure projection bundles remain private transport, not public
   authored workflow inputs.
+- Runtime-owned `resource_state` and `transition_audit` paths remain private
+  generated state even when one transition still bridges to a legacy state
+  document.
 - State paths are source-mapped when generated from frontend forms.
 - Private executable context bindings remain private workflow inputs; public
   authored boundaries expose only user-bindable inputs.

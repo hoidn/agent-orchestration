@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from textwrap import dedent
 
 import pytest
 
@@ -11,7 +12,7 @@ from orchestrator.workflow_lisp.command_boundaries import (
     CommandBoundaryEnvironment,
     build_command_boundary_environment,
 )
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import CommandResultExpr, elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -213,12 +214,123 @@ def _expression_syntax(source: str) -> SyntaxNode:
     )
 
 
+def _declared_transition_module_source(*, backend: str = "write_drain_status_adapter") -> str:
+    return (
+        dedent(
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.14")
+              (defpath StateFile
+                :kind relpath
+                :under "state"
+                :must-exist false)
+              (defrecord DrainRunState
+                (drain_status String))
+              (defrecord DrainStatusRequest
+                (status String))
+              (defrecord DrainStatusResult
+                (status String))
+              (defrecord DrainStatusAudit
+                (status String))
+              (defrecord Output
+                (status String))
+              (defresource drain-run-state
+                :state-type DrainRunState
+                :backing state-layout)
+              (deftransition write-drain-status
+                :resource drain-run-state
+                :request-type DrainStatusRequest
+                :result-type DrainStatusResult
+                :preconditions ((!= request.status ""))
+                :updates ((set-field drain_status request.status))
+                :write-set (drain_status)
+                :idempotency-fields (status)
+                :result (record DrainStatusResult
+                  :status request.status)
+                :audit (record DrainStatusAudit
+                  :status request.status)
+                :conflict-policy fail_closed
+                :backend {backend})
+              (defworkflow orchestrate
+                ((status String))
+                -> Output
+                (record Output
+                  :status status)))
+            """
+        ).strip()
+        + "\n"
+    )
+
+
 def _compile_fixture(path: Path, *, tmp_path: Path):
     return compile_stage3_module(
         path,
         command_boundaries=_command_boundaries(),
         validate_shared=False,
         workspace_root=tmp_path,
+    )
+
+
+def _declared_transition_runtime_module_source(*, backend: str = "write_drain_status_adapter") -> str:
+    return (
+        dedent(
+            f"""
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.14")
+              (defmodule declared/runtime)
+              (defpath StateFile
+                :kind relpath
+                :under "state"
+                :must-exist false)
+              (defrecord DrainRunState
+                (drain_status String)
+                (drain_status_reason String))
+              (defrecord DrainStatusRequest
+                (status String)
+                (reason String))
+              (defrecord DrainStatusResult
+                (status String))
+              (defrecord DrainStatusAudit
+                (status String))
+              (defrecord Output
+                (status String))
+              (defresource drain-run-state
+                :state-type DrainRunState
+                :backing (bridge run_state_path))
+              (deftransition write-drain-status
+                :resource drain-run-state
+                :request-type DrainStatusRequest
+                :result-type DrainStatusResult
+                :preconditions ((!= request.status ""))
+                :updates ((set-field drain_status request.status)
+                          (set-field drain_status_reason request.reason))
+                :write-set (drain_status drain_status_reason)
+                :idempotency-fields (status reason)
+                :result (record DrainStatusResult
+                  :status request.status)
+                :audit (record DrainStatusAudit
+                  :status request.status)
+                :conflict-policy fail_closed
+                :backend {backend})
+              (defworkflow orchestrate
+                ((run_state_path StateFile)
+                 (status String)
+                 (reason String))
+                -> Output
+                (let* ((result
+                         (resource-transition
+                           :transition write-drain-status
+                           :resource drain-run-state
+                           :request (record DrainStatusRequest
+                             :status status
+                             :reason reason))))
+                  (record Output
+                    :status result.status))))
+            """
+        ).strip()
+        + "\n"
     )
 
 
@@ -239,6 +351,212 @@ def test_command_result_adapter_manifest_supports_typed_metadata() -> None:
     assert binding.replacement_path is None
 
 
+def test_command_result_adapter_manifest_preserves_transition_binding_metadata() -> None:
+    payload = _typed_adapter_manifest_payload()
+    payload["apply_resource_transition"]["transition_binding"] = {
+        "transition_name": "write-drain-status",
+        "resource_kind": "drain-run-state",
+        "contract_role": "migration_backend",
+        "backend_selector": "apply_resource_transition",
+    }
+
+    bindings = _validated_command_boundaries(payload).bindings_by_name
+    binding = bindings["apply_resource_transition"]
+
+    assert getattr(binding, "transition_binding").transition_name == "write-drain-status"
+    assert getattr(binding, "transition_binding").resource_kind == "drain-run-state"
+    assert getattr(binding, "transition_binding").contract_role == "migration_backend"
+    assert getattr(binding, "transition_binding").backend_selector == "apply_resource_transition"
+
+
+def test_command_result_adapter_manifest_rejects_invalid_transition_binding_role() -> None:
+    payload = _typed_adapter_manifest_payload()
+    payload["apply_resource_transition"]["transition_binding"] = {
+        "transition_name": "write-drain-status",
+        "resource_kind": "drain-run-state",
+        "contract_role": "typed_projection",
+        "backend_selector": "apply_resource_transition",
+    }
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _validated_command_boundaries(payload)
+
+    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
+    assert "migration_backend" in excinfo.value.diagnostics[0].message
+
+
+def test_compile_stage3_module_rejects_transition_binding_backend_mismatch(tmp_path: Path) -> None:
+    path = tmp_path / "transition_binding_backend_mismatch.orc"
+    path.write_text(_declared_transition_module_source(), encoding="utf-8")
+    payload = {
+        "write_drain_status_adapter": {
+            "kind": "certified_adapter",
+            "stable_command": ["python", "scripts/write_drain_status.py"],
+            "input_contract": {"type": "object"},
+            "output_type_name": "DrainStatusResult",
+            "effects": ["resource_transition", "ledger_update"],
+            "path_safety": {"kind": "workspace_relpath"},
+            "source_map_behavior": "step",
+            "fixture_ids": ["write_drain_status_ok"],
+            "negative_fixture_ids": ["write_drain_status_bad"],
+            "behavior_class": "resource_transition",
+            "input_signature": [
+                {
+                    "name": "run_state_path",
+                    "type_name": "StateFile",
+                    "required": True,
+                    "transport_key": "run_state_path",
+                }
+            ],
+            "artifact_contracts": ["write_drain_status_bundle"],
+            "state_writes": ["state/run-state.json"],
+            "error_codes": ["write_drain_status_invalid"],
+            "owner_module": "declared/runtime",
+            "replacement_path": "resource-transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "transition_binding": {
+                "transition_name": "write-drain-status",
+                "resource_kind": "drain-run-state",
+                "contract_role": "migration_backend",
+                "backend_selector": "different_adapter",
+            },
+        }
+    }
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            command_boundaries=_parse_command_boundaries_manifest(
+                payload,
+                manifest_path=None,
+            ),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
+    assert "backend" in excinfo.value.diagnostics[0].message
+
+
+def test_compile_stage3_module_rejects_transition_binding_for_runtime_native_transition(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "transition_binding_runtime_native_backend.orc"
+    path.write_text(
+        _declared_transition_module_source(backend="runtime_native"),
+        encoding="utf-8",
+    )
+    payload = {
+        "write_drain_status_adapter": {
+            "kind": "certified_adapter",
+            "stable_command": ["python", "scripts/write_drain_status.py"],
+            "input_contract": {"type": "object"},
+            "output_type_name": "DrainStatusResult",
+            "effects": ["resource_transition", "ledger_update"],
+            "path_safety": {"kind": "workspace_relpath"},
+            "source_map_behavior": "step",
+            "fixture_ids": ["write_drain_status_ok"],
+            "negative_fixture_ids": ["write_drain_status_bad"],
+            "behavior_class": "resource_transition",
+            "input_signature": [
+                {
+                    "name": "run_state_path",
+                    "type_name": "StateFile",
+                    "required": True,
+                    "transport_key": "run_state_path",
+                }
+            ],
+            "artifact_contracts": ["write_drain_status_bundle"],
+            "state_writes": ["state/run-state.json"],
+            "error_codes": ["write_drain_status_invalid"],
+            "owner_module": "declared/runtime",
+            "replacement_path": "resource-transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "transition_binding": {
+                "transition_name": "write-drain-status",
+                "resource_kind": "drain-run-state",
+                "contract_role": "migration_backend",
+                "backend_selector": "write_drain_status_adapter",
+            },
+        }
+    }
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            command_boundaries=_parse_command_boundaries_manifest(
+                payload,
+                manifest_path=None,
+            ),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
+    assert "runtime_native" in excinfo.value.diagnostics[0].message
+
+
+def test_compile_stage3_module_preserves_certified_transition_backend_metadata_for_runtime_step(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "declared" / "runtime.orc"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_declared_transition_runtime_module_source(), encoding="utf-8")
+    payload = {
+        "write_drain_status_adapter": {
+            "kind": "certified_adapter",
+            "stable_command": ["python", "scripts/write_drain_status.py"],
+            "input_contract": {"type": "object"},
+            "output_type_name": "DrainStatusResult",
+            "effects": ["resource_transition", "ledger_update"],
+            "path_safety": {"kind": "workspace_relpath"},
+            "source_map_behavior": "step",
+            "fixture_ids": ["write_drain_status_ok"],
+            "negative_fixture_ids": ["write_drain_status_bad"],
+            "behavior_class": "resource_transition",
+            "input_signature": [
+                {
+                    "name": "run_state_path",
+                    "type_name": "StateFile",
+                    "required": True,
+                    "transport_key": "run_state_path",
+                }
+            ],
+            "artifact_contracts": ["write_drain_status_bundle"],
+            "state_writes": ["state/run-state.json"],
+            "error_codes": ["write_drain_status_invalid"],
+            "owner_module": "declared/runtime",
+            "replacement_path": "resource-transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "transition_binding": {
+                "transition_name": "declared/runtime::write-drain-status",
+                "resource_kind": "drain-run-state",
+                "contract_role": "migration_backend",
+                "backend_selector": "write_drain_status_adapter",
+            },
+        }
+    }
+
+    result = compile_stage3_entrypoint(
+        path,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries=_parse_command_boundaries_manifest(
+            payload,
+            manifest_path=None,
+        ),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name["declared/runtime::orchestrate"]
+    backend = bundle.surface.steps[0].resource_transition["declaration"].transition.backend
+
+    assert backend["kind"] == "write_drain_status_adapter"
+    assert backend["stable_command"] == ["python", "scripts/write_drain_status.py"]
+    assert backend["invocation_protocol"] == "json_object_positional_arg"
+
+
 def test_design_delta_parent_drain_manifest_keeps_contract_behavior_class_and_parses_retirement_lane() -> None:
     payload = json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8"))
 
@@ -255,6 +573,12 @@ def test_design_delta_parent_drain_manifest_keeps_contract_behavior_class_and_pa
     assert getattr(projection, "bridge_owner")
     assert getattr(projection, "expiry_condition")
     assert getattr(projection, "evidence_refs")
+
+    record_terminal = bindings["record_terminal_work_item"]
+    assert getattr(record_terminal, "transition_binding").transition_name == (
+        "lisp_frontend_design_delta/transitions::record-terminal-work-item"
+    )
+    assert getattr(record_terminal, "transition_binding").contract_role == "migration_backend"
 
     backlog_checks = bindings["run_neurips_backlog_checks"]
     assert getattr(backlog_checks, "retirement_class") == "genuine_system"

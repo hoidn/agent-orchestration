@@ -31,6 +31,7 @@ class ExecutableNodeKind(str, Enum):
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
+    RESOURCE_TRANSITION = "resource_transition"
     PURE_PROJECTION = "pure_projection"
     INCREMENT_SCALAR = "increment_scalar"
     MATERIALIZE_ARTIFACTS = "materialize_artifacts"
@@ -236,6 +237,14 @@ class SetScalarStepConfig:
 
 
 @dataclass(frozen=True)
+class ResourceTransitionStepConfig:
+    """Executable resource_transition-step config."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class PureProjectionStepConfig:
     """Executable pure_projection-step config."""
 
@@ -302,6 +311,7 @@ ExecutableStepConfig = (
     | WaitForStepConfig
     | AssertStepConfig
     | SetScalarStepConfig
+    | ResourceTransitionStepConfig
     | PureProjectionStepConfig
     | IncrementScalarStepConfig
     | MaterializeArtifactsStepConfig
@@ -456,6 +466,7 @@ _LEAF_EXECUTION_CONFIG_TYPES = (
     WaitForStepConfig,
     AssertStepConfig,
     SetScalarStepConfig,
+    ResourceTransitionStepConfig,
     PureProjectionStepConfig,
     IncrementScalarStepConfig,
     MaterializeArtifactsStepConfig,
@@ -478,6 +489,7 @@ _LEAF_KIND_TO_CONFIG = {
     ExecutableNodeKind.WAIT_FOR: WaitForStepConfig,
     ExecutableNodeKind.ASSERT: AssertStepConfig,
     ExecutableNodeKind.SET_SCALAR: SetScalarStepConfig,
+    ExecutableNodeKind.RESOURCE_TRANSITION: ResourceTransitionStepConfig,
     ExecutableNodeKind.PURE_PROJECTION: PureProjectionStepConfig,
     ExecutableNodeKind.INCREMENT_SCALAR: IncrementScalarStepConfig,
     ExecutableNodeKind.MATERIALIZE_ARTIFACTS: MaterializeArtifactsStepConfig,

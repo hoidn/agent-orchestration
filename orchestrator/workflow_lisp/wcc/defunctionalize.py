@@ -26,8 +26,10 @@ from ..expressions import (
     PureOpExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
+    FinalizeSelectedItemExpr,
     RecordUpdateExpr,
     RecordExpr,
+    ResourceTransitionExpr,
     UnionVariantExpr,
 )
 from ..phase_stdlib import ProduceOneOfProducerSpec
@@ -45,7 +47,12 @@ from ..workflow_refs import ResolvedWorkflowRef
 from .route import LOWERING_SCHEMA_WCC
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from ..lowering import core as lowering_core
-from ..lowering.context import _LoweringContext, _TerminalResult, _copy_context_with_phase_scope
+from ..lowering.context import (
+    _LoweringContext,
+    _TerminalResult,
+    _context_with_local_type_binding,
+    _copy_context_with_phase_scope,
+)
 from ..lowering.control_dispatch import _binding_local_value_from_terminal
 from ..lowering.origins import LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
 from ..lowering.generated_paths import allocate_generated_result_bundle, allocation_reason
@@ -57,6 +64,10 @@ from ..lowering.phase_flow import (
     _phase_stdlib_lower_produce_one_of_impl,
     _phase_stdlib_lower_resume_or_start_impl,
     _phase_stdlib_lower_run_provider_phase_impl,
+)
+from ..lowering.phase_resource import (
+    _phase_stdlib_lower_finalize_selected_item_impl,
+    _phase_stdlib_lower_resource_transition_impl,
 )
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
@@ -972,9 +983,21 @@ def _defunctionalize_case(
         and _union_variant_fields_are_bundle_unique(body.metadata.type_ref)
         else None
     )
+    subject_type = context.local_type_bindings.get(binding_name)
     for arm in body.arms:
         case_name = f"{match_step_name}__{arm.variant_name.lower()}"
         arm_context = lowering_core._copy_context_with_step_prefix(context, step_name_prefix=case_name)
+        if isinstance(subject_type, UnionTypeRef):
+            arm_context = _context_with_local_type_binding(
+                arm_context,
+                binding_name=arm.binding_name,
+                binding_type=context.type_env.union_variant(
+                    subject_type,
+                    arm.variant_name,
+                    span=body.metadata.source_span,
+                    form_path=body.metadata.form_path,
+                ),
+            )
         arm_steps, arm_terminal = _defunctionalize_body(
             arm.body,
             context=arm_context,
@@ -1433,8 +1456,12 @@ def _lower_resolved_union_variant_terminal(
     form_path: tuple[str, ...],
 ) -> tuple[list[dict[str, Any]], _TerminalResult] | None:
     resolved_expr = expr
+    if isinstance(resolved_expr, DoneExpr):
+        resolved_expr = resolved_expr.result_expr
     if not isinstance(resolved_expr, UnionVariantExpr):
         resolved_expr = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(resolved_expr, DoneExpr):
+        resolved_expr = resolved_expr.result_expr
     if not isinstance(resolved_expr, UnionVariantExpr):
         return None
     return lowering_core._lower_union_variant_expr(
@@ -1475,41 +1502,43 @@ def _lower_wcc_terminal_export(
         context=context,
         local_values=local_values,
     )
-    if output_refs is None and is_pure_projection_expr(expr):
+    if output_refs is not None:
+        return [], _TerminalResult(
+            step_name=context.step_name_prefix,
+            step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
+            output_refs=output_refs,
+            output_kind="projection",
+            hidden_inputs={},
+        )
+    if is_pure_projection_expr(expr):
+        terminal_step_name = f"{context.step_name_prefix}__terminal_projection"
+        terminal_step_id = lowering_core._normalize_generated_step_id(terminal_step_name)
         lowered_projection = lower_pure_projection_step(
             expr,
             result_type=type_ref,
             context=context,
             local_values=local_values,
-            step_name=context.step_name_prefix,
-            step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
+            step_name=terminal_step_name,
+            step_id=terminal_step_id,
             stable_target="terminal_projection",
         )
         return [lowered_projection.step], _TerminalResult(
-            step_name=context.step_name_prefix,
-            step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
+            step_name=terminal_step_name,
+            step_id=terminal_step_id,
             output_refs=lowered_projection.output_refs,
             output_kind="projection",
             hidden_inputs={},
         )
-    if output_refs is None:
-        raise LispFrontendCompileError(
-            (
-                LispFrontendDiagnostic(
-                    code="workflow_return_not_exportable",
-                    message=message,
-                    span=span,
-                    form_path=form_path,
-                    phase="lowering",
-                ),
-            )
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="workflow_return_not_exportable",
+                message=message,
+                span=span,
+                form_path=form_path,
+                phase="lowering",
+            ),
         )
-    return [], _TerminalResult(
-        step_name=context.step_name_prefix,
-        step_id=lowering_core._normalize_generated_step_id(context.step_name_prefix),
-        output_refs=output_refs,
-        output_kind="projection",
-        hidden_inputs={},
     )
 
 
@@ -1693,7 +1722,7 @@ def _lower_effectful_binding(
                 context=context,
                 local_values=local_values,
             )
-        if value.perform_kind in {"run_provider_phase", "produce_one_of", "resume_or_start"}:
+        if value.perform_kind in {"run_provider_phase", "produce_one_of", "resume_or_start", "resource_transition", "finalize_selected_item"}:
             steps, terminal = _lower_wcc_phase_effect(
                 value,
                 binding_type=binding_type,
@@ -1807,6 +1836,30 @@ def _lower_wcc_phase_effect(
         return _phase_stdlib_lower_resume_or_start_impl(
             TypedExpr(
                 expr=phase_expr,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(payload, FinalizeSelectedItemExpr):
+        return _phase_stdlib_lower_finalize_selected_item_impl(
+            TypedExpr(
+                expr=payload,
+                type_ref=binding_type,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                effect_summary=value.metadata.effect_summary,
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(payload, ResourceTransitionExpr):
+        return _phase_stdlib_lower_resource_transition_impl(
+            TypedExpr(
+                expr=payload,
                 type_ref=binding_type,
                 span=value.metadata.source_span,
                 form_path=value.metadata.form_path,

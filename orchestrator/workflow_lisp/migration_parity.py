@@ -89,6 +89,7 @@ class ParityTarget:
     deprecated_yaml_mechanics: tuple[Mapping[str, Any], ...]
     promotion_eligibility: Mapping[str, Any]
     compile_artifacts: Mapping[str, tuple[str, ...]]
+    runtime_audit_artifacts: tuple[Mapping[str, str], ...]
     evidence_commands: Mapping[str, EvidenceCommand]
 
 
@@ -195,6 +196,10 @@ def load_parity_targets(path: Path) -> list[ParityTarget]:
                 deprecated_yaml_mechanics=tuple(_require_object_list(raw_target, "deprecated_yaml_mechanics")),
                 promotion_eligibility=promotion_eligibility,
                 compile_artifacts=normalized_compile_artifacts,
+                runtime_audit_artifacts=_parse_runtime_audit_artifacts(
+                    raw_target,
+                    workflow_family=workflow_family,
+                ),
                 evidence_commands=normalized_commands,
             )
         )
@@ -286,6 +291,7 @@ def run_parity_target(
     generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     target_identity = _build_target_identity(target, repo_root=repo_root)
     evidence_freshness = _build_evidence_freshness(
+        target=target,
         generated_at=generated_at,
         compile_artifacts=compile_artifacts,
         command_logs=command_logs,
@@ -855,6 +861,8 @@ def _build_target_identity(
         identity["required_family_evidence_roles"] = list(
             target.required_family_evidence_roles
         )
+    if target.runtime_audit_artifacts:
+        identity["runtime_audit_artifacts"] = [dict(entry) for entry in target.runtime_audit_artifacts]
     return identity
 
 
@@ -902,8 +910,31 @@ def _build_evidence_refs(
     return refs
 
 
+def _build_runtime_audit_artifact_freshness(
+    runtime_audit_artifacts: Sequence[Mapping[str, str]],
+    *,
+    repo_root: Path,
+) -> dict[str, object]:
+    freshness: dict[str, object] = {}
+    for artifact in runtime_audit_artifacts:
+        artifact_id = str(artifact["artifact_id"])
+        artifact_path = str(artifact["path"])
+        resolved_path = repo_root / artifact_path
+        entry: dict[str, object] = {
+            "path": artifact_path,
+            "transition_name": artifact["transition_name"],
+            "resource_kind": artifact["resource_kind"],
+            "exists": resolved_path.exists(),
+        }
+        if resolved_path.exists():
+            entry["sha256"] = _sha256_file(resolved_path)
+        freshness[artifact_id] = entry
+    return freshness
+
+
 def _build_evidence_freshness(
     *,
+    target: ParityTarget,
     generated_at: str,
     compile_artifacts: Mapping[str, Any],
     command_logs: Mapping[str, Any],
@@ -919,6 +950,11 @@ def _build_evidence_freshness(
         ),
         "evidence_refs": _build_evidence_refs(command_logs, repo_root=repo_root),
     }
+    if target.runtime_audit_artifacts:
+        freshness["runtime_audit_artifacts"] = _build_runtime_audit_artifact_freshness(
+            target.runtime_audit_artifacts,
+            repo_root=repo_root,
+        )
     compile_manifest_path = None
     if isinstance(compile_payload, Mapping) and isinstance(compile_payload.get("build_root"), str):
         compile_manifest_path = Path(str(compile_payload["build_root"])) / "manifest.json"
@@ -1338,6 +1374,24 @@ def _resource_transition_parity_evidence(
         if row.get("kind") != "certified_adapter":
             helper_status = "fail"
             helper_reasons.append("not certified_adapter")
+        transition_binding = row.get("transition_binding")
+        if helper != "finalize_lisp_frontend_drain_summary":
+            if not isinstance(transition_binding, Mapping):
+                helper_status = "fail"
+                helper_reasons.append("missing transition_binding")
+            else:
+                if transition_binding.get("contract_role") != "migration_backend":
+                    helper_status = "fail"
+                    helper_reasons.append("transition_binding contract_role is not migration_backend")
+                if not _string_or_none(transition_binding.get("transition_name")):
+                    helper_status = "fail"
+                    helper_reasons.append("transition_binding missing transition_name")
+                if not _string_or_none(transition_binding.get("resource_kind")):
+                    helper_status = "fail"
+                    helper_reasons.append("transition_binding missing resource_kind")
+                if not _string_or_none(transition_binding.get("backend_selector")):
+                    helper_status = "fail"
+                    helper_reasons.append("transition_binding missing backend_selector")
         for field_name in (
             "behavior_class",
             "input_signature",
@@ -1375,13 +1429,104 @@ def _resource_transition_parity_evidence(
             "behavior_class": row.get("behavior_class"),
             "semantic_effects": row.get("semantic_effects"),
             "owner_module": row.get("owner_module"),
+            "transition_binding": dict(transition_binding) if isinstance(transition_binding, Mapping) else None,
             **({"reasons": helper_reasons} if helper_reasons else {}),
         }
         reasons.extend(f"{helper}: {reason}" for reason in helper_reasons)
+    runtime_audit = _runtime_audit_transition_parity_evidence(
+        target=target,
+        repo_root=repo_root,
+    )
+    if runtime_audit["status"] != "pass":
+        reasons.append(
+            runtime_audit.get("reason")
+            if isinstance(runtime_audit.get("reason"), str)
+            else "runtime audit evidence failed"
+        )
     return {
         "status": "fail" if reasons else "pass",
         "helpers": helper_rows,
+        "runtime_audit": runtime_audit,
         **({"reasons": reasons} if reasons else {}),
+    }
+
+
+def _runtime_audit_transition_parity_evidence(
+    *,
+    target: ParityTarget,
+    repo_root: Path,
+) -> dict[str, object]:
+    if not target.runtime_audit_artifacts:
+        return {
+            "status": "fail",
+            "reason": "target does not declare runtime_audit_artifacts",
+        }
+    artifacts: dict[str, object] = {}
+    reasons: list[str] = []
+    for artifact in target.runtime_audit_artifacts:
+        artifact_id = artifact["artifact_id"]
+        artifact_path = repo_root / artifact["path"]
+        artifact_status = "pass"
+        artifact_reasons: list[str] = []
+        if not artifact_path.exists():
+            artifact_status = "fail"
+            artifact_reasons.append(f"missing runtime audit artifact `{artifact_id}`")
+            artifacts[artifact_id] = {
+                "status": artifact_status,
+                "path": artifact["path"],
+                "transition_name": artifact["transition_name"],
+                "resource_kind": artifact["resource_kind"],
+                "reason": artifact_reasons[0],
+            }
+            reasons.extend(artifact_reasons)
+            continue
+        try:
+            rows = [
+                json.loads(line)
+                for line in artifact_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        except (OSError, json.JSONDecodeError) as exc:
+            artifact_status = "fail"
+            artifact_reasons.append(
+                f"runtime audit artifact `{artifact_id}` is unreadable: {exc}"
+            )
+            artifacts[artifact_id] = {
+                "status": artifact_status,
+                "path": artifact["path"],
+                "transition_name": artifact["transition_name"],
+                "resource_kind": artifact["resource_kind"],
+                "reason": artifact_reasons[0],
+            }
+            reasons.extend(artifact_reasons)
+            continue
+        matching_row = next(
+            (
+                row
+                for row in rows
+                if isinstance(row, Mapping)
+                and row.get("transition_name") == artifact["transition_name"]
+                and row.get("resource_kind") == artifact["resource_kind"]
+            ),
+            None,
+        )
+        if matching_row is None:
+            artifact_status = "fail"
+            artifact_reasons.append(
+                f"runtime audit artifact `{artifact_id}` does not contain the declared transition identity"
+            )
+        artifacts[artifact_id] = {
+            "status": artifact_status,
+            "path": artifact["path"],
+            "transition_name": artifact["transition_name"],
+            "resource_kind": artifact["resource_kind"],
+            **({"reasons": artifact_reasons} if artifact_reasons else {}),
+        }
+        reasons.extend(artifact_reasons)
+    return {
+        "status": "fail" if reasons else "pass",
+        "artifacts": artifacts,
+        **({"reason": reasons[0], "reasons": reasons} if reasons else {}),
     }
 
 
@@ -1669,6 +1814,41 @@ def _validate_evidence_freshness(
                 mark_incomplete(f"missing {stream} log digest for `{role}`")
             elif expected_sha != _sha256_file(current_file):
                 raise ValueError(f"evidence_refs.{role}.{stream}.sha256 does not match current log")
+
+    expected_runtime_audits = report.get("target_identity", {}).get("runtime_audit_artifacts", ())
+    if isinstance(expected_runtime_audits, list) and expected_runtime_audits:
+        freshness_runtime_audits = evidence_freshness.get("runtime_audit_artifacts")
+        if not isinstance(freshness_runtime_audits, Mapping):
+            mark_incomplete("missing runtime_audit_artifacts freshness")
+        else:
+            for artifact in expected_runtime_audits:
+                if not isinstance(artifact, Mapping):
+                    mark_incomplete("runtime_audit_artifacts target identity row is invalid")
+                    continue
+                artifact_id = _string_or_none(artifact.get("artifact_id"))
+                artifact_path = _string_or_none(artifact.get("path"))
+                if not artifact_id or not artifact_path:
+                    mark_incomplete("runtime_audit_artifacts target identity row is incomplete")
+                    continue
+                freshness_artifact = freshness_runtime_audits.get(artifact_id)
+                if not isinstance(freshness_artifact, Mapping):
+                    mark_incomplete(f"missing runtime audit freshness row `{artifact_id}`")
+                    continue
+                if freshness_artifact.get("path") != artifact_path:
+                    raise ValueError(
+                        f"runtime_audit_artifacts.{artifact_id}.path does not match current target path"
+                    )
+                current_file = repo_root / artifact_path
+                if not current_file.exists():
+                    mark_incomplete(f"missing runtime audit artifact `{artifact_id}`")
+                    continue
+                expected_sha = _string_or_none(freshness_artifact.get("sha256"))
+                if not expected_sha:
+                    mark_incomplete(f"missing runtime audit artifact digest `{artifact_id}`")
+                elif expected_sha != _sha256_file(current_file):
+                    raise ValueError(
+                        f"runtime_audit_artifacts.{artifact_id}.sha256 does not match current artifact"
+                    )
 
     return evidence_complete, reasons
 
@@ -2072,6 +2252,28 @@ def _require_object_list(payload: Mapping[str, Any], key: str) -> list[Mapping[s
     if not all(isinstance(item, Mapping) for item in value):
         raise ValueError(f"`{key}` must be an array of objects")
     return list(value)
+
+
+def _parse_runtime_audit_artifacts(
+    payload: Mapping[str, Any],
+    *,
+    workflow_family: str,
+) -> tuple[Mapping[str, str], ...]:
+    raw_artifacts = payload.get("runtime_audit_artifacts")
+    if raw_artifacts is None:
+        return ()
+    artifacts = _require_object_list(payload, "runtime_audit_artifacts")
+    normalized: list[Mapping[str, str]] = []
+    for artifact in artifacts:
+        normalized.append(
+            {
+                "artifact_id": _require_string(artifact, "artifact_id"),
+                "path": _require_string(artifact, "path"),
+                "transition_name": _require_string(artifact, "transition_name"),
+                "resource_kind": _require_string(artifact, "resource_kind"),
+            }
+        )
+    return tuple(normalized)
 
 
 def _require_report_mapping(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:

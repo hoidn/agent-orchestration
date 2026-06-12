@@ -43,6 +43,7 @@ class SurfaceStepKind(str, Enum):
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
+    RESOURCE_TRANSITION = "resource_transition"
     PURE_PROJECTION = "pure_projection"
     INCREMENT_SCALAR = "increment_scalar"
     MATERIALIZE_ARTIFACTS = "materialize_artifacts"
@@ -250,6 +251,7 @@ class SurfaceStep:
     consumes_injection_position: Optional[str] = None
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     pure_projection: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     increment_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     materialize_artifacts: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

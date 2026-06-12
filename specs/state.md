@@ -42,6 +42,10 @@
     - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
     - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
     - outstanding managed jobs leave the provider step in a resumable recovery state so `resume <run_id>` re-enters recovery without relaunching the provider
+  - v2.14 declared resource-transition sidecars:
+    - runtime-native resource/state transitions may own private generated `resource_state` documents outside `state.json`; native documents carry `transition_schema_version`, a runtime version token, resource identity metadata, and the typed resource state payload
+    - resource transitions may also own append-only private generated `transition_audit` JSONL ledgers; audit rows record committed, replayed, rejected, and partial-failure outcomes together with idempotency evidence and request digest
+    - resume/replay for declared resource transitions keys off audit-ledger idempotency evidence (`transition_schema_version`, idempotency key, request digest) rather than blindly reapplying the transition body
   - v2.2 structured-control additions:
     - lowered branch markers and lowered branch-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteReview.then` and `RouteReview.then.WriteApproved`
     - the lowered join node keeps the authored statement presentation key (for example `RouteReview`) and materializes branch outputs there

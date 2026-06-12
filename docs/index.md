@@ -12,7 +12,7 @@ Informative guidance and mental models live in `docs/`.
 | Understand the system at a high level | [Architecture Overview](architecture_overview.md) | Short conceptual front door before the fuller orchestration model. |
 | Find normative runtime behavior | [Master Spec](../specs/index.md) | Specs win when docs disagree. |
 | Check whether a workflow surface is implemented, partial, future, or legacy | [Capability Status Matrix](capability_status_matrix.md) | Status and copy-safety routing for common DSL and Workflow Lisp surfaces. |
-| Check the current Workflow Lisp pure-expression and projection surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, and generated `pure_projection` runtime surface implemented in the current checkout. |
+| Check the current Workflow Lisp pure-expression, projection, or generated `resource-transition` surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, generated `pure_projection` runtime surface, and the declared/runtime-native `resource-transition` lane implemented in the current checkout. |
 | Choose a design doc | [Design Documentation Index](design/README.md) | Groups current contracts, migration guidance, frontend direction, and deferred work. |
 | Author YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Authoring guidance for runtime, prompt, flow, and artifact contracts. |
 | Author Workflow Lisp `.orc` workflows | [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Lisp-first authoring guidance and migration cautions. |
@@ -70,9 +70,10 @@ document owns the answer.
 - Use the component docs for current-checkout behavior: Semantic IR, Executable
   IR, Macro Surface, Stdlib Lowering, State Layout, and related frontend docs.
 - If the question is specifically about pure computation or generated typed
-  projection, read the frontend specification first and then the Semantic IR /
-  State Layout component docs for `pure_projection` visibility and bundle
-  ownership.
+  projection, or about generated runtime-native `resource-transition`, read the
+  frontend specification first and then the Semantic IR / State Layout
+  component docs for `pure_projection` / `resource_transition` visibility and
+  bundle ownership.
 - For promoted workflow migration, also read
   [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md).
 

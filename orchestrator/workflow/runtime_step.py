@@ -19,6 +19,7 @@ from .executable_ir import (
     MaterializeArtifactsStepConfig,
     PureProjectionStepConfig,
     ProviderStepConfig,
+    ResourceTransitionStepConfig,
     RepeatUntilStepConfig,
     SelectVariantOutputStepConfig,
     SetScalarStepConfig,
@@ -260,6 +261,11 @@ class RuntimeStep(Mapping[str, Any]):
                 return thaw_runtime_value(config.set_scalar)
             raise KeyError(key)
 
+        if isinstance(config, ResourceTransitionStepConfig):
+            if key == "resource_transition":
+                return thaw_runtime_value(config.resource_transition)
+            raise KeyError(key)
+
         if isinstance(config, PureProjectionStepConfig):
             if key == "pure_projection":
                 return thaw_runtime_value(config.pure_projection)
@@ -373,6 +379,10 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, SetScalarStepConfig):
             yield "set_scalar"
+            return
+
+        if isinstance(config, ResourceTransitionStepConfig):
+            yield "resource_transition"
             return
 
         if isinstance(config, PureProjectionStepConfig):

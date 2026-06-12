@@ -136,9 +136,18 @@ def validate_semantic_command_adapter_usage(
     from . import typecheck as compat
 
     effects = set(binding.effects)
+    transition_binding = getattr(binding, "transition_binding", None)
+    allow_migration_backend_call = (
+        transition_binding is not None
+        and getattr(transition_binding, "contract_role", None) == "migration_backend"
+    )
     if (
-        ("resource_transition" in effects or "ledger_update" in effects)
-        and binding.behavior_class != "resource_transition"
+        (
+            "resource_transition" in effects
+            or "ledger_update" in effects
+            or binding.behavior_class == "resource_transition"
+        )
+        and not allow_migration_backend_call
     ):
         compat._raise_error(
             "resource movement must use `resource-transition` or a certified resource_transition adapter",

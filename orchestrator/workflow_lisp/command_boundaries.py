@@ -17,6 +17,7 @@ CertifiedAdapterBehaviorClass = Literal[
     "resume_state_reuse",
 ]
 CertifiedAdapterInvocationProtocol = Literal["json_object_positional_arg"]
+TransitionBindingContractRole = Literal["migration_backend"]
 G0_RETIREMENT_REQUIRED_FIELDS = frozenset(
     {
         "retirement_class",
@@ -104,6 +105,16 @@ class CertifiedAdapterInputField:
 
 
 @dataclass(frozen=True)
+class TransitionBindingMetadata:
+    """Declared link from one adapter row to a transition contract."""
+
+    transition_name: str
+    resource_kind: str
+    contract_role: TransitionBindingContractRole | str
+    backend_selector: str
+
+
+@dataclass(frozen=True)
 class CertifiedAdapterBinding:
     """Command boundary with explicit typed workflow semantics."""
 
@@ -124,6 +135,7 @@ class CertifiedAdapterBinding:
     owner_module: str | None = None
     replacement_path: str | None = None
     invocation_protocol: CertifiedAdapterInvocationProtocol | str | None = None
+    transition_binding: TransitionBindingMetadata | None = None
     declared_promoted_fields: frozenset[str] = frozenset()
     retirement_class: str | None = None
     retirement_label: str | None = None
@@ -209,6 +221,33 @@ def build_command_boundary_environment(
                     )
                 )
                 continue
+            if binding.transition_binding is not None:
+                if binding.behavior_class != "resource_transition":
+                    diagnostics.append(
+                        LispFrontendDiagnostic(
+                            code="command_adapter_missing_contract",
+                            message=(
+                                f"certified adapter `{name}` uses `transition_binding` but must declare "
+                                "`behavior_class` `resource_transition`"
+                            ),
+                            span=_environment_span(),
+                            phase="typecheck",
+                        )
+                    )
+                    continue
+                if binding.transition_binding.contract_role != "migration_backend":
+                    diagnostics.append(
+                        LispFrontendDiagnostic(
+                            code="command_adapter_missing_contract",
+                            message=(
+                                f"certified adapter `{name}` uses `transition_binding` but must declare "
+                                "`contract_role` `migration_backend`"
+                            ),
+                            span=_environment_span(),
+                            phase="typecheck",
+                        )
+                    )
+                    continue
         _validate_g0_retirement_metadata(name, binding, diagnostics)
         bindings[name] = binding
 

@@ -301,7 +301,7 @@ def _payload_expr(
                 bindings=bindings,
                 binding_refs=binding_refs,
             )
-        type_ref = context.local_type_bindings.get(expr.name)
+        type_ref = lexical_types.get(expr.name) or context.local_type_bindings.get(expr.name)
         if type_ref is None:
             raise KeyError(f"missing local type binding for `{expr.name}`")
         bindings.setdefault(expr.name, {"type": _type_descriptor(type_ref, type_env=context.type_env)})

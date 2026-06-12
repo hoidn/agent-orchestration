@@ -386,6 +386,17 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                 ],
                 "optional": ["expanded_debug_yaml"],
             },
+            "runtime_audit_artifacts": [
+                {
+                    "artifact_id": "drain_status_transition_audit",
+                    "path": (
+                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+                    ),
+                    "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+                    "resource_kind": "drain-run-state",
+                }
+            ],
         }
     )
     return target
@@ -405,6 +416,17 @@ def _add_parent_family_evidence(report: dict[str, object], *, route: str = "wcc_
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
                 "route_identity",
+            ],
+            "runtime_audit_artifacts": [
+                {
+                    "artifact_id": "drain_status_transition_audit",
+                    "path": (
+                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+                    ),
+                    "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+                    "resource_kind": "drain-run-state",
+                }
             ],
         }
     )
@@ -431,6 +453,17 @@ def _add_parent_family_identity(report: dict[str, object]) -> None:
                 "public_private_boundary_parity",
                 "boundary_artifact_justifications",
                 "route_identity",
+            ],
+            "runtime_audit_artifacts": [
+                {
+                    "artifact_id": "drain_status_transition_audit",
+                    "path": (
+                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+                    ),
+                    "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+                    "resource_kind": "drain-run-state",
+                }
             ],
         }
     )
@@ -885,6 +918,93 @@ def test_design_delta_parent_drain_resource_parity_rejects_sidecar_semantic_effe
     assert evidence["status"] == "fail"
     assert evidence["helpers"]["record_terminal_work_item"]["status"] == "fail"
     assert "unconsumed semantic_effects" in " ".join(evidence["reasons"])
+
+
+def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0] = _design_delta_parent_target_entry(payload["targets"][0])
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+
+    target = module.load_parity_targets(manifest_path)[0]
+
+    assert target.runtime_audit_artifacts == (
+        {
+            "artifact_id": "drain_status_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "resource_kind": "drain-run-state",
+        },
+    )
+
+
+def test_design_delta_parent_drain_resource_transition_parity_fails_when_runtime_audit_artifact_is_missing(
+    tmp_path: Path,
+) -> None:
+    module = _parity_module()
+    payload = _valid_manifest_payload()
+    payload["targets"][0] = _design_delta_parent_target_entry(payload["targets"][0])
+    manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
+    target = module.load_parity_targets(manifest_path)[0]
+
+    def row(*, transition_name: str) -> dict[str, object]:
+        return {
+            "kind": "certified_adapter",
+            "behavior_class": "resource_transition",
+            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+            "effects": ["resource_transition", "ledger_update"],
+            "fixture_ids": ["ok"],
+            "negative_fixture_ids": ["bad"],
+            "owner_module": "lisp_frontend_design_delta/work_item",
+            "replacement_path": "runtime-native transition",
+            "invocation_protocol": "json_object_positional_arg",
+            "state_writes": ["state/run-state.json"],
+            "transition_binding": {
+                "transition_name": transition_name,
+                "resource_kind": "drain-run-state",
+                "contract_role": "migration_backend",
+                "backend_selector": transition_name.rsplit("/", 1)[-1].replace("-", "_"),
+            },
+        }
+
+    _write_json(
+        tmp_path / target.command_boundaries_file,
+        {
+            "record_terminal_work_item": row(
+                transition_name="lisp_frontend_design_delta/transitions::record-terminal-work-item"
+            ),
+            "record_blocked_recovery_outcome": row(
+                transition_name="lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome"
+            ),
+            "write_lisp_frontend_drain_status": row(
+                transition_name="lisp_frontend_design_delta/transitions::write-drain-status"
+            ),
+            "finalize_lisp_frontend_drain_summary": {
+                "kind": "certified_adapter",
+                "behavior_class": "structured_result",
+                "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
+                "effects": ["structured_result"],
+                "fixture_ids": ["ok"],
+                "negative_fixture_ids": ["bad"],
+                "owner_module": "lisp_frontend_design_delta/work_item",
+                "replacement_path": "typed summary finalization",
+                "invocation_protocol": "json_object_positional_arg",
+                "state_writes": [],
+            },
+        },
+    )
+
+    evidence = module._resource_transition_parity_evidence(
+        target=target,
+        repo_root=tmp_path,
+    )
+
+    assert evidence["status"] == "fail"
+    assert evidence["runtime_audit"]["status"] == "fail"
+    assert "missing" in evidence["runtime_audit"]["reason"]
 
 
 def test_design_delta_parent_drain_target_rejects_leaf_only_evidence_for_promotable(
@@ -2519,6 +2639,18 @@ def test_design_delta_parent_drain_resource_transition_parity_ignores_retirement
     tmp_path: Path,
 ) -> None:
     module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    runtime_audit_artifact = target.runtime_audit_artifacts[0]
+    _write_text(
+        tmp_path / runtime_audit_artifact["path"],
+        json.dumps(
+            {
+                "transition_name": runtime_audit_artifact["transition_name"],
+                "resource_kind": runtime_audit_artifact["resource_kind"],
+                "outcome_code": "committed",
+            }
+        )
+        + "\n",
+    )
     _write_json(
         tmp_path / str(target.command_boundaries_file),
         {
@@ -2540,6 +2672,16 @@ def test_design_delta_parent_drain_resource_transition_parity_ignores_retirement
                 "bridge_owner": "workflow-lisp",
                 "expiry_condition": "g2-typed-projection",
                 "evidence_refs": [f"{helper}_evidence"],
+                "transition_binding": (
+                    {
+                        "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+                        "resource_kind": "drain-run-state",
+                        "contract_role": "migration_backend",
+                        "backend_selector": helper,
+                    }
+                    if helper != "finalize_lisp_frontend_drain_summary"
+                    else None
+                ),
             }
             for helper in (
                 "record_terminal_work_item",
