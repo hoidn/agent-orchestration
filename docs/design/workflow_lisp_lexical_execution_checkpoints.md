@@ -213,7 +213,33 @@ concurrent compiler/runtime lanes in the same files is a known fork
 hazard. This document must not be registered as drain-selectable until
 the generic core's transition tranche has acceptance evidence.
 
-### 4.5 Prohibited dependency directions
+### 4.5 Relationship to authority inversion (deferred enablement)
+
+The WCC design defers, without rejecting, a nesting-native runtime
+(authority inversion). This design is deliberately substrate-portable
+groundwork for that path: program-point identity, per-frame schemas,
+environment serialization, and effect-boundary resume policies are exactly
+the assets such a runtime would consume. Two consequences are recorded as
+design intent:
+
+- Frame schemas are static per call site; a stack of frames serializes as
+  a list of statically shaped activations. The checkpoint schema therefore
+  accommodates dynamic control depth without redesign, should a future
+  runtime support it. Nothing in this design may bake a
+  flat-executor-only assumption into checkpoint content beyond what
+  Section 8.2 states.
+- The named open problem for bounded general recursion is activation
+  identity: per-call-site activation ordinals generalizing loop ordinals,
+  on which result reuse, StateLayout identity, and source-mapped
+  diagnostics would key. That problem is out of scope here and owned by
+  the authority-inversion thread in the WCC design.
+
+Sequencing is strict: checkpoints are proven on the current flat runtime
+first, where differential verification against unchanged authority is
+cheap. This document must not be cited to justify replacing the execution
+substrate; it lowers the cost of that future decision without taking it.
+
+### 4.6 Prohibited dependency directions
 
 ```text
 checkpoint content        -> raw Python objects                PROHIBITED

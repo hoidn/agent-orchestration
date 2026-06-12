@@ -758,7 +758,14 @@ oracles can catch it.
   runtime, shared validation, and resume semantics — the highest-risk
   surface in the system. WCC keeps this path open: such a runtime would
   execute WCC. Revisit after the flattening route has proven the calculus on
-  a real promoted family.
+  a real promoted family. The lexical execution checkpoints target
+  (`workflow_lisp_lexical_execution_checkpoints.md`) supplies the groundwork
+  this path would consume — program-point identity, statically shaped frame
+  schemas, environment serialization, and effect-boundary resume policies —
+  and is sequenced to be proven on the flat route first. With that machinery
+  in place, the remaining design problem for bounded general recursion under
+  an inverted runtime reduces to activation identity: per-call-site
+  activation ordinals generalizing loop ordinals.
 - Durable execution / journal replay (Temporal-style): rejected for this
   system. It trades away static effect visibility, validation-before-commit,
   and machine-diffable parity evidence — the repo's core authority
