@@ -60,7 +60,68 @@ typed expression over an agent step:
       b)))
 ```
 
-What the toolchain does with those declarations:
+Hand-rolled against the same CLI agent, with the same guarantees attempted,
+the equivalent step is mostly bookkeeping:
+
+```python
+MAX_RETRIES = 3
+BLOCKER_CLASSES = {"missing_resource", "unavailable_hardware", ...}
+report_dir = "state/impl"                        # storage layout, invented by hand
+state_path = f"{report_dir}/attempt.json"
+
+def run_implementation(design_path, plan_path):
+    if os.path.exists(state_path):               # hand-rolled resume
+        prior = json.load(open(state_path))
+        if looks_valid(prior):                   # re-validate: trust nothing
+            return prior
+
+    prompt = f"""Implement the plan.
+Design: {design_path}
+Plan: {plan_path}
+
+When finished, write JSON to {report_dir}/result.json shaped like
+  {{"status": "COMPLETED", "execution_report": "<path>"}}
+or
+  {{"status": "BLOCKED", "blocker_class": "...", "blocker_reason": "..."}}
+"""                                              # the contract, restated as prose in every prompt
+
+    for _ in range(MAX_RETRIES):                 # malformed output happens; retry by hand
+        subprocess.run(["codex", "exec", prompt], capture_output=True, text=True)
+        try:
+            result = json.load(open(f"{report_dir}/result.json"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue                             # wrote nothing, or not JSON
+
+        if result.get("status") == "COMPLETED":
+            report = result.get("execution_report")
+            if not report or not os.path.exists(report):
+                continue                         # claimed a report it never wrote
+            if not report.startswith("artifacts/work/"):
+                continue                         # or wrote it somewhere it shouldn't
+        elif result.get("status") == "BLOCKED":
+            if result.get("blocker_class") not in BLOCKER_CLASSES:
+                continue                         # free text where an enum should be
+        else:
+            continue                             # unknown status string
+
+        tmp = state_path + ".tmp"                # atomic-ish commit, by hand
+        json.dump(result, open(tmp, "w"))
+        os.replace(tmp, state_path)
+        return result
+
+    raise RuntimeError("implementation failed")  # nothing recorded what or why
+
+# ...and the same again for every step, minus what never gets written:
+# step-level resume identity, provenance, effect visibility, and any way
+# to map a failure back to the line that caused it.
+```
+
+And this is one step, abridged — the stringly-typed routing on
+`result["status"]` still happens at every consumer. The `.orc` version is
+complete as written; the next step costs another typed declaration, not
+another copy of this.
+
+What the typed declarations buy:
 
 - The `ImplementationAttempt` union becomes the agent's output contract: a
   deterministic contract block is appended to the composed prompt, and the
@@ -114,6 +175,69 @@ composable way to author them.
 Use [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) to
 check whether a given surface is implemented, partial, designed, or legacy
 before copying it.
+
+## Architecture
+
+Both frontends lower into one validated substrate:
+
+```text
+.orc source                                    YAML workflow
+  -> frontend AST                                   |
+  -> macro/import expansion,                        |
+     compile-time procedure specialization          |
+  -> typecheck                                      |
+  -> core-calculus elaboration (ANF)                |
+  -> scope/effect/proof analysis                    |
+  -> defunctionalization                            |
+          \                                         |
+           +--> flat Core workflow AST <------------+
+                  -> shared validation
+                  -> Semantic IR (semantic authority)
+                     + Executable IR (executable authority)
+                  -> flat, resumable runtime
+```
+
+The choices that carry the design:
+
+- **The target is deliberately flat.** The runtime is a durable step
+  machine: every effect is an addressable, individually resumable step,
+  validated before its results become canonical. The compiler's job is the
+  same transformation family that gives `async/await` its state machines —
+  nested, typed control flow in; flat, durable steps out. Concentrating
+  the cleverness at compile time means it can be checked there, including
+  by dual-compiling against the legacy lowering and diffing.
+- **The middle end is a small core calculus in ANF** — roughly ten
+  constructs (atoms, `let`, effect performs, variant inject/case, join
+  points, bounded recursion, calls, halt), with an elaboration-totality
+  contract on the migrated subset: programs that typecheck lower, so there
+  is no "well-typed but dies after lowering" class of failure.
+- **ANF rather than SSA or CPS** because it makes the runtime's
+  obligations syntactic: the `let` spine totally orders effects, which is
+  exactly what a durable step list needs; join points map one-to-one onto
+  steps and routing, so there is no out-of-SSA reconstruction; dominance
+  is lexical nesting; and continuations are second-class by scoping, so
+  there are no runtime closures and defunctionalization is total.
+- **Identity is semantic and versioned.** Step and generated-path identity
+  derive from semantic ownership — module, role, call frame, loop scope —
+  plus a lowering schema version, never from source spans. Resume fails
+  closed across schema boundaries instead of replaying into a graph with
+  different meaning.
+- **Two IR authority lanes.** Semantic IR records what a workflow means
+  (types, effects, provenance — what review and migration parity consume);
+  Executable IR is what runs. Generated debug YAML is a projection, never
+  authority.
+- **Pure computation has one semantics.** The runtime evaluator owns the
+  closed operator surface; compile-time constant folding must agree with
+  it (shared golden vectors). Maximal pure regions fold into single
+  visible projection steps with private managed results.
+
+Deeper reading:
+[`docs/design/workflow_lisp_core_calculus_middle_end.md`](docs/design/workflow_lisp_core_calculus_middle_end.md)
+(calculus and middle-end),
+[`docs/design/workflow_lisp_runtime_migration_foundation.md`](docs/design/workflow_lisp_runtime_migration_foundation.md)
+(structured output, private value transport, path allocation),
+[`docs/design/workflow_lisp_frontend_specification.md`](docs/design/workflow_lisp_frontend_specification.md)
+(language baseline).
 
 ## Start Here
 
