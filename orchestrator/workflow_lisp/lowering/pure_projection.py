@@ -17,6 +17,7 @@ from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
 from ..contracts import derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
+    EnumMemberExpr,
     FieldAccessExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
@@ -60,7 +61,7 @@ class LoweredPureProjection:
 def is_pure_projection_expr(expr: Any) -> bool:
     """Return whether one frontend expression can lower through pure projection."""
 
-    if isinstance(expr, (LiteralExpr, NameExpr, FieldAccessExpr, PureOpExpr, RecordUpdateExpr)):
+    if isinstance(expr, (LiteralExpr, EnumMemberExpr, NameExpr, FieldAccessExpr, PureOpExpr, RecordUpdateExpr)):
         return True
     if isinstance(expr, RecordExpr):
         return all(is_pure_projection_expr(field_expr) for _, field_expr in expr.fields)
@@ -201,9 +202,16 @@ def build_pure_projection_payload(
         bindings=bindings,
         binding_refs=binding_refs,
     )
-    if _type_descriptor(inferred_type, type_env=context.type_env) != _type_descriptor(
+    if not _pure_projection_type_equivalent(
+        inferred_type,
         result_type,
         type_env=context.type_env,
+    ) and not (
+        isinstance(result_type, PrimitiveTypeRef)
+        and result_type.allowed_values
+        and payload_expr.get("kind") == "literal"
+        and isinstance(payload_expr.get("type"), dict)
+        and payload_expr["type"].get("kind") == "enum"
     ):
         raise LispFrontendCompileError(
             (
@@ -232,6 +240,34 @@ def build_pure_projection_payload(
             expansion_stack=getattr(expr, "expansion_stack", ()),
         )
     return payload, binding_refs
+
+
+def _pure_projection_type_equivalent(
+    inferred_type: TypeRef,
+    result_type: TypeRef,
+    *,
+    type_env: FrontendTypeEnvironment,
+) -> bool:
+    if _type_descriptor(inferred_type, type_env=type_env) == _type_descriptor(
+        result_type,
+        type_env=type_env,
+    ):
+        return True
+    if (
+        isinstance(inferred_type, PrimitiveTypeRef)
+        and isinstance(result_type, PrimitiveTypeRef)
+        and _short_type_name(inferred_type.name) == _short_type_name(result_type.name)
+    ):
+        if not result_type.allowed_values:
+            return not inferred_type.allowed_values
+        if not inferred_type.allowed_values:
+            return True
+        return set(inferred_type.allowed_values) == set(result_type.allowed_values)
+    return False
+
+
+def _short_type_name(name: str) -> str:
+    return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
 
 
 def _payload_expr(
@@ -280,6 +316,7 @@ def _payload_expr(
                 local_binding,
                 (
                     FieldAccessExpr,
+                    EnumMemberExpr,
                     IfExpr,
                     LetStarExpr,
                     LiteralExpr,
@@ -316,6 +353,13 @@ def _payload_expr(
             "kind": "literal",
             "type": _type_descriptor(type_ref, type_env=context.type_env),
             "value": expr.value,
+        }, type_ref
+    if isinstance(expr, EnumMemberExpr):
+        type_ref = _infer_expr_type(expr, context=context, lexical_types=lexical_types)
+        return {
+            "kind": "literal",
+            "type": _type_descriptor(type_ref, type_env=context.type_env),
+            "value": expr.member_name,
         }, type_ref
     if isinstance(expr, FieldAccessExpr):
         base_expr: Any = expr.base
@@ -494,6 +538,8 @@ def _runtime_binding_value(value: Any) -> Any:
         return {"ref": value.ref}
     if isinstance(value, LiteralExpr):
         return value.value
+    if isinstance(value, EnumMemberExpr):
+        return value.member_name
     if isinstance(value, GeneratedRelpathSeedExpr):
         return value.literal_path
     if isinstance(value, str):
@@ -533,6 +579,13 @@ def _infer_expr_type(
         if expr.literal_kind == "int":
             return PrimitiveTypeRef(name="Int")
         return PrimitiveTypeRef(name="String")
+    if isinstance(expr, EnumMemberExpr):
+        return context.type_env.resolve_type(
+            expr.enum_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     if isinstance(expr, NameExpr):
         return lexical_types.get(expr.name) or context.local_type_bindings[expr.name]
     if isinstance(expr, FieldAccessExpr):
@@ -720,6 +773,39 @@ def _scalar_contract_type(type_ref: TypeRef) -> str:
     if isinstance(type_ref, PathTypeRef):
         return "relpath"
     raise TypeError(f"unsupported scalar pure projection contract `{type(type_ref).__name__}`")
+
+
+def output_contracts_for_boundary_type(
+    type_ref: TypeRef,
+    *,
+    generated_name: str,
+    span,
+    form_path: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    """Build output contracts for one arbitrary boundary name prefix."""
+
+    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        return {
+            field.generated_name: dict(field.contract_definition)
+            for field in derive_workflow_boundary_fields(
+                type_ref,
+                generated_name=generated_name,
+                source_path=(generated_name,),
+                span=span,
+                form_path=form_path,
+            )
+        }
+    return {
+        generated_name: {
+            "kind": "scalar",
+            "type": _scalar_contract_type(type_ref),
+            **(
+                {"allowed": list(type_ref.allowed_values)}
+                if isinstance(type_ref, PrimitiveTypeRef) and type_ref.allowed_values
+                else {}
+            ),
+        }
+    }
 
 
 def _output_bundle_fields(output_contracts: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:

@@ -161,6 +161,7 @@ _TYPE_CODES = frozenset(
         "loop_state_not_projectable",
         "pure_expr_operator_unsupported",
         "pure_expr_operand_type_mismatch",
+        "enum_member_unknown",
         "pure_expr_union_equality_forbidden",
         "pure_expr_float_equality_forbidden",
         "pure_expr_path_string_concat_forbidden",

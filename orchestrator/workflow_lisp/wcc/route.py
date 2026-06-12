@@ -14,6 +14,7 @@ from ..expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
     GeneratedRelpathSeedExpr,
@@ -63,6 +64,7 @@ WORKFLOW_LISP_CONTEXT_KEY = "workflow_lisp"
 LOWERING_SCHEMA_CONTEXT_KEY = "lowering_schema_version"
 _PURE_WCC_M1_EXPR_TYPES = (
     LiteralExpr,
+    EnumMemberExpr,
     NameExpr,
     FieldAccessExpr,
     RecordExpr,
@@ -1050,7 +1052,7 @@ def _validate_wcc_m4_expr_supported(
                 workflow_ref_value_names=workflow_ref_value_names,
             )
         return
-    if isinstance(expr, (LiteralExpr, NameExpr, PhaseTargetExpr, ProcRefLiteralExpr, GeneratedRelpathSeedExpr)):
+    if isinstance(expr, (LiteralExpr, EnumMemberExpr, NameExpr, PhaseTargetExpr, ProcRefLiteralExpr, GeneratedRelpathSeedExpr)):
         return
     raise _unsupported_route(
         workflow_name=workflow_name,

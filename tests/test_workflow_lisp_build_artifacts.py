@@ -3750,7 +3750,11 @@ def test_design_delta_parent_drain_build_emits_boundary_authority_report_for_all
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
 
     assert "boundary_authority_report" in result.artifact_paths
     assert result.manifest.artifact_status["boundary_authority_report"] == "emitted"
@@ -4029,7 +4033,11 @@ def test_design_delta_parent_drain_boundary_authority_report_records_generated_a
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    result = _build_design_delta_parent_drain(tmp_path, monkeypatch)
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
     payload = json.loads(
         result.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
     )
@@ -4050,6 +4058,59 @@ def test_design_delta_parent_drain_boundary_authority_report_records_generated_a
     assert managed_write_root_inputs
     assert managed_write_root_inputs.issubset(generated_internal_inputs)
     assert managed_write_root_inputs == set(drain_row["generated_internal"])
+
+
+def test_boundary_authority_report_records_pure_projection_classification_for_fixture_local_projection_helpers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    monkeypatch.setattr(
+        build,
+        "_maybe_load_design_delta_boundary_authority_registry",
+        lambda **_: {
+            "schema_version": "workflow_lisp_design_delta_boundary_authority.v1",
+            "rows": [],
+            "__registry_path__": str(tmp_path / "projection.boundary_authority.json"),
+            "__registry_sha256__": "test",
+            "workflow_family": "pure_projection_fixture_support",
+        },
+    )
+    result = build.build_frontend_bundle(
+        request_cls(
+            source_path=FIXTURES
+            / "valid"
+            / "design_delta_projection_runtime_support"
+            / "projections.orc",
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="design_delta_projection_runtime_support/projections::project-selector-action",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    payload = json.loads(
+        result.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
+    )
+    rows_by_name = {row["workflow_name"]: row for row in payload["workflows"]}
+
+    selector_projection_row = rows_by_name[
+        "design_delta_projection_runtime_support/projections::project-selector-action"
+    ]
+    terminal_projection_row = rows_by_name[
+        "design_delta_projection_runtime_support/projections::classify-work-item-terminal"
+    ]
+
+    assert selector_projection_row["compiled_evidence"]["pure_projection_classification"] == {
+        "structural": True,
+    }
+    assert terminal_projection_row["compiled_evidence"]["pure_projection_classification"] == {
+        "structural": True,
+    }
 
 
 def test_design_delta_parent_drain_boundary_registry_changes_build_fingerprint(

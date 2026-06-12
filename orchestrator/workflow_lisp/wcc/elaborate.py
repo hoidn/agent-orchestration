@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from ..conditionals import classify_condition_expr
-from ..diagnostics import LispFrontendCompileError
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expressions import (
     BindProcExpr,
@@ -14,6 +14,7 @@ from ..expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
     GeneratedRelpathSeedExpr,
@@ -794,6 +795,27 @@ def _elaborate_expr_to_value(
                 ),
                 value=expr.value,
                 literal_kind=expr.literal_kind,
+            ),
+        )
+    if isinstance(expr, EnumMemberExpr):
+        return (
+            (),
+            WccLiteralAtom(
+                metadata=scope.atom_metadata(
+                    role=f"literal:enum:{expr.enum_name}.{expr.member_name}",
+                    type_ref=_infer_expr_type(
+                        expr,
+                        type_env=type_env,
+                        value_env=value_env,
+                        workflow_return_types=workflow_return_types,
+                        procedure_return_types=procedure_return_types,
+                    ),
+                    source_span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+                value=expr.member_name,
+                literal_kind="enum",
             ),
         )
     if isinstance(expr, NameExpr):
@@ -2173,7 +2195,7 @@ def _elaborate_effect_expr_to_binding_value(
             keyword_args=tuple(
                 (
                     binding_name,
-                    _elaborate_atomic_value(
+                    _elaborate_workflow_call_binding_value(
                         binding_expr,
                         scope=scope.child_scope("workflow-binding", authored_binding_name=binding_name),
                         type_env=type_env,
@@ -2246,6 +2268,57 @@ def _elaborate_atomic_value(
     return value
 
 
+def _elaborate_workflow_call_binding_value(
+    expr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> WccValue:
+    if isinstance(
+        expr,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            FinalizeSelectedItemExpr,
+            ResourceTransitionExpr,
+            CallExpr,
+        ),
+    ):
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_signature_mismatch",
+                    message=(
+                        "Stage 3 lowering requires same-file call bindings to resolve to workflow inputs"
+                    ),
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            )
+        )
+    return _elaborate_atomic_value(
+        expr,
+        scope=scope,
+        type_env=type_env,
+        value_env=value_env,
+        workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope,
+    )
+
+
 def _generated_effect_binding_name_from_scope(scope: WccIdentityFactory, *, role: str) -> str:
     safe_role = "".join(char if char.isalnum() else "_" for char in role).strip("_")
     return f"__wcc_effect_{safe_role}_{scope.scope_id.rsplit(':', 1)[-1]}"
@@ -2301,6 +2374,13 @@ def _infer_expr_type(
             "bool": PrimitiveTypeRef(name="Bool"),
             "float": PrimitiveTypeRef(name="Float"),
         }[expr.literal_kind]
+    if isinstance(expr, EnumMemberExpr):
+        return type_env.resolve_type(
+            expr.enum_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     if isinstance(expr, NameExpr):
         return value_env[expr.name]
     if isinstance(expr, PhaseTargetExpr):

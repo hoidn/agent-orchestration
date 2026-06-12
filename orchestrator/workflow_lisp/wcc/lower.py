@@ -6,10 +6,10 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from ..expressions import FieldAccessExpr, LiteralExpr, NameExpr, RecordExpr, UnionVariantExpr
+from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr, RecordExpr, UnionVariantExpr
 from ..lowering import LoweredWorkflow, lower_workflow_definitions
 from ..spans import SourceSpan
-from ..type_env import FrontendTypeEnvironment, TypeRef
+from ..type_env import FrontendTypeEnvironment, PrimitiveTypeRef, TypeRef
 from ..typecheck_context import TypedExpr
 from ..workflows import (
     CommandBoundaryEnvironment,
@@ -42,6 +42,7 @@ def lower_wcc_m1_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -105,6 +106,17 @@ def _inline_expr_from_wcc_body(body: WccBody):
 
 def _inline_expr_from_wcc_value(value: WccValue, env: Mapping[str, object]):
     if isinstance(value, WccLiteralAtom):
+        if value.literal_kind == "enum":
+            type_ref = value.metadata.type_ref
+            if not isinstance(type_ref, PrimitiveTypeRef) or not type_ref.allowed_values:
+                raise TypeError("enum WCC literal requires an enum primitive type")
+            return EnumMemberExpr(
+                enum_name=type_ref.name,
+                member_name=str(value.value),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
         return LiteralExpr(
             value=value.value,
             literal_kind=value.literal_kind,

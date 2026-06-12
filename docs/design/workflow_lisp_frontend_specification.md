@@ -2795,6 +2795,9 @@ Generated private names are deterministic:
 ```
 
 Source maps point back to the original `defproc`.
+Imported private-subworkflow projections elaborate against the defining
+module's type environment, while specialized procedures elaborate against the
+specializing unit's environment.
 
 ## 52. `call` Elaboration
 
@@ -3109,6 +3112,14 @@ Checks:
 - workflow call arguments match signatures
 - pattern matches are exhaustive or explicitly partial
 - return expressions match declared return type
+
+On WCC/schema-2 routes, workflow-call type validation still gates first. After
+one call binding typechecks against the callee parameter, the lowering pass may
+materialize compiler-generated `pure_projection` producer steps for eligible
+typed pure binding expressions (scalar literals, enum-member literals, pure-op
+results, record-update results, and `let*` references to those values). The
+generated producer remains internal lowering state rather than a new authored
+workflow boundary surface, and effectful binding expressions remain invalid.
 
 ## 61. Effect Validation
 
@@ -3857,6 +3868,12 @@ Examples:
 - `line_prefix_extractor_in_workflow`: error
 - `manual_snapshot_name_in_high_level_module`: warn
 - `variant_output_without_variant_specific_fields`: warn or error in strict mode
+
+The boundary lints `low_level_state_path_in_high_level_module` and
+`variant_output_without_variant_specific_fields` treat structurally effect-free
+projection workflows as interior typed dataflow only. They do not fire on those
+projection boundaries, and they continue to fire unchanged on every effectful
+workflow boundary.
 
 ## Part XVII. Testing Strategy
 

@@ -189,3 +189,13 @@ def test_operator_justification_registry_matches_runtime_catalog() -> None:
         fixture_path = row.get("fixture_path")
         assert isinstance(fixture_path, str) and fixture_path
         assert (Path(__file__).resolve().parent.parent / fixture_path).is_file()
+
+
+def test_enum_equality_golden_vector_keeps_existing_operator_and_schema_contract() -> None:
+    row = next(candidate for candidate in _golden_vectors() if candidate["name"] == "eq_enum_member")
+
+    assert row["operator"] == "="
+    assert row["payload"]["pure_expr_schema_version"] == 1
+    args = row["payload"]["expr"]["args"]
+    assert [arg["type"]["kind"] for arg in args] == ["enum", "enum"]
+    assert [arg["value"] for arg in args] == ["missing_resource", "missing_resource"]

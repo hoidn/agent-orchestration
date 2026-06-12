@@ -33,6 +33,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, seria
 from .lints import LINT_PROFILE_DEFAULT
 from .phase_family_boundary import (
     build_design_delta_boundary_authority_expected_rows,
+    is_structural_pure_projection_effect_summary,
     is_design_delta_parent_drain_target_workflow,
     load_design_delta_boundary_authority_registry,
 )
@@ -1407,16 +1408,20 @@ def _serialize_design_delta_boundary_authority_report(
     if not isinstance(source_map_workflows, Mapping):
         source_map_workflows = {}
 
-    workflow_rows: dict[str, dict[str, object]] = {}
-    for (workflow_name, field_name, surface_kind), expected in sorted(expected_row_keys.items()):
-        projection_workflow = projection_workflows.get(workflow_name, {})
-        source_map_workflow = source_map_workflows.get(workflow_name, {})
+    def _compiled_evidence_for_projection_workflow(
+        workflow_name: str,
+        projection_workflow: Mapping[str, object] | None,
+        source_map_workflow: Mapping[str, object] | None,
+    ) -> dict[str, object]:
         flattened_inputs_by_name: dict[str, Mapping[str, object]] = {}
         generated_internal_path_like_inputs: list[str] = []
         runtime_context_path_inputs: list[str] = []
         compatibility_bridge_path_inputs: list[str] = []
         managed_write_root_inputs: list[str] = []
         flattened_output_names: list[str] = []
+        pure_projection_classification: dict[str, object] = {
+            "structural": False,
+        }
         if isinstance(projection_workflow, Mapping):
             flattened_inputs_by_name = {
                 str(field.get("generated_name")): field
@@ -1486,6 +1491,13 @@ def _serialize_design_delta_boundary_authority_report(
                     flattened_inputs_by_name=flattened_inputs_by_name,
                 )
             )
+            raw_classification = projection_workflow.get("boundary", {}).get(
+                "pure_projection_classification"
+            )
+            if isinstance(raw_classification, Mapping):
+                pure_projection_classification = {
+                    "structural": bool(raw_classification.get("structural")),
+                }
         generated_path_allocations: list[dict[str, object]] = []
         if isinstance(projection_workflow, Mapping):
             for allocation in projection_workflow.get("generated_path_allocations", []):
@@ -1523,6 +1535,35 @@ def _serialize_design_delta_boundary_authority_report(
                         "origin_key": allocation.get("origin_key"),
                     }
                 )
+        return {
+            "workflow_boundary_projection": {
+                "artifact": "workflow_boundary_projection.json",
+                "workflow_name": workflow_name,
+            },
+            "generated_path_allocations": {
+                "artifact": "workflow_boundary_projection.json",
+                "rows": generated_path_allocations,
+            },
+            "source_map_provenance": {
+                "artifact": "source_map.json",
+                "workflow_names": [workflow_name]
+                if isinstance(source_map_workflow, Mapping)
+                else [],
+                "command_boundaries": source_map_command_boundaries,
+                "generated_path_allocations": source_map_generated_allocations,
+            },
+            "generated_internal_inputs": generated_internal_path_like_inputs,
+            "flattened_outputs": flattened_output_names,
+            "private_runtime_context_bindings": runtime_context_path_inputs,
+            "private_compatibility_bridge_inputs": compatibility_bridge_path_inputs,
+            "private_managed_write_root_inputs": managed_write_root_inputs,
+            "pure_projection_classification": pure_projection_classification,
+        }
+
+    workflow_rows: dict[str, dict[str, object]] = {}
+    for (workflow_name, field_name, surface_kind), expected in sorted(expected_row_keys.items()):
+        projection_workflow = projection_workflows.get(workflow_name, {})
+        source_map_workflow = source_map_workflows.get(workflow_name, {})
         row = workflow_rows.setdefault(
             workflow_name,
             {
@@ -1535,29 +1576,11 @@ def _serialize_design_delta_boundary_authority_report(
                 "public_artifact": [],
                 "unclassified": [],
                 "public_leaks": [],
-                "compiled_evidence": {
-                    "workflow_boundary_projection": {
-                        "artifact": "workflow_boundary_projection.json",
-                        "workflow_name": workflow_name,
-                    },
-                    "generated_path_allocations": {
-                        "artifact": "workflow_boundary_projection.json",
-                        "rows": generated_path_allocations,
-                    },
-                    "source_map_provenance": {
-                        "artifact": "source_map.json",
-                        "workflow_names": [workflow_name]
-                        if isinstance(source_map_workflow, Mapping)
-                        else [],
-                        "command_boundaries": source_map_command_boundaries,
-                        "generated_path_allocations": source_map_generated_allocations,
-                    },
-                    "generated_internal_inputs": generated_internal_path_like_inputs,
-                    "flattened_outputs": flattened_output_names,
-                    "private_runtime_context_bindings": runtime_context_path_inputs,
-                    "private_compatibility_bridge_inputs": compatibility_bridge_path_inputs,
-                    "private_managed_write_root_inputs": managed_write_root_inputs,
-                },
+                "compiled_evidence": _compiled_evidence_for_projection_workflow(
+                    workflow_name,
+                    projection_workflow if isinstance(projection_workflow, Mapping) else None,
+                    source_map_workflow if isinstance(source_map_workflow, Mapping) else None,
+                ),
             },
         )
         registry_row = registry_rows.get((workflow_name, field_name, surface_kind))
@@ -1577,6 +1600,32 @@ def _serialize_design_delta_boundary_authority_report(
             row["public_leaks"].append(field_name)
         elif surface_kind == "flattened_output" and authority_class not in {"materialized_view", "public_artifact"}:
             row["public_leaks"].append(field_name)
+
+    for workflow_name, projection_workflow in projection_workflows.items():
+        if workflow_name in workflow_rows:
+            continue
+        if not isinstance(projection_workflow, Mapping):
+            continue
+        classification = projection_workflow.get("boundary", {}).get("pure_projection_classification")
+        if not isinstance(classification, Mapping) or not bool(classification.get("structural")):
+            continue
+        source_map_workflow = source_map_workflows.get(workflow_name)
+        workflow_rows[workflow_name] = {
+            "workflow_name": workflow_name,
+            "public_authored": [],
+            "compatibility_bridge": [],
+            "runtime_derived": [],
+            "generated_internal": [],
+            "materialized_view": [],
+            "public_artifact": [],
+            "unclassified": [],
+            "public_leaks": [],
+            "compiled_evidence": _compiled_evidence_for_projection_workflow(
+                workflow_name,
+                projection_workflow,
+                source_map_workflow if isinstance(source_map_workflow, Mapping) else None,
+            ),
+        }
 
     for row in workflow_rows.values():
         for key, value in tuple(row.items()):
@@ -1931,6 +1980,11 @@ def _serialize_workflow_boundary_projection(
                         for name in boundary.private_compatibility_bridge_inputs
                         if isinstance(name, str)
                     ),
+                    "pure_projection_classification": {
+                        "structural": is_structural_pure_projection_effect_summary(
+                            lowered.typed_workflow.effect_summary
+                        )
+                    },
                 }
             else:
                 boundary_payload = {
@@ -1964,6 +2018,11 @@ def _serialize_workflow_boundary_projection(
                         for name in lowered.compatibility_bridge_inputs
                         if isinstance(name, str)
                     ),
+                    "pure_projection_classification": {
+                        "structural": is_structural_pure_projection_effect_summary(
+                            lowered.typed_workflow.effect_summary
+                        )
+                    },
                 }
             workflows.append(
                 {

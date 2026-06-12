@@ -258,11 +258,105 @@ def test_elaborate_expression_handles_literals_names_records_and_letstar() -> No
     assert isinstance(record, RecordExpr)
     assert record.type_name == "ChecksResult"
     assert [field_name for field_name, _ in record.fields] == ["status", "report"]
-
     assert isinstance(letstar, LetStarExpr)
     assert [name for name, _ in letstar.bindings] == ["first", "second"]
     assert isinstance(letstar.body, NameExpr)
     assert letstar.body.name == "second"
+
+
+def test_elaborate_expression_builds_enum_member_literal_node() -> None:
+    enum_member_expr_type = getattr(
+        importlib.import_module("orchestrator.workflow_lisp.expressions"),
+        "EnumMemberExpr",
+    )
+    expr = elaborate_expression(
+        _expression_syntax("BlockerClass.missing_resource"),
+        bound_names=frozenset(),
+    )
+
+    assert isinstance(expr, enum_member_expr_type)
+    assert expr.enum_name == "BlockerClass"
+    assert expr.member_name == "missing_resource"
+
+
+def test_typecheck_expression_types_enum_member_literals_and_equality() -> None:
+    type_env = _build_type_env()
+    enum_member_expr_type = getattr(
+        importlib.import_module("orchestrator.workflow_lisp.expressions"),
+        "EnumMemberExpr",
+    )
+    typed_literal = typecheck_expression(
+        elaborate_expression(
+            _expression_syntax("BlockerClass.missing_resource"),
+            bound_names=frozenset(),
+        ),
+        type_env=type_env,
+        value_env={},
+    )
+    typed_equality = typecheck_expression(
+        elaborate_expression(
+            _expression_syntax("(= BlockerClass.missing_resource BlockerClass.missing_resource)"),
+            bound_names=frozenset(),
+        ),
+        type_env=type_env,
+        value_env={},
+    )
+
+    assert isinstance(typed_literal.expr, enum_member_expr_type)
+    assert isinstance(typed_literal.type_ref, PrimitiveTypeRef)
+    assert typed_literal.type_ref.name == "BlockerClass"
+    assert "missing_resource" in typed_literal.type_ref.allowed_values
+    assert "unavailable_hardware" in typed_literal.type_ref.allowed_values
+    assert isinstance(typed_equality.expr, PureOpExpr)
+    assert typed_equality.type_ref == PrimitiveTypeRef(name="Bool")
+
+
+def test_enum_member_computed_equality_does_not_create_variant_proof(tmp_path: Path) -> None:
+    type_env = _build_type_env_from_lines(
+        tmp_path,
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum Status",
+            "    DONE",
+            "    WAITING)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defunion Attempt",
+            "    (COMPLETED",
+            "      (execution_report WorkReport))",
+            "    (BLOCKED",
+            "      (status Status)))",
+            ")",
+        ],
+    )
+    attempt_type = type_env.resolve_type(
+        "Attempt",
+        span=_expression_syntax('"probe"').span,
+        form_path=FORM_PATH,
+    )
+    fallback_type = type_env.resolve_type(
+        "WorkReport",
+        span=_expression_syntax('"probe"').span,
+        form_path=FORM_PATH,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            elaborate_expression(
+                _expression_syntax(
+                    "(if (= attempt.status Status.DONE) attempt.execution_report fallback)"
+                ),
+                bound_names=frozenset({"attempt", "fallback"}),
+            ),
+            type_env=type_env,
+            value_env={"attempt": attempt_type, "fallback": fallback_type},
+        )
+
+    _assert_diagnostic_code(excinfo, "variant_ref_unproved")
 
 
 def test_elaborate_expression_prefers_exact_bound_names_over_field_access() -> None:
@@ -729,6 +823,7 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         pytest.param(
             ResourceTransitionExpr(
                 spec=ResourceTransitionSpec(
+                    mode="legacy_queue_move",
                     transition_name="complete",
                     ctx_expr=_name("ctx"),
                     when_expr=_name("when-ready"),

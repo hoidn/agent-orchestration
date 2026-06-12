@@ -33,6 +33,7 @@ from .expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     ExprNode,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
@@ -395,6 +396,41 @@ def _typecheck(
                 expansion_stack=expr.expansion_stack,
             )
         return _typed(expr=expr, type_ref=seed_type, effect=EMPTY_EFFECT_SUMMARY)
+    if isinstance(expr, EnumMemberExpr):
+        try:
+            enum_type = type_env.resolve_type(
+                expr.enum_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        except LispFrontendCompileError as exc:
+            if exc.diagnostics and exc.diagnostics[0].code == "type_unknown":
+                _raise_error(
+                    f"unknown name `{expr.enum_name}.{expr.member_name}`",
+                    code="name_unknown",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
+            raise
+        if not isinstance(enum_type, PrimitiveTypeRef) or not enum_type.allowed_values:
+            _raise_error(
+                f"unknown name `{expr.enum_name}.{expr.member_name}`",
+                code="name_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        if expr.member_name not in enum_type.allowed_values:
+            _raise_error(
+                f"unknown enum member `{expr.member_name}` for `{expr.enum_name}`",
+                code="enum_member_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return _typed(expr=expr, type_ref=enum_type, effect=EMPTY_EFFECT_SUMMARY)
     if isinstance(expr, NameExpr):
         try:
             type_ref = value_env[expr.name]

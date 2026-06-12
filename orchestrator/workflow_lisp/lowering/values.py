@@ -12,6 +12,7 @@ from ..contracts import derive_structured_result_contract, derive_workflow_bound
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     BindProcExpr,
+    EnumMemberExpr,
     FieldAccessExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
@@ -326,6 +327,14 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
 
     if isinstance(expr, LiteralExpr | GeneratedRelpathSeedExpr | WorkflowRefLiteralExpr):
         return expr
+    if isinstance(expr, EnumMemberExpr):
+        return LiteralExpr(
+            value=expr.member_name,
+            literal_kind="string",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     if isinstance(expr, ProcRefLiteralExpr | BindProcExpr):
         return expr
     if isinstance(expr, RecordExpr):
@@ -709,23 +718,33 @@ def _lower_record_expr(
                 "projected_output_name": output_name,
             }
         source_ref = _render_existing_output_ref(value, local_values=local_values, context=context)
-        if source_ref is None:
-            raise _compile_error(
-                code="workflow_return_not_exportable",
-                message=(
-                    f"record return field `{field_name}` must lower from an existing step artifact "
-                    "or structured statement output in this Stage 3 slice"
-                ),
-                span=record_expr.span,
-                form_path=record_expr.form_path,
+        if source_ref is not None:
+            direct_output_refs[output_name] = source_ref
+            values.append(
+                {
+                    "name": field_name,
+                    "source": {"ref": source_ref},
+                    "contract": dict(context.return_output_contracts[field_name]),
+                }
             )
-        direct_output_refs[output_name] = source_ref
-        values.append(
-            {
-                "name": field_name,
-                "source": {"ref": source_ref},
-                "contract": dict(context.return_output_contracts[field_name]),
-            }
+            continue
+        if isinstance(resolved_value, LiteralExpr):
+            values.append(
+                {
+                    "name": field_name,
+                    "source": {"literal": resolved_value.value},
+                    "contract": dict(context.return_output_contracts[field_name]),
+                }
+            )
+            continue
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message=(
+                f"record return field `{field_name}` must lower from an existing step artifact "
+                "or structured statement output in this Stage 3 slice"
+            ),
+            span=record_expr.span,
+            form_path=record_expr.form_path,
         )
     if all(
         source_ref.startswith("root.steps.")

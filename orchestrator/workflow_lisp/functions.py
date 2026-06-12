@@ -14,6 +14,7 @@ from .expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
@@ -527,7 +528,7 @@ def _clone_function_expr(
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack,
 ) -> ExprNode:
-    if isinstance(expr, NameExpr | LiteralExpr):
+    if isinstance(expr, NameExpr | LiteralExpr | EnumMemberExpr):
         return replace(expr, span=span, form_path=form_path, expansion_stack=expansion_stack)
     if isinstance(expr, FieldAccessExpr):
         return replace(
@@ -822,7 +823,7 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "backlog-drain"
     if isinstance(expr, LoopRecurExpr):
         return "loop/recur"
-    if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr):
+    if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr | EnumMemberExpr):
         return None
     if isinstance(expr, RecordExpr):
         for _, field_expr in expr.fields:

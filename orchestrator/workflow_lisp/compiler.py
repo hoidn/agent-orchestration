@@ -52,6 +52,7 @@ from .expression_traversal import walk_expr
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
 from .phase_family_boundary import (
     classify_phase_family_boundary,
+    is_structural_pure_projection_effect_summary,
     is_selected_phase_family_workflow,
 )
 from .effects import EffectSummary, ProcedureCallEdge, merge_effect_summaries
@@ -531,7 +532,12 @@ def _collect_stage3_required_lint_diagnostics(
     diagnostics: list[LispFrontendDiagnostic] = []
     for workflow in typed_workflows:
         signature = workflow.signature
-        if is_selected_phase_family_workflow(signature.name):
+        is_structural_pure_projection = is_structural_pure_projection_effect_summary(
+            workflow.effect_summary
+        )
+        if is_structural_pure_projection:
+            exposes_low_level_state_path = False
+        elif is_selected_phase_family_workflow(signature.name):
             _inputs, _outputs, boundary_projection = derive_workflow_signature_contracts(signature)
             classification = classify_phase_family_boundary(
                 workflow_name=signature.name,
@@ -563,7 +569,7 @@ def _collect_stage3_required_lint_diagnostics(
                     form_path=signature.form_path,
                 )
             )
-        if isinstance(signature.return_type_ref, UnionTypeRef):
+        if isinstance(signature.return_type_ref, UnionTypeRef) and not is_structural_pure_projection:
             projection = derive_union_workflow_boundary_projection(
                 signature.return_type_ref,
                 span=signature.span,
@@ -948,6 +954,7 @@ def _lower_workflows_for_route(
     lowering_route: LoweringRoute,
     typed_workflows: tuple[TypedWorkflowDef, ...],
     typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment],
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog,
@@ -961,6 +968,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m1_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            procedure_type_envs=procedure_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -974,6 +982,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m2_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            procedure_type_envs=procedure_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -987,6 +996,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m3_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            procedure_type_envs=procedure_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1004,6 +1014,7 @@ def _lower_workflows_for_route(
         return lower_wcc_m4_workflow_definitions(
             typed_workflows,
             typed_procedures=typed_procedures,
+            procedure_type_envs=procedure_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=workflow_path,
             workflow_catalog=workflow_catalog,
@@ -1190,6 +1201,10 @@ def _run_stage3_validation_pipeline(
             lowering_route=normalized_lowering_route,
             typed_workflows=state.typed_workflows,
             typed_procedures=state.typed_procedures,
+            procedure_type_envs={
+                procedure.definition.name: state.type_env
+                for procedure in state.typed_procedures
+            },
             procedure_catalog=state.procedure_catalog,
             workflow_path=path,
             workflow_catalog=state.workflow_catalog,
@@ -1625,6 +1640,7 @@ def _compile_stage3_graph(
     visible_procedure_names_by_module: dict[str, frozenset[str]] = {}
     typed_functions_by_name: dict[str, TypedFunctionDef] = {}
     typed_procedures_by_name: dict[str, TypedProcedureDef] = {}
+    procedure_type_envs_by_name: dict[str, FrontendTypeEnvironment] = {}
     procedure_effects_by_name: dict[str, EffectSummary] = {}
     workflow_effects_by_name: dict[str, EffectSummary] = {}
     exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
@@ -1878,10 +1894,15 @@ def _compile_stage3_graph(
             **typed_procedures_by_name,
             **{procedure.definition.name: procedure for procedure in typed_procedures},
         }
+        combined_procedure_type_envs = {
+            **procedure_type_envs_by_name,
+            **{procedure.definition.name: type_env for procedure in typed_procedures},
+        }
         lowered_workflows = _lower_workflows_for_route(
             lowering_route=normalized_lowering_route,
             typed_workflows=typed_workflows,
             typed_procedures=tuple(combined_typed_procedures.values()),
+            procedure_type_envs=combined_procedure_type_envs,
             procedure_catalog=procedure_catalog,
             workflow_path=module_source.path,
             workflow_catalog=workflow_catalog,
@@ -1950,6 +1971,7 @@ def _compile_stage3_graph(
         }
         for procedure in typed_procedures:
             typed_procedures_by_name[procedure.definition.name] = procedure
+            procedure_type_envs_by_name[procedure.definition.name] = type_env
             procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
         for function in typed_functions:
             typed_functions_by_name[function.definition.name] = function

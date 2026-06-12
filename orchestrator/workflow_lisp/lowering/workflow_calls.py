@@ -12,7 +12,8 @@ from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
 from ..conditionals import classify_condition_expr, render_condition_predicate
 from ..contracts import derive_workflow_boundary_fields
-from ..expressions import FieldAccessExpr, LiteralExpr, NameExpr
+from ..diagnostics import LispFrontendCompileError
+from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr
 from ..phase import (
     PHASE_CONTEXT_NAME,
     private_exec_context_bootstrap_supported,
@@ -24,6 +25,11 @@ from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRe
 from . import core as lowering_core
 from .context import _TerminalResult
 from .generated_paths import allocate_compatibility_binding_bundle, allocate_reusable_call_write_root
+from .pure_projection import (
+    is_pure_projection_expr,
+    lower_pure_projection_step,
+    output_contracts_for_boundary_type,
+)
 from .values import (
     _flatten_boundary_leaf_paths,
     _record_expr_value_at_path,
@@ -493,6 +499,7 @@ def _lower_workflow_call(
     step_name = f"{context.step_name_prefix}__call_{canonical_name}"
     step_id = lowering_core._normalize_generated_step_id(step_name)
     with_bindings: dict[str, Any] = {}
+    projection_binding_steps: list[dict[str, Any]] = []
     assert callee_signature is not None
 
     for param_name, param_type in callee_signature.params:
@@ -531,16 +538,51 @@ def _lower_workflow_call(
                 form_path=expr.form_path,
             )
         if isinstance(param_type, RecordTypeRef):
-            with_bindings.update(
-                _render_record_call_bindings(
-                    param_name,
-                    param_type,
-                    value_expr,
+            try:
+                with_bindings.update(
+                    _render_record_call_bindings(
+                        param_name,
+                        param_type,
+                        value_expr,
+                        local_values=local_values,
+                    )
+                )
+            except LispFrontendCompileError as exc:
+                lowered = _lower_pure_call_binding_if_eligible(
+                    exc,
+                    expr=value_expr,
+                    binding_name=param_name,
+                    binding_type=param_type,
+                    call_step_name=step_name,
+                    context=context,
                     local_values=local_values,
                 )
-            )
+                if lowered is None:
+                    raise
+                projection_binding_steps.append(lowered.step)
+                with_bindings.update(
+                    {
+                        output_name: {"ref": output_ref}
+                        for output_name, output_ref in lowered.output_refs.items()
+                    }
+                )
             continue
-        with_bindings[param_name] = _render_call_binding_ref(value_expr, local_values=local_values)
+        try:
+            with_bindings[param_name] = _render_call_binding_ref(value_expr, local_values=local_values)
+        except LispFrontendCompileError as exc:
+            lowered = _lower_pure_call_binding_if_eligible(
+                exc,
+                expr=value_expr,
+                binding_name=param_name,
+                binding_type=param_type,
+                call_step_name=step_name,
+                context=context,
+                local_values=local_values,
+            )
+            if lowered is None:
+                raise
+            projection_binding_steps.append(lowered.step)
+            with_bindings[param_name] = {"ref": lowered.output_refs[param_name]}
     managed_inputs = _managed_write_root_requirements_for_callable(
         lowered_callee=callee,
         imported_bundle=imported_bundle,
@@ -562,7 +604,7 @@ def _lower_workflow_call(
         "call": canonical_name,
         "with": with_bindings,
     }
-    return [*binding_steps, step], _TerminalResult(
+    return [*projection_binding_steps, *binding_steps, step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
         output_refs={
@@ -573,6 +615,71 @@ def _lower_workflow_call(
         hidden_inputs={},
         returned_union_type_name=result_type.name if isinstance(result_type, UnionTypeRef) else None,
     )
+
+
+def _lower_pure_call_binding_if_eligible(
+    exc: LispFrontendCompileError,
+    *,
+    expr: Any,
+    binding_name: str,
+    binding_type: Any,
+    call_step_name: str,
+    context: Any,
+    local_values: Mapping[str, Any],
+):
+    if not exc.diagnostics or exc.diagnostics[0].code != "workflow_signature_mismatch":
+        return None
+    candidate_expr = _pure_call_binding_candidate(expr, local_values=local_values)
+    if candidate_expr is None:
+        return None
+    binding_step_name = f"{call_step_name}__bind_{binding_name}"
+    binding_step_id = lowering_core._normalize_generated_step_id(binding_step_name)
+    projection_expr = candidate_expr
+    projection_result_type = binding_type
+    if isinstance(candidate_expr, EnumMemberExpr) and isinstance(binding_type, PrimitiveTypeRef):
+        projection_expr = LiteralExpr(
+            value=candidate_expr.member_name,
+            literal_kind="string",
+            span=candidate_expr.span,
+            form_path=candidate_expr.form_path,
+            expansion_stack=candidate_expr.expansion_stack,
+        )
+        projection_result_type = PrimitiveTypeRef(name="String")
+    return lower_pure_projection_step(
+        projection_expr,
+        result_type=projection_result_type,
+        context=context,
+        local_values=local_values,
+        step_name=binding_step_name,
+        step_id=binding_step_id,
+        source_expr=expr,
+        stable_target="call_binding_projection",
+        output_contracts=output_contracts_for_boundary_type(
+            binding_type,
+            generated_name=binding_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        ),
+    )
+
+
+def _pure_call_binding_candidate(
+    expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> Any | None:
+    if isinstance(expr, EnumMemberExpr):
+        return expr
+    if isinstance(expr, NameExpr):
+        local_binding = local_values.get(expr.name)
+        if isinstance(local_binding, EnumMemberExpr):
+            return local_binding
+    candidate = _resolve_inline_expr_value(expr, local_values=local_values)
+    if candidate is None or isinstance(candidate, (str, Mapping)):
+        return None
+    if is_pure_projection_expr(candidate):
+        return candidate
+    return None
 
 
 def _render_call_binding_ref(

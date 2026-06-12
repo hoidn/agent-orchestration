@@ -64,6 +64,17 @@ class LiteralExpr:
 
 
 @dataclass(frozen=True)
+class EnumMemberExpr:
+    """One qualified enum-member literal reference."""
+
+    enum_name: str
+    member_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class FieldAccessExpr:
     """One dotted field-access chain rooted at a lexical name."""
 
@@ -493,6 +504,7 @@ class BacklogDrainExpr:
 ExprNode = (
     NameExpr
     | LiteralExpr
+    | EnumMemberExpr
     | FieldAccessExpr
     | RecordExpr
     | PureOpExpr
@@ -658,6 +670,14 @@ def _elaborate_symbol(
                 expansion_stack=datum.expansion_stack,
             ),
             fields=tuple(segments[1:]),
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if len(segments) == 2:
+        return EnumMemberExpr(
+            enum_name=segments[0],
+            member_name=segments[1],
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,

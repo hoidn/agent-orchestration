@@ -12,6 +12,7 @@ from .expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
@@ -108,6 +109,7 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         (
             NameExpr,
             LiteralExpr,
+            EnumMemberExpr,
             FieldAccessExpr,
             PhaseTargetExpr,
             GeneratedRelpathSeedExpr,

@@ -15,12 +15,14 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.pure_expr import pure_expr_payload_digest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
+INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid"
 
 
 def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
@@ -162,6 +164,69 @@ def _compile_runtime_overflow_bundle(tmp_path: Path):
     return result.validated_bundles_by_name["pure_expr_runtime_overflow::project"]
 
 
+def _compile_runtime_enum_member_bundle(tmp_path: Path):
+    module_path = tmp_path / "pure_expr_runtime_enum_member.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pure_expr_runtime_enum_member)",
+                "  (export project)",
+                "  (defenum SelectionStatus",
+                "    WAITING",
+                "    DONE)",
+                "  (defrecord ProjectionResult",
+                "    (ready Bool)",
+                "    (status SelectionStatus))",
+                "  (defworkflow project",
+                "    ((status SelectionStatus))",
+                "    -> ProjectionResult",
+                "    (record ProjectionResult",
+                "      :ready (= status SelectionStatus.DONE)",
+                "      :status SelectionStatus.DONE))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return result.validated_bundles_by_name["pure_expr_runtime_enum_member::project"]
+
+
+def _compile_invalid_pure_projection_fixture(
+    fixture_path: Path,
+    tmp_path: Path,
+    *,
+    lint_profile: str = "default",
+):
+    return compile_stage3_entrypoint(
+        fixture_path,
+        source_roots=(fixture_path.parent,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lint_profile=lint_profile,
+    )
+
+
 def _resume_failed_single_step(state_manager: StateManager, *, step_name: str) -> None:
     assert state_manager.state is not None
     state_manager.state.status = "failed"
@@ -240,6 +305,127 @@ def test_pure_projection_runtime_surfaces_typed_evaluator_failure_codes(tmp_path
 
     assert project["status"] == "failed"
     assert project["error"]["type"] == "pure_expr_overflow"
+
+
+def test_pure_projection_runtime_executes_enum_member_equality(tmp_path: Path) -> None:
+    loaded = _compile_runtime_enum_member_bundle(tmp_path)
+    step_name = loaded.surface.steps[0].name
+    state_manager = StateManager(workspace=tmp_path, run_id="pure-projection-enum-member")
+    state_manager.initialize(str(tmp_path / "pure_expr_runtime_enum_member.orc"), bound_inputs={"status": "DONE"})
+
+    result = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+    project = result["steps"][step_name]
+
+    assert project["status"] == "completed"
+    assert project["artifacts"] == {"return__ready": True, "return__status": "DONE"}
+
+
+def test_compile_strict_effectful_boundary_fixture_preserves_required_lints(
+    tmp_path: Path,
+) -> None:
+    fixture_path = INVALID_FIXTURES / "pure_projection_effectful_boundary_lints.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_invalid_pure_projection_fixture(
+            fixture_path,
+            tmp_path,
+            lint_profile="strict",
+        )
+
+    assert {diagnostic.code for diagnostic in excinfo.value.diagnostics} == {
+        "low_level_state_path_in_high_level_module",
+        "variant_output_without_variant_specific_fields",
+    }
+
+
+def test_compile_strict_pure_projection_boundary_fixture_skips_boundary_lints(
+    tmp_path: Path,
+) -> None:
+    source_root = (
+        REPO_ROOT
+        / "tests"
+        / "fixtures"
+        / "workflow_lisp"
+        / "modules"
+        / "valid"
+        / "pure_projection_boundary_decision_consumer"
+    )
+    entry_path = source_root / "pure_projection_boundary_decision_consumer" / "entry.orc"
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lint_profile="strict",
+    )
+
+    assert (
+        "pure_projection_boundary_decision_consumer/entry::run"
+        in result.validated_bundles_by_name
+    )
+
+
+def test_imported_call_binding_pure_projection_steps_are_visible_in_bundle(
+    tmp_path: Path,
+) -> None:
+    source_root = (
+        REPO_ROOT
+        / "tests"
+        / "fixtures"
+        / "workflow_lisp"
+        / "modules"
+        / "valid"
+        / "pure_projection_boundary_decision_consumer"
+    )
+    entry_path = source_root / "pure_projection_boundary_decision_consumer" / "entry.orc"
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name[
+        "pure_projection_boundary_decision_consumer/entry::run"
+    ]
+    pure_projection_step_names = {
+        step.name
+        for step in bundle.surface.steps
+        if step.kind.value == "pure_projection"
+    }
+
+    assert any(name.endswith("__bind_route") for name in pure_projection_step_names)
+    assert any(name.endswith("__bind_reason") for name in pure_projection_step_names)
+
+
+def test_compile_rejects_pure_projection_binding_type_mismatch_at_typecheck(
+    tmp_path: Path,
+) -> None:
+    fixture_path = INVALID_FIXTURES / "pure_projection_binding_type_mismatch.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_invalid_pure_projection_fixture(fixture_path, tmp_path)
+
+    assert excinfo.value.diagnostics[0].code == "type_mismatch"
+
+
+def test_compile_rejects_pure_projection_binding_effectful_expr_with_existing_lowering_diagnostic(
+    tmp_path: Path,
+) -> None:
+    fixture_path = INVALID_FIXTURES / "pure_projection_binding_effectful_expr.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_invalid_pure_projection_fixture(fixture_path, tmp_path)
+
+    assert excinfo.value.diagnostics[0].code == "workflow_signature_mismatch"
+    assert "resolve to workflow inputs" in excinfo.value.diagnostics[0].message
 
 
 def test_compile_rejects_oversized_pure_projection_region(tmp_path: Path) -> None:

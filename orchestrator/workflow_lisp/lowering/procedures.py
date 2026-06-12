@@ -105,6 +105,7 @@ def _resolve_procedure_lowering(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     workflow_path: Path,
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> Mapping[str, TypedProcedureDef]:
     from ..procedure_specialization import _procedure_private_body_valid, _procedure_private_boundary_valid
     from .core import _compile_error
@@ -113,6 +114,7 @@ def _resolve_procedure_lowering(
         typed_procedures,
         typed_workflows=typed_workflows,
         type_env=type_env,
+        procedure_type_envs=procedure_type_envs,
     )
     resolved: dict[str, TypedProcedureDef] = {}
     typed_procedures_by_name = {
@@ -125,6 +127,7 @@ def _resolve_procedure_lowering(
             procedure,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
         )
         if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW and not boundary_valid:
             raise _compile_error(
@@ -176,6 +179,7 @@ def _procedure_private_call_site_analysis(
     *,
     typed_workflows: tuple[TypedWorkflowDef, ...],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> tuple[Mapping[str, int], Mapping[str, bool]]:
     """Count procedure call sites and whether each can cross a workflow boundary."""
 
@@ -188,12 +192,22 @@ def _procedure_private_call_site_analysis(
     distinct_call_sites: dict[str, set[tuple[SourceSpan, tuple[str, ...]]]] = {}
     lowerable: dict[str, bool] = {}
 
-    def walk(expr: Any, *, local_values: Mapping[str, Any]) -> None:
+    def _procedure_type_env_for_name(name: str, *, default: FrontendTypeEnvironment) -> FrontendTypeEnvironment:
+        if procedure_type_envs is None:
+            return default
+        return procedure_type_envs.get(name, default)
+
+    def walk(
+        expr: Any,
+        *,
+        local_values: Mapping[str, Any],
+        current_type_env: FrontendTypeEnvironment,
+    ) -> None:
         if isinstance(expr, ProcedureCallExpr):
             distinct_call_sites.setdefault(expr.callee_name, set()).add((expr.span, expr.form_path))
             call_site_lowerable = True
             for arg in expr.args:
-                walk(arg, local_values=local_values)
+                walk(arg, local_values=local_values, current_type_env=current_type_env)
                 if _resolve_expr_local_value(arg, local_values=local_values) is None:
                     call_site_lowerable = False
             lowerable[expr.callee_name] = lowerable.get(expr.callee_name, True) and call_site_lowerable
@@ -202,18 +216,25 @@ def _procedure_private_call_site_analysis(
                 child_locals = {}
                 for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
                     child_locals[param_name] = _resolve_expr_local_value(arg_expr, local_values=local_values)
-                walk(callee.typed_body.expr, local_values=child_locals)
+                walk(
+                    callee.typed_body.expr,
+                    local_values=child_locals,
+                    current_type_env=_procedure_type_env_for_name(
+                        callee.definition.name,
+                        default=current_type_env,
+                    ),
+                )
             return
         if isinstance(expr, LetStarExpr):
             child_locals = dict(local_values)
             for binding_name, binding in expr.bindings:
-                walk(binding, local_values=child_locals)
+                walk(binding, local_values=child_locals, current_type_env=current_type_env)
                 resolved_binding = _resolve_expr_local_value(binding, local_values=child_locals)
                 if resolved_binding is not None:
                     child_locals[binding_name] = resolved_binding
                 # schema1_compatibility: legacy local-value projection for covered provider results.
                 elif isinstance(binding, ProviderResultExpr):
-                    binding_type = type_env.resolve_type(
+                    binding_type = current_type_env.resolve_type(
                         binding.returns_type_name,
                         span=binding.span,
                         form_path=binding.form_path,
@@ -223,40 +244,44 @@ def _procedure_private_call_site_analysis(
                             binding_type,
                             step_name=binding_name,
                         )
-            walk(expr.body, local_values=child_locals)
+            walk(expr.body, local_values=child_locals, current_type_env=current_type_env)
             return
         # schema1_compatibility: legacy procedure traversal for covered match forms.
         if isinstance(expr, MatchExpr):
-            walk(expr.subject, local_values=local_values)
+            walk(expr.subject, local_values=local_values, current_type_env=current_type_env)
             for arm in expr.arms:
-                walk(arm.body, local_values=local_values)
+                walk(arm.body, local_values=local_values, current_type_env=current_type_env)
             return
         if isinstance(expr, RecordExpr):
             for _, value in expr.fields:
-                walk(value, local_values=local_values)
+                walk(value, local_values=local_values, current_type_env=current_type_env)
             return
         if isinstance(expr, WithPhaseExpr):
-            walk(expr.ctx_expr, local_values=local_values)
-            walk(expr.body, local_values=local_values)
+            walk(expr.ctx_expr, local_values=local_values, current_type_env=current_type_env)
+            walk(expr.body, local_values=local_values, current_type_env=current_type_env)
             return
         # schema1_compatibility: legacy procedure traversal for covered provider results.
         if isinstance(expr, ProviderResultExpr):
-            walk(expr.provider, local_values=local_values)
-            walk(expr.prompt, local_values=local_values)
+            walk(expr.provider, local_values=local_values, current_type_env=current_type_env)
+            walk(expr.prompt, local_values=local_values, current_type_env=current_type_env)
             for value in expr.inputs:
-                walk(value, local_values=local_values)
+                walk(value, local_values=local_values, current_type_env=current_type_env)
             return
         # schema1_compatibility: legacy procedure traversal for covered command results.
         if isinstance(expr, CommandResultExpr):
             for value in expr.argv:
-                walk(value, local_values=local_values)
+                walk(value, local_values=local_values, current_type_env=current_type_env)
             return
         if isinstance(expr, CallExpr):
             for _, value in expr.bindings:
-                walk(value, local_values=local_values)
+                walk(value, local_values=local_values, current_type_env=current_type_env)
 
     for workflow in typed_workflows:
-        walk(workflow.typed_body.expr, local_values=_signature_local_values(workflow))
+        walk(
+            workflow.typed_body.expr,
+            local_values=_signature_local_values(workflow),
+            current_type_env=type_env,
+        )
     return MappingProxyType(
         {
             callee_name: len(call_sites)

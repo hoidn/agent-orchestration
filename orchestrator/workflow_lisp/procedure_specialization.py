@@ -16,6 +16,7 @@ from .expressions import (
     CallExpr,
     CommandResultExpr,
     FieldAccessExpr,
+    EnumMemberExpr,
     FinalizeSelectedItemExpr,
     IfExpr,
     LetStarExpr,
@@ -32,6 +33,7 @@ from .expressions import (
     UnionVariantExpr,
     WithPhaseExpr,
 )
+from .lowering.pure_projection import is_pure_projection_expr
 from .procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from .procedures import (
     ProcedureCallableSpecialization,
@@ -122,6 +124,7 @@ def _procedure_private_body_valid(
     *,
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
 ) -> bool:
     """Return whether a procedure body exports only workflow-boundary values."""
 
@@ -130,13 +133,20 @@ def _procedure_private_body_valid(
         _procedure_signature_local_values,
     )
 
+    current_type_env = (
+        procedure_type_envs.get(procedure.definition.name, type_env)
+        if procedure_type_envs is not None
+        else type_env
+    )
+
     return _private_workflow_body_exports_step_backed_outputs(
         procedure.typed_body.expr,
         return_type_ref=procedure.signature.return_type_ref,
         local_values=_procedure_signature_local_values(procedure),
         local_type_bindings=_procedure_signature_local_type_bindings(procedure),
         typed_procedures_by_name=typed_procedures_by_name,
-        type_env=type_env,
+        type_env=current_type_env,
+        procedure_type_envs=procedure_type_envs,
         active_procedures=frozenset({procedure.definition.name}),
     )
 
@@ -311,6 +321,7 @@ def _private_workflow_binding_local_value(
     local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     active_procedures: frozenset[str],
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
@@ -332,6 +343,7 @@ def _private_workflow_binding_local_value(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         )
     if isinstance(expr, ProcedureCallExpr):
@@ -348,7 +360,12 @@ def _private_workflow_binding_local_value(
             local_values=child_locals,
             local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
+            type_env=(
+                procedure_type_envs.get(callee.definition.name, type_env)
+                if procedure_type_envs is not None
+                else type_env
+            ),
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures | {callee.definition.name},
         ):
             return None
@@ -376,6 +393,7 @@ def _private_workflow_binding_local_value(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         ):
             return None
@@ -387,6 +405,7 @@ def _private_workflow_binding_local_value(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         ):
             return None
@@ -449,6 +468,7 @@ def _private_workflow_body_exports_step_backed_outputs(
     local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     active_procedures: frozenset[str],
 ) -> bool:
     """Check that a private workflow body returns step-backed outputs."""
@@ -458,6 +478,8 @@ def _private_workflow_body_exports_step_backed_outputs(
         _resolve_inline_expr_value,
     )
 
+    if is_pure_projection_expr(expr):
+        return True
     if isinstance(
         expr,
         (
@@ -481,6 +503,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         )
     if isinstance(expr, ProcedureCallExpr):
@@ -497,7 +520,12 @@ def _private_workflow_body_exports_step_backed_outputs(
             local_values=child_locals,
             local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
-            type_env=type_env,
+            type_env=(
+                procedure_type_envs.get(callee.definition.name, type_env)
+                if procedure_type_envs is not None
+                else type_env
+            ),
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures | {callee.definition.name},
         )
     if isinstance(expr, LetStarExpr):
@@ -511,6 +539,7 @@ def _private_workflow_body_exports_step_backed_outputs(
                 local_type_bindings=child_local_types,
                 typed_procedures_by_name=typed_procedures_by_name,
                 type_env=type_env,
+                procedure_type_envs=procedure_type_envs,
                 active_procedures=active_procedures,
             )
             if binding_value is None:
@@ -531,6 +560,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         )
     if isinstance(expr, MatchExpr):
@@ -541,6 +571,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         )
     if isinstance(expr, IfExpr):
@@ -551,6 +582,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         ) and _private_workflow_body_exports_step_backed_outputs(
             expr.else_expr,
@@ -559,9 +591,10 @@ def _private_workflow_body_exports_step_backed_outputs(
             local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         )
-    if isinstance(expr, (NameExpr, FieldAccessExpr)):
+    if isinstance(expr, (NameExpr, FieldAccessExpr, EnumMemberExpr)):
         return _inline_outputs_are_step_backed(
             expr,
             return_type_ref=return_type_ref,
@@ -590,6 +623,7 @@ def _match_outputs_are_step_backed(
     local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None,
     active_procedures: frozenset[str],
 ) -> bool:
     """Return whether every match arm exports step-backed outputs."""
@@ -631,6 +665,7 @@ def _match_outputs_are_step_backed(
             ),
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
+            procedure_type_envs=procedure_type_envs,
             active_procedures=active_procedures,
         )
         for arm in match_expr.arms

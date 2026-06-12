@@ -18,6 +18,40 @@
     "expected_value": true
   },
   {
+    "name": "eq_enum_member",
+    "operator": "=",
+    "payload": {
+      "pure_expr_schema_version": 1,
+      "result_type": { "kind": "primitive", "name": "Bool" },
+      "bindings": {},
+      "expr": {
+        "kind": "op",
+        "operator": "=",
+        "args": [
+          {
+            "kind": "literal",
+            "type": {
+              "kind": "enum",
+              "name": "BlockerClass",
+              "allowed": ["missing_resource", "unavailable_hardware"]
+            },
+            "value": "missing_resource"
+          },
+          {
+            "kind": "literal",
+            "type": {
+              "kind": "enum",
+              "name": "BlockerClass",
+              "allowed": ["missing_resource", "unavailable_hardware"]
+            },
+            "value": "missing_resource"
+          }
+        ]
+      }
+    },
+    "expected_value": true
+  },
+  {
     "name": "ne_enum",
     "operator": "!=",
     "payload": {

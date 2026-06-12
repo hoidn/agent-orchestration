@@ -72,6 +72,7 @@ from ..expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
     GeneratedRelpathSeedExpr,
@@ -1397,6 +1398,13 @@ def _infer_inline_binding_type(expr: Any, *, context: _LoweringContext) -> TypeR
         if expr.literal_kind == "bool":
             return PrimitiveTypeRef(name="Bool")
         return None
+    if isinstance(expr, EnumMemberExpr):
+        return context.type_env.resolve_type(
+            expr.enum_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     if isinstance(expr, ProcRefLiteralExpr):
         resolved = _resolved_proc_ref_value(expr, context=context, local_values={})
         return None if resolved is None else resolved.residual_type_ref
@@ -1488,6 +1496,13 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
         if expr.literal_kind == "bool":
             return PrimitiveTypeRef(name="Bool")
         return None
+    if isinstance(expr, EnumMemberExpr):
+        return context.type_env.resolve_type(
+            expr.enum_name,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     if isinstance(expr, RecordExpr):
         return context.type_env.resolve_type(
             expr.type_name,

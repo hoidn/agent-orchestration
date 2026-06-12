@@ -16,6 +16,7 @@ from ..expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
+    EnumMemberExpr,
     FieldAccessExpr,
     IfExpr,
     LetStarExpr,
@@ -121,6 +122,7 @@ def lower_wcc_m2_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_type_envs: Mapping[str, object],
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -133,6 +135,7 @@ def lower_wcc_m2_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        procedure_type_envs=procedure_type_envs,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -148,6 +151,7 @@ def lower_wcc_m3_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_type_envs: Mapping[str, object],
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -161,6 +165,7 @@ def lower_wcc_m3_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        procedure_type_envs=procedure_type_envs,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -176,6 +181,7 @@ def lower_wcc_m4_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_type_envs: Mapping[str, object],
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -189,6 +195,7 @@ def lower_wcc_m4_workflow_definitions(
     return _lower_wcc_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
+        procedure_type_envs=procedure_type_envs,
         procedure_catalog=procedure_catalog,
         workflow_path=workflow_path,
         workflow_catalog=workflow_catalog,
@@ -204,6 +211,7 @@ def _lower_wcc_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
     typed_procedures: tuple[TypedProcedureDef, ...],
+    procedure_type_envs: Mapping[str, object],
     procedure_catalog: ProcedureCatalog,
     workflow_path: Path,
     workflow_catalog: WorkflowCatalog,
@@ -220,9 +228,16 @@ def _lower_wcc_workflow_definitions(
         typed_workflows=typed_workflows,
         workflow_path=workflow_path,
         type_env=type_env,
+        procedure_type_envs=procedure_type_envs,
     )
     private_workflows = {
         procedure.generated_workflow_name: _private_workflow_from_procedure(procedure)
+        for procedure in resolved_procedures.values()
+        if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW
+        and procedure.generated_workflow_name is not None
+    }
+    generated_private_workflow_type_envs = {
+        procedure.generated_workflow_name: procedure_type_envs.get(procedure.definition.name, type_env)
         for procedure in resolved_procedures.values()
         if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW
         and procedure.generated_workflow_name is not None
@@ -313,12 +328,13 @@ def _lower_wcc_workflow_definitions(
             typed_workflow,
             workflow_path=workflow_path,
             generated_private_workflow_names=generated_private_workflow_names,
+            generated_private_workflow_type_envs=generated_private_workflow_type_envs,
             workflow_catalog=workflow_catalog,
             imported_workflow_bundles=imported_workflow_bundles,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             lowered_callees=lowered_by_name,
-            type_env=type_env,
+            type_env=generated_private_workflow_type_envs.get(workflow_name, type_env),
             typed_procedures=resolved_procedures,
             workflows_by_name=workflows_by_name,
             ensure_workflow_lowered=lower_one,
@@ -355,6 +371,7 @@ def _lower_one_wcc_workflow(
     *,
     workflow_path: Path,
     generated_private_workflow_names: frozenset[str],
+    generated_private_workflow_type_envs: Mapping[str, object],
     workflow_catalog: WorkflowCatalog,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
     extern_environment: ExternEnvironment,
@@ -2310,6 +2327,17 @@ def _frontend_expr_from_wcc_loop_binding_value(value):
 
 def _frontend_expr_from_wcc_value(value: WccValue):
     if isinstance(value, WccLiteralAtom):
+        if value.literal_kind == "enum":
+            type_ref = value.metadata.type_ref
+            if not isinstance(type_ref, PrimitiveTypeRef) or not type_ref.allowed_values:
+                raise TypeError("enum WCC literal requires an enum primitive type")
+            return EnumMemberExpr(
+                enum_name=type_ref.name,
+                member_name=str(value.value),
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
         return LiteralExpr(
             value=value.value,
             literal_kind=value.literal_kind,

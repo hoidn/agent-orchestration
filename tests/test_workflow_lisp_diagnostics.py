@@ -35,6 +35,7 @@ INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE = FIXTURES / "invalid" / "pure_expr_op
 INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE = (
     FIXTURES / "invalid" / "pure_expr_computed_if_variant_ref_unproved.orc"
 )
+INVALID_ENUM_MEMBER_UNKNOWN_FIXTURE = FIXTURES / "invalid" / "enum_member_unknown.orc"
 PURE_EXPR_HELPER_DIAGNOSTIC_FIXTURES = frozenset(
     {
         INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE,
@@ -1963,6 +1964,7 @@ def test_semantic_ir_invalid_from_promoted_effect_validation_preserves_subject_b
         (INVALID_PURE_EXPR_PATH_STRING_CONCAT_FIXTURE, "pure_expr_path_string_concat_forbidden"),
         (INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE, "pure_expr_optional_access_unproved"),
         (INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE, "variant_ref_unproved"),
+        (INVALID_ENUM_MEMBER_UNKNOWN_FIXTURE, "enum_member_unknown"),
     ],
 )
 def test_rendered_diagnostic_reports_if_condition_not_bool(

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import FlattenedContractField
+from .effects import CallsWorkflowEffect, EffectSummary
 from .phase import private_exec_context_capabilities
 from .type_env import PathTypeRef, RecordTypeRef, TypeRef
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
@@ -84,6 +85,15 @@ class PhaseFamilyBoundaryClassification:
     compatibility_bridge_inputs: tuple[str, ...] = ()
     public_authored_inputs: tuple[str, ...] = ()
     unclassified_low_level_inputs: tuple[str, ...] = ()
+
+
+def is_structural_pure_projection_effect_summary(effect_summary: EffectSummary) -> bool:
+    """Return whether a workflow boundary is effect-free apart from pure calls."""
+
+    allowed_effect_type = CallsWorkflowEffect
+    all_effects = set(effect_summary.direct_effects)
+    all_effects.update(effect_summary.transitive_effects)
+    return all(isinstance(effect, allowed_effect_type) for effect in all_effects)
 
 
 def is_selected_phase_family_workflow(workflow_name: str) -> bool:
