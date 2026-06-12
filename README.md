@@ -1,10 +1,11 @@
 # Agent Orchestration
 
-A compiler and runtime for LLM-agent workflows: typed workflow programs in
-which coding agents and shell commands are effectful steps, and the toolchain
-— not the author — owns intermediate storage, input/output contracts, output
-verification, routing proof, resume, and provenance. Every run leaves
-filesystem-native evidence under `.orchestrate/runs/<run_id>/`.
+A compiler and runtime for LLM-agent workflows. A workflow is a typed
+program whose steps run coding agents and shell commands. The toolchain owns
+the bookkeeping that agent pipelines normally hand-roll: where intermediate
+files live, what each step must produce, whether it actually did, and how a
+run resumes after failure. Every run leaves its state, prompts, and logs on
+disk under `.orchestrate/runs/<run_id>/`.
 
 ## The Missing Toolchain
 
