@@ -275,6 +275,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, generic-core, expression-surface, pure-projection, transitions, materialized-views, adapter-retirement, boundary-classes, runtime-simplification
 **Use this when:** Planning or reviewing the runtime ontology simplification, the pure-expression operator set, adapter retirement evidence, boundary authority classification, or stdlib migration of `with-phase` / `finalize-selected-item` / `backlog-drain`.
 
+### [Workflow Lisp Consumer-Side Rendering](design/workflow_lisp_consumer_side_rendering.md)
+**Description:** Draft future target that inverts materialization from producer-authored to consumer-derived: producers publish typed values, and rendering happens at consumer seams — typed values injected into prompts (ephemeral, evidenced by the composed-prompt log), human summaries derived by the observability layer from typed terminal results, per-variant `:publish` policy on entrypoint signatures lowering to the G4 kernel, and compatibility bridges maintained from classification metadata so retirement is metadata deletion. Body-level `materialize-view` shrinks to justified timed publications.
+**Keywords:** lisp-frontend, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges, values-before-artifacts, ergonomics
+**Use this when:** Planning or reviewing reductions in authored materialization, typed-value prompt injection, entry-boundary publication policy, or bridge-as-metadata retirement mechanics.
+
 ### [Workflow Lisp Lexical Execution Checkpoints](design/workflow_lisp_lexical_execution_checkpoints.md)
 **Description:** Draft future target separating execution resumability from domain durability: private lexical checkpoints (program point, typed environment, frames, proof scopes, completed-effect references, pending effect boundary) over WCC identity, schema-versioned and executable-digest checked, with explicit effect-boundary resume policies; typed resources and transitions remain the durable, audited, parity-comparable record, and resume-only authored plumbing (run-state paths, pointer/summary targets) leaves public `.orc` boundaries.
 **Keywords:** lisp-frontend, resume, checkpoints, lexical-state, wcc, transitions, idempotency, audit, fail-closed, boundary-cleanup
