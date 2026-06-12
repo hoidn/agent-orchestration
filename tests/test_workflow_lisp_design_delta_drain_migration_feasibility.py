@@ -67,12 +67,14 @@ PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE = (
 DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE = (
     REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "runtime_transition_fixture.orc"
 )
+DESIGN_DELTA_WORK_ITEM_LIBRARY_ROOT = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta"
 NESTED_SAME_FILE_CALL_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_same_file_call_local_record.orc"
 )
 NESTED_IMPORTED_BRANCH_EFFECTS_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_imported_branch_effects.orc"
 )
+WORKFLOW_LISP_IMPORT_PATTERN = re.compile(r"\(import\s+([^\s)]+)")
 
 
 def _write_module(path: Path, source: str) -> Path:
@@ -90,6 +92,25 @@ def _write_entrypoint_fixture_to_tmp(path: Path, *, tmp_path: Path) -> Path:
     module_path.parent.mkdir(parents=True, exist_ok=True)
     module_path.write_text(source, encoding="utf-8")
     return module_path
+
+
+def _design_delta_work_item_runtime_authoritative_modules() -> dict[str, bytes]:
+    pending = ["work_item.orc"]
+    authoritative_modules: dict[str, bytes] = {}
+
+    while pending:
+        module_name = pending.pop()
+        if module_name in authoritative_modules:
+            continue
+        module_path = DESIGN_DELTA_WORK_ITEM_LIBRARY_ROOT / module_name
+        module_bytes = module_path.read_bytes()
+        authoritative_modules[module_name] = module_bytes
+        module_source = module_bytes.decode("utf-8")
+        for imported_module in WORKFLOW_LISP_IMPORT_PATTERN.findall(module_source):
+            if imported_module.startswith("lisp_frontend_design_delta/"):
+                pending.append(f"{imported_module.removeprefix('lisp_frontend_design_delta/')}.orc")
+
+    return dict(sorted(authoritative_modules.items()))
 
 
 def _bind_nested_match_inputs(bundle, workspace: Path) -> dict[str, object]:
@@ -899,16 +920,10 @@ def _copy_design_delta_work_item_runtime_modules(
     implementation_state_override: str | None = None,
 ) -> Path:
     module_dir = tmp_path / "lisp_frontend_design_delta"
+    source_dir = DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta"
     module_dir.mkdir(parents=True, exist_ok=True)
-    for name in (
-        "projections.orc",
-        "plan_phase.orc",
-        "implementation_phase.orc",
-        "transitions.orc",
-        "types.orc",
-        "work_item.orc",
-    ):
-        source = REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / name
+    for name in _design_delta_work_item_runtime_authoritative_modules():
+        source = source_dir / name
         _write_module(module_dir / name, source.read_text(encoding="utf-8"))
     if plan_review_decision_override is not None:
         _write_module(
@@ -3372,6 +3387,16 @@ def test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_co
 
 
 test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts.design_delta_work_item_candidate_compiles_as_parent_callable_workflow = True
+
+
+def test_design_delta_work_item_runtime_fixture_mirror_matches_library_module_set() -> None:
+    mirror_root = DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta"
+    mirrored_names = {path.name for path in mirror_root.glob("*.orc")}
+    authoritative_modules = _design_delta_work_item_runtime_authoritative_modules()
+
+    assert mirrored_names == set(authoritative_modules)
+    for name, expected_bytes in authoritative_modules.items():
+        assert (mirror_root / name).read_bytes() == expected_bytes
 
 
 def test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context(
