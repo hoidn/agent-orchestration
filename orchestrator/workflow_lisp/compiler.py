@@ -38,6 +38,7 @@ from .definitions import (
     PathDef,
     RecordDef,
     RecordField,
+    ResourceDef,
     SchemaDef,
     UnionDef,
     UnionVariant,
@@ -1645,6 +1646,8 @@ def _compile_stage3_graph(
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
+    exported_resource_defs_by_module: dict[str, dict[str, ResourceDef]] = {}
+    exported_transition_defs_by_module: dict[str, dict[str, TransitionDef]] = {}
     exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
     exported_function_signatures_by_module: dict[str, dict[str, FunctionSignature]] = {}
     exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
@@ -1709,6 +1712,14 @@ def _compile_stage3_graph(
             import_scope=import_scope,
             imported_schema_defs=imported_schema_defs,
         )
+        exported_resource_defs_by_module[module_name] = _exported_resource_defs(
+            definition_module,
+            export_surfaces[module_name],
+        )
+        exported_transition_defs_by_module[module_name] = _exported_transition_defs(
+            definition_module,
+            export_surfaces[module_name],
+        )
         visible_procedure_names_by_module[module_name] = frozenset(
             procedure.name for procedure in raw_procedure_defs
         )
@@ -1720,10 +1731,14 @@ def _compile_stage3_graph(
         )
 
         imported_type_refs = _imported_type_refs(import_scope, exported_type_refs_by_module)
+        imported_resource_defs = _imported_resource_defs(import_scope, exported_resource_defs_by_module)
+        imported_transition_defs = _imported_transition_defs(import_scope, exported_transition_defs_by_module)
         type_env = FrontendTypeEnvironment.from_module(
             definition_module,
             import_scope=import_scope,
             imported_type_refs=imported_type_refs,
+            imported_resource_defs=imported_resource_defs,
+            imported_transition_defs=imported_transition_defs,
         )
         function_defs = _canonicalize_function_defs(module_name, raw_function_defs)
         procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
@@ -2259,6 +2274,30 @@ def _imported_schema_defs(
     return imported
 
 
+def _imported_resource_defs(
+    import_scope: ModuleImportScope,
+    exported_resource_defs_by_module: Mapping[str, Mapping[str, ResourceDef]],
+) -> dict[str, ResourceDef]:
+    imported: dict[str, ResourceDef] = {}
+    for binding in dict(import_scope.resource_bindings).values():
+        resource_def = exported_resource_defs_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if resource_def is not None:
+            imported[binding.canonical_name] = resource_def
+    return imported
+
+
+def _imported_transition_defs(
+    import_scope: ModuleImportScope,
+    exported_transition_defs_by_module: Mapping[str, Mapping[str, TransitionDef]],
+) -> dict[str, TransitionDef]:
+    imported: dict[str, TransitionDef] = {}
+    for binding in dict(import_scope.transition_bindings).values():
+        transition_def = exported_transition_defs_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if transition_def is not None:
+            imported[binding.canonical_name] = transition_def
+    return imported
+
+
 def _exported_type_refs(
     module: WorkflowLispModule,
     export_surface: ModuleExportSurface,
@@ -2310,6 +2349,30 @@ def _exported_schema_defs(
             span=schema.span,
         )
     return exported
+
+
+def _exported_resource_defs(
+    module: WorkflowLispModule,
+    export_surface: ModuleExportSurface,
+) -> dict[str, ResourceDef]:
+    local_resources = {resource.name: resource for resource in module.resources}
+    return {
+        binding.member_name: local_resources[binding.member_name]
+        for binding in export_surface.resources_by_name.values()
+        if binding.member_name in local_resources
+    }
+
+
+def _exported_transition_defs(
+    module: WorkflowLispModule,
+    export_surface: ModuleExportSurface,
+) -> dict[str, TransitionDef]:
+    local_transitions = {transition.name: transition for transition in module.transitions}
+    return {
+        binding.member_name: local_transitions[binding.member_name]
+        for binding in export_surface.transitions_by_name.values()
+        if binding.member_name in local_transitions
+    }
 
 
 def _imported_procedure_signatures(
@@ -2649,9 +2712,16 @@ def _augment_builtin_command_boundaries(
     missing_binding_names = tuple(
         name for name in sorted(required_binding_names) if name not in bindings
     )
-    if not missing_binding_names:
+    replacement_binding_names = tuple(
+        name
+        for name in sorted(required_binding_names)
+        if name in bindings and not isinstance(bindings[name], CertifiedAdapterBinding)
+    )
+    if not missing_binding_names and not replacement_binding_names:
         return command_boundary_environment
     for binding_name in missing_binding_names:
+        bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
+    for binding_name in replacement_binding_names:
         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
     return build_command_boundary_environment(bindings)
 

@@ -1,0 +1,216 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule std/resource)
+  (import std/context :only (ItemCtx))
+  (export BlockerClass
+          WorkReport
+          StateExisting
+          SelectedItemSummaryPath
+          SelectedItemSummaryValue
+          SelectedItemResult
+          SelectedItemOutcomeState
+          SelectedItemOutcomeRequest
+          SelectedItemOutcomeTransitionResult
+          SelectedItemOutcomeTransitionAudit
+          selected-item-outcome
+          record-selected-item-outcome
+          finalize-selected-item
+          finalize-selected-item-proc
+          finalize-selected-item-continue-proc
+          finalize-selected-item-blocked-proc)
+  (defenum BlockerClass
+    missing_resource
+    unavailable_hardware
+    roadmap_conflict
+    external_dependency_outside_authority
+    user_decision_required
+    unrecoverable_after_fix_attempt)
+  (defpath WorkReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defpath StateExisting
+    :kind relpath
+    :under "state"
+    :must-exist true)
+  (defpath SelectedItemSummaryPath
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist false)
+  (defunion SelectedItemResult
+    (CONTINUE
+      (summary-path SelectedItemSummaryPath)
+      (run-state StateExisting))
+    (BLOCKED
+      (summary-path SelectedItemSummaryPath)
+      (blocker-class BlockerClass)
+      (run-state StateExisting)))
+  (defrecord SelectedItemSummaryValue
+    (status String)
+    (roadmap_status String)
+    (report_path WorkReport)
+    (queue_transition_id String))
+  (defrecord SelectedItemOutcomeState
+    (status String)
+    (summary_path SelectedItemSummaryPath)
+    (queue_transition_id String))
+  (defrecord SelectedItemOutcomeRequest
+    (status String)
+    (summary_path SelectedItemSummaryPath)
+    (queue_transition_id String))
+  (defrecord SelectedItemOutcomeTransitionResult
+    (summary_path SelectedItemSummaryPath)
+    (queue_transition_id String))
+  (defrecord SelectedItemOutcomeTransitionAudit
+    (summary_path SelectedItemSummaryPath)
+    (queue_transition_id String))
+  (defresource selected-item-outcome
+    :state-type SelectedItemOutcomeState
+    :backing (bridge run_state_path))
+  (deftransition record-selected-item-outcome
+    :resource selected-item-outcome
+    :request-type SelectedItemOutcomeRequest
+    :result-type SelectedItemOutcomeTransitionResult
+    :preconditions ((!= request.status ""))
+    :updates ((set-field status request.status)
+              (set-field summary_path request.summary_path)
+              (set-field queue_transition_id request.queue_transition_id))
+    :write-set (status summary_path queue_transition_id)
+    :idempotency-fields (status summary_path queue_transition_id)
+    :result (record SelectedItemOutcomeTransitionResult
+      :summary_path request.summary_path
+      :queue_transition_id request.queue_transition_id)
+    :audit (record SelectedItemOutcomeTransitionAudit
+      :summary_path request.summary_path
+      :queue_transition_id request.queue_transition_id)
+    :conflict-policy fail_closed
+    :backend runtime_native)
+  (defproc finalize-selected-item-proc
+    :forall (PlanT ImplT)
+    ((plan PlanT)
+     (implementation ImplT))
+    :where ((PlanT is-union)
+            (PlanT has-union-variant APPROVED
+              (execution-report-path WorkReport))
+            (PlanT has-union-variant BLOCKED
+              (progress-report-path WorkReport)
+              (blocker-class BlockerClass))
+            (ImplT is-union)
+            (ImplT has-union-variant COMPLETED
+              (execution-report-path WorkReport))
+            (ImplT has-union-variant BLOCKED
+              (progress-report-path WorkReport)
+              (blocker-class BlockerClass)))
+    -> Bool
+    :effects ()
+    :lowering inline
+    true)
+  (defproc finalize-selected-item-continue-proc
+    ((run-state-path StateExisting)
+     (queue-transition-id String)
+     (roadmap-status String)
+     (report-path WorkReport)
+     (summary-path SelectedItemSummaryPath))
+    -> std/resource/SelectedItemSummaryPath
+    :effects ()
+    :lowering inline
+    summary-path)
+  (defproc finalize-selected-item-blocked-proc
+    ((run-state-path StateExisting)
+     (queue-transition-id String)
+     (roadmap-status String)
+     (report-path WorkReport)
+     (summary-path SelectedItemSummaryPath))
+    -> std/resource/SelectedItemSummaryPath
+    :effects ()
+    :lowering inline
+    summary-path)
+  (defmacro finalize-selected-item (ctx-key ctx selected-key selected queue-transition-key queue-transition roadmap-key roadmap plan-key plan implementation-key implementation)
+    (let* ((contract-ok
+             (std/resource/finalize-selected-item-proc
+               plan
+               implementation))
+           (summary-path
+             (__generated-relpath-seed__
+               std/resource/SelectedItemSummaryPath
+               "artifacts/work/selected-item-summary.json"
+               "selected_item_summary_path_seed"))
+           (run-state-path selected.final-plan-gate-state)
+           (queue-transition-id queue-transition.transition-id)
+           (roadmap-status roadmap.status))
+      (match plan
+        ((APPROVED plan)
+         (match implementation
+           ((COMPLETED implementation)
+            (let* ((rendered-summary-path
+                     (materialize-view selected-item-summary
+                       :value (record std/resource/SelectedItemSummaryValue
+                                :status "CONTINUE"
+                                :roadmap_status roadmap-status
+                                :report_path implementation.execution-report-path
+                                :queue_transition_id queue-transition-id)
+                       :renderer canonical-json
+                       :renderer-version 1
+                       :target summary-path
+                       :returns std/resource/SelectedItemSummaryPath))
+                   (outcome-write
+                     (resource-transition
+                       :transition record-selected-item-outcome
+                       :resource selected-item-outcome
+                       :request (record std/resource/SelectedItemOutcomeRequest
+                                  :status "CONTINUE"
+                                  :summary_path rendered-summary-path
+                                  :queue_transition_id queue-transition-id))))
+              (variant std/resource/SelectedItemResult CONTINUE
+                :summary-path outcome-write.summary_path
+                :run-state run-state-path)))
+           ((BLOCKED implementation)
+            (let* ((rendered-summary-path
+                     (materialize-view selected-item-summary
+                       :value (record std/resource/SelectedItemSummaryValue
+                                :status "BLOCKED"
+                                :roadmap_status roadmap-status
+                                :report_path implementation.progress-report-path
+                                :queue_transition_id queue-transition-id)
+                       :renderer canonical-json
+                       :renderer-version 1
+                       :target summary-path
+                       :returns std/resource/SelectedItemSummaryPath))
+                   (outcome-write
+                     (resource-transition
+                       :transition record-selected-item-outcome
+                       :resource selected-item-outcome
+                       :request (record std/resource/SelectedItemOutcomeRequest
+                                  :status "BLOCKED"
+                                  :summary_path rendered-summary-path
+                                  :queue_transition_id queue-transition-id))))
+              (variant std/resource/SelectedItemResult BLOCKED
+                :summary-path outcome-write.summary_path
+                :blocker-class implementation.blocker-class
+                :run-state run-state-path)))))
+        ((BLOCKED plan)
+         (let* ((rendered-summary-path
+                  (materialize-view selected-item-summary
+                    :value (record std/resource/SelectedItemSummaryValue
+                             :status "BLOCKED"
+                             :roadmap_status roadmap-status
+                             :report_path plan.progress-report-path
+                             :queue_transition_id queue-transition-id)
+                    :renderer canonical-json
+                    :renderer-version 1
+                    :target summary-path
+                    :returns std/resource/SelectedItemSummaryPath))
+                (outcome-write
+                  (resource-transition
+                    :transition record-selected-item-outcome
+                    :resource selected-item-outcome
+                    :request (record std/resource/SelectedItemOutcomeRequest
+                               :status "BLOCKED"
+                               :summary_path rendered-summary-path
+                               :queue_transition_id queue-transition-id))))
+           (variant std/resource/SelectedItemResult BLOCKED
+             :summary-path outcome-write.summary_path
+             :blocker-class plan.blocker-class
+             :run-state run-state-path))))))
+)

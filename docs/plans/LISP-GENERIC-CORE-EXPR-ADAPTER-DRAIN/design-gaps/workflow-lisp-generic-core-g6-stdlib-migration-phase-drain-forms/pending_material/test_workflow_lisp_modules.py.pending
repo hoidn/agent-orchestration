@@ -1,0 +1,30 @@
+def test_compile_stage1_entrypoint_exposes_stdlib_form_bridge_macros_from_builtin_stdlib(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "builtin_stdlib_form_bridge_macros"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import std/phase :only (phase-scope PhaseScopeTargets))",
+                "  (import std/resource :only (finalize-selected-item SelectedItemResult))",
+                "  (import std/drain :only (backlog-drain DrainResult))",
+                "  (export EntryOut)",
+                "  (defrecord EntryOut",
+                "    (report String)))",
+            ]
+        ),
+    )
+
+    result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
+
+    assert "phase-scope" in result.graph.export_surfaces_by_name["std/phase"].macros_by_name
+    assert "PhaseScopeTargets" in result.graph.export_surfaces_by_name["std/phase"].definitions_by_name
+    assert "finalize-selected-item" in result.graph.export_surfaces_by_name["std/resource"].macros_by_name
+    assert "SelectedItemResult" in result.graph.export_surfaces_by_name["std/resource"].definitions_by_name
+    assert "backlog-drain" in result.graph.export_surfaces_by_name["std/drain"].macros_by_name
+    assert "DrainResult" in result.graph.export_surfaces_by_name["std/drain"].definitions_by_name

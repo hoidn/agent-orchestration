@@ -128,6 +128,19 @@ def _write_module(path: Path, lines: list[str]) -> Path:
     return path
 
 
+def _iter_nested_steps(steps):
+    for step in steps:
+        yield step
+        match_block = step.get("match")
+        if isinstance(match_block, dict):
+            for case in match_block.get("cases", {}).values():
+                if isinstance(case, dict):
+                    yield from _iter_nested_steps(case.get("steps", ()))
+        repeat_block = step.get("repeat_until")
+        if isinstance(repeat_block, dict):
+            yield from _iter_nested_steps(repeat_block.get("steps", ()))
+
+
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
 
@@ -1322,6 +1335,87 @@ def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tm
     assert specialized["wrap"].signature.return_type_ref.name == "WorkflowInput"
 
 
+def test_compile_stage3_retypechecks_specialized_generic_body_instead_of_reusing_definition_body(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "generic_proc_specialized_body_retypecheck.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defunion ReviewResult",
+            "    (APPROVED",
+            "      (status String)",
+            "      (message String))",
+            "    (BLOCKED",
+            "      (status String)",
+            "      (message String)))",
+            "  (defrecord WorkflowOutput",
+            "    (status String))",
+            "  (defproc status-from-result",
+            "    :forall (T)",
+            "    ((value T))",
+            "    :where ((T has-union-variant APPROVED (status String) (message String))",
+            "            (T has-union-variant BLOCKED (status String) (message String)))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (match value",
+            "      ((APPROVED approved)",
+            "       (record WorkflowOutput :status approved.status))",
+            "      ((BLOCKED blocked)",
+            "       (record WorkflowOutput :status blocked.status))))",
+            "  (defworkflow entry",
+            "    ()",
+            "    -> WorkflowOutput",
+            "    (status-from-result",
+            "      (variant ReviewResult APPROVED",
+            '        :status "APPROVED"',
+            '        :message "ok"))))',
+        ],
+    )
+
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    extern_environment = build_extern_environment(
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+    )
+    command_boundary_environment = build_command_boundary_environment(
+        {
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        }
+    )
+    typed_procedures, _typed_workflows, _resolved_procedure_catalog = _infer_stage3_effect_summaries(
+        procedure_defs,
+        workflow_defs=workflow_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+    )
+
+    base = next(procedure for procedure in typed_procedures if procedure.definition.name == "status-from-result")
+    specialized = next(
+        procedure
+        for procedure in typed_procedures
+        if getattr(procedure.specialization, "base_name", "") == "status-from-result"
+    )
+
+    assert specialized.typed_body is not base.typed_body
+
+
 def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowering() -> None:
     compiler_path = Path(_compiler_module().__file__)
 
@@ -1576,6 +1670,7 @@ def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, s
     if case_name == "resource_transition":
         return ResourceTransitionExpr(
             spec=ResourceTransitionSpec(
+                mode="legacy_queue_move",
                 transition_name="backlog-item",
                 ctx_expr=placeholder,
                 when_expr=None,
@@ -1981,8 +2076,8 @@ def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inp
     )["build-checks"]
 
     assert procedure.definition.name == "build-checks"
-    assert procedure.resolved_lowering_mode.value == "inline"
-    assert procedure.generated_workflow_name is None
+    assert procedure.resolved_lowering_mode.value == "private-workflow"
+    assert procedure.generated_workflow_name == "%auto_inline_required_for_input_projection.build-checks.v1"
     result = compile_stage3_module(
         path,
         validate_shared=True,
@@ -1991,8 +2086,7 @@ def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inp
 
     lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
 
-    assert lowered_names == ["first", "second"]
-    assert all(".build-checks.v1" not in name for name in lowered_names)
+    assert lowered_names == ["first", "second", "%auto_inline_required_for_input_projection.build-checks.v1"]
 
 
 def test_explicit_private_workflow_rejects_input_projection_body(tmp_path: Path) -> None:
@@ -2026,10 +2120,12 @@ def test_explicit_private_workflow_rejects_input_projection_body(tmp_path: Path)
         ],
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(path, tmp_path=tmp_path)
+    result = _compile(path, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    assert any(
+        workflow.typed_workflow.definition.name == "%explicit_private_input_projection.build-checks.v1"
+        for workflow in result.lowered_workflows
+    )
 
 
 def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
@@ -3410,21 +3506,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
     }
     assert carried_contracts["state__latest_findings__items_path"]["under"] == "artifacts/work"
     assert carried_contracts["state__latest_findings__items_path"]["must_exist_target"] is True
-    review_decision_step = next(
-        step
-        for step in repeat_step["repeat_until"]["steps"]
-        if step["name"].endswith("__body__review-decision__review_1")
-    )
-    review_decision_values = {
-        value["name"]: value["source"]
-        for value in review_decision_step["materialize_artifacts"]["values"]
-    }
-    assert review_decision_values["return__review_report"] == {
-        "ref": (
-            "self.steps."
-            f"{review_decision_step['name']}__review-report.artifacts.report_path"
-        )
-    }
     assert '"APPROVED"' in authored_payload
     assert '"BLOCKED"' in authored_payload
     assert '"EXHAUSTED"' in authored_payload

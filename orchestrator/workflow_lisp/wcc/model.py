@@ -40,7 +40,7 @@ class WccNodeMetadata:
 
 @dataclass(frozen=True)
 class WccPhaseScope:
-    """Authored `with-phase` lowering context carried transparently through WCC."""
+    """Authored intrinsic `with-phase` lowering context carried transparently through WCC."""
 
     ctx_expr: object
     phase_name: str

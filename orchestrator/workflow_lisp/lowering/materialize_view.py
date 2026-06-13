@@ -42,7 +42,7 @@ def lower_materialize_view_step(
     assert isinstance(expr, MaterializeViewExpr)
     assert isinstance(typed_expr.type_ref, PathTypeRef)
 
-    step_name = expr.view_name
+    step_name = context.step_name_prefix
     step_id = _normalize_generated_step_id(step_name)
     renderer = resolve_view_renderer(expr.renderer_id, expr.renderer_version)
     value_type = _infer_expr_type(
@@ -122,7 +122,7 @@ def _materialize_view_value_document(expr: Any, *, local_values: Mapping[str, An
     if isinstance(resolved, LiteralExpr):
         return resolved.value
     if isinstance(resolved, GeneratedRelpathSeedExpr):
-        return resolved.relative_path
+        return resolved.literal_path
     if isinstance(resolved, ProjectedPathRef):
         return MaterializeViewBindingReference(ref=resolved.ref)
     if isinstance(resolved, str):
@@ -161,8 +161,8 @@ def _target_path_value(
             }
         if isinstance(resolved, GeneratedRelpathSeedExpr):
             return {
-                "runtime_value": resolved.relative_path,
-                "surface_value": resolved.relative_path,
+                "runtime_value": resolved.literal_path,
+                "surface_value": resolved.literal_path,
                 "allocation_id": None,
             }
         if isinstance(resolved, ProjectedPathRef):

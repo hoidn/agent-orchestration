@@ -37,7 +37,10 @@ from orchestrator.workflow_lisp.lowering import (
     _observed_statement_families,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
-from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
+from orchestrator.workflow_lisp.stdlib_contracts import (
+    STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME,
+    STDLIB_LOWERING_CONTRACTS_BY_FORM,
+)
 from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -60,6 +63,7 @@ VALID_RUN_PROVIDER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_pha
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
+VALID_PHASE_SCOPE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_scope_stdlib_targets.orc"
 VALID_RESUME_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start.orc"
 VALID_RESUME_WRAPPER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start_reusable_wrapper.orc"
 VALID_NESTED_IMPLEMENTATION_PHASE_FIXTURE = FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
@@ -475,14 +479,9 @@ def _compile_module_fixture(
                     "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
                 ),
             ),
-            "validate_review_findings_v1": ExternalToolBinding(
-                name="validate_review_findings_v1",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-                ),
-            ),
+            "validate_review_findings_v1": STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[
+                "validate_review_findings_v1"
+            ],
         },
         validate_shared=validate_shared,
         workspace_root=tmp_path,
@@ -1007,7 +1006,23 @@ def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_
     linked = compile_stage1_entrypoint(path, source_roots=(tmp_path,))
     entry_module = linked.compiled_modules_by_name["phase_stdlib_review_loop_alias"]
     phase_module = linked.compiled_modules_by_name["std/phase"]
-    phase_env = FrontendTypeEnvironment.from_module(phase_module)
+    context_module = linked.compiled_modules_by_name["std/context"]
+    context_env = FrontendTypeEnvironment.from_module(context_module)
+    phase_env = FrontendTypeEnvironment.from_module(
+        phase_module,
+        imported_type_refs={
+            "PhaseCtx": context_env.resolve_type(
+                "PhaseCtx",
+                span=context_module.span,
+                form_path=("workflow-lisp", "defrecord", "PhaseCtx"),
+            ),
+            "std/context/PhaseCtx": context_env.resolve_type(
+                "std/context/PhaseCtx",
+                span=context_module.span,
+                form_path=("workflow-lisp", "defrecord", "PhaseCtx"),
+            ),
+        },
+    )
     import_scope = build_import_scope(
         entry_module,
         export_surfaces_by_name=linked.graph.export_surfaces_by_name,
@@ -1286,6 +1301,24 @@ def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path:
     result = _compile(path, tmp_path=tmp_path)
 
     assert any(workflow.definition.name.endswith("run-review") for workflow in result.typed_workflows)
+
+
+def test_stdlib_form_phase_scope_fixture_compiles_through_builtin_stdlib_import(tmp_path: Path) -> None:
+    source = VALID_PHASE_SCOPE_STDLIB_FIXTURE.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None
+    module_path = (tmp_path / Path(*module_match.group(1).split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        command_boundaries={},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert "phase_scope_stdlib_targets::phase-scope-demo" in result.entry_result.workflow_catalog.signatures_by_name
 
 
 def test_lowering_review_loop_carries_last_review_report_through_loop_outputs(tmp_path: Path) -> None:

@@ -1,0 +1,41 @@
+def test_typecheck_accepts_stdlib_finalize_selected_item_fixture(tmp_path: Path) -> None:
+    typed = _typecheck_module_fixture(VALID_STDLIB_FINALIZE_FIXTURE, tmp_path=tmp_path)
+
+    assert [workflow.definition.name for workflow in typed] == [
+        "resource_stdlib_finalize_selected_item_stdlib::roadmap-sync",
+        "resource_stdlib_finalize_selected_item_stdlib::plan-run",
+        "resource_stdlib_finalize_selected_item_stdlib::implementation-run",
+        "resource_stdlib_finalize_selected_item_stdlib::run-selected-item",
+    ]
+
+
+def test_typecheck_accepts_stdlib_backlog_drain_fixture(tmp_path: Path) -> None:
+    typed = _typecheck_module_fixture(VALID_STDLIB_DRAIN_FIXTURE, tmp_path=tmp_path)
+
+    assert [workflow.definition.name for workflow in typed] == [
+        "drain_stdlib_backlog_drain_stdlib::selector-run",
+        "drain_stdlib_backlog_drain_stdlib::run-selected-item",
+        "drain_stdlib_backlog_drain_stdlib::gap-draft",
+        "drain_stdlib_backlog_drain_stdlib::drain",
+    ]
+
+
+def test_typecheck_rejects_stdlib_finalize_selected_item_with_missing_blocked_fields(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_module_fixture(INVALID_STDLIB_FINALIZE_CONSTRAINT_FIXTURE, tmp_path=tmp_path)
+
+    assert excinfo.value.diagnostics[0].code == "parametric_constraint_unsatisfied"
+
+
+def test_typecheck_rejects_stdlib_backlog_drain_with_non_symbol_callee(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_module_fixture(INVALID_STDLIB_DRAIN_NON_SYMBOL_CALLEE_FIXTURE, tmp_path=tmp_path)
+
+    assert "symbol" in excinfo.value.diagnostics[0].message
+
+
+def test_typecheck_rejects_stdlib_backlog_drain_materialized_view_authority_misuse(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_module_fixture(INVALID_STDLIB_DRAIN_VIEW_AUTHORITY_FIXTURE, tmp_path=tmp_path)
+
+    assert excinfo.value.diagnostics[0].code == "low_level_state_path_in_high_level_module"

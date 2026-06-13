@@ -1,6 +1,7 @@
 import importlib
 from pathlib import Path
 import json
+import re
 from textwrap import dedent
 
 import pytest
@@ -34,11 +35,19 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_stdlib_transition.orc"
 VALID_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
 VALID_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_selected_item.orc"
+VALID_STDLIB_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_selected_item_stdlib.orc"
+VALID_STDLIB_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain_stdlib.orc"
 VALID_DECLARED_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_transition_declared_runtime.orc"
 INVALID_ITEM_CTX_FIXTURE = FIXTURES / "invalid" / "item_ctx_contract_invalid.orc"
 INVALID_DRAIN_CTX_FIXTURE = FIXTURES / "invalid" / "drain_ctx_contract_invalid.orc"
 INVALID_UNCERTIFIED_FIXTURE = FIXTURES / "invalid" / "resource_transition_uncertified_adapter.orc"
 INVALID_CERTIFIED_ADAPTER_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
+INVALID_STDLIB_DRAIN_NON_SYMBOL_CALLEE_FIXTURE = (
+    FIXTURES / "invalid" / "drain_stdlib_backlog_drain_non_symbol_callee.orc"
+)
+INVALID_STDLIB_DRAIN_VIEW_AUTHORITY_FIXTURE = (
+    FIXTURES / "invalid" / "drain_stdlib_materialized_view_authority_invalid.orc"
+)
 INVALID_DECLARED_TRANSITION_FIXTURES = (
     (
         FIXTURES / "invalid" / "resource_transition_unknown_transition.orc",
@@ -200,6 +209,29 @@ def _typecheck_fixture(
             extra_bindings=extra_bindings,
         ),
     )
+
+
+def _typecheck_module_fixture(
+    path: Path,
+    *,
+    tmp_path: Path,
+    include_transition: bool = True,
+):
+    source = path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None, f"fixture is missing defmodule: {path}"
+    resolved_module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        command_boundaries=_command_boundary_environment(include_transition=include_transition).bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    return result.entry_result.typed_workflows
 
 
 def _compile(path: Path, *, tmp_path: Path, include_transition: bool = True):

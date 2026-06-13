@@ -60,6 +60,27 @@ from .values import (
 )
 
 
+_INTRINSIC_FORM_LOWERING_COUNTS: dict[str, int] = {}
+
+
+def record_intrinsic_form_lowering(form_name: str) -> None:
+    """Record one compatibility-lane intrinsic lowering hit for test evidence."""
+
+    _INTRINSIC_FORM_LOWERING_COUNTS[form_name] = _INTRINSIC_FORM_LOWERING_COUNTS.get(form_name, 0) + 1
+
+
+def intrinsic_form_lowering_counts() -> dict[str, int]:
+    """Return a snapshot of intrinsic compatibility-lane lowering counts."""
+
+    return dict(_INTRINSIC_FORM_LOWERING_COUNTS)
+
+
+def reset_intrinsic_form_lowering_counts() -> None:
+    """Clear intrinsic compatibility-lane lowering counts."""
+
+    _INTRINSIC_FORM_LOWERING_COUNTS.clear()
+
+
 def _compile_error(*args, **kwargs):
     return lowering_core._compile_error(*args, **kwargs)
 
@@ -101,6 +122,7 @@ def _lower_command_result(*args, **kwargs):
 
 
 def _lower_with_phase(*args, **kwargs):
+    record_intrinsic_form_lowering("with-phase")
     return lowering_core._lower_with_phase(*args, **kwargs)
 
 
@@ -121,10 +143,12 @@ def _lower_resource_transition(*args, **kwargs):
 
 
 def _lower_finalize_selected_item(*args, **kwargs):
+    record_intrinsic_form_lowering("finalize-selected-item")
     return lowering_core._lower_finalize_selected_item(*args, **kwargs)
 
 
 def _lower_backlog_drain(*args, **kwargs):
+    record_intrinsic_form_lowering("backlog-drain")
     return lowering_core._lower_backlog_drain(*args, **kwargs)
 
 
@@ -370,7 +394,7 @@ def _normalize_let_binding(
         binding_type=binding_type,
         binding_terminal=binding_terminal,
     )
-    if binding_terminal is not None and "__match__" in context.step_name_prefix:
+    if binding_terminal is not None and context.composition_scope_kind == "match_case":
         local_value = _match_case_scope_value(local_value)
     return _NormalizedBindingResult(
         binding_type=binding_type,

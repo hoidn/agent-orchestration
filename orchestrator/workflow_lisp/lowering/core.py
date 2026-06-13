@@ -1597,6 +1597,19 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             form_path=expr.form_path,
         )
     if isinstance(expr, ResourceTransitionExpr):
+        if getattr(expr.spec, "mode", None) == "declared_transition":
+            transition_def = context.type_env.resolve_transition_declaration(
+                expr.spec.transition_ref_name or "",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            return context.type_env.resolve_type(
+                transition_def.result_type_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         return context.type_env.resolve_type(
             "ResourceTransitionResult",
             span=expr.span,

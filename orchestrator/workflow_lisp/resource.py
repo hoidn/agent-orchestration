@@ -11,7 +11,7 @@ from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, Uni
 
 @dataclass(frozen=True)
 class ItemLayout:
-    """Derived state and artifact paths for one selected backlog item."""
+    """Derived paths for the intrinsic finalize-selected-item compatibility lane."""
 
     item_state_bundle_path: str
     item_temp_bundle_path: str
@@ -22,7 +22,7 @@ class ItemLayout:
 
 @dataclass(frozen=True)
 class DrainLayout:
-    """Derived state and artifact paths for a backlog-drain workflow."""
+    """Derived paths for the intrinsic backlog-drain compatibility lane."""
 
     run_state_bundle_path: str
     run_state_temp_bundle_path: str

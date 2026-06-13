@@ -218,6 +218,19 @@ def _private_workflow_result_type_for_expr(
             form_path=expr.form_path,
         )
     if isinstance(expr, ResourceTransitionExpr):
+        if getattr(expr.spec, "mode", None) == "declared_transition":
+            transition_def = type_env.resolve_transition_declaration(
+                expr.spec.transition_ref_name or "",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+            return type_env.resolve_type(
+                transition_def.result_type_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         return type_env.resolve_type(
             "ResourceTransitionResult",
             span=expr.span,

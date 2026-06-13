@@ -2,9 +2,22 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule std/phase)
+  (import std/context :only (PhaseCtx))
   ; Keep the helper proc exported until imported macro expansion can resolve a
   ; same-file proc reference without routing through the std/phase public surface.
-  (export BlockerClass ReviewReportPath ReviewDecision ReviewFindingsJsonPath ReviewFindings ReviewLoopResult review-revise-loop review-revise-loop-proc)
+  (export BlockerClass
+          WorkReportTarget
+          ChecksReport
+          ReviewReportTarget
+          ReviewReportPath
+          ReviewDecision
+          ReviewFindingsJsonPath
+          ReviewFindings
+          ReviewLoopResult
+          PhaseScopeTargets
+          phase-scope
+          review-revise-loop
+          review-revise-loop-proc)
   (defenum BlockerClass
     missing_resource
     unavailable_hardware
@@ -20,6 +33,18 @@
     :kind relpath
     :under "artifacts/work"
     :must-exist true)
+  (defpath WorkReportTarget
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist false)
+  (defpath ChecksReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist false)
+  (defpath ReviewReportTarget
+    :kind relpath
+    :under "artifacts/review"
+    :must-exist false)
   (defrecord ReviewFindings
     (schema_version String)
     (items_path ReviewFindingsJsonPath))
@@ -46,6 +71,13 @@
       (last_review_report ReviewReportPath)
       (findings ReviewFindings)
       (reason String)))
+  (defrecord PhaseScopeTargets
+    (ctx PhaseCtx)
+    (execution-report-target WorkReportTarget)
+    (progress-report-target WorkReportTarget)
+    (checks-report-target ChecksReport)
+    (review-report-target ReviewReportTarget)
+    (last-review-report-target ReviewReportTarget))
   (defproc review-revise-loop-proc
     :forall (CtxT CompletedT InputsT)
     ((ctx CtxT)
@@ -131,4 +163,27 @@
                       "review_loop_findings_items_path_seed"))
       review
       fix
-      max)))
+      max))
+  (defmacro phase-scope (name ctx-key ctx phase-key phase-name)
+    (record std/phase/PhaseScopeTargets
+      :ctx ctx
+      :execution-report-target (__generated-relpath-seed__
+                                 std/phase/WorkReportTarget
+                                 "artifacts/work/execution-report.md"
+                                 "phase_scope_execution_report_target_seed")
+      :progress-report-target (__generated-relpath-seed__
+                                std/phase/WorkReportTarget
+                                "artifacts/work/progress-report.md"
+                                "phase_scope_progress_report_target_seed")
+      :checks-report-target (__generated-relpath-seed__
+                              std/phase/ChecksReport
+                              "artifacts/work/checks-report.md"
+                              "phase_scope_checks_report_target_seed")
+      :review-report-target (__generated-relpath-seed__
+                              std/phase/ReviewReportTarget
+                              "artifacts/review/review-report.md"
+                              "phase_scope_review_report_target_seed")
+      :last-review-report-target (__generated-relpath-seed__
+                                   std/phase/ReviewReportTarget
+                                   "artifacts/review/last-review-report.md"
+                                   "phase_scope_last_review_report_target_seed"))))

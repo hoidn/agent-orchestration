@@ -177,6 +177,13 @@ Implement the work in ordered tranches:
 - G4: materialized value views.
 - G5: context generalization: `RunCtx`-only runtime bootstrap and type-driven
   private-context classification.
+- G5A (P0 prerequisite before counting G6 evidence): imported generic stdlib
+  effectful-composition substrate for constrained specialization,
+  branch-local proof typing, and transition/view resolution on the ordinary
+  import/specialization/typecheck/WCC route.
+- G5B (P0 prerequisite before counting broader G6 verification evidence):
+  shared verification-baseline rehabilitation for imported generic stdlib
+  composition, builtin stdlib routing, and tranche-owned gate separation.
 - G6: stdlib migration of phase/drain forms onto the generic core.
 - G7: Design Delta Drain boundary and adapter cleanup.
 - G8: evidence-gated deletion of retired ontology tables, retired adapters, and
@@ -191,9 +198,16 @@ evidence until the same routes have also cleared G2A2a's structured-control
 route-compatibility prerequisite and G2A2b's projection-helper
 boundary/exportability prerequisite. The real reference-family flip is not
 selectable until those same routes have then also cleared G2A2c's
-family-route consumption prerequisite. G8 is deletion-only and must not be
-selected until evidence from G2 through G7 proves every removed path is
-unused.
+family-route consumption prerequisite. G6 proving routes are not selectable
+until G5A has shown that imported generic stdlib helpers can carry
+constraint-checked caller-owned shapes through proof-gated `match`, declared
+transition/view effects, and ordinary WCC lowering without compiler-name
+special cases. G6 counted evidence is not complete until G5B has fixed the
+broader gate: the shared suites counted as G6 evidence must run against an
+explicit builtin stdlib inventory and must not depend on unfinished
+later-tranche modules or unrelated frontend regressions. G8 is deletion-only
+and must not be selected until evidence from G2 through G7 proves every
+removed path is unused.
 
 ## 3. Problem And Current Evidence To Verify
 
@@ -264,6 +278,20 @@ Examples include selector action projection, terminal-state classification,
 iteration count updates, reason/default string construction, and transition
 preconditions.
 
+### 3.5 Verification ownership is under-specified
+
+The broader frontend regression lanes consumed by post-foundation stdlib work
+currently mix three different ownership classes:
+
+- tranche-owned imported generic stdlib composition guarantees;
+- later-tranche builtin stdlib surfaces such as `std/drain`; and
+- unrelated shared regressions in adjacent module/import/workflow-ref routes.
+
+Without an explicit gate contract, a green proving route can still fail final
+verification for reasons that the tranche does not own. The next prerequisite
+must separate counted G6 evidence from broader informative sweeps and make the
+builtin stdlib inventory for those counted suites explicit.
+
 ## 4. Authority And Dependency Direction
 
 ### 4.1 This Document Consumes
@@ -333,6 +361,12 @@ boundary cleanup            -> hiding true public authored inputs  PROHIBITED
 - Close the backend ambiguity for `resource-transition`: the target contract is
   runtime-native, with certified adapters allowed as migration backends under
   the same visible contract.
+- Attribute expressive limits honestly: where a surface is excluded by census
+  policy rather than architectural necessity (collection operators, structural
+  recursion, terminal self-referential types), the design records the
+  architecture-compatible admission path in Deferred Work, so policy gates are
+  never mistaken for impossibilities and the language's claim to ordinary
+  typed-programming semantics stays credible under scrutiny.
 
 ## 6. Non-Goals
 
@@ -823,8 +857,77 @@ until G8 deletion evidence is complete.
 `.orc` code over the generic core rather than Python lowering hooks keyed to
 domain form names.
 
+### 15.1A Prerequisite: Imported Generic Stdlib Effectful Composition
+
+G6 assumes one compiler/frontend capability that is narrower than generic-core
+surface design but broader than any single stdlib form body: imported generic
+stdlib helpers must be able to combine caller-owned constrained record/union
+types, proof-gated `match`, declared transitions, and `materialize-view`
+inside one ordinary imported route.
+
+The required contract is:
+
+- compile-time specialization still follows the accepted rule:
+  resolve concrete types, check structural constraints, instantiate a
+  monomorphic helper, typecheck that instantiated helper, then lower;
+- branch-local field access inside `match` is typed after specialization on
+  the instantiated helper, not against unresolved type parameters or
+  pre-specialization placeholders;
+- declared `deftransition` and view/render references authored in an imported
+  stdlib module remain resolvable from specialized helper bodies and from
+  macro expansions that target those helpers, without adding a compiler branch
+  keyed to a stdlib module or form name; and
+- the route preserves the expected error/evidence boundaries:
+  structural-shape failures remain compile-time
+  `parametric_constraint_unsatisfied`-class failures, while positive routes
+  preserve source maps, effect visibility, and runtime erasure of compile-time
+  only metadata.
+
+If that combined route is not yet proven, the next selectable work is this
+prerequisite rather than widening G6 or forcing the stdlib forms back through
+macro-only or compiler-special compatibility paths.
+
+### 15.1B Prerequisite: Shared Verification Baseline And Builtin Stdlib Routing
+
+G6 consumes more than the narrow imported-helper proving fixture. Before its
+evidence is counted, the broader regression suites used as G6 acceptance
+evidence must run against a coherent builtin/module surface and an explicit
+gate definition.
+
+The required contract is:
+
+- every suite counted toward G6 acceptance is named explicitly, with a reason
+  it belongs to G6 rather than G7 or a later cleanup tranche;
+- counted suites may depend only on builtin stdlib modules and shared frontend
+  surfaces that are tranche-owned at that point; unfinished later-tranche
+  modules such as `std/drain` remain non-gating until their owning tranche
+  lands or a compatibility/baseline stub is promoted into the declared
+  inventory;
+- unrelated regressions in adjacent shared routes, such as module/workflow-ref
+  behavior that does not exercise imported generic stdlib transition/view
+  composition, are routed to their owning tranche instead of being counted as
+  failed G6 evidence; and
+- the counted verification lane still includes at least one broader
+  cross-cutting suite beyond the bespoke G5A proving fixture, so G6 evidence is
+  not reduced to a single happy-path module.
+
+If that broader verification gate is not yet stabilized, the next selectable
+work is this prerequisite rather than widening G6 or declaring G5A incomplete.
+
+Status note: the G5B prerequisite is now landed as the checked-in manifest
+`docs/workflow_lisp_g6_verification_gate.json`, loaded by
+`orchestrator/workflow_lisp/verification_gate.py` and enforced by
+`tests/test_workflow_lisp_verification_gate.py`. The counted lane is explicit,
+`std/drain` remains declared `pending`, and G6-owned counted-suite additions
+are routed to the G6 gap's `pending_material/` directory instead of being
+counted as G5B/G6-prerequisite failures.
+
 ### 15.2 Tasks
 
+- Consume G5A's imported generic stdlib effectful-composition proof before
+  counting G6 evidence.
+- Consume G5B's verification-baseline and builtin-stdlib-routing proof before
+  counting broader G6 evidence.
 - Implement `std/context`, `std/resource`, `std/projection`, and `std/drain`
   modules.
 - Express `with-phase` as context construction plus scoped allocation.
@@ -835,6 +938,15 @@ domain form names.
 
 ### 15.3 Acceptance
 
+- G5A has already proven one ordinary imported route where constrained generic
+  stdlib helpers or their macro expansions successfully combine proof-gated
+  `match`, declared transition/view effects, and WCC lowering, and where the
+  corresponding negative structural-shape fixture still fails as
+  `parametric_constraint_unsatisfied`.
+- G5B has established an explicit G6 verification gate, named the builtin
+  stdlib inventory that those counted suites may assume, and shown that the
+  counted suites pass without relying on unfinished later-tranche modules or
+  unrelated shared-route fixes.
 - Stdlib forms compile through ordinary import/specialization/typecheck/WCC.
 - No promoted fixture depends on a compiler branch keyed to a stdlib form name.
 - Deleting a redundant hook does not change accepted fixture output.
@@ -1002,7 +1114,9 @@ post-foundation phase-family boundary rehabilitation
   + G1
   -> G2 reference-family flip
 G1 + G3 -> G5
-G3 + G5 -> G6
+G3 + G4 + G5 -> G5A
+G5A -> G5B
+G3 + G5 + G5A + G5B -> G6
 G1..G6 -> G7
 G7 + promotion evidence -> G8
 ```
@@ -1015,7 +1129,9 @@ Relationship to post-foundation:
 | G3 | resource-transition ownership |
 | G4 | materialized view authority |
 | G5 | private executable context bridge |
-| G6 | imported/std composition |
+| G5A | imported generic effectful-composition substrate |
+| G5B | verification baseline for stdlib migration |
+| G6 | imported/std composition and hook retirement |
 | G7 | parent-callable family cleanup |
 | G8 | post-promotion simplification and deletion |
 
@@ -1054,6 +1170,8 @@ Relationship to post-foundation:
   modules; pure-projection fixtures alone are not enough.
 - G3 backend-equivalence transition suite.
 - G5 type-driven vs name-driven differential tests before deletion.
+- G5A imported-generic stdlib effectful-composition proof.
+- G5B shared verification-baseline and builtin-stdlib-routing proof.
 - G6 hook-redundancy evidence.
 - G7 family fixture with zero workflow-semantics adapters.
 - G8 deletion deltas and grep guards.
@@ -1068,6 +1186,12 @@ Relationship to post-foundation:
   boundary/exportability diagnostics on either the shared helper proving
   routes or the real family-route consumption path owned by the consumed
   post-foundation prerequisites;
+- counting G6 stdlib-migration evidence while the same imported route still
+  fails to carry constrained generic specialization through proof-gated
+  `match`, transition/view resolution, or ordinary WCC lowering;
+- counting G6 stdlib-migration evidence while the broader counted suites still
+  depend on unfinished later-tranche builtin modules or on unrelated shared
+  regressions that have not been routed to their owning tranche;
 - operator additions without census/fixture justification;
 - using materialized views as semantic authority;
 - legacy-route-only fixtures as acceptance evidence;
@@ -1160,6 +1284,13 @@ fixtures still pass and a CI guard rejects reintroduction.
   no uncited additions.
 - Workflow-semantics adapters in the reference family are retired into pure
   projections, materialized views, or transitions.
+- G6 evidence is counted only after G5A proves imported generic stdlib helper
+  composition with constrained specialization, proof-gated `match`, and
+  transition/view resolution on the ordinary route.
+- G6 evidence is counted only after G5B defines the broader verification gate,
+  makes its builtin stdlib inventory explicit, and removes accidental
+  dependence on unfinished later-tranche modules or unrelated shared
+  regressions.
 - G2 reference-family projection retirement counts only after the same
   replacement routes clear the consumed post-foundation phase-family boundary
   prerequisite, the structured-control route-compatibility prerequisite, and

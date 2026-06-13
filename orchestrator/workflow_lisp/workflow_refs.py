@@ -12,6 +12,7 @@ from .expressions import (
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
+    EnumMemberExpr,
     DoneExpr,
     IfExpr,
     LetStarExpr,
@@ -151,9 +152,11 @@ def workflow_ref_type_from_signature(signature: "WorkflowSignature") -> Workflow
     )
 
 
-def workflow_ref_target_name(expr: WorkflowRefLiteralExpr | NameExpr) -> str:
+def workflow_ref_target_name(expr: WorkflowRefLiteralExpr | NameExpr | EnumMemberExpr) -> str:
     if isinstance(expr, WorkflowRefLiteralExpr):
         return expr.target_name
+    if isinstance(expr, EnumMemberExpr):
+        return f"{expr.enum_name}.{expr.member_name}"
     return expr.name
 
 
@@ -219,7 +222,7 @@ def resolve_workflow_ref_name(
 
 
 def resolve_workflow_ref_expr(
-    expr: WorkflowRefLiteralExpr | NameExpr,
+    expr: WorkflowRefLiteralExpr | NameExpr | EnumMemberExpr,
     *,
     workflow_catalog: "WorkflowCatalog",
     span: SourceSpan,

@@ -1195,3 +1195,94 @@ def test_compile_stage3_entrypoint_pure_projection_boundary_decision_consumer_ex
         "return__path_detail": "READY",
         "return__shared_detail": "gap-computed",
     }
+
+
+def test_compile_stage3_entrypoint_rejects_ambiguous_unqualified_transition_imports(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "ambiguous_transition_imports"
+    for module_name in ("first", "second"):
+        _write_module(
+            source_root / "demo" / f"{module_name}.orc",
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    f"  (defmodule demo/{module_name})",
+                    "  (export OutcomeRequest OutcomeResult record-outcome outcome-state)",
+                    "  (defrecord OutcomeState",
+                    "    (status String))",
+                    "  (defrecord OutcomeRequest",
+                    "    (status String))",
+                    "  (defrecord OutcomeResult",
+                    "    (status String))",
+                    "  (defrecord OutcomeAudit",
+                    "    (status String))",
+                    "  (defrecord OutcomeTransitionResult",
+                    "    (status String))",
+                    "  (defresource outcome-state",
+                    "    :state-type OutcomeState",
+                    "    :backing state-layout)",
+                    "  (deftransition record-outcome",
+                    "    :resource outcome-state",
+                    "    :request-type OutcomeRequest",
+                    "    :result-type OutcomeTransitionResult",
+                    '    :preconditions ((!= request.status ""))',
+                    "    :updates ((set-field status request.status))",
+                    "    :write-set (status)",
+                    "    :idempotency-fields (status)",
+                    "    :result (record OutcomeTransitionResult",
+                    "      :status request.status)",
+                    "    :audit (record OutcomeAudit",
+                    "      :status request.status)",
+                    "    :conflict-policy fail_closed",
+                    "    :backend runtime_native)",
+                    "  (defworkflow shared",
+                        "    ()",
+                        "    -> OutcomeResult",
+                        "    (let* ((transition-result",
+                        "             (resource-transition",
+                        "               :transition record-outcome",
+                        "               :resource outcome-state",
+                        "               :request (record OutcomeRequest :status \"ok\"))))",
+                        "      (record OutcomeResult",
+                        "        :status transition-result.status))))",
+                    ]
+                ),
+            )
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/first :only (OutcomeResult OutcomeRequest record-outcome outcome-state))",
+                "  (import demo/second :only (OutcomeResult OutcomeRequest record-outcome outcome-state))",
+                "  (export run)",
+                "  (defworkflow run",
+                "    ()",
+                "    -> OutcomeResult",
+                "    (let* ((transition-result",
+                "             (resource-transition",
+                "               :transition record-outcome",
+                "               :resource outcome-state",
+                "               :request (record OutcomeRequest :status \"ok\"))))",
+                "      (record OutcomeResult",
+                "        :status transition-result.status))))",
+                ]
+            ),
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_entrypoint(
+            entry_path,
+            source_root=source_root,
+            lowering_route=None,
+            validate_shared=True,
+            tmp_path=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "module_import_ambiguous")

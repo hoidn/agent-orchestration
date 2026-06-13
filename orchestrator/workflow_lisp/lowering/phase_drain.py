@@ -1,4 +1,4 @@
-"""Phase-drain owner surface for stdlib lowering."""
+"""Phase-drain owner surface for stdlib lowering and retained intrinsic compatibility."""
 
 from __future__ import annotations
 

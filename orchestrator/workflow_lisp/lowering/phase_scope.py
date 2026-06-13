@@ -1,4 +1,4 @@
-"""Phase-scope owner surface for stdlib lowering."""
+"""Phase-scope owner surface for stdlib lowering and retained intrinsic compatibility."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from ..expressions import (
     CallExpr,
     CommandResultExpr,
     ContinueExpr,
+    EnumMemberExpr,
     DoneExpr,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
@@ -64,7 +65,7 @@ from .context import (
 from .effects import _lower_provider_result
 from .generated_paths import allocate_materialized_value_view
 from .origins import LoweringOrigin, _rekey_origin_map
-from .values import _render_existing_output_ref, _resolve_inline_expr_value
+from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _render_existing_output_ref, _resolve_inline_expr_value
 
 
 def _compile_error(*args, **kwargs):
@@ -612,6 +613,8 @@ def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext)
     for param_name, param_type in signature.params:
         if isinstance(param_type, RecordTypeRef):
             local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name)
+        elif isinstance(param_type, UnionTypeRef):
+            local_values[param_name] = _build_union_local_value(param_type, generated_name=param_name)
         else:
             local_values[param_name] = f"inputs.{param_name}"
     specialization = getattr(typed_workflow, "specialization", None)
@@ -629,6 +632,12 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
     for param_name, param_type in procedure.signature.params:
         if isinstance(param_type, RecordTypeRef):
             local_values[param_name] = _build_record_local_value(
+                param_type,
+                generated_name=param_name,
+            )
+            continue
+        if isinstance(param_type, UnionTypeRef):
+            local_values[param_name] = _build_union_local_value(
                 param_type,
                 generated_name=param_name,
             )
@@ -652,6 +661,15 @@ def _procedure_signature_local_type_bindings(procedure: TypedProcedureDef) -> di
     if specialization is not None:
         local_type_bindings.update(dict(getattr(specialization, "bound_param_types", {})))
     return local_type_bindings
+
+
+def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str) -> dict[str, Any]:
+    """Represent a union parameter as nested refs to flattened inputs."""
+
+    local_value: dict[str, Any] = {}
+    for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name):
+        _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
+    return local_value
 
 
 def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> list[str]:
@@ -1016,7 +1034,7 @@ def _resolved_workflow_ref_value(
             typed_workflows_by_name=context.workflows_by_name,
             allow_extern_rebinding=False,
         )
-    if isinstance(value, NameExpr):
+    if isinstance(value, (NameExpr, EnumMemberExpr)):
         return resolve_workflow_ref_name(
             workflow_ref_target_name(value),
             workflow_catalog=context.workflow_catalog,

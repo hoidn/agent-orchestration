@@ -12,6 +12,7 @@ Informative guidance and mental models live in `docs/`.
 | Understand the system at a high level | [Architecture Overview](architecture_overview.md) | Short conceptual front door before the fuller orchestration model. |
 | Find normative runtime behavior | [Master Spec](../specs/index.md) | Specs win when docs disagree. |
 | Check whether a workflow surface is implemented, partial, future, or legacy | [Capability Status Matrix](capability_status_matrix.md) | Status and copy-safety routing for common DSL and Workflow Lisp surfaces. |
+| Check which suites count toward the G6 stdlib-migration gate and which builtin stdlib modules they may assume | [Workflow Lisp G6 Verification Gate](workflow_lisp_g6_verification_gate.json) | Checked-in gate manifest for counted suites, builtin stdlib inventory, and later-tranche routing. |
 | Check the current Workflow Lisp pure-expression, projection, materialized-view, or generated `resource-transition` surface | [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Documents the closed operator set, computed-`if` proof boundary, generated `pure_projection` / `materialize_view` runtime surfaces, and the declared/runtime-native `resource-transition` lane implemented in the current checkout. |
 | Choose a design doc | [Design Documentation Index](design/README.md) | Groups current contracts, migration guidance, frontend direction, and deferred work. |
 | Author YAML workflows | [Workflow Drafting Guide](workflow_drafting_guide.md) | Authoring guidance for runtime, prompt, flow, and artifact contracts. |
@@ -36,6 +37,7 @@ These are the highest-impact terminology and contract confusions.
 | Inline command glue | "Python and shell commands should either be banned entirely or accepted as normal workflow authoring." | Command steps are allowed for external tools and certified adapters. Hidden workflow semantics in inline Python/shell, ad hoc JSON rewrites, pointer-as-state, or report parsing are migration debt and need typed procedures, certified command adapters, or runtime-native effects. | [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
 | Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` is a v2.13 provider-step modifier. Workflow YAML declares policy, watch roots, backend, poll budget, and managed outcome routes; runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md), [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml) |
+| Structured result channel | "JSON printed to stdout counts as a provider/command structured result." | Results travel only as validated bundles at runtime-bound output locations (`output_bundle.path` / `variant_output.path`); wrong-path writes fail closed; stdout/stderr are observability evidence, never a result channel. The declared return type is the contract; the bound-path bundle is the sanctioned transport behind it. | [Workflow Lisp Runtime Migration Foundation](design/workflow_lisp_runtime_migration_foundation.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md), [Step IO](../specs/io.md) |
 
 ---
 
@@ -334,6 +336,11 @@ document owns the answer.
 **Description:** Exhaustive generated map of workflow provider prompt sources, including `input_file`, `asset_file`, and `asset_depends_on` resolution and missing-file status.  
 **Keywords:** workflows, prompts, input_file, asset_file, prompt-assets  
 **Use this when:** You need to find which prompt files a workflow step uses or audit missing/stale prompt references.
+
+### [Workflow Lisp G6 Verification Gate](workflow_lisp_g6_verification_gate.json)
+**Description:** Checked-in verification-gate manifest naming the G6-counted suites, builtin stdlib inventory, and later-tranche routing for unfinished stdlib migration material.  
+**Keywords:** workflow-lisp, g6, verification-gate, stdlib, routing  
+**Use this when:** You need the authoritative counted-lane definition for G5B/G6 verification or want to confirm whether a builtin stdlib module is `landed`, `stub`, or `pending`.
 
 ### [Slide Decks](slides/README.md)
 **Description:** Source-controlled teaching slides for workflow and DSL concepts, including the Ralph workflow YAML semantics and prompt-injection example.

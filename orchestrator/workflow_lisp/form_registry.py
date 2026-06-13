@@ -31,6 +31,8 @@ class FormSpec:
     admitted_top_level: bool
     elaboration_route: str | None
     feature_tags: frozenset[str]
+    stdlib_owner_module: str | None
+    compatibility_route: str | None
     rationale: str
 
 
@@ -45,6 +47,8 @@ def _spec(
     admitted_top_level: bool,
     elaboration_route: str | None,
     feature_tags: tuple[str, ...] = (),
+    stdlib_owner_module: str | None = None,
+    compatibility_route: str | None = None,
     rationale: str,
 ) -> FormSpec:
     return FormSpec(
@@ -57,6 +61,8 @@ def _spec(
         admitted_top_level=admitted_top_level,
         elaboration_route=elaboration_route,
         feature_tags=frozenset(feature_tags),
+        stdlib_owner_module=stdlib_owner_module,
+        compatibility_route=compatibility_route,
         rationale=rationale,
     )
 
@@ -460,9 +466,11 @@ _FORM_SPECS = (
         owner_module="expressions",
         introduced_in="workflow_lisp_frontend_mvp",
         remove_by="ordinary stdlib/runtime phase composition",
-        macro_bindable=False,
+        macro_bindable=True,
         admitted_top_level=False,
         elaboration_route="with_phase",
+        stdlib_owner_module="std/phase",
+        compatibility_route="compatibility intrinsic retained until the G8 hook-deletion gate closes",
         rationale="Phase scoping remains a temporary compiler intrinsic pending broader composition work.",
     ),
     _spec(
@@ -560,9 +568,11 @@ _FORM_SPECS = (
         owner_module="expressions",
         introduced_in="workflow_lisp_frontend_refactor",
         remove_by="ordinary imported stdlib expansion",
-        macro_bindable=False,
+        macro_bindable=True,
         admitted_top_level=False,
         elaboration_route="finalize_selected_item",
+        stdlib_owner_module="std/resource",
+        compatibility_route="compatibility intrinsic retained until the G8 hook-deletion gate closes",
         rationale="Selection finalization remains compiler-owned pending ordinary stdlib ownership.",
     ),
     _spec(
@@ -571,9 +581,11 @@ _FORM_SPECS = (
         owner_module="expressions",
         introduced_in="workflow_lisp_frontend_refactor",
         remove_by="ordinary imported stdlib expansion",
-        macro_bindable=False,
+        macro_bindable=True,
         admitted_top_level=False,
         elaboration_route="backlog_drain",
+        stdlib_owner_module="std/drain",
+        compatibility_route="compatibility intrinsic retained until the G8 hook-deletion gate closes",
         rationale="Backlog drain remains compiler-owned pending ordinary stdlib ownership.",
     ),
 )

@@ -11,7 +11,7 @@ from .effects import (
     effect_summary_from_direct,
     merge_effect_summaries,
 )
-from .expressions import CallExpr, ExprNode, FunctionCallExpr, NameExpr, WorkflowRefLiteralExpr
+from .expressions import CallExpr, EnumMemberExpr, ExprNode, FunctionCallExpr, NameExpr, WorkflowRefLiteralExpr
 from .phase import private_exec_context_kind
 from .procedure_refs import (
     ProcRefResolutionContext,
@@ -112,7 +112,7 @@ def typecheck_workflow_ref_argument(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-    if isinstance(expr, (WorkflowRefLiteralExpr, NameExpr)):
+    if isinstance(expr, (WorkflowRefLiteralExpr, NameExpr, EnumMemberExpr)):
         resolved_ref = resolve_workflow_ref_name(
             workflow_ref_target_name(expr),
             workflow_catalog=workflow_catalog,
@@ -593,7 +593,7 @@ def typecheck_call_expr(
                 typed_factory=typed_factory,
             )
             binding_summaries.append(typed_binding.effect_summary)
-            if not isinstance(binding_expr, (WorkflowRefLiteralExpr, NameExpr)):
+            if not isinstance(binding_expr, (WorkflowRefLiteralExpr, NameExpr, EnumMemberExpr)):
                 compat._raise_error(
                     "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
                     code="workflow_ref_literal_required",

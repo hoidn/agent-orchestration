@@ -141,6 +141,7 @@ _TYPE_CODES = frozenset(
         "parametric_constraint_malformed",
         "parametric_constraint_unknown",
         "parametric_constraint_unsatisfied",
+        "parametric_capability_undeclared",
         "procedure_return_type_invalid",
         "workflow_call_unknown",
         "transition_unknown",

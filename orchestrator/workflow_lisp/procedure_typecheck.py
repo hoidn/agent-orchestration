@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 
-from .definitions import SyntaxNode
+from .definitions import RecordField, SyntaxNode, UnionDef, UnionVariant
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
@@ -60,6 +60,7 @@ from .type_env import (
     ProcRefTypeRef,
     TypeParamRef,
     TypeRef,
+    UnionTypeRef,
     WorkflowRefTypeRef,
     ensure_no_type_params,
     substitute_type_params,
@@ -148,7 +149,11 @@ def typecheck_procedure_definitions(
             procedure_def = procedure_target
             signature = procedure_catalog.signatures_by_name[procedure_def.name]
             specialization = None
-        value_env = {name: type_ref for name, type_ref in signature.params}
+        provisional_match_types = _provisional_parametric_match_types(signature=signature, type_env=type_env)
+        value_env = {
+            name: _apply_provisional_parametric_type(type_ref, provisional_match_types)
+            for name, type_ref in signature.params
+        }
         proc_ref_value_env = {}
         shared_union_field_capabilities = provisional_shared_union_field_capabilities(
             where_clauses=signature.where_clauses,
@@ -156,7 +161,10 @@ def typecheck_procedure_definitions(
         )
         value_env.update(
             {
-                type_param.name: TypeParamRef(name=type_param.name)
+                type_param.name: provisional_match_types.get(
+                    type_param.name,
+                    TypeParamRef(name=type_param.name),
+                )
                 for type_param in signature.type_params
             }
         )
@@ -237,6 +245,65 @@ def typecheck_procedure_definitions(
             )
         )
     return tuple(typed_procedures)
+
+
+def _apply_provisional_parametric_type(
+    type_ref: TypeRef,
+    provisional_match_types: Mapping[str, UnionTypeRef],
+) -> TypeRef:
+    if isinstance(type_ref, TypeParamRef):
+        return provisional_match_types.get(type_ref.name, type_ref)
+    return type_ref
+
+
+def _provisional_parametric_match_types(
+    *,
+    signature: ProcedureSignature,
+    type_env: FrontendTypeEnvironment,
+) -> dict[str, UnionTypeRef]:
+    variants_by_type_param: dict[str, dict[str, UnionVariant]] = {}
+    variant_fields_by_type_param: dict[str, dict[str, dict[str, TypeRef]]] = {}
+    for clause in signature.where_clauses:
+        if clause.constraint_name != "has-union-variant" or clause.variant_name is None:
+            continue
+        variants = variants_by_type_param.setdefault(clause.subject_name, {})
+        variant_fields = variant_fields_by_type_param.setdefault(clause.subject_name, {})
+        if clause.variant_name in variants:
+            continue
+        variants[clause.variant_name] = UnionVariant(
+            name=clause.variant_name,
+            fields=tuple(
+                RecordField(
+                    name=requirement.field_name,
+                    type_name=requirement.field_type_name,
+                    span=requirement.span,
+                )
+                for requirement in clause.field_requirements
+            ),
+            span=clause.span,
+        )
+        variant_fields[clause.variant_name] = {
+            requirement.field_name: type_env.resolve_type(
+                requirement.field_type_name,
+                span=requirement.span,
+                form_path=requirement.form_path,
+                expansion_stack=requirement.expansion_stack,
+            )
+            for requirement in clause.field_requirements
+        }
+    return {
+        type_param_name: UnionTypeRef(
+            name=type_param_name,
+            definition=UnionDef(
+                name=type_param_name,
+                variants=tuple(variants.values()),
+                span=signature.span,
+            ),
+            variant_field_types=variant_fields_by_type_param[type_param_name],
+        )
+        for type_param_name, variants in variants_by_type_param.items()
+        if variants
+    }
 
 
 def typecheck_procedure_call_expr(

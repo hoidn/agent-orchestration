@@ -170,6 +170,15 @@ def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str) -
     return local_value
 
 
+def _build_union_local_value(type_ref: UnionTypeRef, *, generated_name: str) -> dict[str, Any]:
+    """Represent a union parameter as nested refs to flattened inputs."""
+
+    local_value: dict[str, Any] = {}
+    for leaf_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name=generated_name):
+        _assign_nested_local_value(local_value, field_path, f"inputs.{leaf_name}")
+    return local_value
+
+
 def _build_nested_record_step_local_value(
     type_ref: RecordTypeRef,
     *,
@@ -222,6 +231,12 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
                 generated_name=param_name,
             )
             continue
+        if isinstance(param_type, UnionTypeRef):
+            local_values[param_name] = _build_union_local_value(
+                param_type,
+                generated_name=param_name,
+            )
+            continue
         local_values[param_name] = f"inputs.{param_name}"
     if procedure.specialization is not None:
         local_values.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
@@ -238,6 +253,8 @@ def _signature_local_values(typed_workflow: Any) -> dict[str, Any]:
     for param_name, param_type in signature.params:
         if isinstance(param_type, RecordTypeRef):
             local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name)
+        elif isinstance(param_type, UnionTypeRef):
+            local_values[param_name] = _build_union_local_value(param_type, generated_name=param_name)
         else:
             local_values[param_name] = f"inputs.{param_name}"
     specialization = getattr(typed_workflow, "specialization", None)

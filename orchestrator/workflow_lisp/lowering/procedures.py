@@ -8,10 +8,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from orchestrator.workflow.references import MaterializeViewBindingReference
+
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expressions import (
     CallExpr,
     CommandResultExpr,
+    EnumMemberExpr,
     LetStarExpr,
     MatchExpr,
     ProcRefLiteralExpr,
@@ -432,8 +435,13 @@ def _lower_procedure_call(
         remaining_args: list[Any] = []
         for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
             if isinstance(param_type, WorkflowRefTypeRef):
+                candidate_expr = (
+                    arg_expr
+                    if isinstance(arg_expr, EnumMemberExpr)
+                    else _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr
+                )
                 resolved_binding = _resolved_workflow_ref_value(
-                    _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr,
+                    candidate_expr,
                     context=context,
                     expected_type=param_type,
                 )
@@ -752,6 +760,11 @@ def _iter_nested_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str, Any
 
 
 def _rewrite_refs_in_sibling_scope(value: Any, sibling_names: tuple[str, ...]) -> Any:
+    if isinstance(value, MaterializeViewBindingReference):
+        return replace(
+            value,
+            ref=_rewrite_refs_in_sibling_scope(value.ref, sibling_names),
+        )
     if isinstance(value, str):
         for step_name in sibling_names:
             prefix = f"root.steps.{step_name}."

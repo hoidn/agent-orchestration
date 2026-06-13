@@ -44,6 +44,7 @@ IMPLEMENTATION_ATTEMPT_TARGET_FIELDS = {
     "progress-report": "progress_report_target",
 }
 PHASE_TARGET_SPECS = {
+    # The intrinsic inventory stays stable until `std/phase/PhaseScopeTargets` closes the G8 deletion gate.
     "execution-report": ("WorkReportTarget", "artifacts/work", "execution-report.md"),
     "progress-report": ("WorkReportTarget", "artifacts/work", "progress-report.md"),
     "checks-report": ("ChecksReport", "artifacts/work", "checks-report.md"),
@@ -68,7 +69,7 @@ class PhaseLayout:
 
 @dataclass(frozen=True)
 class PhaseScope:
-    """Validated phase context plus target names available inside `with-phase`."""
+    """Validated phase context plus target names available inside intrinsic `with-phase`."""
 
     context_record_name: str
     phase_name: str

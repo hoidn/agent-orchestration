@@ -1,0 +1,69 @@
+{
+  "schema_version": "workflow_lisp_g6_verification_gate.v1",
+  "counted_suites": [
+    {
+      "suite": "tests/test_workflow_lisp_generic_stdlib_composition.py",
+      "scope_class": "proving_surface",
+      "reason": "G5A imported generic stdlib effectful composition proof consumed by G6."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_procedures.py",
+      "scope_class": "tranche_owned_shared",
+      "reason": "Cross-cutting defproc, specialization, and lowering guarantees that G6 stdlib procedures compile through."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_modules.py",
+      "scope_class": "tranche_owned_shared",
+      "reason": "Import/export and builtin stdlib resolution behavior that G6 imported and stdlib modules depend on."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_phase_stdlib.py",
+      "scope_class": "tranche_owned_shared",
+      "reason": "Landed stdlib review/revise behavior that the later phase-form migration must preserve."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_resource_stdlib.py",
+      "scope_class": "tranche_owned_shared",
+      "reason": "Landed resource and transition stdlib baseline that G6 finalize and drain forms build on."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_macros.py",
+      "scope_class": "tranche_owned_shared",
+      "reason": "Macro expansion and hygiene guarantees required by stdlib form wrappers."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_drain_stdlib.py",
+      "scope_class": "tranche_owned_shared",
+      "reason": "Landed intrinsic backlog-drain route that later hook-redundancy evidence compares against."
+    }
+  ],
+  "builtin_stdlib_inventory": [
+    {
+      "module": "std/context",
+      "status": "landed",
+      "owner": "workflow-lisp-generic-core-g5-context-generalization"
+    },
+    {
+      "module": "std/phase",
+      "status": "landed",
+      "owner": "accepted-baseline"
+    },
+    {
+      "module": "std/resource",
+      "status": "pending",
+      "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms"
+    },
+    {
+      "module": "std/drain",
+      "status": "pending",
+      "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms"
+    }
+  ],
+  "later_tranche_suites": [
+    {
+      "suite": "tests/test_workflow_lisp_stdlib_form_migration.py",
+      "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms",
+      "reason": "Asserts stdlib form-routing behavior that remains non-gating until G6 lands."
+    }
+  ]
+}

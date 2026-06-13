@@ -140,6 +140,16 @@ def test_review_revise_loop_not_reserved_core_macro_name() -> None:
     assert bridge is None
 
 
+def test_bridge_intrinsic_heads_become_macro_bindable_for_imported_stdlib_shadowing() -> None:
+    registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
+
+    for head_name in ("with-phase", "finalize-selected-item", "backlog-drain"):
+        spec = registry.get_form_spec(head_name)
+
+        assert spec is not None
+        assert spec.macro_bindable is True
+
+
 def test_form_registry_does_not_publish_review_loop_bridge_metadata() -> None:
     registry_path = Path(importlib.import_module("orchestrator.workflow_lisp.form_registry").__file__)
     source = registry_path.read_text(encoding="utf-8")

@@ -1,4 +1,4 @@
-"""Phase-resource owner surface for stdlib lowering."""
+"""Phase-resource owner surface for stdlib lowering and retained intrinsic compatibility."""
 
 from __future__ import annotations
 

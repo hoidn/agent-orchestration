@@ -178,6 +178,13 @@ def typecheck_match_expr(
     from . import typecheck as compat
 
     typed_subject = recurse(expr.subject)
+    if isinstance(typed_subject.type_ref, TypeParamRef):
+        compat._raise_error(
+            f"match on type parameter `{typed_subject.type_ref.name}` requires declared `has-union-variant` capabilities",
+            code="parametric_capability_undeclared",
+            span=expr.subject.span,
+            form_path=expr.subject.form_path,
+        )
     if not isinstance(typed_subject.type_ref, UnionTypeRef):
         compat._raise_error(
             "match subject must have a union type",

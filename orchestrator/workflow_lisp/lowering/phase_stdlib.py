@@ -165,6 +165,7 @@ def review_loop_result_output_contracts(
 
 
 def _lower_with_phase(*args, **kwargs):
+    # G6 keeps the intrinsic lane callable while `std/phase/phase-scope` proves redundancy for G8.
     return _phase_scope_lower_with_phase(*args, **kwargs)
 
 
@@ -185,8 +186,10 @@ def _lower_resource_transition(*args, **kwargs):
 
 
 def _lower_finalize_selected_item(*args, **kwargs):
+    # G6 keeps the intrinsic lane callable while `std/resource/finalize-selected-item` proves redundancy for G8.
     return _phase_resource_lower_finalize_selected_item(*args, **kwargs)
 
 
 def _lower_backlog_drain(*args, **kwargs):
+    # G6 keeps the intrinsic lane callable while `std/drain/backlog-drain` proves redundancy for G8.
     return _phase_drain_lower(*args, **kwargs)

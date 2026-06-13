@@ -836,6 +836,7 @@ def _resource_declaration_map(
         declarations[resource.name] = resource
         if module.module_name:
             declarations[canonical_callable_key(module.module_name, resource.name)] = resource
+            declarations[f"{module.module_name}/{resource.name}"] = resource
     if import_scope is not None:
         for binding in import_scope.resource_bindings.values():
             declaration = imported_resource_defs.get(binding.canonical_name)
@@ -855,6 +856,7 @@ def _transition_declaration_map(
         declarations[transition.name] = transition
         if module.module_name:
             declarations[canonical_callable_key(module.module_name, transition.name)] = transition
+            declarations[f"{module.module_name}/{transition.name}"] = transition
     if import_scope is not None:
         for binding in import_scope.transition_bindings.values():
             declaration = imported_transition_defs.get(binding.canonical_name)

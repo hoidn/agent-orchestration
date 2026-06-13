@@ -496,6 +496,7 @@ def _apply_hygiene(
             )
         return replace(datum, items=tuple(updated))
     if head_name == "with-phase":
+        # Compatibility hygiene for the intrinsic lane stays until the G8 deletion gate closes.
         updated = list(datum.items)
         if len(updated) > 1:
             updated[1] = _apply_hygiene(updated[1], macro_name=macro_name, expansion_id=expansion_id, env=active_env)
@@ -503,6 +504,7 @@ def _apply_hygiene(
             updated[3] = _apply_hygiene(updated[3], macro_name=macro_name, expansion_id=expansion_id, env=active_env)
         return replace(datum, items=tuple(updated))
     if head_name == "phase-target":
+        # `phase-target` remains intrinsic-only until the promoted stdlib idiom fully replaces it.
         return datum
     return replace(
         datum,

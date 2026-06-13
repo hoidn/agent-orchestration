@@ -515,8 +515,13 @@ def _lower_workflow_call(
                     span=expr.span,
                     form_path=expr.form_path,
                 )
+            candidate_expr = (
+                binding_expr
+                if isinstance(binding_expr, EnumMemberExpr)
+                else _resolve_inline_expr_value(binding_expr, local_values=local_values) or binding_expr
+            )
             resolved_binding = lowering_core._resolved_workflow_ref_value(
-                _resolve_inline_expr_value(binding_expr, local_values=local_values) or binding_expr,
+                candidate_expr,
                 context=context,
                 expected_type=param_type,
             )
