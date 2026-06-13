@@ -3584,6 +3584,8 @@ def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp
 def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(
     tmp_path: Path,
 ) -> None:
+    from orchestrator.workflow_lisp.lowering import _observed_statement_families
+
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
     request_cls = getattr(build, "FrontendBuildRequest")
@@ -3622,6 +3624,11 @@ def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(
     )
     source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
     semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow
+        for compiled in result.compile_result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
 
     expected_adapters = {
         "record_terminal_work_item",
@@ -3636,11 +3643,7 @@ def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(
         or row.get("command_name") in expected_adapters
     }
 
-    assert expected_adapters <= set(adapter_rows)
-    for adapter_name in expected_adapters:
-        assert {"structured_result", "resource_transition", "ledger_update"}.issubset(
-            set(adapter_rows[adapter_name]["declared_effects"])
-        )
+    assert adapter_rows == {}
 
     effect_kinds_by_subject: dict[str, set[str]] = {}
     for effect in semantic_ir["effects"].values():
@@ -3651,11 +3654,19 @@ def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(
             if adapter_name in boundary_name:
                 effect_kinds_by_subject.setdefault(adapter_name, set()).add(effect["effect_kind"])
 
-    semantic_expected_adapters = {"write_lisp_frontend_drain_status"}
-    for adapter_name in semantic_expected_adapters:
-        assert {"command_call", "resource_transition", "ledger_update"}.issubset(
-            effect_kinds_by_subject.get(adapter_name, set())
-        )
+    assert any(effect["effect_kind"] == "resource_transition" for effect in semantic_ir["effects"].values())
+    assert any(effect["effect_kind"] == "materialize_view" for effect in semantic_ir["effects"].values())
+
+    drain_families = _observed_statement_families(
+        lowered_by_name["lisp_frontend_design_delta/drain::drain"].authored_mapping["steps"]
+    )
+    work_item_families = _observed_statement_families(
+        lowered_by_name[
+            "lisp_frontend_design_delta/work_item::run-work-item"
+        ].authored_mapping["steps"]
+    )
+    assert "materialize_view" in drain_families
+    assert "materialize_view" in work_item_families
 
 
 def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp_path: Path) -> None:
@@ -3844,6 +3855,9 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
         "project_lisp_frontend_selector_action",
         "materialize_lisp_frontend_work_item_inputs",
         "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+        "finalize_lisp_frontend_drain_summary",
         "run_neurips_backlog_checks",
         "validate_review_findings_v1",
     }.issubset(rows_by_name)
@@ -3855,6 +3869,16 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
     assert review_findings["expiry_condition"]
     assert review_findings["evidence_refs"]
     assert review_findings["liveness"] == "live"
+    assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["retirement_label"] == "keep_bridge"
+    assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["liveness"] == "live"
+    for binding_name in (
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+        "finalize_lisp_frontend_drain_summary",
+    ):
+        assert rows_by_name[binding_name]["retirement_status"] == "retired"
+        assert rows_by_name[binding_name]["liveness"] == "unreferenced"
     assert rows_by_name["record_terminal_work_item"]["transition_binding"] == {
         "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
         "resource_kind": "drain-run-state",
@@ -4042,8 +4066,30 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
     ) not in expected_rows
     assert (
         "lisp_frontend_design_delta/drain::drain",
-        "phase-ctx__artifact-root",
+        "run__artifact-root",
     ) in expected_rows
+    assert (
+        "lisp_frontend_design_delta/drain::drain",
+        "run__state-root",
+    ) in expected_rows
+    assert all(
+        ("lisp_frontend_design_delta/drain::drain", field_name) not in expected_rows
+        for field_name in {
+            "selection_bundle_report_path",
+            "command_adapter_contract_path",
+            "draft_bundle_target_path",
+            "architecture_validation_bundle_target_path",
+            "drain_summary_target_path",
+        }
+    )
+    for field_name in {
+        "architecture_bundle_path",
+        "manifest_path",
+        "progress_ledger_path",
+        "run_state_path",
+    }:
+        row = expected_rows[("lisp_frontend_design_delta/drain::drain", field_name)]
+        assert row["surface_kind"] == "compatibility_bridge_input"
 
 
 def test_design_delta_parent_drain_build_rejects_unclassified_path_like_boundary_value(
@@ -4169,10 +4215,8 @@ def test_design_delta_parent_drain_build_keeps_runtime_owned_context_mapped_to_r
     )
 
     assert {
-        "phase-ctx__artifact-root",
-        "phase-ctx__run__artifact-root",
-        "phase-ctx__run__state-root",
-        "phase-ctx__state-root",
+        "run__artifact-root",
+        "run__state-root",
     }.issubset(set(drain_row["runtime_derived"]))
     assert "phase-ctx__phase-name" not in drain_row["runtime_derived"]
     assert "phase-ctx__run__run-id" not in drain_row["runtime_derived"]

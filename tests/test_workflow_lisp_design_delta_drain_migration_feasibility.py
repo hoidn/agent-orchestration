@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_context,
     workflow_runtime_input_contracts,
+    workflow_runtime_context_inputs,
     workflow_public_input_contracts,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
@@ -2047,16 +2049,34 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "import sys",
                 "from pathlib import Path",
                 "",
-                "_, state_path, item_id, work_item_source, reason, summary_path = sys.argv",
+                "payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}",
+                "state_path = payload.get('run_state_path', 'state/run_state.json')",
+                "item_id = payload.get('work_item_id', 'design-gap-work-item')",
+                "work_item_source = payload.get('work_item_source', 'DESIGN_GAP')",
+                "reason = payload.get('reason', 'completed')",
+                "summary_path = payload.get('item_summary_target_path', 'artifacts/work/item_summary.json')",
+                "pointer_path = payload.get('item_summary_pointer_path', summary_path + '.pointer.txt')",
+                "drain_status_path = payload.get('drain_status_path', 'state/runtime_work_item/drain_status.txt')",
                 "summary = Path(summary_path)",
                 "summary.parent.mkdir(parents=True, exist_ok=True)",
                 "summary.write_text(json.dumps({'summary': summary_path, 'reason': reason}) + '\\n', encoding='utf-8')",
+                "pointer = Path(pointer_path)",
+                "pointer.parent.mkdir(parents=True, exist_ok=True)",
+                "pointer.write_text(summary_path + '\\n', encoding='utf-8')",
+                "drain_status = Path(drain_status_path)",
+                "drain_status.parent.mkdir(parents=True, exist_ok=True)",
+                "drain_status.write_text('UPDATED\\n', encoding='utf-8')",
                 "state = Path(state_path)",
                 "state.parent.mkdir(parents=True, exist_ok=True)",
-                "state.write_text(json.dumps({'item_id': item_id, 'source': work_item_source, 'reason': reason}) + '\\n', encoding='utf-8')",
-                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
-                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
-                "bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
+                "state_payload = json.loads(state.read_text(encoding='utf-8')) if state.exists() else {}",
+                "state_payload['terminal_reason'] = reason",
+                "state_payload['terminal_summary'] = summary_path",
+                "state.write_text(json.dumps(state_payload) + '\\n', encoding='utf-8')",
+                "bundle_path_raw = os.environ.get('ORCHESTRATOR_OUTPUT_BUNDLE_PATH', '').strip()",
+                "if bundle_path_raw:",
+                "    bundle_path = Path(bundle_path_raw)",
+                "    bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "    bundle_path.write_text(json.dumps({'reason': reason, 'summary_path': summary_path}) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
@@ -2070,13 +2090,29 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "import sys",
                 "from pathlib import Path",
                 "",
-                "_, state_path, item_id, work_item_source, summary_path, progress_report = sys.argv",
+                "payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}",
+                "state_path = payload.get('run_state_path', 'state/run_state.json')",
+                "summary_path = payload.get('summary_path', 'artifacts/work/item_summary.json')",
+                "progress_report = payload.get('progress_report_path', 'artifacts/work/progress_report.md')",
+                "pointer_path = payload.get('summary_pointer_path', summary_path + '.pointer.txt')",
+                "reason = payload.get('reason', 'implementation_architecture_under_scoped')",
                 "summary = Path(summary_path)",
                 "summary.parent.mkdir(parents=True, exist_ok=True)",
                 "summary.write_text(json.dumps({'summary': summary_path, 'progress_report': progress_report}) + '\\n', encoding='utf-8')",
-                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
-                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
-                "bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
+                "pointer = Path(pointer_path)",
+                "pointer.parent.mkdir(parents=True, exist_ok=True)",
+                "pointer.write_text(summary_path + '\\n', encoding='utf-8')",
+                "state = Path(state_path)",
+                "state.parent.mkdir(parents=True, exist_ok=True)",
+                "state_payload = json.loads(state.read_text(encoding='utf-8')) if state.exists() else {}",
+                "state_payload['blocked_recovery_reason'] = reason",
+                "state_payload['blocked_recovery_summary'] = summary_path",
+                "state.write_text(json.dumps(state_payload) + '\\n', encoding='utf-8')",
+                "bundle_path_raw = os.environ.get('ORCHESTRATOR_OUTPUT_BUNDLE_PATH', '').strip()",
+                "if bundle_path_raw:",
+                "    bundle_path = Path(bundle_path_raw)",
+                "    bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "    bundle_path.write_text(json.dumps({'reason': reason, 'summary_path': summary_path}) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
@@ -2090,16 +2126,27 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "import sys",
                 "from pathlib import Path",
                 "",
-                "_, state_path, status, reason, summary_path = sys.argv",
+                "payload = json.loads(sys.argv[1]) if len(sys.argv) > 1 else {}",
+                "state_path = payload.get('run_state_path', 'state/run_state.json')",
+                "status = payload.get('status', 'DONE')",
+                "reason = payload.get('reason', '')",
+                "summary_path = payload.get('summary_path', 'artifacts/work/drain_summary.json')",
                 "summary = Path(summary_path)",
                 "summary.parent.mkdir(parents=True, exist_ok=True)",
                 "summary.write_text(json.dumps({'status': status, 'reason': reason}) + '\\n', encoding='utf-8')",
                 "state = Path(state_path)",
                 "state.parent.mkdir(parents=True, exist_ok=True)",
-                "state.write_text(json.dumps({'drain_status': status, 'reason': reason}) + '\\n', encoding='utf-8')",
-                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
-                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
-                "bundle_path.write_text(json.dumps({'run_state': state_path, 'summary': summary_path}) + '\\n', encoding='utf-8')",
+                "state_payload = json.loads(state.read_text(encoding='utf-8')) if state.exists() else {}",
+                "state_payload['drain_status'] = status",
+                "state_payload['drain_status_reason'] = reason",
+                "state_payload['drain_status_summary'] = summary_path",
+                "state_payload.setdefault('history', []).append({'event': 'drain_status', 'status': status, 'reason': reason, 'summary_path': summary_path})",
+                "state.write_text(json.dumps(state_payload) + '\\n', encoding='utf-8')",
+                "bundle_path_raw = os.environ.get('ORCHESTRATOR_OUTPUT_BUNDLE_PATH', '').strip()",
+                "if bundle_path_raw:",
+                "    bundle_path = Path(bundle_path_raw)",
+                "    bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "    bundle_path.write_text(json.dumps({'status': status, 'summary_path': summary_path}) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
@@ -2118,20 +2165,16 @@ def _write_design_delta_work_item_runtime_adapter_scripts(tmp_path: Path) -> Non
                 "summary.parent.mkdir(parents=True, exist_ok=True)",
                 "if not summary.exists():",
                 "    summary.write_text(json.dumps({'status': 'DONE'}) + '\\n', encoding='utf-8')",
-                "bundle_path = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])",
-                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
-                "bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
+                "bundle_path_raw = os.environ.get('ORCHESTRATOR_OUTPUT_BUNDLE_PATH', '').strip()",
+                "if bundle_path_raw:",
+                "    bundle_path = Path(bundle_path_raw)",
+                "    bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                "    bundle_path.write_text(json.dumps({'summary': summary_path}) + '\\n', encoding='utf-8')",
             ]
         )
         + "\n",
     )
-    for script_name in (
-        "update_lisp_frontend_run_state.py",
-        "project_lisp_frontend_selector_action.py",
-        "record_lisp_frontend_blocked_recovery_outcome.py",
-        "write_lisp_frontend_drain_status.py",
-        "finalize_lisp_frontend_drain_summary.py",
-    ):
+    for script_name in ("project_lisp_frontend_selector_action.py",):
         _write_module(
             script_dir / script_name,
             (REPO_ROOT / "workflows" / "library" / "scripts" / script_name).read_text(
@@ -2189,19 +2232,12 @@ def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
         "progress_ledger_path": "state/progress_ledger.json",
         "run_state_path": "state/run_state.json",
         "architecture_bundle_path": "state/architecture_validation.json",
-        "command_adapter_contract_path": "docs/design/workflow_command_adapter_contract.md",
-        "selection_bundle_report_path": "artifacts/work/selection_bundle.md",
         "architecture_targets__design_gap_id": "design-gap-work-item",
         "architecture_targets__architecture_path": "docs/plans/generated_architecture.md",
         "architecture_targets__work_item_context_path": "artifacts/work/runtime_work_item_context.md",
         "architecture_targets__check_commands_path": "artifacts/work/check_commands.md",
         "architecture_targets__plan_target_path": "docs/plans/generated_plan.md",
         "existing_architecture_index_path": "artifacts/work/existing_architecture_index.md",
-        "draft_bundle_target_path": "artifacts/work/draft_architecture_bundle.json",
-        "architecture_validation_bundle_target_path": (
-            "artifacts/work/architecture_validation_bundle.json"
-        ),
-        "drain_summary_target_path": "artifacts/work/drain_summary.json",
     }
 
 
@@ -2554,12 +2590,17 @@ def _execute_design_delta_work_item_bundle(
         bound_inputs=bound_inputs,
     )
 
-    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
-        ProviderExecutor, "execute", _execute_provider
-    ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
-        state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
-            on_error="stop"
-        )
+    previous_cwd = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+            ProviderExecutor, "execute", _execute_provider
+        ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
+            state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
+                on_error="stop"
+            )
+    finally:
+        os.chdir(previous_cwd)
 
     return tmp_path, state, provider_calls
 
@@ -3576,11 +3617,25 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     bundle = result.entry_result.validated_bundles[
         "lisp_frontend_design_delta/drain::drain"
     ]
+    source_text = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
     public_inputs = set(workflow_public_input_contracts(bundle))
+    runtime_context_inputs = set(workflow_runtime_context_inputs(bundle))
 
     assert result.entry_result.lowering_schema_version == 2
     assert {
+        "run__run-id",
+        "run__state-root",
+        "run__artifact-root",
+    }.issubset(runtime_context_inputs)
+    assert "((phase-ctx PhaseCtx)" not in source_text
+    assert ":phase-ctx phase-ctx" not in source_text
+    assert {
         "phase-ctx",
+        "phase-ctx__phase-name",
+        "phase-ctx__state-root",
+        "phase-ctx__artifact-root",
         "drain-ctx",
         "selection_bundle_path",
         "manifest_path",
@@ -3875,63 +3930,31 @@ def test_design_delta_projection_runtime_fixture_executes_runtime_path(
 def test_design_delta_parent_family_commands_use_production_adapter_interfaces(
     tmp_path: Path,
 ) -> None:
+    from orchestrator.workflow_lisp.lowering import _observed_statement_families
+
     _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
     commands = _all_lowered_commands(lowered_by_name)
+    forbidden_scripts = (
+        "update_lisp_frontend_run_state.py",
+        "record_lisp_frontend_blocked_recovery_outcome.py",
+        "write_lisp_frontend_drain_status.py",
+        "finalize_lisp_frontend_drain_summary.py",
+    )
 
-    def _commands_for(script_name: str) -> list[list[str]]:
-        return [command for command in commands if any(script_name in token for token in command)]
-
-    def _payloads_for(script_name: str) -> list[str]:
-        payloads = []
-        for command in _commands_for(script_name):
-            assert len(command) == 3
-            payloads.append(command[2])
-        return payloads
-
-    terminal_commands = _commands_for("update_lisp_frontend_run_state.py")
-    assert terminal_commands
-    for payload in _payloads_for("update_lisp_frontend_run_state.py"):
+    for script_name in forbidden_scripts:
         assert all(
-            f'"{key}"' in payload
-            for key in {
-                "run_state_path",
-                "work_item_id",
-                "work_item_source",
-                "reason",
-                "item_summary_target_path",
-            }
-        )
-        assert "state/run_state.json" not in terminal_commands[0][2:]
-
-    recovery_commands = _commands_for("record_lisp_frontend_blocked_recovery_outcome.py")
-    assert recovery_commands
-    for payload in _payloads_for("record_lisp_frontend_blocked_recovery_outcome.py"):
-        assert all(
-            f'"{key}"' in payload
-            for key in {
-                "target_design_review_decision",
-                "terminal_action",
-                "run_state_path",
-                "work_item_id",
-                "work_item_source",
-                "summary_path",
-                "summary_pointer_path",
-                "drain_status_path",
-            }
+            all(script_name not in token for token in command)
+            for command in commands
         )
 
-    status_commands = _commands_for("write_lisp_frontend_drain_status.py")
-    assert status_commands
-    for payload in _payloads_for("write_lisp_frontend_drain_status.py"):
-        assert all(f'"{key}"' in payload for key in {"run_state_path", "status", "summary_path"})
-
-    summary_commands = _commands_for("finalize_lisp_frontend_drain_summary.py")
-    assert summary_commands
-    for payload in _payloads_for("finalize_lisp_frontend_drain_summary.py"):
-        assert all(
-            f'"{key}"' in payload
-            for key in {"run_state_path", "drain_status", "summary_path", "state_root"}
-        )
+    drain_families = _observed_statement_families(
+        lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"]
+    )
+    work_item_families = _observed_statement_families(
+        lowered_by_name["lisp_frontend_design_delta/work_item::run-work-item"]["steps"]
+    )
+    assert "materialize_view" in drain_families
+    assert "materialize_view" in work_item_families
 
 def test_design_delta_selector_action_projection_rejects_inconsistent_status(
     tmp_path: Path,
@@ -4431,8 +4454,8 @@ def test_design_delta_parent_drain_exhausts_with_typed_result_at_authored_bound(
     assert state["workflow_outputs"]["return__variant"] == "EXHAUSTED"
     assert state["workflow_outputs"]["return__reason"] == "max_iterations_exhausted"
     assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
-    assert state["workflow_outputs"]["return__drain-summary"] == "artifacts/work/selection_bundle.md"
-    assert not (workspace / "artifacts" / "work" / "drain_summary.json").exists()
+    assert state["workflow_outputs"]["return__drain-summary"] == "artifacts/work/drain_summary.json"
+    assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert (workspace / "artifacts" / "work" / "selection_bundle.md").is_file()
     assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
 

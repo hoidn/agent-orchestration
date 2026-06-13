@@ -2456,6 +2456,28 @@ def test_design_delta_parent_drain_manifest_uses_explicit_dry_run_smoke_substitu
     assert "fake-provider smokes" in waiver["justification"]
 
 
+def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_g7_family_flip() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[1]
+            / "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert payload["materialize_lisp_frontend_work_item_inputs"]["retirement_label"] == "keep_bridge"
+    assert payload["materialize_lisp_frontend_work_item_inputs"].get("retirement_status") is None
+    for binding_name in (
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+        "finalize_lisp_frontend_drain_summary",
+    ):
+        assert payload[binding_name]["retirement_status"] == "retired"
+    assert payload["finalize_lisp_frontend_drain_summary"]["view_binding"]["contract_role"] == (
+        "replacement_candidate"
+    )
+
+
 def _design_delta_parent_target_fixture(tmp_path: Path):
     module = _parity_module()
     payload = _valid_manifest_payload()

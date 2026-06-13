@@ -1353,6 +1353,18 @@ acceptance vehicle for this substrate.
 - Strict parity can compare typed terminal states, resource versions,
   transition audits, and materialized views.
 
+### 16.4 Current Checkout Status
+
+The current checkout now lands G7 on the checked Design Delta parent-family
+route. `drain.orc`, `work_item.orc`, and `design_gap_architect.orc` keep only
+the authored and labeled-bridge boundary values public, use typed projections
+for selector and recovery routing, commit terminal state through declared
+transitions, and materialize the drain/work-item summaries as views. The
+certified adapter rows for terminal work-item recording, blocked-recovery
+recording, drain-status writing, and drain-summary finalization remain checked
+for migration evidence, but compiled liveness is `unreferenced`; deletion stays
+deferred to G8.
+
 ## 17. Tranche G8: Evidence-Gated Legacy Deletion
 
 ### 17.1 Contract

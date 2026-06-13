@@ -134,6 +134,12 @@ def _run_replacement_once(inputs: dict[str, Any], workspace: Path) -> dict[str, 
     assert state["status"] == "completed"
     summary_path = workspace / str(inputs["summary_path"])
     pointer_path = workspace / str(inputs["pointer_path"])
+    summary_step_key = next(
+        key for key in state["steps"] if key.endswith("__materialize-view__drain-summary-view")
+    )
+    pointer_step_key = next(
+        key for key in state["steps"] if key.endswith("__materialize-view__drain-summary-pointer-view")
+    )
     return {
         "state": state,
         "summary_path": summary_path,
@@ -141,8 +147,8 @@ def _run_replacement_once(inputs: dict[str, Any], workspace: Path) -> dict[str, 
         "summary_payload": json.loads(summary_path.read_text(encoding="utf-8")),
         "summary_bytes": summary_path.read_bytes(),
         "pointer_bytes": pointer_path.read_bytes(),
-        "summary_view": state["steps"]["drain-summary-view"]["debug"]["materialize_view"],
-        "pointer_view": state["steps"]["drain-summary-pointer-view"]["debug"]["materialize_view"],
+        "summary_view": state["steps"][summary_step_key]["debug"]["materialize_view"],
+        "pointer_view": state["steps"][pointer_step_key]["debug"]["materialize_view"],
         "workflow_outputs": state["workflow_outputs"],
     }
 

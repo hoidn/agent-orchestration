@@ -432,7 +432,8 @@
     "evidence_refs": [
       "design_delta_record_terminal_ok",
       "design_delta_record_terminal_work_item_enum_bridge"
-    ]
+    ],
+    "retirement_status": "retired"
   },
   "record_blocked_recovery_outcome": {
     "kind": "certified_adapter",
@@ -572,7 +573,8 @@
     "evidence_refs": [
       "design_delta_record_blocked_recovery_ok",
       "design_delta_record_blocked_recovery_outcome_enum_bridge"
-    ]
+    ],
+    "retirement_status": "retired"
   },
   "write_lisp_frontend_drain_status": {
     "kind": "certified_adapter",
@@ -651,7 +653,8 @@
     "expiry_condition": "g3 typed resource transition replaces drain status writer",
     "evidence_refs": [
       "design_delta_drain_status_ok"
-    ]
+    ],
+    "retirement_status": "retired"
   },
   "finalize_lisp_frontend_drain_summary": {
     "kind": "certified_adapter",
@@ -726,6 +729,7 @@
     "expiry_condition": "g4 materialized value views replace drain summary finalizer",
     "evidence_refs": [
       "design_delta_drain_summary_ok"
-    ]
+    ],
+    "retirement_status": "retired"
   }
 }
