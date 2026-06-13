@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -61,6 +62,17 @@ def _emit_error(error_type: str) -> int:
     return 1
 
 
+def _write_output_bundle(result: dict[str, object]) -> None:
+    bundle_path_raw = os.environ.get("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "").strip()
+    if not bundle_path_raw:
+        return
+    bundle_path = _workspace_relpath(bundle_path_raw)
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = bundle_path.with_suffix(bundle_path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(result, sort_keys=True), encoding="utf-8")
+    temp_path.replace(bundle_path)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the adapter and emit a typed resource-transition result as JSON."""
 
@@ -105,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             "new-path": destination_path.as_posix(),
             "transition-id": f"{payload.get('transition_name', 'resource-transition')}::{resource_id}",
         }
+        _write_output_bundle(result)
         json.dump(result, sys.stdout)
         sys.stdout.write("\n")
         return 0

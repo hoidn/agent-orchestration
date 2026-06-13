@@ -208,6 +208,13 @@ Implement the work in ordered tranches:
   imported `std/drain` proving routes can reach validated executable-bundle
   construction on the owned runtime-proof lane without forcing G7
   parent-callable boundary cleanup or weakening lower-level validation.
+- G5F (P0 prerequisite before counting broader G6 shared procedures
+  evidence): imported generic loop-state future-consumer proof, so one
+  ordinary imported generic consumer `defproc` body can combine constrained
+  specialization, compile-time `ProcRef` hooks, authored `loop-state`,
+  ordinary `loop/recur`, ordinary `match`, and typed `:on-exhausted`
+  projection without leaking `%loop-state` carriers or lowering structured
+  exhaustion fields into `repeat_until.on_exhausted.outputs`.
 - G6: stdlib migration of phase/drain forms onto the generic core.
 - G7: Design Delta Drain boundary and adapter cleanup.
 - G8: evidence-gated deletion of retired ontology tables, retired adapters, and
@@ -246,7 +253,12 @@ and G5D has shown that imported stdlib routes use that substrate with pure
 evidence is not complete until G5B has fixed the broader gate: the shared
 suites counted as G6 evidence must run against an explicit builtin stdlib
 inventory and must not depend on unfinished later-tranche modules or
-unrelated frontend regressions. Dedicated `std/drain` runtime-proof routes are
+unrelated frontend regressions. Broader G6 counted shared procedures evidence
+is not selectable until G5F has shown that one imported generic loop-state
+future-consumer route survives specialization, lowering, shared validation,
+and runtime-erasure checks without unresolved `%loop-state` carrier names,
+wrong-step structured refs, or non-scalar leakage into
+`repeat_until.on_exhausted.outputs`. Dedicated `std/drain` runtime-proof routes are
 not selectable until G5E has shown that the lowered imported route can produce
 a validated executable bundle on the owned runtime-proof lane without relying
 on G7 parent-callable boundary cleanup, `workflow_boundary_type_invalid` as a
@@ -1161,6 +1173,49 @@ Current evidence note:
   lane red on generated structured-match boundary rules, so G5E evidence does
   not count as parent-callable readiness or G7 cleanup.
 
+### 15.1G Prerequisite: Imported Generic Loop-State Future-Consumer Proof
+
+Broader G6 counted evidence currently consumes at least one shared procedures
+route that is narrower than the full stdlib migration slice and more specific
+than G5A's imported-helper proof: one imported generic consumer `defproc` body
+must be able to combine caller-owned record types, compile-time `ProcRef`
+review/fix hooks, authored `loop-state`, ordinary `loop/recur :state`,
+ordinary `match`, and typed `:on-exhausted` projection on the ordinary
+specialization/typecheck/WCC route.
+
+The required contract is:
+
+- the accepted proof stays to one imported generic consumer `defproc` body,
+  not same-module helper decomposition, bridge-only stdlib review-loop code,
+  or a compiler branch keyed to a form, module, or proving fixture name;
+- specialization, typecheck, and lowering must carry the selected compile-time
+  `ProcRef` hooks and concrete loop-state carrier types far enough that
+  ordinary procedure lowering resolves the chosen callees and ordinary shared
+  validation resolves the generated refs;
+- compile-time-only values and generated carrier identities must erase from
+  runtime-visible artifacts, Semantic IR, Executable IR, and lowered authored
+  mappings: no `TypeParamRef`, `ProcRef`, provider ref, prompt ref, or
+  generated `%loop-state` carrier name may leak;
+- typed exhaustion projection must preserve structured carried values through
+  ordinary loop-frame outputs instead of lowering structured findings/report
+  fields directly into `repeat_until.on_exhausted.outputs`; that surface stays
+  limited to scalar literals plus already-admitted ref-backed scalar loop-frame
+  carriage; and
+- strict carried-contract and authority rules must survive the route: for the
+  review-loop-shaped proving family, `ReviewFindings` keeps its validated
+  schema-version and `items_path` contract, effects remain visible, reports
+  remain views, and shared validation/runtime rules stay unweakened.
+
+This prerequisite exists because G5A, G5D0, and G5D prove the component
+surfaces separately, but they do not by themselves prove that one imported
+generic future-consumer route can compose those surfaces without leaking loop
+state or exhausting through the wrong output channel.
+
+If this capability is not yet proven, the next selectable work is this
+prerequisite rather than widening G6, absorbing unrelated dirty lowering work
+into a stdlib tranche, or weakening counted-suite verification around the red
+route.
+
 ### 15.2 Tasks
 
 - Consume G5A's imported generic stdlib effectful-composition proof before
@@ -1178,6 +1233,9 @@ Current evidence note:
 - Consume G5D's pure exhaustion-projection and post-loop terminal-carriage
   proof before counting `backlog-drain` or other bounded-exhaustion G6 drain
   evidence.
+- Consume G5F's imported generic loop-state future-consumer proof before
+  counting broader G6 shared procedures evidence on routes such as
+  `tests/test_workflow_lisp_procedures.py -k imported_generic_loop_state_consumer`.
 - Consume G5E's dedicated stdlib proving-fixture executable-boundary proof
   before counting dedicated `std/drain` runtime-proof evidence on the owned
   runtime lane.
@@ -1188,6 +1246,22 @@ Current evidence note:
 - Express `backlog-drain` as `loop/recur`, typed selection/result unions, and
   resource transitions.
 - Add hook-redundancy evidence before deleting old lowering hooks.
+
+Current G6 status note:
+
+- the imported stdlib bridge surface is now landed for `phase-scope`,
+  `finalize-selected-item`, and `backlog-drain`;
+- `std/resource` and `std/drain` are tracked builtin modules and the G6 gate in
+  `docs/workflow_lisp_g6_verification_gate.json` now counts
+  `tests/test_workflow_lisp_resource_stdlib.py` plus
+  `tests/test_workflow_lisp_stdlib_form_migration.py`;
+- imported callers shadow the compatibility intrinsics while the intrinsic
+  routes remain callable bridge-only lanes;
+- dedicated `std/drain` executable-boundary proof remains owned by
+  `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` on
+  `validation_profile="DEDICATED_RUNTIME_PROOF"` rather than by shared
+  parent-callable validation; and
+- G7 family cleanup plus G8 deletion remain future work for this body of work.
 
 ### 15.3 Acceptance
 
@@ -1228,6 +1302,16 @@ Current evidence note:
 - G5D broader imported-stdlib evidence remains gated by G5D0 plus its own
   route-specific prerequisites and proof lane; G5D0 is necessary substrate,
   but it is not by itself counted as imported-stdlib or G6 evidence.
+- G5F counts as satisfied only when focused evidence shows that one imported
+  generic loop-state future-consumer route compiles, lowers, and passes shared
+  validation without unresolved selected-callee names, wrong-step structured
+  refs, leaked `%loop-state` carrier names, or non-scalar
+  `repeat_until.on_exhausted.outputs` fields. The dedicated proof lane is
+  `tests/test_workflow_lisp_procedures.py -k imported_generic_loop_state_consumer`,
+  with supporting carrier/contract regressions in
+  `tests/test_workflow_lisp_structured_results.py -k review_findings_certified_adapter`
+  and
+  `tests/test_workflow_lisp_phase_stdlib.py::test_authored_loop_state_review_findings_keeps_strict_relpath_contracts`.
 - G5E counts as satisfied only when focused evidence shows that one imported
   `std/drain` proving route lowers and then reaches validated
   executable-bundle construction on the owned runtime-proof lane without
@@ -1408,8 +1492,9 @@ G5A + G5B -> G5C
 G5A + G5B + G5C -> G5C1
 G5A + G5B + G5C + G5C1 -> G5D0
 G5A + G5B + G5C + G5C1 + G5D0 -> G5D
+G5A + G5D -> G5F
 G5A + G5B + G5C + G5C1 + G5D -> G5E
-G3 + G5 + G5A + G5B + G5C + G5C1 + G5D + G5E -> G6
+G3 + G5 + G5A + G5B + G5C + G5C1 + G5D + G5E + G5F -> G6
 G1..G6 -> G7
 G7 + promotion evidence -> G8
 ```
@@ -1428,6 +1513,7 @@ Relationship to post-foundation:
 | G5C1 | nested loop-body `match` / `continue` ref-carriage substrate |
 | G5D0 | shared scalar exhaustion-output carriage |
 | G5D | imported stdlib loop exhaustion and post-loop terminal carriage |
+| G5F | imported generic loop-state future-consumer proof |
 | G5E | dedicated stdlib proving-fixture executable-boundary carriage |
 | G6 | imported/std composition and hook retirement |
 | G7 | parent-callable family cleanup |
@@ -1474,6 +1560,7 @@ Relationship to post-foundation:
 - G5C1 nested loop-body `match` / `continue` branch-local ref-carriage proof.
 - G5D0 shared scalar loop-frame exhaustion-output carriage proof.
 - G5D imported stdlib loop exhaustion and post-loop terminal-carriage proof.
+- G5F imported generic loop-state future-consumer proof.
 - G5E dedicated stdlib proving-fixture executable-boundary proof.
 - G6 hook-redundancy evidence.
 - G7 family fixture with zero workflow-semantics adapters.
@@ -1507,6 +1594,11 @@ Relationship to post-foundation:
   imported stdlib route still depends on effectful `:on-exhausted` work or on
   non-baseline exhaustion projection instead of a pure loop-frame marker plus
   post-loop terminal projection;
+- counting broader G6 shared procedures evidence while the same imported
+  generic loop-state future-consumer route still leaks `%loop-state` carrier
+  names, leaves selected review/fix callees unresolved after specialization,
+  emits wrong-step structured refs, or lowers structured exhaustion fields into
+  `repeat_until.on_exhausted.outputs`;
 - counting dedicated `std/drain` runtime-proof or broader G6 evidence while
   the same lowered imported route still fails validated executable-bundle
   construction on `workflow_boundary_type_invalid` or an equivalent
@@ -1613,6 +1705,13 @@ fixtures still pass and a CI guard rejects reintroduction.
 - G6 evidence is counted only after G5A proves imported generic stdlib helper
   composition with constrained specialization, proof-gated `match`, and
   transition/view resolution on the ordinary route.
+- G6 broader shared procedures evidence is counted only after G5F proves that
+  one imported generic loop-state future-consumer route can compose
+  specialization, compile-time `ProcRef` hooks, authored loop-state,
+  ordinary `loop/recur`, ordinary `match`, and typed `:on-exhausted`
+  projection without leaked `%loop-state` carriers, wrong-step structured
+  refs, or structured exhaustion data in
+  `repeat_until.on_exhausted.outputs`.
 - G6 `backlog-drain`-class evidence is counted only after G5C proves that
   imported stdlib macro expansion can carry branch-local payload projection or
   an accepted helper-composition equivalent through ordinary expansion,

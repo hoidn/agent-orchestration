@@ -43,6 +43,17 @@ validation through the certified `validate_review_findings_v1` adapter
 boundary. Promotion is still gated by workflow-family parity evidence rather
 than by a separate review-loop-specific compiler branch.
 
+Current G6 bridge status: `phase-scope`, `finalize-selected-item`, and
+`backlog-drain` now lower through ordinary imported stdlib composition on the
+accepted route. `std/resource` and `std/drain` are landed builtin modules,
+their counted evidence is recorded in
+`docs/workflow_lisp_g6_verification_gate.json`, and legacy per-form lowerers
+remain compatibility-only bridge routes until G7/G8 cleanup evidence lands.
+The dedicated executable-boundary proof for imported `std/drain` remains the
+`validation_profile="DEDICATED_RUNTIME_PROOF"` lane exercised by
+`tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`; frontend-only
+`validate_shared=False` evidence is still non-executable.
+
 Historical note: earlier bridge-era feasibility work used
 `ReviewReviseLoopExpr` as a shape reference while proving the route. That
 historical expression is not current-checkout acceptance evidence or a live
@@ -124,6 +135,10 @@ Semantic requirements:
 - gap handling cannot hide an empty active queue as success unless the
   `DrainResult` variant says so
 - loop state is explicit and bounded
+- runtime-native terminal state and summary effects remain visible on the
+  imported stdlib route
+- the dedicated executable-boundary proof lane stays distinct from
+  frontend-only compile proof
 
 ## Adapter Backends
 

@@ -30,6 +30,16 @@
       "suite": "tests/test_workflow_lisp_drain_stdlib.py",
       "scope_class": "tranche_owned_shared",
       "reason": "Landed intrinsic backlog-drain route that later hook-redundancy evidence compares against."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_resource_stdlib.py",
+      "scope_class": "proving_surface",
+      "reason": "G6 std/resource runtime-native finalize route and contract evidence."
+    },
+    {
+      "suite": "tests/test_workflow_lisp_stdlib_form_migration.py",
+      "scope_class": "proving_surface",
+      "reason": "G6 bridge metadata, imported shadowing, and route-accounting evidence for stdlib phase/resource/drain forms."
     }
   ],
   "builtin_stdlib_inventory": [
@@ -45,25 +55,14 @@
     },
     {
       "module": "std/resource",
-      "status": "pending",
+      "status": "landed",
       "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms"
     },
     {
       "module": "std/drain",
-      "status": "pending",
+      "status": "landed",
       "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms"
     }
   ],
-  "later_tranche_suites": [
-    {
-      "suite": "tests/test_workflow_lisp_resource_stdlib.py",
-      "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms",
-      "reason": "Resource-stdlib coverage still exercises pending std/resource and std/drain fixtures, so it remains informative until G6 lands tracked builtins."
-    },
-    {
-      "suite": "tests/test_workflow_lisp_stdlib_form_migration.py",
-      "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms",
-      "reason": "Asserts stdlib form-routing behavior that remains non-gating until G6 lands."
-    }
-  ]
+  "later_tranche_suites": []
 }

@@ -718,6 +718,13 @@ path.execution-report
 
 The compiler must reject ambiguous unqualified names.
 
+Current bridge rule: imported bindings win over compiler-known
+`macro_bindable` compatibility heads. During the G6 bridge window, explicitly
+imported stdlib `with-phase` / `phase-scope`, `finalize-selected-item`, and
+`backlog-drain` must compile through the imported stdlib definition while the
+same intrinsic names remain callable only as compatibility routes for legacy
+fixtures and unrevised workflow families.
+
 Compiler-known list heads are classified through the form registry before
 elaboration. The registry distinguishes core special forms, core effect bridges,
 stdlib extensions, and temporary compiler intrinsics. A stdlib extension such as
@@ -2301,6 +2308,11 @@ Meaning:
 
 This replaces fan-in through multiple handwritten blocked/completed scripts.
 
+Current checkout status: the accepted imported stdlib route is landed in
+`std/resource`. The promoted path uses a runtime-native declared transition
+plus `materialize-view` summary rendering, while any older direct per-form
+lowerer remains compatibility-only during the bridge window.
+
 ## 31. `backlog-drain`
 
 ```lisp
@@ -2336,6 +2348,12 @@ Lowering:
 - selected item workflow call
 - gap drafter workflow call
 - typed state accumulator
+
+Current checkout status: the accepted imported stdlib route is landed in
+`std/drain`, with dedicated executable-boundary proof on
+`validation_profile="DEDICATED_RUNTIME_PROOF"` and separate frontend-only
+compile proof on `validate_shared=False`. Intrinsic `backlog-drain` lowering
+remains bridge-only compatibility until G7/G8 cleanup and deletion evidence.
 - terminal typed result
 
 This is the high-level construct that should materially shrink top-level
@@ -3645,6 +3663,8 @@ artifacts.
 - `resource-location`
 - `queue`
 - `ledger-event`
+- landed builtin module on the G6 bridge route
+- owns the imported `finalize-selected-item` surface used by counted G6 suites
 
 ## 87. `std/drain`
 
@@ -3652,6 +3672,9 @@ artifacts.
 - `SelectionResult`
 - `DrainResult`
 - `GapResult`
+- landed builtin module on the G6 bridge route
+- owns the imported `backlog-drain` surface; dedicated executable proof stays
+  on the runtime-proof lane rather than on shared parent-callable validation
 
 ## Part XV. Example End-To-End Design
 

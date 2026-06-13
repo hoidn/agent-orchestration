@@ -77,23 +77,23 @@
       (blocker-class BlockerClass)
       (run-state StateExisting)))
   (defworkflow roadmap-sync
-    ((selected SelectedItem))
+    ((item-id String))
     -> RoadmapSyncResult
     (command-result resolve_roadmap_sync
-      :argv ("python" "scripts/resolve_roadmap_sync.py" selected.item-id)
+      :argv ("python" "scripts/resolve_roadmap_sync.py" item-id)
       :returns RoadmapSyncResult))
   (defworkflow plan-run
-    ((selected SelectedItem)
+    ((item-id String)
      (roadmap RoadmapSyncResult))
     -> PlanGateResult
     (command-result resolve_plan_gate
-      :argv ("python" "scripts/resolve_plan_gate.py" selected.item-id)
+      :argv ("python" "scripts/resolve_plan_gate.py" item-id)
       :returns PlanGateResult))
   (defworkflow implementation-run
-    ((selected SelectedItem))
+    ((item-id String))
     -> ImplementationResult
     (command-result execute_implementation
-      :argv ("python" "scripts/execute_implementation.py" selected.item-id)
+      :argv ("python" "scripts/execute_implementation.py" item-id)
       :returns ImplementationResult))
   (defworkflow run-selected-item
     ((item-ctx ItemCtx)
@@ -110,14 +110,14 @@
                :event SELECTED))
            (roadmap
              (call roadmap-sync
-               :selected selected))
+               :item-id selected.item-id))
            (plan
              (call plan-run
-               :selected selected
+               :item-id selected.item-id
                :roadmap roadmap))
            (implementation
              (call implementation-run
-               :selected selected)))
+               :item-id selected.item-id)))
       (finalize-selected-item
         :ctx item-ctx
         :selected selected

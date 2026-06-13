@@ -1457,20 +1457,24 @@ def test_resource_stdlib_contract_inventory_matches_lowering_families(tmp_path: 
 
     finalize_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["finalize-selected-item"]
     assert finalize_contract.family == "resource_finalize_drain"
-    assert finalize_contract.backend_kinds == ("materialize_only",)
+    assert finalize_contract.backend_kinds == ("runtime_native",)
     assert finalize_contract.required_statement_families == (
         "match",
-        "materialize_artifacts",
-        "publishes",
+        "materialize_view",
+        "output_bundle",
     )
     assert finalize_contract.alternative_statement_family_sets == ()
     assert finalize_contract.delegated_statement_family_policy == "none"
-    assert finalize_contract.state_root_policies == ("item_or_drain_layout_projection",)
-    assert finalize_contract.authority_model == "match_routed_published_summary"
-    assert finalize_contract.proof_model == "typed_branch_normalization"
+    assert finalize_contract.state_root_policies == (
+        "generated_hidden_bundle_input",
+        "runtime_native_resource_state",
+    )
+    assert finalize_contract.authority_model == "transition_audit_backed_materialized_summary"
+    assert finalize_contract.proof_model == "typed_transition_then_branch_normalization"
     assert finalize_contract.source_map_expectations == (
         "high_level_form_origin",
         "generated_step_span",
+        "generated_hidden_input_span",
         "generated_hidden_path_span",
     )
 
