@@ -1561,6 +1561,30 @@ def _loop_on_exhausted_outputs(
         allow_missing_target_fields=_loop_result_optional_relpath_fields(plan.result_projection),
     ):
         result_field = result_fields_by_name[value["name"]]
+        structured_ancestor_path = _loop_on_exhausted_structured_ancestor_path(
+            expr,
+            result_field.source_path[1:],
+        )
+        if structured_ancestor_path is not None:
+            ancestor_expr = _loop_on_exhausted_expr_at_path(expr, structured_ancestor_path)
+            assert ancestor_expr is not None
+            if not _loop_on_exhausted_non_scalar_uses_loop_state(
+                expr,
+                loop_binding_name=loop_binding_name,
+                field_path=structured_ancestor_path,
+                require_exact_state_field_path=not isinstance(result_type, UnionTypeRef),
+            ):
+                field_name = "__".join(structured_ancestor_path)
+                raise _compile_error(
+                    code="workflow_return_not_exportable",
+                    message=(
+                        f"`loop/recur :on-exhausted` non-scalar field `{field_name}` must "
+                        "project from loop state so final normalization can reuse loop-frame outputs"
+                    ),
+                    span=ancestor_expr.span,
+                    form_path=ancestor_expr.form_path,
+                )
+            continue
         if value.get("contract", {}).get("kind") != "scalar":
             field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:])
             if field_expr is None:
@@ -1597,6 +1621,19 @@ def _loop_on_exhausted_outputs(
     return outputs
 
 
+def _loop_on_exhausted_structured_ancestor_path(
+    expr: Any,
+    field_path: tuple[str, ...],
+) -> tuple[str, ...] | None:
+    field_path = _normalize_union_field_path(field_path)
+    for length in range(1, len(field_path)):
+        ancestor_path = field_path[:length]
+        ancestor_expr = _loop_on_exhausted_expr_at_path(expr, ancestor_path)
+        if isinstance(ancestor_expr, (RecordExpr, UnionVariantExpr, NameExpr, FieldAccessExpr)):
+            return ancestor_path
+    return None
+
+
 def _loop_on_exhausted_expr_at_path(expr: Any, field_path: tuple[str, ...]) -> Any | None:
     if isinstance(expr, RecordExpr):
         if not field_path:
@@ -1619,6 +1656,11 @@ def _loop_on_exhausted_non_scalar_uses_loop_state(
     field_expr = _loop_on_exhausted_expr_at_path(expr, field_path)
     if isinstance(field_expr, NameExpr):
         return not field_path and field_expr.name == loop_binding_name
+    if isinstance(field_expr, RecordExpr):
+        return (not require_exact_state_field_path) and all(
+            _loop_on_exhausted_expr_uses_loop_state(value_expr, loop_binding_name=loop_binding_name)
+            for _, value_expr in field_expr.fields
+        )
     if not isinstance(field_expr, FieldAccessExpr):
         return False
     if require_exact_state_field_path and tuple(field_expr.fields) != field_path:
@@ -1627,6 +1669,22 @@ def _loop_on_exhausted_non_scalar_uses_loop_state(
     while isinstance(base, FieldAccessExpr):
         base = base.base
     return isinstance(base, NameExpr) and base.name == loop_binding_name
+
+
+def _loop_on_exhausted_expr_uses_loop_state(expr: Any, *, loop_binding_name: str) -> bool:
+    if isinstance(expr, NameExpr):
+        return expr.name == loop_binding_name
+    if isinstance(expr, FieldAccessExpr):
+        base = expr.base
+        while isinstance(base, FieldAccessExpr):
+            base = base.base
+        return isinstance(base, NameExpr) and base.name == loop_binding_name
+    if isinstance(expr, RecordExpr):
+        return all(
+            _loop_on_exhausted_expr_uses_loop_state(value_expr, loop_binding_name=loop_binding_name)
+            for _, value_expr in expr.fields
+        )
+    return False
 
 
 def _record_loop_on_exhausted_origins(

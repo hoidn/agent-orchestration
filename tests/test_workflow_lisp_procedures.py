@@ -3723,10 +3723,11 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         source_roots=(source_root,),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        lowering_route="legacy",
         validate_shared=True,
         workspace_root=tmp_path,
     )
+
+    assert result.entry_result.lowering_schema_version == 2
 
     lowered = next(
         workflow

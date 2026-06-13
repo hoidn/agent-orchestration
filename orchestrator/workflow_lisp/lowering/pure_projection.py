@@ -45,6 +45,7 @@ from ..type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
 )
+from ..loop_state import carrier_metadata_for_type
 from .context import _LoweringContext
 from .generated_paths import allocate_generated_result_bundle
 from .origins import GeneratedSemanticEffectBinding, _record_step_origin
@@ -296,6 +297,8 @@ def _module_export_info(source_path: str) -> tuple[str, frozenset[str]] | None:
 
 
 def _nominal_descriptor_name(type_ref: TypeRef) -> str:
+    if carrier_metadata_for_type(type_ref) is not None:
+        return "workflow_lisp/private::loop-state-carrier"
     if "::" in type_ref.name:
         return type_ref.name
     if "/" in type_ref.name:
