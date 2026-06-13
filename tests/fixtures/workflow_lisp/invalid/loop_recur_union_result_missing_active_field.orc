@@ -24,7 +24,7 @@
       (attempt_count Int)
       (progress_report WorkReport)
       (blocker_class BlockerClass)))
-  (defworkflow loop-recur-union-result
+  (defworkflow loop-recur-union-result-missing-active-field
     ((input ChecksResult)
      (report_path WorkReport))
     -> ImplementationState
@@ -41,4 +41,7 @@
             ((COMPLETED completed)
              (done state))
             ((BLOCKED blocked)
-             (done state))))))))
+             (done
+               (variant ImplementationState BLOCKED
+                 :attempt_count blocked.attempt_count
+                 :progress_report blocked.progress_report)))))))))

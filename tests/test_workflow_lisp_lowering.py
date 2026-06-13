@@ -71,10 +71,17 @@ WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
+LOOP_RECUR_UNION_RESULT_FIXTURE = FIXTURES / "valid" / "loop_recur_union_result.orc"
 LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
 LOOP_RECUR_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
 LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE = (
     FIXTURES / "valid" / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
+)
+LOOP_RECUR_UNION_RESULT_COMPUTED_FIELD_FIXTURE = (
+    FIXTURES / "invalid" / "loop_recur_union_result_computed_field.orc"
+)
+LOOP_RECUR_UNION_RESULT_MISSING_ACTIVE_FIELD_FIXTURE = (
+    FIXTURES / "invalid" / "loop_recur_union_result_missing_active_field.orc"
 )
 LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE = (
     FIXTURES / "invalid" / "loop_recur_on_exhausted_non_scalar_override.orc"
@@ -2024,6 +2031,87 @@ def test_lowering_loop_recur_emits_repeat_until_on_exhausted_outputs(tmp_path: P
         "status": "DONE",
     }
     assert "result__report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+
+
+def test_lowering_loop_recur_exports_active_union_variant_fields(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_UNION_RESULT_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    assert result.lowering_schema_version == 2
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-union-result"
+    )
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+
+    assert set(lowered["outputs"]) >= {
+        "return__variant",
+        "return__attempt_count",
+        "return__execution_report",
+        "return__completion_status",
+        "return__progress_report",
+        "return__blocker_class",
+    }
+    assert set(repeat_step["repeat_until"]["outputs"]) >= {
+        "result__variant",
+        "result__attempt_count",
+        "result__execution_report",
+        "result__completion_status",
+        "result__progress_report",
+        "result__blocker_class",
+    }
+
+
+def test_lowering_loop_recur_rejects_computed_active_union_field(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            LOOP_RECUR_UNION_RESULT_COMPUTED_FIELD_FIXTURE,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="wcc_m4",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert diagnostic.span.start.path.endswith("loop_recur_union_result_computed_field.orc")
+    assert diagnostic.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "loop-recur-union-result-computed-field",
+    )
+
+
+def test_lowering_loop_recur_rejects_missing_active_union_field(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            LOOP_RECUR_UNION_RESULT_MISSING_ACTIVE_FIELD_FIXTURE,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+            lowering_route="wcc_m4",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "record_field_missing"
+    assert diagnostic.span.start.path.endswith("loop_recur_union_result_missing_active_field.orc")
+    assert diagnostic.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "loop-recur-union-result-missing-active-field",
+    )
 
 
 def test_lowering_loop_recur_emits_scalar_loop_frame_refs_for_union_on_exhausted_outputs(
