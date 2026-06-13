@@ -1471,6 +1471,10 @@ Required behavior:
 - arbitrary computed scalar `:on-exhausted` expressions still are not evaluated
   at exhaustion time; authors must carry those values through loop state before
   exhaustion if they need them in the terminal result;
+- imported stdlib bounded-exhaustion routes now use the same pure exhaustion
+  projection and perform any terminal `resource-transition` /
+  `materialize-view` work only after the loop result is bound in ordinary
+  post-loop workflow code;
 - body failures, loop-output resolution failures, and predicate failures remain
   ordinary failures, not exhaustion results;
 - direct non-scalar `on_exhausted` overrides are rejected;

@@ -1,7 +1,13 @@
+import json
 from pathlib import Path
+import shutil
 
 import pytest
 
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
@@ -25,6 +31,7 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -56,7 +63,7 @@ def _expression_syntax(source: str) -> SyntaxNode:
     )
 
 
-def _command_boundaries():
+def _command_boundaries(*, gap_output_type_name: str = "GapDraftResult"):
     return build_command_boundary_environment(
         {
             "select_next_item": CertifiedAdapterBinding(
@@ -85,7 +92,7 @@ def _command_boundaries():
                 name="draft_gap_item",
                 stable_command=("python", "scripts/draft_gap_item.py"),
                 input_contract={"type": "object"},
-                output_type_name="GapDraftResult",
+                output_type_name=gap_output_type_name,
                 effects=("structured_result",),
                 path_safety={"kind": "workspace_relpath"},
                 source_map_behavior="step",
@@ -119,6 +126,30 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
         workspace_root=tmp_path,
         lowering_route=LoweringRoute.LEGACY,
     )
+
+
+def _bound_runtime_inputs(bundle, workspace: Path, inputs: dict[str, object]) -> dict[str, object]:
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    public_inputs = {
+        input_name: contract
+        for input_name, contract in runtime_inputs.items()
+        if not input_name.startswith("__write_root__")
+    }
+    return bind_workflow_inputs(public_inputs, inputs, workspace)
+
+
+def _execute_bundle(bundle, *, workflow_path: Path, workspace: Path, inputs: dict[str, object], run_id: str):
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize(
+        workflow_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_bound_runtime_inputs(bundle, workspace, inputs),
+    )
+    for relpath in ("scripts", "state", "artifacts"):
+        source = workspace / relpath
+        if source.exists():
+            shutil.copytree(source, state_manager.run_root / relpath, dirs_exist_ok=True)
+    return WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute(on_error="stop")
 
 
 def _record_gap_drafter_fixture(tmp_path: Path) -> Path:
@@ -441,6 +472,8 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "acc__progress-report-path",
         "acc__run-state",
     )
+    assert not any("resource_transition" in step for step in body_steps)
+    assert not any("materialize_view" in step for step in body_steps)
     assert not any(
         step.get("command", [])[:3] == ["python", "-m", "orchestrator.workflow_lisp.adapters.normalize_drain_result"]
         for step in authored["steps"]
@@ -553,7 +586,6 @@ def test_backlog_drain_contract_inventory_matches_loop_managed_call_lowering(tmp
         if isinstance(step_id, str):
             assert step_id in lowered.origin_map.step_spans
             assert lowered.origin_map.step_spans[step_id].origin_key
-
 
 def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Path) -> None:
     path = tmp_path / "provider_backlog_drain_invalid.orc"

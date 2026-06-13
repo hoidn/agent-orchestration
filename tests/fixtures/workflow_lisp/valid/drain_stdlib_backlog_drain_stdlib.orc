@@ -6,7 +6,8 @@
   ; tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain.orc.
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (SelectedItemResult))
-  (import std/drain :only (SelectionResult GapResult DrainResult backlog-drain))
+  (import std/drain :only
+    (GapPayload GapResult DrainResult SelectionPayload SelectionResult backlog-drain))
   (export drain)
   (defenum BlockerClass
     missing_resource
@@ -27,11 +28,6 @@
     :kind relpath
     :under "state"
     :must-exist true)
-  (defrecord SelectionPayload
-    (item-id String)
-    (item-state-root StateFile))
-  (defrecord GapPayload
-    (gap-id String))
   (defworkflow selector-run
     ((ctx DrainCtx))
     -> SelectionResult

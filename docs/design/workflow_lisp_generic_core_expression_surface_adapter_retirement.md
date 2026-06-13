@@ -184,6 +184,20 @@ Implement the work in ordered tranches:
 - G5B (P0 prerequisite before counting broader G6 verification evidence):
   shared verification-baseline rehabilitation for imported generic stdlib
   composition, builtin stdlib routing, and tranche-owned gate separation.
+- G5C (P0 prerequisite before counting imported-macro-heavy G6 drain
+  evidence): imported stdlib macro payload projection and helper-composition
+  substrate for hygienic dotted field access from macro-bound values and
+  accepted helper-call carriage in the expression positions those macros need,
+  with no compiler-name special case.
+- G5D0 (P0 prerequisite before counting G5D or bounded-exhaustion G6 drain
+  evidence): shared scalar loop-frame carriage through
+  `repeat_until.on_exhausted.outputs`, so direct scalar refs rooted in the
+  loop binding survive shared validation, output-bundle validation, and final
+  workflow output resolution as ref-backed scalar exhaustion outputs.
+- G5D (P0 prerequisite before counting bounded-exhaustion G6 drain
+  evidence): imported stdlib `loop/recur` exhaustion projection and post-loop
+  terminal carriage for `backlog-drain`-style routes, so typed bounded
+  exhaustion does not depend on effectful `:on-exhausted` work.
 - G6: stdlib migration of phase/drain forms onto the generic core.
 - G7: Design Delta Drain boundary and adapter cleanup.
 - G8: evidence-gated deletion of retired ontology tables, retired adapters, and
@@ -202,12 +216,22 @@ family-route consumption prerequisite. G6 proving routes are not selectable
 until G5A has shown that imported generic stdlib helpers can carry
 constraint-checked caller-owned shapes through proof-gated `match`, declared
 transition/view effects, and ordinary WCC lowering without compiler-name
-special cases. G6 counted evidence is not complete until G5B has fixed the
-broader gate: the shared suites counted as G6 evidence must run against an
-explicit builtin stdlib inventory and must not depend on unfinished
-later-tranche modules or unrelated frontend regressions. G8 is deletion-only
-and must not be selected until evidence from G2 through G7 proves every
-removed path is unused.
+special cases. Imported-macro-heavy G6 drain routes are not selectable until
+G5C has shown that an imported stdlib macro can synthesize branch-local field
+projection and downstream helper/call arguments through ordinary macro
+expansion, specialization, typecheck, and WCC lowering without degrading
+hygienic dotted access or depending on a compiler branch keyed to
+`backlog-drain`, `std/drain`, or a workflow-family module name. Bounded-
+exhaustion G6 drain routes are not selectable until G5D0 has shown that
+direct scalar loop-frame refs may lower through
+`repeat_until.on_exhausted.outputs` as validated ref-backed scalar carriage,
+and G5D has shown that imported stdlib routes use that substrate with pure
+`:on-exhausted` projection and post-loop terminal transition/view work. G6 counted
+evidence is not complete until G5B has fixed the broader gate: the shared
+suites counted as G6 evidence must run against an explicit builtin stdlib
+inventory and must not depend on unfinished later-tranche modules or
+unrelated frontend regressions. G8 is deletion-only and must not be selected
+until evidence from G2 through G7 proves every removed path is unused.
 
 ## 3. Problem And Current Evidence To Verify
 
@@ -922,12 +946,122 @@ Status note: the G5B prerequisite is now landed as the checked-in manifest
 are routed to the G6 gap's `pending_material/` directory instead of being
 counted as G5B/G6-prerequisite failures.
 
+### 15.1C Prerequisite: Imported Stdlib Macro Payload Projection And Helper Composition
+
+G6 `backlog-drain`-style stdlib routes assume one additional frontend
+capability that is narrower than G5A's generic imported-helper proof and more
+specific than G5B's counted-suite gate:
+
+- an imported stdlib macro must be able to introduce or bind branch-local
+  values and still preserve hygienic dotted field access from those values
+  into downstream workflow-call arguments, record constructors, and variant
+  constructors after ordinary expansion;
+- if the accepted route uses imported helper procedures instead of direct
+  dotted projections in the macro template, those helper invocations must be
+  expressible in the expression positions the macro needs without being
+  reclassified as unsupported pure operators, and without turning effectful
+  helper work into hidden pure semantics;
+- the route must remain name-neutral: no compiler branch keyed to
+  `backlog-drain`, `std/drain`, a workflow-family module name, or one special
+  helper proc is allowed to paper over the limitation; and
+- positive routes must preserve source maps, proof/effect visibility, and the
+  usual owner-layer failures for bad field access, bad helper signatures, or
+  disallowed effect positions.
+
+This prerequisite exists because imported generic helper composition is not by
+itself proof that imported stdlib macro bodies can project typed payload
+fields or synthesize downstream argument structure in the same route.
+
+If this capability is not yet proven, the next selectable work is this
+prerequisite rather than widening G6, forcing `backlog-drain` back through a
+compiler-special compatibility lane, or claiming that direct dotted
+projection inside imported stdlib macros already works.
+
+### 15.1D Prerequisite: Shared Scalar Loop-Frame Carriage Through `repeat_until.on_exhausted.outputs`
+
+G6 `backlog-drain`-style stdlib routes now consume one narrower prerequisite
+before the imported-stdlib exhaustion proof itself: the shared loop substrate
+must accept ref-backed scalar loop-frame outputs in
+`repeat_until.on_exhausted.outputs` rather than restricting that surface to
+scalar literals only.
+
+The required contract is:
+
+- direct scalar field accesses rooted in the loop binding are part of the
+  baseline exhaustion surface and may lower as ref-backed scalar exhaustion
+  outputs;
+- shared validation, validated bundle/output resolution, and final workflow
+  output resolution must all accept that ref-backed scalar carriage when the
+  referenced loop-frame field is already materialized by the loop state;
+- arbitrary computed scalar expressions remain outside this prerequisite and
+  still fail closed unless some other accepted surface carries them through the
+  loop frame first; and
+- the route remains name-neutral and compiles through ordinary typecheck, WCC,
+  lowering, shared validation, and executable output resolution without a
+  compiler or validator branch keyed to `std/drain`, `backlog-drain`, or a
+  proving-fixture module name.
+
+If this capability is not yet proven, the next selectable work is this
+prerequisite rather than widening G5D, treating the failure as imported-macro
+or post-loop-terminal debt, or weakening the baseline exhaustion contract.
+
+### 15.1E Prerequisite: Imported Stdlib Loop Exhaustion Projection And Post-Loop Terminal Carriage
+
+G6 `backlog-drain`-style stdlib routes assume one additional route contract
+that is distinct from G5C's macro/helper payload proof and consumes G5D0's
+shared scalar-carriage substrate: bounded typed exhaustion must stay within
+the baseline `loop/recur` exhaustion surface
+instead of smuggling effectful terminal work into `:on-exhausted`.
+
+The required contract is:
+
+- authored `:on-exhausted` projection remains pure, loop-local, and limited to
+  the baseline scalar loop-frame outputs already admitted by G5D0;
+- imported stdlib drain routes may use `:on-exhausted` to set a terminal
+  decision marker or other scalar loop-frame fields, then construct the typed
+  exhaustion variant only after loop exit from those materialized loop-frame
+  outputs;
+- any effectful exhaustion follow-up such as `resource-transition`,
+  `materialize-view`, `command-result`, or other durable terminal side effects
+  occurs after the loop has returned its typed result, not inside
+  `:on-exhausted`; and
+- the route remains name-neutral and compiles through ordinary import,
+  macro expansion, specialization, typecheck, and WCC lowering without a
+  compiler branch keyed to `loop/recur`, `backlog-drain`, `std/drain`, or a
+  workflow-family module name.
+
+Current status note:
+
+- G5D is now landed as bounded prerequisite evidence on the imported stdlib
+  proving route exercised by
+  `tests/test_workflow_lisp_imported_stdlib_loop_exhaustion_post_loop_terminal.py`.
+- The proving route keeps `repeat_until.on_exhausted.outputs` data-only,
+  rejects effectful `:on-exhausted` helpers, and performs terminal
+  `resource-transition` / `materialize-view` work only after loop result
+  binding.
+- This evidence satisfies the imported-stdlib post-loop terminal-carriage
+  prerequisite only. It does not count as G6 completion, hook redundancy,
+  family cleanup, or adapter retirement evidence.
+
+If G5D0 is green and this capability is not yet proven, the next selectable work is this
+prerequisite rather than widening G5C, treating a bounded-exhaustion drain
+failure as macro-helper-composition debt, or widening G6 around an unresolved
+stdlib loop contract.
+
 ### 15.2 Tasks
 
 - Consume G5A's imported generic stdlib effectful-composition proof before
   counting G6 evidence.
 - Consume G5B's verification-baseline and builtin-stdlib-routing proof before
   counting broader G6 evidence.
+- Consume G5C's imported stdlib macro payload-projection and helper-composition
+  proof before counting `backlog-drain` or other imported-macro-heavy G6
+  drain evidence.
+- Consume G5D0's shared scalar loop-frame carriage proof before counting G5D
+  or any bounded-exhaustion `backlog-drain` evidence.
+- Consume G5D's pure exhaustion-projection and post-loop terminal-carriage
+  proof before counting `backlog-drain` or other bounded-exhaustion G6 drain
+  evidence.
 - Implement `std/context`, `std/resource`, `std/projection`, and `std/drain`
   modules.
 - Express `with-phase` as context construction plus scoped allocation.
@@ -947,6 +1081,24 @@ counted as G5B/G6-prerequisite failures.
   stdlib inventory that those counted suites may assume, and shown that the
   counted suites pass without relying on unfinished later-tranche modules or
   unrelated shared-route fixes.
+- G5C has already proven one ordinary imported route where a stdlib macro can
+  either project branch-local payload fields directly or route them through an
+  accepted helper-composition path into downstream arguments and typed
+  constructors under ordinary expansion/typecheck/WCC lowering, and where the
+  corresponding negative fixtures still fail closed for bad field access or
+  disallowed expression-position helper usage. The dedicated proof lane is
+  `tests/test_workflow_lisp_imported_stdlib_macro_payload_helper_composition.py`,
+  which pins the helper-composed `let*` route into downstream workflow-call
+  arguments, record constructors, and variant constructors.
+- G5D0 counts as satisfied only when focused WCC/schema-2 evidence shows that
+  one direct union fixture lowers scalar loop-frame refs into
+  `repeat_until.on_exhausted.outputs`, one direct-computed-scalar fixture still
+  fails closed, and one scope-owned executable loop lane proves the validated
+  bundle preserves ref-backed exhaustion outputs through final workflow output
+  resolution.
+- G5D broader imported-stdlib evidence remains gated by G5D0 plus its own
+  route-specific prerequisites and proof lane; G5D0 is necessary substrate,
+  but it is not by itself counted as imported-stdlib or G6 evidence.
 - Stdlib forms compile through ordinary import/specialization/typecheck/WCC.
 - No promoted fixture depends on a compiler branch keyed to a stdlib form name.
 - Deleting a redundant hook does not change accepted fixture output.
@@ -1116,7 +1268,10 @@ post-foundation phase-family boundary rehabilitation
 G1 + G3 -> G5
 G3 + G4 + G5 -> G5A
 G5A -> G5B
-G3 + G5 + G5A + G5B -> G6
+G5A + G5B -> G5C
+G5A + G5B + G5C -> G5D0
+G5A + G5B + G5C + G5D0 -> G5D
+G3 + G5 + G5A + G5B + G5C + G5D -> G6
 G1..G6 -> G7
 G7 + promotion evidence -> G8
 ```
@@ -1131,6 +1286,9 @@ Relationship to post-foundation:
 | G5 | private executable context bridge |
 | G5A | imported generic effectful-composition substrate |
 | G5B | verification baseline for stdlib migration |
+| G5C | imported macro/proc authoring substrate for drain stdlib migration |
+| G5D0 | shared scalar exhaustion-output carriage |
+| G5D | imported stdlib loop exhaustion and post-loop terminal carriage |
 | G6 | imported/std composition and hook retirement |
 | G7 | parent-callable family cleanup |
 | G8 | post-promotion simplification and deletion |
@@ -1172,6 +1330,9 @@ Relationship to post-foundation:
 - G5 type-driven vs name-driven differential tests before deletion.
 - G5A imported-generic stdlib effectful-composition proof.
 - G5B shared verification-baseline and builtin-stdlib-routing proof.
+- G5C imported stdlib macro payload-projection and helper-composition proof.
+- G5D0 shared scalar loop-frame exhaustion-output carriage proof.
+- G5D imported stdlib loop exhaustion and post-loop terminal-carriage proof.
 - G6 hook-redundancy evidence.
 - G7 family fixture with zero workflow-semantics adapters.
 - G8 deletion deltas and grep guards.
@@ -1189,6 +1350,20 @@ Relationship to post-foundation:
 - counting G6 stdlib-migration evidence while the same imported route still
   fails to carry constrained generic specialization through proof-gated
   `match`, transition/view resolution, or ordinary WCC lowering;
+- counting `backlog-drain`-class G6 stdlib-migration evidence while the same
+  imported macro route still lacks an accepted way to carry hygienic
+  branch-local dotted field projection or helper-composed payload arguments
+  through ordinary expansion/typecheck/WCC lowering;
+- counting `backlog-drain`-class G6 stdlib-migration evidence while the same
+  route still lacks G5D0's accepted ref-backed scalar loop-frame carriage
+  through `repeat_until.on_exhausted.outputs`;
+- counting `backlog-drain`-class G6 stdlib-migration evidence while the same
+  imported stdlib route still depends on effectful `:on-exhausted` work or on
+  non-baseline exhaustion projection instead of a pure loop-frame marker plus
+  post-loop terminal projection;
+- counting broader imported-stdlib or G6 evidence solely from the shared
+  scalar-carriage proof lane before the remaining route-specific boundary or
+  builtin-stdlib prerequisites are green;
 - counting G6 stdlib-migration evidence while the broader counted suites still
   depend on unfinished later-tranche builtin modules or on unrelated shared
   regressions that have not been routed to their owning tranche;
@@ -1287,6 +1462,19 @@ fixtures still pass and a CI guard rejects reintroduction.
 - G6 evidence is counted only after G5A proves imported generic stdlib helper
   composition with constrained specialization, proof-gated `match`, and
   transition/view resolution on the ordinary route.
+- G6 `backlog-drain`-class evidence is counted only after G5C proves that
+  imported stdlib macro expansion can carry branch-local payload projection or
+  an accepted helper-composition equivalent through ordinary expansion,
+  specialization, typecheck, and WCC lowering with no compiler-name special
+  case.
+- G6 `backlog-drain`-class evidence is counted only after G5D0 proves that
+  direct scalar loop-frame refs survive `repeat_until.on_exhausted.outputs`,
+  shared validation, and final output resolution as ordinary ref-backed scalar
+  exhaustion outputs.
+- G6 `backlog-drain`-class evidence is counted only after G5D proves that
+  bounded exhaustion on the same imported stdlib route uses only pure
+  `loop/recur :on-exhausted` loop-frame projection and performs any terminal
+  transition/view work only after the loop returns a typed exhaustion result.
 - G6 evidence is counted only after G5B defines the broader verification gate,
   makes its builtin stdlib inventory explicit, and removes accidental
   dependence on unfinished later-tranche modules or unrelated shared

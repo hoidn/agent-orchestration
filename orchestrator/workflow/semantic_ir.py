@@ -2232,11 +2232,17 @@ def _validate_materialized_view_semantic_authority_usage(
     if not materialized_view_step_ids:
         return
 
-    all_step_ids = tuple(
-        step.step_id
-        for step in _iter_surface_steps(surface)
-        if isinstance(step.step_id, str) and step.step_id
-    )
+    materialized_view_step_selectors: set[str] = set(materialized_view_step_ids)
+    all_step_selectors: list[str] = []
+    for step in _iter_surface_steps(surface):
+        if isinstance(step.step_id, str) and step.step_id:
+            all_step_selectors.append(step.step_id)
+            if step.step_id in materialized_view_step_ids:
+                materialized_view_step_selectors.add(step.step_id)
+                if isinstance(step.name, str) and step.name:
+                    materialized_view_step_selectors.add(step.name)
+        if isinstance(step.name, str) and step.name:
+            all_step_selectors.append(step.name)
     command_boundaries_by_step_id = {
         boundary.step_id: boundary
         for boundary in semantic_ir.command_boundaries.values()
@@ -2271,15 +2277,15 @@ def _validate_materialized_view_semantic_authority_usage(
 
         if step.kind is SurfaceStepKind.COMMAND:
             boundary = command_boundaries_by_step_id.get(step.step_id)
-            if boundary is None or boundary.boundary_name != "validate_reusable_phase_state":
+            if boundary is None:
                 continue
             resume_from_ref = _resume_from_ref_from_validator_command(step.command)
             if resume_from_ref is None:
                 continue
             if _ref_string_references_materialized_view(
                 resume_from_ref,
-                materialized_view_step_ids=materialized_view_step_ids,
-                available_step_ids=all_step_ids,
+                materialized_view_step_selectors=materialized_view_step_selectors,
+                available_step_selectors=tuple(dict.fromkeys(all_step_selectors)),
             ):
                 _raise_materialized_view_semantic_authority_error(
                     workflow_name=workflow_name,
@@ -2311,7 +2317,7 @@ def _value_references_materialized_view(
 
 
 def _resume_from_ref_from_validator_command(command: Any) -> str | None:
-    if not isinstance(command, tuple) or not command:
+    if not isinstance(command, (tuple, list)) or not command:
         return None
     payload = command[-1]
     if not isinstance(payload, str):
@@ -2329,17 +2335,17 @@ def _resume_from_ref_from_validator_command(command: Any) -> str | None:
 def _ref_string_references_materialized_view(
     ref_template: str,
     *,
-    materialized_view_step_ids: set[str],
-    available_step_ids: tuple[str, ...],
+    materialized_view_step_selectors: set[str],
+    available_step_selectors: tuple[str, ...],
 ) -> bool:
     ref = _bundle_path_ref_from_template(ref_template)
     if not ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
         return False
     try:
-        parsed = parse_structured_ref(ref, available_step_ids)
+        parsed = parse_structured_ref(ref, available_step_selectors)
     except ReferenceResolutionError:
         return False
-    return parsed.field == "artifacts" and parsed.step_name in materialized_view_step_ids
+    return parsed.field == "artifacts" and parsed.step_name in materialized_view_step_selectors
 
 
 def _raise_materialized_view_semantic_authority_error(

@@ -7499,49 +7499,75 @@ class WorkflowExecutor:
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> tuple[Any, Optional[Dict[str, Any]]]:
-        variant_guard_error = self._resolve_variant_ref_guard(ref, state, scope=scope)
-        if variant_guard_error is not None:
-            return None, variant_guard_error
-        try:
-            return self.reference_resolver.resolve(ref, state, scope=scope).value, None
-        except ReferenceResolutionError as exc:
-            if (
-                ref.startswith("parent.steps.")
-                and isinstance(scope, dict)
-                and isinstance(scope.get("self_steps"), dict)
-            ):
-                retry_scope = dict(scope)
-                retry_scope["parent_steps"] = scope["self_steps"]
-                try:
-                    return self.reference_resolver.resolve(ref, state, scope=retry_scope).value, None
-                except ReferenceResolutionError:
-                    pass
-            scope_name = "self" if ref.startswith("self.steps.") else "parent" if ref.startswith("parent.steps.") else None
-            if scope_name is not None:
-                candidate_step_maps: list[dict[str, Any]] = []
-                if isinstance(scope, dict) and isinstance(scope.get(f"{scope_name}_steps"), dict):
-                    candidate_step_maps.append(scope[f"{scope_name}_steps"])
-                if isinstance(state.get("steps"), dict):
-                    candidate_step_maps.append(state["steps"])
-                for step_results in candidate_step_maps:
-                    rewritten_ref = self._rewrite_scoped_ref_for_nested_projection(
-                        ref,
-                        scope_name=scope_name,
-                        step_results=step_results,
-                    )
-                    if not isinstance(rewritten_ref, str):
-                        continue
-                    retry_scope = dict(scope) if isinstance(scope, dict) else {}
-                    retry_scope.setdefault(f"{scope_name}_steps", step_results)
+        seen_refs: set[str] = set()
+        current_ref = ref
+
+        def _resolve_once(candidate_ref: str) -> tuple[Any, Optional[Dict[str, Any]]]:
+            variant_guard_error = self._resolve_variant_ref_guard(candidate_ref, state, scope=scope)
+            if variant_guard_error is not None:
+                return None, variant_guard_error
+            try:
+                return self.reference_resolver.resolve(candidate_ref, state, scope=scope).value, None
+            except ReferenceResolutionError as exc:
+                if (
+                    candidate_ref.startswith("parent.steps.")
+                    and isinstance(scope, dict)
+                    and isinstance(scope.get("self_steps"), dict)
+                ):
+                    retry_scope = dict(scope)
+                    retry_scope["parent_steps"] = scope["self_steps"]
                     try:
-                        return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
+                        return self.reference_resolver.resolve(candidate_ref, state, scope=retry_scope).value, None
                     except ReferenceResolutionError:
-                        continue
-            return None, self._v214_failure_result(
-                "materialize_ref_unresolved",
-                "Structured ref could not be resolved",
-                context={"ref": ref, "error": str(exc)},
-            )
+                        pass
+                scope_name = (
+                    "self"
+                    if candidate_ref.startswith("self.steps.")
+                    else "parent"
+                    if candidate_ref.startswith("parent.steps.")
+                    else None
+                )
+                if scope_name is not None:
+                    candidate_step_maps: list[dict[str, Any]] = []
+                    if isinstance(scope, dict) and isinstance(scope.get(f"{scope_name}_steps"), dict):
+                        candidate_step_maps.append(scope[f"{scope_name}_steps"])
+                    if isinstance(state.get("steps"), dict):
+                        candidate_step_maps.append(state["steps"])
+                    for step_results in candidate_step_maps:
+                        rewritten_ref = self._rewrite_scoped_ref_for_nested_projection(
+                            candidate_ref,
+                            scope_name=scope_name,
+                            step_results=step_results,
+                        )
+                        if not isinstance(rewritten_ref, str):
+                            continue
+                        retry_scope = dict(scope) if isinstance(scope, dict) else {}
+                        retry_scope.setdefault(f"{scope_name}_steps", step_results)
+                        try:
+                            return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
+                        except ReferenceResolutionError:
+                            continue
+                return None, self._v214_failure_result(
+                    "materialize_ref_unresolved",
+                    "Structured ref could not be resolved",
+                    context={"ref": candidate_ref, "error": str(exc)},
+                )
+
+        while True:
+            if current_ref in seen_refs:
+                return None, self._v214_failure_result(
+                    "materialize_ref_unresolved",
+                    "Structured ref resolved to a cyclic ref chain",
+                    context={"ref": current_ref},
+                )
+            seen_refs.add(current_ref)
+            value, error = _resolve_once(current_ref)
+            if error is not None:
+                return None, error
+            if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
+                current_ref = value["ref"]
+                continue
+            return value, None
 
     def _copy_contract_definition(self, contract: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not isinstance(contract, dict):

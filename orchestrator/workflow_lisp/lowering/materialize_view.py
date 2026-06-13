@@ -42,7 +42,7 @@ def lower_materialize_view_step(
     assert isinstance(expr, MaterializeViewExpr)
     assert isinstance(typed_expr.type_ref, PathTypeRef)
 
-    step_name = context.step_name_prefix
+    step_name = f"{context.step_name_prefix}__materialize-view__{_workflow_slug(expr.view_name)}"
     step_id = _normalize_generated_step_id(step_name)
     renderer = resolve_view_renderer(expr.renderer_id, expr.renderer_version)
     value_type = _infer_expr_type(

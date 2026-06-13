@@ -120,6 +120,7 @@ from ..phase import (
     PhaseScope,
     PromotedEntryHiddenContextRequirement,
     RUN_CONTEXT_NAME,
+    resolve_phase_target_type,
 )
 from ..phase_family_boundary import (
     apply_phase_family_boundary_classification,
@@ -1583,6 +1584,23 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, PhaseTargetExpr):
+        if context.phase_scope is not None:
+            return resolve_phase_target_type(
+                context.phase_scope.scope,
+                expr.target_name,
+                type_env=context.type_env,
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        target_spec = PHASE_TARGET_SPECS.get(expr.target_name)
+        if target_spec is None:
+            return None
+        return context.type_env.resolve_type(
+            target_spec[0],
+            span=expr.span,
+            form_path=expr.form_path,
         )
     if isinstance(expr, RecordExpr):
         return context.type_env.resolve_type(

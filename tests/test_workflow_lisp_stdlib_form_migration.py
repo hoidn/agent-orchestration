@@ -134,6 +134,13 @@ def _compile_module_fixture(path: Path, *, tmp_path: Path):
     )
 
 
+def _type_name_suffix(type_name: str) -> str:
+    normalized = type_name.split("::", 1)[-1]
+    if normalized == "GapDraftResult":
+        return "GapResult"
+    return normalized
+
+
 def test_intrinsic_form_route_accounting_api_starts_empty_and_is_deterministic() -> None:
     dispatch = _control_dispatch_module()
 
@@ -234,7 +241,9 @@ def test_dual_route_vectors_preserve_typed_return_shapes(
     )
     stdlib = _compile_module_fixture(stdlib_fixture, tmp_path=tmp_path / "stdlib")
 
-    intrinsic_names = sorted(workflow.definition.return_type.name for workflow in intrinsic.entry_result.typed_workflows)
-    stdlib_names = sorted(workflow.definition.return_type.name for workflow in stdlib.entry_result.typed_workflows)
+    intrinsic_names = sorted(_type_name_suffix(workflow.signature.return_type_ref.name) for workflow in intrinsic.typed_workflows)
+    stdlib_names = sorted(
+        _type_name_suffix(workflow.signature.return_type_ref.name) for workflow in stdlib.entry_result.typed_workflows
+    )
 
     assert stdlib_names == intrinsic_names

@@ -1647,6 +1647,8 @@ def _replace_halts_with_jump(
                 scope=scope.child_scope("join-cont", authored_binding_name=body.join_name),
             ),
         )
+    if isinstance(body, WccRecJoin):
+        return body
     if isinstance(body, WccHalt):
         return WccJump(
             metadata=scope.body_metadata(

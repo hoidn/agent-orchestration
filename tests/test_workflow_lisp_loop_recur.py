@@ -569,7 +569,11 @@ def test_lowering_loop_recur_with_composed_with_phase_binding_exports_step_backe
     repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
     nested_names = [step["name"] for step in repeat_step["repeat_until"]["steps"]]
 
-    assert "loop-recur-phase-binding__body__phase-result" in nested_names
+    assert any(
+        name == "loop-recur-phase-binding__body__phase-result"
+        or name.startswith("loop-recur-phase-binding__body____wcc_effect_result_")
+        for name in nested_names
+    )
     assert "loop-recur-phase-binding__body" in nested_names
 
 

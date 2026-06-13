@@ -21,6 +21,7 @@ from ..expressions import (
     LoopRecurExpr,
     MatchExpr,
     NameExpr,
+    PhaseTargetExpr,
     PureOpExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
@@ -336,6 +337,7 @@ def _control_is_inline_let_binding_expr_impl(expr: Any) -> bool:
         (
             NameExpr,
             FieldAccessExpr,
+            PhaseTargetExpr,
             LiteralExpr,
             RecordExpr,
             RecordUpdateExpr,

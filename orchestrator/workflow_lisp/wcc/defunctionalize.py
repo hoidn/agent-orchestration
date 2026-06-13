@@ -21,6 +21,8 @@ from ..expressions import (
     IfExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
     MaterializeViewExpr,
     MatchArm,
     MatchExpr,
@@ -331,6 +333,7 @@ def _lower_wcc_workflow_definitions(
             workflow_path=workflow_path,
             generated_private_workflow_names=generated_private_workflow_names,
             generated_private_workflow_type_envs=generated_private_workflow_type_envs,
+            procedure_type_envs=procedure_type_envs,
             workflow_catalog=workflow_catalog,
             imported_workflow_bundles=imported_workflow_bundles,
             extern_environment=extern_environment,
@@ -374,6 +377,7 @@ def _lower_one_wcc_workflow(
     workflow_path: Path,
     generated_private_workflow_names: frozenset[str],
     generated_private_workflow_type_envs: Mapping[str, object],
+    procedure_type_envs: Mapping[str, object],
     workflow_catalog: WorkflowCatalog,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
     extern_environment: ExternEnvironment,
@@ -419,6 +423,7 @@ def _lower_one_wcc_workflow(
         ensure_workflow_lowered=ensure_workflow_lowered,
         specialize_workflow=specialize_workflow,
         type_env=type_env,
+        procedure_type_envs=procedure_type_envs,
         step_spans={},
         generated_input_spans=origin_inputs,
         authored_generated_inputs=set(authored_inputs),
@@ -2096,6 +2101,11 @@ def _lower_wcc_procedure_call(
             **dict(context.local_type_bindings),
             **_procedure_signature_local_type_bindings(procedure),
         },
+        type_env=(
+            (context.procedure_type_envs or {}).get(procedure.definition.name)
+            or (context.procedure_type_envs or {}).get(procedure.signature.name)
+            or context.type_env
+        ),
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
     )
     workflow_return_types = {
@@ -2112,12 +2122,13 @@ def _lower_wcc_procedure_call(
         name: candidate.signature.return_type_ref
         for name, candidate in context.typed_procedures.items()
     }
+    procedure_type_env = child_context.type_env
     route_schema_version = value.metadata.node_id.split(":", 2)[1]
     wcc_body = normalize_wcc_body_to_anf(
         elaborate_typed_workflow_body(
             procedure.typed_body,
             owner_name=procedure.definition.name,
-            type_env=context.type_env,
+            type_env=procedure_type_env,
             value_env=_procedure_signature_local_type_bindings(procedure),
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
@@ -2213,23 +2224,32 @@ def _frontend_expr_from_wcc_binding_value(value):
     return _frontend_expr_from_wcc_value(value)
 
 
-def _frontend_expr_from_wcc_loop_body(body: WccBody):
+def _frontend_expr_from_wcc_loop_body(body: WccBody, env: Mapping[str, object] | None = None):
+    resolved_env: Mapping[str, object] = env or {}
     if isinstance(body, WccLet):
+        binding_expr = (
+            _frontend_expr_from_wcc_loop_binding_value(body.bound_value)
+            if isinstance(body.bound_value, (WccPerform, WccCall))
+            else _frontend_expr_from_wcc_value_with_env(body.bound_value, resolved_env)
+        )
+        nested_env: Mapping[str, object] = resolved_env
+        if not isinstance(body.bound_value, (WccPerform, WccCall)):
+            nested_env = {**dict(resolved_env), body.bound_name: binding_expr}
         return LetStarExpr(
-            bindings=((body.bound_name, _frontend_expr_from_wcc_loop_binding_value(body.bound_value)),),
-            body=_frontend_expr_from_wcc_loop_body(body.body),
+            bindings=((body.bound_name, binding_expr),),
+            body=_frontend_expr_from_wcc_loop_body(body.body, nested_env),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
             expansion_stack=body.metadata.expansion_stack,
         )
     if isinstance(body, WccCase):
         return MatchExpr(
-            subject=_frontend_expr_from_wcc_value(body.subject),
+            subject=_frontend_expr_from_wcc_value_with_env(body.subject, resolved_env),
             arms=tuple(
                 MatchArm(
                     variant_name=arm.variant_name,
                     binding_name=arm.binding_name,
-                    body=_frontend_expr_from_wcc_loop_body(arm.body),
+                    body=_frontend_expr_from_wcc_loop_body(arm.body, resolved_env),
                     span=arm.body.metadata.source_span,
                     form_path=arm.body.metadata.form_path,
                     expansion_stack=arm.body.metadata.expansion_stack,
@@ -2242,9 +2262,22 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody):
         )
     if isinstance(body, WccIf):
         return IfExpr(
-            condition_expr=_frontend_expr_from_wcc_value(body.condition),
-            then_expr=_frontend_expr_from_wcc_loop_body(body.then_body),
-            else_expr=_frontend_expr_from_wcc_loop_body(body.else_body),
+            condition_expr=_frontend_expr_from_wcc_value_with_env(body.condition, resolved_env),
+            then_expr=_frontend_expr_from_wcc_loop_body(body.then_body, resolved_env),
+            else_expr=_frontend_expr_from_wcc_loop_body(body.else_body, resolved_env),
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        )
+    if isinstance(body, WccJoin):
+        if len(body.params) != 1:
+            raise TypeError("WCC M4 loop body conversion supports one join parameter")
+        param = body.params[0]
+        binding_expr = _frontend_expr_from_wcc_join_binding(body.body, join_name=body.join_name, env=resolved_env)
+        nested_env = {**dict(resolved_env), param.name: binding_expr}
+        return LetStarExpr(
+            bindings=((param.name, binding_expr),),
+            body=_frontend_expr_from_wcc_loop_body(body.continuation, nested_env),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
             expansion_stack=body.metadata.expansion_stack,
@@ -2253,20 +2286,20 @@ def _frontend_expr_from_wcc_loop_body(body: WccBody):
         if len(body.state_args) != 1:
             raise TypeError("WCC M4 loop body conversion supports one continue state argument")
         return ContinueExpr(
-            state_expr=_frontend_expr_from_wcc_value(body.state_args[0]),
+            state_expr=_frontend_expr_from_wcc_value_with_env(body.state_args[0], resolved_env),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
             expansion_stack=body.metadata.expansion_stack,
         )
     if isinstance(body, WccLoopDone):
         return DoneExpr(
-            result_expr=_frontend_expr_from_wcc_value(body.result),
+            result_expr=_frontend_expr_from_wcc_value_with_env(body.result, resolved_env),
             span=body.metadata.source_span,
             form_path=body.metadata.form_path,
             expansion_stack=body.metadata.expansion_stack,
         )
     if isinstance(body, WccHalt):
-        return _frontend_expr_from_wcc_value(body.result)
+        return _frontend_expr_from_wcc_value_with_env(body.result, resolved_env)
     raise TypeError(f"unsupported WCC loop body during defunctionalization: {type(body).__name__}")
 
 
@@ -2279,6 +2312,64 @@ def _frontend_expr_from_wcc_loop_result_body(body: WccBody):
     if not isinstance(current, WccHalt):
         return _frontend_expr_from_wcc_loop_body(body)
     return _frontend_expr_from_wcc_value_with_env(current.result, env)
+
+
+def _frontend_expr_from_wcc_join_binding(
+    body: WccBody,
+    *,
+    join_name: str,
+    env: Mapping[str, object],
+):
+    if isinstance(body, WccLet):
+        binding_expr = (
+            _frontend_expr_from_wcc_loop_binding_value(body.bound_value)
+            if isinstance(body.bound_value, (WccPerform, WccCall))
+            else _frontend_expr_from_wcc_value_with_env(body.bound_value, env)
+        )
+        nested_env = env
+        if not isinstance(body.bound_value, (WccPerform, WccCall)):
+            nested_env = {**dict(env), body.bound_name: binding_expr}
+        return LetStarExpr(
+            bindings=((body.bound_name, binding_expr),),
+            body=_frontend_expr_from_wcc_join_binding(body.body, join_name=join_name, env=nested_env),
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        )
+    if isinstance(body, WccCase):
+        return MatchExpr(
+            subject=_frontend_expr_from_wcc_value_with_env(body.subject, env),
+            arms=tuple(
+                MatchArm(
+                    variant_name=arm.variant_name,
+                    binding_name=arm.binding_name,
+                    body=_frontend_expr_from_wcc_join_binding(arm.body, join_name=join_name, env=env),
+                    span=arm.body.metadata.source_span,
+                    form_path=arm.body.metadata.form_path,
+                    expansion_stack=arm.body.metadata.expansion_stack,
+                )
+                for arm in body.arms
+            ),
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        )
+    if isinstance(body, WccIf):
+        return IfExpr(
+            condition_expr=_frontend_expr_from_wcc_value_with_env(body.condition, env),
+            then_expr=_frontend_expr_from_wcc_join_binding(body.then_body, join_name=join_name, env=env),
+            else_expr=_frontend_expr_from_wcc_join_binding(body.else_body, join_name=join_name, env=env),
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        )
+    if isinstance(body, WccJump):
+        if body.join_name != join_name or len(body.args) != 1:
+            raise TypeError("WCC M4 loop join conversion encountered an unexpected jump shape")
+        return _frontend_expr_from_wcc_value_with_env(body.args[0], env)
+    if isinstance(body, WccHalt):
+        return _frontend_expr_from_wcc_value_with_env(body.result, env)
+    raise TypeError(f"unsupported WCC join binding during loop defunctionalization: {type(body).__name__}")
 
 
 def _frontend_expr_from_wcc_value_with_env(value: WccValue, env: Mapping[str, object]):
@@ -2446,6 +2537,27 @@ def _frontend_expr_from_wcc_value(value: WccValue):
             expansion_stack=value.metadata.expansion_stack,
         )
     if isinstance(value, WccOpaqueFrontendValue):
+        if isinstance(value.expr, LoopStateSeedExpr):
+            type_ref = value.metadata.type_ref
+            if isinstance(type_ref, RecordTypeRef):
+                return RecordExpr(
+                    type_name=type_ref.name,
+                    fields=tuple(
+                        (field.name, field.value_expr)
+                        for field in value.expr.fields
+                    ),
+                    span=value.metadata.source_span,
+                    form_path=value.metadata.form_path,
+                    expansion_stack=value.metadata.expansion_stack,
+                )
+        if isinstance(value.expr, LoopStateUpdateExpr):
+            return RecordUpdateExpr(
+                base_expr=value.expr.base_expr,
+                overrides=value.expr.overrides,
+                span=value.metadata.source_span,
+                form_path=value.metadata.form_path,
+                expansion_stack=value.metadata.expansion_stack,
+            )
         return value.expr
     if isinstance(value, WccFieldAccessAtom):
         return FieldAccessExpr(

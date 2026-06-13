@@ -89,6 +89,7 @@ class _LoweringContext:
     iteration_scope: str | None = None
     lowering_schema_version: int | None = None
     wcc_effect_lowerer: Any | None = None
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None = None
     active_procedure_calls: frozenset[str] = frozenset()
     composition_scope_id: str | None = None
     parent_composition_scope_id: str | None = None
