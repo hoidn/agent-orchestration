@@ -21,6 +21,13 @@ VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effe
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
 VALID_LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 VALID_MACRO_ALIAS_FIXTURE = FIXTURES / "valid" / "macro_workflow_alias.orc"
+IMPORTED_STDLIB_HELPER_ROOT = FIXTURES / "modules" / "valid" / "imported_stdlib_macro_payload_helper_composition"
+IMPORTED_STDLIB_HELPER_ENTRY = (
+    IMPORTED_STDLIB_HELPER_ROOT / "imported_stdlib_macro_payload_helper_composition" / "entry.orc"
+)
+IMPORTED_STDLIB_HELPER_MODULE = (
+    IMPORTED_STDLIB_HELPER_ROOT / "imported_stdlib_macro_payload_helper_composition" / "std_payload_helpers.orc"
+)
 
 
 def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
@@ -187,6 +194,29 @@ def _build_design_delta_implementation_phase_source_map_document(
         ),
         selected_name=workflow_name,
         display_name_resolver=lambda name: name.rsplit("::", 1)[-1],
+    )
+    return document, workflow_name
+
+
+def _build_imported_stdlib_helper_source_map_document(tmp_path: Path):
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    result = compile_stage3_entrypoint(
+        IMPORTED_STDLIB_HELPER_ENTRY,
+        source_roots=(IMPORTED_STDLIB_HELPER_ROOT,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    workflow_name = "imported_stdlib_macro_payload_helper_composition/entry::run-drain-like"
+    document = source_map_module.build_source_map_document(
+        SimpleNamespace(
+            compiled_results_by_name=result.compiled_results_by_name,
+            validated_bundles_by_name=result.validated_bundles_by_name,
+        ),
+        selected_name=workflow_name,
+        display_name_resolver=lambda name: name,
     )
     return document, workflow_name
 
@@ -535,6 +565,61 @@ def test_source_map_records_design_delta_implementation_phase_lineage(tmp_path: 
     assert workflow.step_ids
     assert workflow.executable_nodes
     assert workflow.generated_paths
+
+
+def test_source_map_records_imported_stdlib_macro_helper_provenance_and_lineage(
+    tmp_path: Path,
+) -> None:
+    document, workflow_name = _build_imported_stdlib_helper_source_map_document(tmp_path)
+    workflow = _source_map_payload(document)["workflows"][workflow_name]
+    workflow_origin = workflow["workflow_origin"]
+    expansion_frame = workflow_origin["expansion_stack"][0]
+    gap_helper_step_name = next(
+        step_name
+        for step_name in workflow["step_ids"]
+        if "selection-result-gap-payload_1__match_selection-result" in step_name
+    )
+    gap_helper_step = workflow["step_ids"][gap_helper_step_name]
+    gap_helper_input_name = next(
+        input_name
+        for input_name in workflow["generated_internal_inputs"]
+        if "__gap_payload__" in input_name
+    )
+    gap_helper_input = workflow["generated_internal_inputs"][gap_helper_input_name]
+
+    assert Path(workflow_origin["path"]) == IMPORTED_STDLIB_HELPER_MODULE
+    assert Path(expansion_frame["call_span"]["start"]["path"]) == IMPORTED_STDLIB_HELPER_ENTRY
+    assert Path(expansion_frame["definition_span"]["start"]["path"]) == IMPORTED_STDLIB_HELPER_MODULE
+    assert expansion_frame["macro_name"] == "emit-run-drain-like"
+
+    assert gap_helper_step["form_path"] == [
+        "workflow-lisp",
+        "defproc",
+        "selection-result-gap-payload",
+    ]
+    assert Path(gap_helper_step["path"]) == IMPORTED_STDLIB_HELPER_MODULE
+
+    assert "__gap_payload__" in gap_helper_input["generated_name_origin"]
+    assert Path(gap_helper_input["path"]) == IMPORTED_STDLIB_HELPER_MODULE
+    assert gap_helper_input["form_path"] == [
+        "workflow-lisp",
+        "defproc",
+        "selection-result-gap-payload",
+    ]
+
+    assert any(
+        node["step_kind"] == "match" and "__gap_payload__" in node["step_id"]
+        for node in workflow["core_nodes"]
+    )
+    assert any(
+        node["kind"] == "match_join" and "selection-result-gap-payload" in node["origin_key"]
+        for node in workflow["executable_nodes"]
+    )
+    assert any(
+        allocation["semantic_role"] == "pure_projection_bundle"
+        and "__gap_payload__" in allocation["generated_input_name"]
+        for allocation in workflow["generated_path_allocations"]
+    )
 
 
 def test_source_map_records_generated_write_roots_across_reusable_call_boundaries(

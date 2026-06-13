@@ -653,6 +653,13 @@ def _typecheck(
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
             )
+            if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
+                _raise_error(
+                    "record field expressions must be pure; bind effectful work in `let*` first",
+                    code="effect_not_permitted",
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
             field_summaries.append(typed_field.effect_summary)
             rewritten_fields.append((field_name, typed_field.expr))
             expected_type = record_type.field_types.get(field_name)
@@ -733,6 +740,13 @@ def _typecheck(
                 workflow_effects_by_name=workflow_effects_by_name,
                 proc_ref_resolution_context=proc_ref_resolution_context,
             )
+            if typed_field.effect_summary != EMPTY_EFFECT_SUMMARY:
+                _raise_error(
+                    "union variant field expressions must be pure; bind effectful work in `let*` first",
+                    code="effect_not_permitted",
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
             field_summaries.append(typed_field.effect_summary)
             rewritten_fields.append((field_name, typed_field.expr))
             expected_type = union_type.variant_field_types.get(expr.variant_name, {}).get(field_name)
@@ -1389,6 +1403,11 @@ def _typecheck(
                 effect=merge_effect_summaries(
                     typed_request.effect_summary,
                     typed_expected_version.effect_summary if typed_expected_version is not None else EMPTY_EFFECT_SUMMARY,
+                    effect_summary_from_direct(
+                        direct_effects=(
+                            UsesCommandEffect(subject=("apply_resource_transition",)),
+                        ),
+                    ),
                 ),
             )
         resource_result = type_env.resolve_type(

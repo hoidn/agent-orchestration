@@ -320,6 +320,48 @@ def test_compile_stage3_allows_caller_authored_effect_spliced_through_macro_alia
     ]
 
 
+def test_compile_stage3_allows_macro_introduced_letstar_binding_field_access(tmp_path: Path) -> None:
+    fixture = tmp_path / "macro_letstar_field_access.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Payload",
+                "    (status String))",
+                "  (defrecord Summary",
+                "    (status String))",
+                "  (defproc load-payload",
+                "    ()",
+                "    -> Payload",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record Payload",
+                '      :status "ok"))',
+                "  (emit-summary summarize)",
+                "  (defmacro emit-summary (name)",
+                "    (defworkflow name",
+                "      ()",
+                "      -> Summary",
+                "      (let* ((payload",
+                "               (load-payload)))",
+                "        (record Summary",
+                "          :status payload.status)))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        fixture,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert [workflow.definition.name for workflow in result.typed_workflows] == ["summarize"]
+
+
 def test_compile_stage3_entrypoint_rejects_imported_macros_that_introduce_hidden_effects(
     tmp_path: Path,
 ) -> None:

@@ -52,6 +52,8 @@ Current `defmacro` behavior:
 - expansion is recursive and deterministic, with stable expansion ids such as
   `m0001`;
 - imported macros participate in the same expansion pass as local macros;
+- imported macros may emit helper-composed `let*` bindings whose initializer
+  calls resolve through the ordinary imported `defproc` lookup/typecheck path;
 - macro output must still elaborate, typecheck, lower, and pass shared
   validation through the ordinary frontend pipeline.
 
@@ -84,6 +86,10 @@ Current rules:
   tied to the expansion id;
 - caller-authored identifiers passed through the macro keep their authored
   identity and provenance;
+- when a macro introduces a helper-result binding and later references that
+  binding or one of its fields, hygiene rewriting keeps those references tied
+  to the same introduced local so downstream typing and lowering treat it as an
+  ordinary lexical binding;
 - unintentional capture is prevented by introduced-name rewriting rather than
   by a second runtime binding model;
 - there is no syntax for intentional capture, rebinding caller locals on
@@ -97,6 +103,10 @@ Effect visibility follows authorship:
 - `provider-result`, `command-result`, or other effectful syntax introduced by
   the macro template itself is hidden macro surface and must be rejected by the
   existing effect validation pass.
+- imported helper `defproc` calls introduced as explicit `let*` initializers
+  are allowed because their effects stay visible through the ordinary procedure
+  typing path; direct macro-owned variant proof is still not a supported macro
+  capability.
 
 ## 4. Imported Visibility, Qualification, And Local Precedence
 

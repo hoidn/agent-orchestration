@@ -726,6 +726,13 @@ allowed stdlib macro expansion before ordinary typechecking and WCC
 elaboration; promoted compilation must not silently elaborate it through a
 literal-name compiler branch.
 
+Imported stdlib macros may also emit helper-composed `let*` bindings whose
+initializers call imported `defproc`s. Those helper calls remain ordinary
+procedure calls for typechecking, effect visibility, WCC lowering, and source
+maps; after hygiene rewriting, the introduced helper-result locals behave like
+ordinary typed lexical bindings for downstream field access and constructor
+arguments. The macro does not create variant proof on its own.
+
 ## 7. Types
 
 The frontend has a static type system that maps to workflow contracts and
@@ -1103,6 +1110,8 @@ Macros may:
 - introduce hygienic bindings
 - expand shorthand into typed forms
 - emit source-map frames
+- emit helper-composed `let*` bindings whose imported `defproc` calls remain
+  ordinary effect-visible workflow expressions
 
 Macros may not:
 
@@ -1114,7 +1123,10 @@ Macros may not:
 - weaken contracts
 - emit executable IR directly
 
-A macro expands to frontend AST, which must still pass validation.
+A macro expands to frontend AST, which must still pass validation. Imported
+helper-result locals introduced by that AST are typed and lowered as ordinary
+lexical bindings after hygiene rewriting; direct macro-owned variant proof
+remains deferred to ordinary helper bodies and `match`.
 
 ### 8.8 `defproc`
 

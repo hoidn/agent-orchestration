@@ -434,9 +434,18 @@ def _apply_hygiene(
 ) -> SyntaxDatum:
     active_env = dict(env or {})
     if isinstance(datum, SyntaxIdentifier):
-        renamed = active_env.get(datum.resolved_name)
-        if datum.introduced_by_expansion_id == expansion_id and renamed is not None:
-            return replace(datum, resolved_name=renamed)
+        if datum.introduced_by_expansion_id == expansion_id:
+            renamed = active_env.get(datum.resolved_name)
+            if renamed is not None:
+                return replace(datum, resolved_name=renamed)
+            segments = datum.resolved_name.split(".")
+            if len(segments) > 1:
+                renamed_prefix = active_env.get(segments[0])
+                if renamed_prefix is not None:
+                    return replace(
+                        datum,
+                        resolved_name=".".join((renamed_prefix, *segments[1:])),
+                    )
         return datum
     if not isinstance(datum, SyntaxList):
         return datum

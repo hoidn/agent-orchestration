@@ -38,6 +38,10 @@ DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH = (
 DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = FIXTURES / "valid" / "design_delta_work_item_runtime"
 ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
+IMPORTED_STDLIB_HELPER_ROOT = FIXTURES / "modules" / "valid" / "imported_stdlib_macro_payload_helper_composition"
+IMPORTED_STDLIB_HELPER_ENTRY = (
+    IMPORTED_STDLIB_HELPER_ROOT / "imported_stdlib_macro_payload_helper_composition" / "entry.orc"
+)
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
 RUNTIME_CLOSURE_MARKERS = (
@@ -64,6 +68,22 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
         prompt_externs_path=CLI_FIXTURES / "prompts.json",
         imported_workflow_bundles_path=manifest_path or (CLI_FIXTURES / "imported_workflow_bundles.json"),
         command_boundaries_path=CLI_FIXTURES / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
+def _imported_stdlib_helper_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return request_cls(
+        source_path=IMPORTED_STDLIB_HELPER_ENTRY,
+        source_roots=(IMPORTED_STDLIB_HELPER_ROOT,),
+        entry_workflow="run-drain-like",
+        provider_externs_path=None,
+        prompt_externs_path=None,
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
@@ -3129,6 +3149,40 @@ def test_wcc_m4_full_fixture_source_map_records_review_loop_and_command_lineage(
     )
     assert "lowering_route" not in source_map_text
     assert "wcc-node" not in source_map_text
+
+
+def test_build_frontend_bundle_emits_imported_stdlib_macro_helper_provenance_across_artifacts(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    result = build_frontend_bundle(_imported_stdlib_helper_request(tmp_path))
+
+    workflow_name = "imported_stdlib_macro_payload_helper_composition/entry::run-drain-like"
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    workflow = source_map["workflows"][workflow_name]
+
+    assert any(
+        node["step_kind"] == "match" and "__gap_payload__" in node["step_id"]
+        for node in workflow["core_nodes"]
+    )
+    assert any(
+        node["kind"] == "match_join" and "selection-result-gap-payload" in node["origin_key"]
+        for node in workflow["executable_nodes"]
+    )
+    assert any(
+        allocation["semantic_role"] == "pure_projection_bundle"
+        and "__gap_payload__" in allocation["generated_input_name"]
+        for allocation in workflow["generated_path_allocations"]
+    )
+
+    coverage_bridges = {
+        bridge["origin_key"]
+        for key, bridge in semantic_ir["source_map"].items()
+        if key.startswith(f"source_map:{workflow_name}:coverage:")
+    }
+    assert {"core_workflow_ast", "executable_ir", "semantic_ir"}.issubset(coverage_bridges)
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:
