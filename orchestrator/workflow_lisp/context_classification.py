@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -56,31 +55,11 @@ class ContextBootstrapPlan:
 
     input_roles: Mapping[str, str]
 
-
-_NAME_LANE_FALLBACK_COUNTS: Counter[str] = Counter()
 _RUN_ANCHOR_ROLE_BY_SUFFIX = {
     ("run-id",): "run_anchor:run-id",
     ("state-root",): "run_anchor:state-root",
     ("artifact-root",): "run_anchor:artifact-root",
 }
-
-
-def record_name_lane_fallback(consumer: str) -> None:
-    """Record one compatibility fallback to a legacy name table."""
-
-    _NAME_LANE_FALLBACK_COUNTS[consumer] += 1
-
-
-def name_lane_fallback_counts() -> dict[str, int]:
-    """Return deterministic fallback counters keyed by consumer name."""
-
-    return dict(sorted(_NAME_LANE_FALLBACK_COUNTS.items()))
-
-
-def clear_name_lane_fallback_counts() -> None:
-    """Reset compatibility counters for focused tests."""
-
-    _NAME_LANE_FALLBACK_COUNTS.clear()
 
 
 def legacy_private_exec_context_kind(type_ref: TypeRef) -> str | None:

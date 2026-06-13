@@ -327,16 +327,39 @@ def test_structural_bootstrap_plan_returns_none_for_roleless_generated_input() -
     assert context_classification.structural_bootstrap_plan(flattened_fields, classification) is None
 
 
-def test_name_lane_fallback_accounting_starts_zero_and_is_deterministic() -> None:
+def test_structural_classification_recognizes_runctx_anchored_record_without_legacy_name() -> None:
     context_classification = _context_module()
+    experiment_ctx = _record_type(
+        "ExperimentCtx",
+        {
+            "run": _run_ctx_type(),
+            "experiment-id": PrimitiveTypeRef(name="String"),
+            "state-root": _path_type("Path.state-root", under="state"),
+            "artifact-root": _path_type("Path.artifact-root", under="artifacts"),
+        },
+    )
 
-    assert context_classification.name_lane_fallback_counts() == {}
+    classification = context_classification.classify_structural_private_exec_context(experiment_ctx)
 
-    context_classification.record_name_lane_fallback("compatibility_consumer")
-    context_classification.record_name_lane_fallback("compatibility_consumer")
-    context_classification.record_name_lane_fallback("legacy_table")
+    assert classification is not None
+    assert tuple(anchor.kind for anchor in classification.anchors) == (
+        context_classification.ContextAnchorKind.RUN_CTX,
+    )
+    assert tuple(anchor.field_path for anchor in classification.anchors) == (("run",),)
+    assert classification.derived_capabilities == ("run",)
+    assert classification.legacy_family is None
 
-    assert context_classification.name_lane_fallback_counts() == {
-        "compatibility_consumer": 2,
-        "legacy_table": 1,
-    }
+
+def test_g8_deletes_name_lane_fallback_accounting_api_and_tables() -> None:
+    context_classification = _context_module()
+    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
+    type_env = importlib.import_module("orchestrator.workflow_lisp.type_env")
+
+    for symbol in (
+        "record_name_lane_fallback",
+        "name_lane_fallback_counts",
+        "clear_name_lane_fallback_counts",
+    ):
+        assert not hasattr(context_classification, symbol)
+    assert not hasattr(compiler, "_ALLOWED_CONTEXT_RECORD_TYPES")
+    assert not hasattr(type_env, "_STRUCTURAL_CONTEXT_RECORD_NAMES")

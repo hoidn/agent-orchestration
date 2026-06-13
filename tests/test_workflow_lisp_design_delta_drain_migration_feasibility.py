@@ -330,27 +330,43 @@ def _design_delta_work_item_provider_externs() -> dict[str, str]:
     }
 
 
-def _design_delta_work_item_prompt_externs() -> dict[str, str]:
+def _design_delta_work_item_prompt_externs() -> dict[str, object]:
     return {
-        "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-        "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
-        "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
-        "prompts.implementation.execute": (
-            "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
-        ),
-        "prompts.implementation.review": (
-            "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
-        ),
-        "prompts.implementation.fix": (
-            "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
-        ),
-        "prompts.work-item.classify-blocked-recovery": (
-            "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
-            "classify_blocked_implementation_recovery.md"
-        ),
-        "prompts.selector.select-next-work": (
-            "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
-        ),
+        "prompts.plan.draft": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md"
+        },
+        "prompts.plan.review": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
+        },
+        "prompts.plan.fix": {
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md"
+        },
+        "prompts.implementation.execute": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
+            )
+        },
+        "prompts.implementation.review": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md"
+            )
+        },
+        "prompts.implementation.fix": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md"
+            )
+        },
+        "prompts.work-item.classify-blocked-recovery": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_design_delta_work_item/"
+                "classify_blocked_implementation_recovery.md"
+            )
+        },
+        "prompts.selector.select-next-work": {
+            "input_file": (
+                "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md"
+            )
+        },
     }
 
 
@@ -363,250 +379,7 @@ def _design_delta_checked_in_command_boundaries() -> dict[str, object]:
 
 
 def _design_delta_work_item_command_boundaries() -> dict[str, object]:
-    command_boundaries = {
-        "run_neurips_backlog_checks": ExternalToolBinding(
-            name="run_neurips_backlog_checks",
-            stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
-            **_g0_retirement_metadata(
-                name="run_neurips_backlog_checks",
-                retirement_class="genuine_system",
-                retirement_label="keep_certified_system",
-                replacement_surface="bounded repo-local checks",
-            ),
-        ),
-        "validate_review_findings_v1": ExternalToolBinding(
-            name="validate_review_findings_v1",
-            stable_command=(
-                "python",
-                "-m",
-                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-            ),
-            **_g0_retirement_metadata(
-                name="validate_review_findings_v1",
-                retirement_class="validation",
-                retirement_label="keep_certified_system",
-                replacement_surface="typed review findings validation",
-            ),
-        ),
-        "materialize_lisp_frontend_work_item_inputs": _promoted_adapter_binding(
-            name="materialize_lisp_frontend_work_item_inputs",
-            stable_command=("python", "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"),
-            output_type_name="ResolvedWorkItemInputs",
-            behavior_class="structured_result",
-            owner_module="lisp_frontend_design_delta/work_item",
-            replacement_path="SelectionCtx + ItemCtx private bootstrap + typed projection",
-            input_signature=(
-                CertifiedAdapterInputField(
-                    name="selection_bundle_path",
-                    type_name="SelectionBundlePath",
-                    required=True,
-                    transport_key="selection_path",
-                ),
-                CertifiedAdapterInputField(
-                    name="manifest_path",
-                    type_name="StateFileExisting",
-                    required=True,
-                    transport_key="manifest_path",
-                ),
-                CertifiedAdapterInputField(
-                    name="architecture_bundle_path",
-                    type_name="StateFile",
-                    required=True,
-                    transport_key="architecture_bundle_path",
-                ),
-            ),
-            fixture_ids=("design_delta_work_item_inputs_ok",),
-            negative_fixture_ids=("design_delta_work_item_inputs_bad",),
-        ),
-        "classify_lisp_frontend_work_item_terminal": _promoted_adapter_binding(
-            name="classify_lisp_frontend_work_item_terminal",
-            stable_command=(
-                "python",
-                "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
-            ),
-            output_type_name="WorkItemTerminalClassification",
-            behavior_class="outcome_finalization",
-            owner_module="lisp_frontend_design_delta/work_item",
-            replacement_path="typed implementation terminal union",
-            input_signature=(
-                CertifiedAdapterInputField(
-                    name="plan_review_decision",
-                    type_name="PlanReviewDecision",
-                    required=True,
-                    transport_key="plan_review_decision",
-                ),
-                CertifiedAdapterInputField(
-                    name="implementation_state",
-                    type_name="ImplementationState",
-                    required=True,
-                    transport_key="implementation_state",
-                ),
-                CertifiedAdapterInputField(
-                    name="implementation_review_decision",
-                    type_name="ImplementationReviewDecision",
-                    required=True,
-                    transport_key="implementation_review_decision",
-                ),
-                CertifiedAdapterInputField(
-                    name="work_item_source",
-                    type_name="WorkItemSource",
-                    required=True,
-                    transport_key="work_item_source",
-                ),
-            ),
-            fixture_ids=("design_delta_work_item_terminal_ok",),
-            negative_fixture_ids=("design_delta_work_item_terminal_bad",),
-        ),
-        "select_lisp_frontend_blocked_recovery_route": _promoted_adapter_binding(
-            name="select_lisp_frontend_blocked_recovery_route",
-            stable_command=(
-                "python",
-                "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
-            ),
-            output_type_name="BlockedRecoveryDecision",
-            behavior_class="outcome_finalization",
-            owner_module="lisp_frontend_design_delta/work_item",
-            replacement_path="typed BlockedRecoveryDecision normalization",
-            input_signature=(
-                CertifiedAdapterInputField(
-                    name="terminal_route",
-                    type_name="String",
-                    required=True,
-                    transport_key="terminal_route",
-                ),
-                CertifiedAdapterInputField(
-                    name="work_item_source",
-                    type_name="WorkItemSource",
-                    required=True,
-                    transport_key="work_item_source",
-                ),
-                CertifiedAdapterInputField(
-                    name="blocked_recovery_route",
-                    type_name="BlockedRecoveryRoute",
-                    required=True,
-                    transport_key="blocked_recovery_route",
-                ),
-                CertifiedAdapterInputField(
-                    name="reason",
-                    type_name="BlockedRecoveryReason",
-                    required=True,
-                    transport_key="reason",
-                ),
-            ),
-            fixture_ids=("design_delta_blocked_recovery_route_ok",),
-            negative_fixture_ids=("design_delta_blocked_recovery_route_bad",),
-        ),
-        "record_terminal_work_item": _promoted_adapter_binding(
-            name="record_terminal_work_item",
-            stable_command=("python", "workflows/library/scripts/update_lisp_frontend_run_state.py"),
-            output_type_name="WorkItemSummary",
-            behavior_class="resource_transition",
-            owner_module="lisp_frontend_design_delta/work_item",
-            replacement_path="runtime-native selected-item transition",
-            input_signature=(
-                CertifiedAdapterInputField("run_state_path", "RunStatePath", True, "run_state_path"),
-                CertifiedAdapterInputField("work_item_id", "String", True, "work_item_id"),
-                CertifiedAdapterInputField("work_item_source", "WorkItemSource", True, "work_item_source"),
-                CertifiedAdapterInputField("reason", "String", True, "reason"),
-                CertifiedAdapterInputField(
-                    "item_summary_target_path",
-                    "WorkReportTarget",
-                    True,
-                    "item_summary_target_path",
-                ),
-                CertifiedAdapterInputField(
-                    "item_summary_pointer_path",
-                    "WorkReportTarget",
-                    True,
-                    "item_summary_pointer_path",
-                ),
-                CertifiedAdapterInputField("drain_status_path", "StateFile", True, "drain_status_path"),
-            ),
-            fixture_ids=("design_delta_record_terminal_ok",),
-            negative_fixture_ids=("design_delta_record_terminal_bad",),
-            transition_binding=TransitionBindingMetadata(
-                transition_name="lisp_frontend_design_delta/transitions::record-terminal-work-item",
-                resource_kind="drain-run-state",
-                contract_role="migration_backend",
-                backend_selector="record_terminal_work_item",
-            ),
-        ),
-        "record_blocked_recovery_outcome": _promoted_adapter_binding(
-            name="record_blocked_recovery_outcome",
-            stable_command=(
-                "python",
-                "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
-            ),
-            output_type_name="WorkItemSummary",
-            behavior_class="resource_transition",
-            owner_module="lisp_frontend_design_delta/work_item",
-            replacement_path="runtime-native blocked-recovery transition",
-            input_signature=(
-                CertifiedAdapterInputField("run_state_path", "RunStatePath", True, "run_state_path"),
-                CertifiedAdapterInputField("work_item_id", "String", True, "work_item_id"),
-                CertifiedAdapterInputField("work_item_source", "WorkItemSource", True, "work_item_source"),
-                CertifiedAdapterInputField(
-                    "recovery_route",
-                    "BlockedRecoveryRoute",
-                    True,
-                    "recovery_route",
-                ),
-                CertifiedAdapterInputField("reason", "BlockedRecoveryReason", True, "reason"),
-                CertifiedAdapterInputField(
-                    "target_design_review_decision",
-                    "String",
-                    True,
-                    "target_design_review_decision",
-                ),
-                CertifiedAdapterInputField("terminal_action", "String", True, "terminal_action"),
-                CertifiedAdapterInputField("summary_path", "WorkReportTarget", True, "summary_path"),
-                CertifiedAdapterInputField(
-                    "summary_pointer_path",
-                    "WorkReportTarget",
-                    True,
-                    "summary_pointer_path",
-                ),
-                CertifiedAdapterInputField("drain_status_path", "StateFile", True, "drain_status_path"),
-                CertifiedAdapterInputField(
-                    "progress_report_path",
-                    "ArtifactWorkTargetPath",
-                    True,
-                    "progress_report_path",
-                ),
-                CertifiedAdapterInputField(
-                    "implementation_state_path",
-                    "ArtifactWorkTargetPath",
-                    True,
-                    "implementation_state_path",
-                ),
-                CertifiedAdapterInputField(
-                    "architecture_bundle_path",
-                    "WorkReport",
-                    True,
-                    "architecture_bundle_path",
-                ),
-                CertifiedAdapterInputField("plan_path", "PlanDocTarget", True, "plan_path"),
-            ),
-            fixture_ids=("design_delta_record_blocked_recovery_ok",),
-            negative_fixture_ids=("design_delta_record_blocked_recovery_bad",),
-            transition_binding=TransitionBindingMetadata(
-                transition_name="lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
-                resource_kind="drain-run-state",
-                contract_role="migration_backend",
-                backend_selector="record_blocked_recovery_outcome",
-            ),
-        ),
-    }
-    checked_in_boundaries = _design_delta_checked_in_command_boundaries()
-    for binding_name in (
-        "classify_lisp_frontend_work_item_terminal",
-        "select_lisp_frontend_blocked_recovery_route",
-        "record_terminal_work_item",
-        "record_blocked_recovery_outcome",
-        "finalize_lisp_frontend_drain_summary",
-    ):
-        command_boundaries[binding_name] = checked_in_boundaries[binding_name]
-    return command_boundaries
+    return dict(_design_delta_checked_in_command_boundaries())
 
 
 def _design_delta_parent_drain_provider_externs() -> dict[str, str]:
@@ -626,7 +399,7 @@ def _design_delta_parent_drain_prompt_externs() -> dict[str, object]:
             "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
         },
         "prompts.plan.fix": {
-            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md"
+            "input_file": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md"
         },
         "prompts.implementation.execute": {
             "input_file": (
@@ -669,166 +442,7 @@ def _design_delta_parent_drain_prompt_externs() -> dict[str, object]:
 
 
 def _design_delta_parent_drain_command_boundaries() -> dict[str, object]:
-    command_boundaries = dict(_design_delta_work_item_command_boundaries())
-    command_boundaries.update(
-        {
-            "project_lisp_frontend_selector_action": _promoted_adapter_binding(
-                name="project_lisp_frontend_selector_action",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/project_lisp_frontend_selector_action.py",
-                ),
-                output_type_name="DesignDeltaDrainAction",
-                behavior_class="typed_projection",
-                owner_module="lisp_frontend_design_delta/drain",
-                replacement_path="SelectorPublicResult to DesignDeltaDrainAction projection",
-                input_signature=(
-                    CertifiedAdapterInputField(
-                        name="selection_status",
-                        type_name="SelectionStatus",
-                        required=True,
-                        transport_key="selection_status",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="selection_bundle_path",
-                        type_name="SelectionBundlePath",
-                        required=True,
-                        transport_key="selection_bundle_path",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="is_selected",
-                        type_name="Bool",
-                        required=True,
-                        transport_key="is_selected",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="is_design_gap",
-                        type_name="Bool",
-                        required=True,
-                        transport_key="is_design_gap",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="is_done",
-                        type_name="Bool",
-                        required=True,
-                        transport_key="is_done",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="is_blocked",
-                        type_name="Bool",
-                        required=True,
-                        transport_key="is_blocked",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="blocked_reason",
-                        type_name="String",
-                        required=True,
-                        transport_key="blocked_reason",
-                    ),
-                ),
-                fixture_ids=("design_delta_selector_action_projection_ok",),
-                negative_fixture_ids=("design_delta_selector_action_projection_bad",),
-            ),
-            "validate_lisp_frontend_design_gap_architecture": ExternalToolBinding(
-                name="validate_lisp_frontend_design_gap_architecture",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
-                ),
-                **_g0_retirement_metadata(
-                    name="validate_lisp_frontend_design_gap_architecture",
-                    retirement_class="validation",
-                    retirement_label="keep_certified_system",
-                    replacement_surface="typed architecture validation",
-                ),
-            ),
-            "write_lisp_frontend_drain_status": _promoted_adapter_binding(
-                name="write_lisp_frontend_drain_status",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/write_lisp_frontend_drain_status.py",
-                ),
-                output_type_name="DrainStatusUpdate",
-                behavior_class="resource_transition",
-                owner_module="lisp_frontend_design_delta/drain",
-                replacement_path="runtime-native parent drain status transition",
-                input_signature=(
-                    CertifiedAdapterInputField(
-                        name="run_state_path",
-                        type_name="RunStatePath",
-                        required=True,
-                        transport_key="run_state_path",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="status",
-                        type_name="String",
-                        required=True,
-                        transport_key="status",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="reason",
-                        type_name="String",
-                        required=True,
-                        transport_key="reason",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="summary_path",
-                        type_name="WorkReportTarget",
-                        required=True,
-                        transport_key="summary_path",
-                    ),
-                ),
-                fixture_ids=("design_delta_drain_status_ok",),
-                negative_fixture_ids=("design_delta_drain_status_bad",),
-                transition_binding=TransitionBindingMetadata(
-                    transition_name="lisp_frontend_design_delta/transitions::write-drain-status",
-                    resource_kind="drain-run-state",
-                    contract_role="migration_backend",
-                    backend_selector="write_lisp_frontend_drain_status",
-                ),
-            ),
-            "finalize_lisp_frontend_drain_summary": _promoted_adapter_binding(
-                name="finalize_lisp_frontend_drain_summary",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/finalize_lisp_frontend_drain_summary.py",
-                ),
-                output_type_name="DrainSummary",
-                behavior_class="outcome_finalization",
-                owner_module="lisp_frontend_design_delta/drain",
-                replacement_path="typed drain summary projection",
-                input_signature=(
-                    CertifiedAdapterInputField(
-                        name="run_state_path",
-                        type_name="RunStatePath",
-                        required=True,
-                        transport_key="run_state_path",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="drain_status",
-                        type_name="String",
-                        required=True,
-                        transport_key="drain_status",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="summary_path",
-                        type_name="WorkReportTarget",
-                        required=True,
-                        transport_key="summary_path",
-                    ),
-                    CertifiedAdapterInputField(
-                        name="state_root",
-                        type_name="Path.state-root",
-                        required=True,
-                        transport_key="state_root",
-                    ),
-                ),
-                fixture_ids=("design_delta_drain_summary_ok",),
-                negative_fixture_ids=("design_delta_drain_summary_bad",),
-            ),
-        }
-    )
-    return command_boundaries
+    return dict(_design_delta_checked_in_command_boundaries())
 
 
 def _design_delta_projection_runtime_command_boundaries() -> dict[str, object]:
@@ -2478,6 +2092,7 @@ def _execute_design_delta_work_item_bundle(
                 bundle_path.write_text(
                     json.dumps(
                         {
+                            "variant": "COMPLETED",
                             "implementation-state": implementation_state_override,
                             "implementation-review-decision": "APPROVE",
                             "execution-report": "artifacts/work/execution_report.md",
@@ -2581,7 +2196,25 @@ def _execute_design_delta_work_item_bundle(
         )
         if error is not None or bound_inputs is None:
             return bound_inputs, error
-        return _rewrite_managed_write_root_bindings_for_smoke(bound_inputs), None
+        workflow_name = getattr(getattr(imported_workflow, "surface", None), "name", None)
+        rebound_inputs = dict(_rewrite_managed_write_root_bindings_for_smoke(bound_inputs))
+        if workflow_name == "lisp_frontend_design_delta/plan_phase::run-plan-phase":
+            rebound_inputs.update(
+                {
+                    "phase-ctx__phase-name": "plan",
+                    "phase-ctx__state-root": "state/plan",
+                    "phase-ctx__artifact-root": "artifacts/plan",
+                }
+            )
+        elif workflow_name == "lisp_frontend_design_delta/implementation_phase::implementation-phase":
+            rebound_inputs.update(
+                {
+                    "phase-ctx__phase-name": "implementation",
+                    "phase-ctx__state-root": "state/implementation",
+                    "phase-ctx__artifact-root": "artifacts/implementation",
+                }
+            )
+        return rebound_inputs, None
 
     state_manager = StateManager(workspace=tmp_path, run_id=f"work-item-{plan_variant.lower()}")
     state_manager.initialize(
@@ -2620,6 +2253,7 @@ def _execute_design_delta_parent_call_work_item_route(
         "design_delta_parent_calls_work_item::run-parent-work-item"
     ]
     _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
+    _write_design_delta_work_item_runtime_prompt_assets(tmp_path)
     _write_design_delta_runtime_run_checks_script(tmp_path)
     _write_design_delta_work_item_runtime_adapter_scripts(tmp_path)
     _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source=work_item_source)
@@ -3740,20 +3374,10 @@ def test_design_delta_runtime_view_fixture_compiles_without_summary_writer_comma
     assert len(generated_effects) == 2
 
 
-def test_design_delta_checked_in_finalizer_declares_view_binding_metadata() -> None:
+def test_design_delta_checked_in_command_boundaries_drop_legacy_drain_summary_finalizer() -> None:
     command_boundaries = _design_delta_checked_in_command_boundaries()
-    finalizer = command_boundaries["finalize_lisp_frontend_drain_summary"]
 
-    assert isinstance(finalizer, CertifiedAdapterBinding)
-    assert finalizer.behavior_class == "outcome_finalization"
-    assert finalizer.retirement_class == "view_writer"
-    assert finalizer.retirement_label == "retire_to_view"
-    assert finalizer.retirement_status is None
-    assert finalizer.view_binding is not None
-    assert finalizer.view_binding.view_name == "design_delta_drain_summary_view"
-    assert finalizer.view_binding.renderer_id == "canonical-json"
-    assert finalizer.view_binding.renderer_version == 1
-    assert finalizer.view_binding.contract_role == "replacement_candidate"
+    assert "finalize_lisp_frontend_drain_summary" not in command_boundaries
 
 
 def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_views(
@@ -3771,8 +3395,16 @@ def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_view
 
     transition_step_name = bundle.surface.steps[0].name
     transition_step = state["steps"][transition_step_name]
-    summary_step = state["steps"]["drain-summary-view"]
-    pointer_step = state["steps"]["drain-summary-pointer-view"]
+    summary_step_name = next(
+        key for key in state["steps"] if key.endswith("__materialize-view__drain-summary-view")
+    )
+    pointer_step_name = next(
+        key
+        for key in state["steps"]
+        if key.endswith("__materialize-view__drain-summary-pointer-view")
+    )
+    summary_step = state["steps"][summary_step_name]
+    pointer_step = state["steps"][pointer_step_name]
 
     assert transition_step["status"] == "completed"
     assert transition_step["debug"]["call"]["workflow_outputs"]["return__status"] == "BLOCKED"
@@ -4551,8 +4183,10 @@ def test_design_delta_parent_drain_smokes_selector_done_path(
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
     run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["history"][-1]["event"] == "drain_status"
-    assert run_state["history"][-1]["status"] == "DONE"
+    assert run_state["history"] == []
+    assert run_state["drain_status"] == "DONE"
+    assert run_state["drain_status_reason"] == ""
+    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
 
 
 def test_design_delta_parent_drain_smokes_selector_blocked_path(
@@ -4573,9 +4207,10 @@ def test_design_delta_parent_drain_smokes_selector_blocked_path(
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
     run_state = json.loads((workspace / "state" / "run_state.json").read_text(encoding="utf-8"))
-    assert run_state["history"][-1]["event"] == "drain_status"
-    assert run_state["history"][-1]["status"] == "BLOCKED"
-    assert run_state["history"][-1]["reason"] == "selector_blocked"
+    assert run_state["history"] == []
+    assert run_state["drain_status"] == "BLOCKED"
+    assert run_state["drain_status_reason"] == "selector_blocked"
+    assert run_state["drain_status_summary"] == "artifacts/work/drain_summary.json"
 
 
 def test_design_delta_migration_nested_same_file_call_with_local_record_compiles(

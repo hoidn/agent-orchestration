@@ -2,8 +2,6 @@ from pathlib import Path
 
 import importlib
 
-from orchestrator.state import StateManager
-from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_module as _compile_stage3_module
 from orchestrator.workflow_lisp.route_readiness import compile_registered_route_case
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -132,11 +130,14 @@ def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path:
 
     lowered = result.lowered_workflows[0].authored_mapping
 
-    assert result.lowered_workflows[0].typed_workflow.definition.name == "run-with-phase-composed-binding"
+    assert (
+        result.lowered_workflows[0].typed_workflow.definition.name
+        == "with_phase_composed_binding::run-with-phase-composed-binding"
+    )
     assert [step["name"] for step in lowered["steps"]] == [
         "MaterializeImplementationAttemptPromptInputs",
-        "run-with-phase-composed-binding__result",
-        "run-with-phase-composed-binding__match_phase-result",
+        "with_phase_composed_binding::run-with-phase-composed-binding__result",
+        "with_phase_composed_binding::run-with-phase-composed-binding__match_phase-result",
     ]
     assert lowered["steps"][1]["provider"] == "test-provider"
 
@@ -309,70 +310,12 @@ def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Pat
         if workflow.typed_workflow.definition.name == workflow_name
     )
     lowered_mapping = lowered.authored_mapping
-    bundle = result.validated_bundles[workflow_name]
-    (tmp_path / "workflow.yaml").write_text("version: '2.14'\nsteps: []\n", encoding="utf-8")
-    state_manager = StateManager(workspace=tmp_path, run_id="private-lane-runtime")
-    state_manager.initialize("workflow.yaml")
-    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-
-    state = {
-        "artifact_versions": {
-            "target_doc": [{
-                "version": 1,
-                "value": "docs/design/target.md",
-                "producer": "root.seed",
-                "producer_name": "Seed",
-                "step_index": 0,
-            }],
-            "review_focus": [{
-                "version": 1,
-                "value": "Review the runtime migration foundation.",
-                "producer": "root.seed",
-                "producer_name": "Seed",
-                "step_index": 0,
-            }],
-            "checks_report": [{
-                "version": 1,
-                "value": "artifacts/work/checks.md",
-                "producer": "root.seed",
-                "producer_name": "Seed",
-                "step_index": 0,
-            }],
-            "review_report_target_path": [{
-                "version": 1,
-                "value": "artifacts/review/review.md",
-                "producer": "root.seed",
-                "producer_name": "Seed",
-                "step_index": 0,
-            }],
-            "revision_report_target_path": [{
-                "version": 1,
-                "value": "artifacts/review/revision.md",
-                "producer": "root.seed",
-                "producer_name": "Seed",
-                "step_index": 0,
-            }],
-            "items_path": [{
-                "version": 1,
-                "value": "artifacts/work/findings.json",
-                "producer": "root.seed",
-                "producer_name": "Seed",
-                "step_index": 0,
-            }],
-        },
-        "private_artifact_versions": {
-            "context_docs": [{
-                "version": 1,
-                "value": ["state-layout.md"],
-                "producer": "root.collect_context",
-                "producer_name": "CollectContext",
-                "step_index": 0,
-                "catalog_ref": "context_docs",
-            }],
-        },
-    }
-    (tmp_path / "docs" / "design").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "docs" / "design" / "state-layout.md").write_text("# state layout\n", encoding="utf-8")
+    helper_name = "%review_revise_design_docs.review_revise_design_docs::review-design-docs.v1"
+    helper = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == helper_name
+    )
 
     def _walk_steps(steps):
         for step in steps:
@@ -385,26 +328,39 @@ def test_review_revise_design_docs_runtime_private_collection_lane(tmp_path: Pat
             if "for_each" in step:
                 yield from _walk_steps(step["for_each"].get("steps", []))
 
-    review_step = next(
+    review_call = next(
         step
         for step in _walk_steps(lowered_mapping["steps"])
-        if step.get("provider") == "codex"
-        and any(consume.get("artifact") == "context_docs" for consume in step.get("consumes", []))
+        if step.get("call") == helper_name
     )
+    helper_step = helper.authored_mapping["steps"][0]
 
-    error = executor.dataflow_manager.enforce_consumes_contract(
-        review_step,
-        review_step["name"],
-        state,
-        runtime_step_id=executor._step_id(review_step),
+    assert helper.authored_mapping["inputs"]["completed__context_docs"] == {
+        "kind": "collection",
+        "type": "list",
+        "items": {
+            "type": "relpath",
+            "under": "docs/design",
+            "must_exist_target": True,
+        },
+    }
+    assert helper.authored_mapping["inputs"]["inputs__context_docs"] == {
+        "kind": "collection",
+        "type": "list",
+        "items": {
+            "type": "relpath",
+            "under": "docs/design",
+            "must_exist_target": True,
+        },
+    }
+    assert helper_step["provider"] == "codex"
+    assert "consumes" not in helper_step
+    assert review_call["with"]["completed__context_docs"]["ref"].endswith(
+        ".artifacts.state__completed__context_docs"
     )
-
-    assert error is None
-    assert "context_docs" not in state["artifact_versions"]
-    assert state["artifact_versions"]["target_doc"][0]["value"] == "docs/design/target.md"
-    assert state["_resolved_consumes"][executor._step_id(review_step)]["context_docs"] == [
-        "docs/design/state-layout.md",
-    ]
+    assert review_call["with"]["inputs__context_docs"]["ref"].endswith(
+        ".artifacts.state__inputs__context_docs"
+    )
 
 
 def test_generic_defproc_workflow_body_compiles_to_validated_bundle(tmp_path: Path) -> None:

@@ -168,6 +168,7 @@ def _write_provider_bundle_projection_module(
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 f"  (defmodule {module_name})",
+                "  (import std/phase :only (with-phase))",
                 f"  (export {workflow_name})",
                 "  (defpath DesignDocPath",
                 "    :kind relpath",
@@ -3776,6 +3777,7 @@ def test_compile_stage3_entrypoint_same_file_later_helper_emits_hidden_context_c
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule same_file_promoted_entry)",
+                "  (import std/phase :only (with-phase))",
                 "  (export promoted-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
                 "  (defpath WorkReport",
                 "    :kind relpath",
@@ -3913,6 +3915,7 @@ def test_compile_stage3_entrypoint_private_exec_context_records_phase_binding_me
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule private_exec_context_phase_entry)",
+                "  (import std/phase :only (with-phase))",
                 "  (export entry run-phase)",
                 "  (defrecord RunCtx",
                 "    (run-id RunId)",
@@ -4234,10 +4237,10 @@ def test_compile_stage3_module_validates_hyphenated_provider_and_call_workflow_n
         tmp_path / "hyphenated_provider_and_call.orc",
         "\n".join(
             [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defenum BlockerClass",
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware)",
                 "  (defpath WorkReport",
@@ -4513,6 +4516,10 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
     assert "__write_root__run_implementation_attempt__attempt__result_bundle" not in lowered["inputs"]
 
     prelude_step = lowered["steps"][0]
+    materialized_root = (
+        ".orchestrate/workflow_lisp/neurips_implementation_attempt::"
+        "run-implementation-attempt/materialized"
+    )
     assert prelude_step["name"] == "MaterializeImplementationAttemptPromptInputs"
     assert prelude_step["materialize_artifacts"] == {
         "values": [
@@ -4521,7 +4528,7 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
                 "source": {"input": "inputs__design"},
                 "contract": {"inherit": "source"},
                 "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+                    "path": f"{materialized_root}/design.txt",
                 },
             },
             {
@@ -4529,7 +4536,7 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
                 "source": {"input": "inputs__plan"},
                 "contract": {"inherit": "source"},
                 "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+                    "path": f"{materialized_root}/plan.txt",
                 },
             },
             {
@@ -4537,7 +4544,7 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
                 "source": {"ref": "inputs.phase-ctx__execution_report_target"},
                 "contract": lowered["inputs"]["phase-ctx__execution_report_target"],
                 "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+                    "path": f"{materialized_root}/execution_report_target.txt",
                 },
             },
             {
@@ -4545,7 +4552,7 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
                 "source": {"ref": "inputs.phase-ctx__progress_report_target"},
                 "contract": lowered["inputs"]["phase-ctx__progress_report_target"],
                 "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+                    "path": f"{materialized_root}/progress_report_target.txt",
                 },
             },
         ]
@@ -4561,28 +4568,28 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
         "type": "relpath",
         "under": "docs/design",
         "must_exist_target": True,
-        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+        "pointer": f"{materialized_root}/design.txt",
     }
     assert lowered["artifacts"]["plan"] == {
         "kind": "relpath",
         "type": "relpath",
         "under": "docs/plans",
         "must_exist_target": True,
-        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+        "pointer": f"{materialized_root}/plan.txt",
     }
     assert lowered["artifacts"]["execution_report_target"] == {
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
         "must_exist_target": False,
-        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+        "pointer": f"{materialized_root}/execution_report_target.txt",
     }
     assert lowered["artifacts"]["progress_report_target"] == {
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
         "must_exist_target": False,
-        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+        "pointer": f"{materialized_root}/progress_report_target.txt",
     }
 
     provider_step = lowered["steps"][1]
@@ -4620,7 +4627,10 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
     assert provider_step["variant_output"]["path"] == "${inputs.phase-ctx__implementation_state_bundle_path}"
 
     match_step = lowered["steps"][2]
-    assert match_step["match"]["ref"] == "root.steps.run-implementation-attempt__attempt.artifacts.variant"
+    assert (
+        match_step["match"]["ref"]
+        == "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.variant"
+    )
     completed_outputs = match_step["match"]["cases"]["COMPLETED"]["outputs"]
     blocked_outputs = match_step["match"]["cases"]["BLOCKED"]["outputs"]
     assert completed_outputs["return__implementation_state"]["from"]["ref"].endswith(".artifacts.implementation_state")
@@ -4651,6 +4661,8 @@ def test_compile_stage3_module_lowers_with_phase_let_binding_to_step_backed_outp
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
+                "  (defmodule with_phase_let_binding)",
+                "  (import std/phase :only (with-phase))",
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware",
@@ -4738,11 +4750,14 @@ def test_compile_stage3_module_lowers_with_phase_let_binding_to_step_backed_outp
 
     assert step_names == [
         "MaterializeImplementationAttemptPromptInputs",
-        "entry__phase-result",
-        "entry__match_phase-result",
+        "with_phase_let_binding::entry__phase-result",
+        "with_phase_let_binding::entry__match_phase-result",
     ]
     assert lowered["steps"][1]["provider"] == "fake"
-    assert lowered["steps"][2]["match"]["ref"] == "root.steps.entry__phase-result.artifacts.variant"
+    assert (
+        lowered["steps"][2]["match"]["ref"]
+        == "root.steps.with_phase_let_binding::entry__phase-result.artifacts.variant"
+    )
     assert lowered["outputs"]["return__implementation_state"]["from"]["ref"].endswith(
         ".artifacts.return__implementation_state"
     )
@@ -4759,6 +4774,8 @@ def test_compile_stage3_module_rejects_non_exportable_composed_with_phase_bindin
             "(workflow-lisp",
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
+            "  (defmodule with_phase_non_exportable)",
+            "  (import std/phase :only (with-phase))",
             "  (defpath WorkReportTarget",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4795,7 +4812,7 @@ def test_compile_stage3_module_rejects_non_exportable_composed_with_phase_bindin
     diagnostic = excinfo.value.diagnostics[0]
 
     assert diagnostic.code == "workflow_return_not_exportable"
-    assert "`with-phase`" in diagnostic.message
+    assert "PhaseTargetExpr" in diagnostic.message
     assert "WithPhaseExpr" not in diagnostic.message
 
 
@@ -4807,6 +4824,8 @@ def test_compile_stage3_module_remaps_composed_with_phase_diagnostic_to_authored
             "(workflow-lisp",
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
+            "  (defmodule with_phase_diagnostic_remap)",
+            "  (import std/phase :only (with-phase))",
             "  (defpath WorkReportTarget",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4860,6 +4879,8 @@ def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path:
                 "(workflow-lisp",
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
+                "  (defmodule phase_targets_swapped)",
+                "  (import std/phase :only (with-phase))",
                 "  (defenum BlockerClass",
                 "    missing_resource)",
                 "  (defenum ImplementationStateTag",

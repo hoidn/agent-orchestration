@@ -1103,13 +1103,14 @@ def test_promoted_entry_hidden_context_metadata_rebinds_without_flattened_defaul
     )
     workflow_path.write_text(
         "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defmodule private_exec_context_phase_entry)",
-                "  (export entry run-phase)",
-                "  (defrecord RunCtx",
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defmodule private_exec_context_phase_entry)",
+                    "  (import std/phase :only (with-phase))",
+                    "  (export entry run-phase)",
+                    "  (defrecord RunCtx",
                 "    (run-id RunId)",
                 "    (state-root Path.state-root)",
                 "    (artifact-root Path.artifact-root))",
@@ -1516,10 +1517,10 @@ def test_resume_or_start_plan_gate_reusable_state_parity_path_wrapper_union_cont
     call_step = next(
         step
         for step in _iter_nested_steps(start_steps)
-        if step.get("call") == "wrap-plan-gate"
+        if step.get("call") == "phase_stdlib_resume_or_start_reusable_wrapper::wrap-plan-gate"
     )
 
-    assert call_step["call"] == "wrap-plan-gate"
+    assert call_step["call"] == "phase_stdlib_resume_or_start_reusable_wrapper::wrap-plan-gate"
     assert "load_canonical_phase_result__PlanGateWrapperResult" in result.command_boundary_environment.bindings_by_name
     assert "resume-plan-gate-wrapper" in {
         _workflow_short_name(workflow.typed_workflow.definition.name) for workflow in result.lowered_workflows

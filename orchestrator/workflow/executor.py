@@ -2054,11 +2054,7 @@ class WorkflowExecutor:
         relative_name = input_name[len(prefix):] if input_name.startswith(prefix) else input_name
         run_state_root = "state/run"
         run_artifact_root = "artifacts/run"
-        phase_name = (
-            binding.derived_phase_identity
-            if binding.context_family == "PhaseCtx" and isinstance(binding.derived_phase_identity, str)
-            else None
-        )
+        phase_name = self._legacy_private_exec_context_phase_name(binding=binding)
         value_by_path = {
             "run-id": self.state_manager.run_id,
             "run__run-id": self.state_manager.run_id,
@@ -2072,6 +2068,17 @@ class WorkflowExecutor:
             value_by_path["state-root"] = f"state/{phase_name}"
             value_by_path["artifact-root"] = f"artifacts/{phase_name}"
         return value_by_path.get(relative_name)
+
+    def _legacy_private_exec_context_phase_name(self, *, binding: Any) -> str | None:
+        generated_names = tuple(
+            name
+            for name in getattr(binding, "generated_input_names", ())
+            if isinstance(name, str)
+        )
+        if not any(name.endswith("__phase-name") for name in generated_names):
+            return None
+        phase_name = getattr(binding, "derived_phase_identity", None)
+        return phase_name if isinstance(phase_name, str) else None
 
     def _private_exec_context_role_metadata(
         self,
@@ -2132,7 +2139,32 @@ class WorkflowExecutor:
                     if not isinstance(contract, dict) or "default" not in contract:
                         return False
             return True
-        return binding.context_family in {"RunCtx", "PhaseCtx"}
+        generated_names = tuple(
+            name
+            for name in getattr(binding, "generated_input_names", ())
+            if isinstance(name, str)
+        )
+        if not generated_names:
+            return False
+        phase_name = self._legacy_private_exec_context_phase_name(binding=binding)
+        prefix = f"{getattr(binding, 'source_param_name', '')}__"
+        for input_name in generated_names:
+            relative_name = input_name[len(prefix):] if prefix and input_name.startswith(prefix) else input_name
+            if relative_name in {
+                "run-id",
+                "run__run-id",
+                "state-root",
+                "run__state-root",
+                "artifact-root",
+                "run__artifact-root",
+            }:
+                continue
+            if relative_name == "phase-name":
+                if phase_name is None:
+                    return False
+                continue
+            return False
+        return True
 
     def _runtime_context_inputs_missing_provenance(self) -> tuple[str, ...]:
         """Return hidden runtime-context inputs present in contracts but absent from provenance."""

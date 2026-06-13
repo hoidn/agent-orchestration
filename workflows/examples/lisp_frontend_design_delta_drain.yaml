@@ -75,11 +75,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "codex"
+    default: "claude"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "gpt-5.4"
+    default: "fable"
   design_gap_draft_effort:
     kind: scalar
     type: string

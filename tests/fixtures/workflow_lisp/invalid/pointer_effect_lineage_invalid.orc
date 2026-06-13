@@ -2,6 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule pointer_effect_lineage_invalid)
+  (import std/phase :only (with-phase))
   (export orchestrate)
   (defenum BlockerClass
     missing_resource

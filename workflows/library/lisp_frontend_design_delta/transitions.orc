@@ -125,7 +125,7 @@
       :status request.status
       :summary_path request.summary_path)
     :conflict-policy fail_closed
-    :backend write_lisp_frontend_drain_status)
+    :backend runtime_native)
 
   (deftransition record-terminal-work-item
     :resource drain-run-state
@@ -143,7 +143,7 @@
       :reason request.reason
       :summary_path request.item_summary_target_path)
     :conflict-policy fail_closed
-    :backend record_terminal_work_item)
+    :backend runtime_native)
 
   (deftransition record-blocked-recovery-outcome
     :resource drain-run-state
@@ -161,7 +161,7 @@
       :reason request.reason
       :summary_path request.summary_path)
     :conflict-policy fail_closed
-    :backend record_blocked_recovery_outcome)
+    :backend runtime_native)
 
   (defworkflow emit-drain-status-transition-audit
     ((run_state_path RunStatePath)

@@ -2,6 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule std_drain_exhaustion)
+  (import std/phase :only (with-phase))
   (export BlockerClass
           PhaseCtx
           PhaseStateBundle

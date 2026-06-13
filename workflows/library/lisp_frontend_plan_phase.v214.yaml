@@ -214,6 +214,19 @@ steps:
         outputs:
           review_decision: REVISE
       steps:
+        - name: ResetPlanReviewDecision
+          id: reset_plan_review_decision
+          command:
+            - python
+            - -c
+            - |
+              import pathlib
+              import sys
+
+              path = pathlib.Path(sys.argv[1])
+              if path.exists():
+                  path.unlink()
+            - ${inputs.state_root}/plan_review_decision.txt
         - name: ReviewPlan
           id: review_plan
           provider: codex

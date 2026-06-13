@@ -374,7 +374,8 @@
           "source_map",
           "workflow_boundary_projection",
           "adapter_census",
-          "boundary_authority_report"
+          "boundary_authority_report",
+          "g8_deletion_evidence"
         ],
         "optional": [
           "expanded_debug_yaml"

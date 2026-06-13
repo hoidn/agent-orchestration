@@ -2,6 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule materialized_view_used_as_semantic_authority)
+  (import std/phase :only (with-phase))
   (export invalid-materialized-view-authority)
   (defpath WorkReport
     :kind relpath

@@ -3,7 +3,7 @@
   (:target-dsl "2.14")
   (defmodule review_revise_design_docs)
   (import std/phase :only
-    (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
+    (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))
   (export review-revise-design-docs)
 
   (defpath DesignDocPath

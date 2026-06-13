@@ -2,6 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule with_phase_composed_binding)
+  (import std/phase :only (with-phase))
   (export run-with-phase-composed-binding)
 
   (defenum BlockerClass

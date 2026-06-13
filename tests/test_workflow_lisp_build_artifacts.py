@@ -421,7 +421,7 @@ def _design_delta_work_item_request(tmp_path: Path):
                     "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md"
                 ),
                 "prompts.plan.fix": (
-                    "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md"
+                    "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md"
                 ),
                 "prompts.implementation.execute": (
                     "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md"
@@ -1582,6 +1582,7 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
         ),
         adapter_census_payload=None,
         boundary_authority_report_payload=None,
+        g8_deletion_evidence_payload=None,
     )
     payload = json.loads(artifact_paths["diagnostics"].read_text(encoding="utf-8"))
 
@@ -2008,8 +2009,8 @@ def test_build_artifacts_preserve_statement_taxonomy_facet_lineage(tmp_path: Pat
     snapshot_module_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_module_path.write_text(
         snapshot_source.replace(
-            '  (:target-dsl "2.14")\n',
-            '  (:target-dsl "2.14")\n  (defmodule phase/snapshot)\n  (export orchestrate)\n',
+            '  (defmodule phase_snapshot_effects)\n  (import std/phase :only (with-phase))\n',
+            '  (defmodule phase/snapshot)\n  (import std/phase :only (with-phase))\n  (export orchestrate)\n',
             1,
         ),
         encoding="utf-8",
@@ -2276,14 +2277,14 @@ def test_resume_or_start_generated_internal_inputs_keep_reusable_state_paths_run
 ) -> None:
     result = _compile_resume_fixture(tmp_path)
 
-    bundle = result.validated_bundles["resume-record-phase"]
+    bundle = result.validated_bundles["phase_stdlib_resume_or_start::resume-record-phase"]
     runtime_inputs = _workflow_runtime_input_contracts(bundle)
     public_inputs = _workflow_public_input_contracts(bundle)
     managed_inputs = workflow_managed_write_root_inputs(bundle)
     lowered = next(
         workflow
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "resume-record-phase"
+        if workflow.typed_workflow.definition.name == "phase_stdlib_resume_or_start::resume-record-phase"
     )
     branch_step = lowered.authored_mapping["steps"][1]
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
@@ -2640,11 +2641,9 @@ def test_design_delta_work_item_command_boundary_lineage_records_family_adapters
     )
     boundary_names = set(command_boundary_manifest)
 
-    assert {
-        "materialize_lisp_frontend_work_item_inputs",
-        "classify_lisp_frontend_work_item_terminal",
-        "select_lisp_frontend_blocked_recovery_route",
-    }.issubset(boundary_names)
+    assert "materialize_lisp_frontend_work_item_inputs" in boundary_names
+    assert "classify_lisp_frontend_work_item_terminal" not in boundary_names
+    assert "select_lisp_frontend_blocked_recovery_route" not in boundary_names
 
     _, _, compile_result = _compile_design_delta_work_item_without_shared_validation(tmp_path)
     command_scripts = [
@@ -2749,6 +2748,7 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule private_exec_context_phase_entry)",
+                "  (import std/phase :only (with-phase))",
                 "  (export entry run-phase)",
                 "  (defrecord RunCtx",
                 "    (run-id RunId)",
@@ -2864,6 +2864,7 @@ def test_boundary_projection_serializer_uses_typed_bundle_compatibility_split(
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule private_exec_context_phase_entry)",
+                "  (import std/phase :only (with-phase))",
                 "  (export entry run-phase)",
                 "  (defrecord RunCtx",
                 "    (run-id RunId)",
@@ -2962,6 +2963,7 @@ def test_boundary_projection_serializer_preserves_lowered_compatibility_inputs_w
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule private_exec_context_phase_entry)",
+                "  (import std/phase :only (with-phase))",
                 "  (export entry run-phase)",
                 "  (defrecord RunCtx",
                 "    (run-id RunId)",
@@ -3854,13 +3856,18 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
     assert {
         "project_lisp_frontend_selector_action",
         "materialize_lisp_frontend_work_item_inputs",
+        "run_neurips_backlog_checks",
+        "validate_review_findings_v1",
+    }.issubset(rows_by_name)
+    for deleted_binding in (
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
         "record_terminal_work_item",
         "record_blocked_recovery_outcome",
         "write_lisp_frontend_drain_status",
         "finalize_lisp_frontend_drain_summary",
-        "run_neurips_backlog_checks",
-        "validate_review_findings_v1",
-    }.issubset(rows_by_name)
+    ):
+        assert deleted_binding not in rows_by_name
     review_findings = rows_by_name["validate_review_findings_v1"]
     assert review_findings["retirement_class"] == "validation"
     assert review_findings["retirement_label"] == "keep_bridge"
@@ -3871,40 +3878,40 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
     assert review_findings["liveness"] == "live"
     assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["retirement_label"] == "keep_bridge"
     assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["liveness"] == "live"
-    for binding_name in (
+
+
+def test_design_delta_parent_drain_build_emits_g8_deletion_evidence_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "g8_deletion_evidence" in result.artifact_paths
+    assert result.manifest.artifact_status["g8_deletion_evidence"] == "emitted"
+    payload = json.loads(result.artifact_paths["g8_deletion_evidence"].read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == "workflow_lisp_design_delta_g8_deletion_evidence.v1"
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+    assert set(payload["removed_manifest_rows"]) == {
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
         "record_terminal_work_item",
         "record_blocked_recovery_outcome",
         "write_lisp_frontend_drain_status",
         "finalize_lisp_frontend_drain_summary",
-    ):
-        assert rows_by_name[binding_name]["retirement_status"] == "retired"
-        assert rows_by_name[binding_name]["liveness"] == "unreferenced"
-    assert rows_by_name["record_terminal_work_item"]["transition_binding"] == {
-        "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
-        "resource_kind": "drain-run-state",
-        "contract_role": "migration_backend",
-        "backend_selector": "record_terminal_work_item",
     }
-    assert set(rows_by_name["record_terminal_work_item"]["evidence_refs"]) >= {
-        "design_delta_record_terminal_ok",
-        "design_delta_record_terminal_work_item_enum_bridge",
-    }
-    assert rows_by_name["record_blocked_recovery_outcome"]["transition_binding"] == {
-        "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
-        "resource_kind": "drain-run-state",
-        "contract_role": "migration_backend",
-        "backend_selector": "record_blocked_recovery_outcome",
-    }
-    assert set(rows_by_name["record_blocked_recovery_outcome"]["evidence_refs"]) >= {
-        "design_delta_record_blocked_recovery_ok",
-        "design_delta_record_blocked_recovery_outcome_enum_bridge",
-    }
-    assert rows_by_name["write_lisp_frontend_drain_status"]["transition_binding"] == {
-        "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-        "resource_kind": "drain-run-state",
-        "contract_role": "migration_backend",
-        "backend_selector": "write_lisp_frontend_drain_status",
-    }
+    assert payload["removed_registry_heads"] == [
+        "with-phase",
+        "finalize-selected-item",
+        "backlog-drain",
+    ]
+    assert payload["hook_surface_delta"]["imported_only_registry_heads"] == ["with-phase"]
+    assert payload["retained_bridges"] == ["materialize_lisp_frontend_work_item_inputs"]
 
 
 def test_design_delta_parent_drain_build_emits_boundary_authority_report_for_all_target_workflows(

@@ -2,6 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule library/phase_stdlib_resume_or_start_promoted_entry_bootstrap_helper)
+  (import std/phase :only (with-phase))
   (export ResumeInputs PlanGateWrapperSurfaceResult resume-plan-gate-wrapper)
 
   (defenum BlockerClass

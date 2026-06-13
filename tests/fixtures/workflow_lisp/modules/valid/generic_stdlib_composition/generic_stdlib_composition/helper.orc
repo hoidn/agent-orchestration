@@ -45,7 +45,8 @@
     :where ((T has-union-variant APPROVED (status String) (message String))
             (T has-union-variant BLOCKED (status String) (message String)))
     -> OutcomeResult
-    :effects ((writes approved-summary)
+    :effects ((uses-command apply_resource_transition)
+              (writes approved-summary)
               (writes blocked-summary))
     :lowering inline
     (match value

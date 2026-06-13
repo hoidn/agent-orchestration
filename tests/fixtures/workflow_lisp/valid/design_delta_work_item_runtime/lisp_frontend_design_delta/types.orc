@@ -32,6 +32,8 @@
     BoundaryJustification
     DesignDeltaDrainAction
     DrainState
+    DrainLoopTerminal
+    DrainSummaryValue
     PlanDoc
     PlanDocTarget
     PlanDraftResult
@@ -53,6 +55,7 @@
     SteeringDoc
     TargetDesignDoc
     WorkItemResult
+    WorkItemSummaryValue
     WorkItemSource
     WorkItemTerminalDecision
     WorkItemTerminalReason
@@ -376,14 +379,31 @@
       (summary WorkReport)))
 
   (defrecord DrainState
-    (status String)
     (iteration-count Int)
     (run-state RunStatePath)
-    (item-count Int)
-    (last-summary WorkReport)
-    (last-progress WorkReport)
-    (blocker-reason String)
-    (recovery-reason String))
+    (item-count Int))
+
+  (defunion DrainLoopTerminal
+    (DONE)
+    (BLOCKED
+      (reason String))
+    (BLOCKED_RECOVERY
+      (reason String))
+    (EXHAUSTED
+      (reason String)))
+
+  (defrecord DrainSummaryValue
+    (drain_status DrainTerminalStatus)
+    (drain_status_reason String)
+    (run_state_path RunStatePath)
+    (summary_target WorkReportTarget)
+    (state_version String))
+
+  (defrecord WorkItemSummaryValue
+    (work_item_id String)
+    (work_item_source WorkItemSource)
+    (terminal_route String)
+    (reason String))
 
   (defunion DesignDeltaDrainAction
     (SELECTED_ITEM

@@ -60,12 +60,6 @@ DESIGN_DELTA_G0_HELPER_NAMES = frozenset(
         "project_lisp_frontend_selector_action",
         "validate_lisp_frontend_design_gap_architecture",
         "materialize_lisp_frontend_work_item_inputs",
-        "classify_lisp_frontend_work_item_terminal",
-        "select_lisp_frontend_blocked_recovery_route",
-        "record_terminal_work_item",
-        "record_blocked_recovery_outcome",
-        "write_lisp_frontend_drain_status",
-        "finalize_lisp_frontend_drain_summary",
     }
 )
 PROMOTED_CALL_REQUIRED_METADATA_FIELDS = frozenset(

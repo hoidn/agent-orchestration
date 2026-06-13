@@ -3,7 +3,7 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/plan_phase)
   (import std/phase :only
-    (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop))
+    (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop with-phase))
   (import lisp_frontend_design_delta/types :only
     (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanReviewDecision
       ProgressLedger SteeringDoc TargetDesignDoc WorkReport))

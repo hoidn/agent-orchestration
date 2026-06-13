@@ -31,6 +31,7 @@ from .command_boundaries import (
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
+from .form_registry import get_form_spec
 from .lints import LINT_PROFILE_DEFAULT
 from .phase_family_boundary import (
     build_design_delta_boundary_authority_expected_rows,
@@ -49,6 +50,14 @@ from .wcc.route import LoweringRoute
 
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
+DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.commands.json"
+)
 DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
     Path(__file__).resolve().parents[2]
     / "workflows"
@@ -56,6 +65,54 @@ DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.boundary_authority.json"
+)
+DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS = (
+    "classify_lisp_frontend_work_item_terminal",
+    "select_lisp_frontend_blocked_recovery_route",
+    "record_terminal_work_item",
+    "record_blocked_recovery_outcome",
+    "write_lisp_frontend_drain_status",
+    "finalize_lisp_frontend_drain_summary",
+)
+DESIGN_DELTA_G8_REMOVED_SCRIPT_PATHS: tuple[str, ...] = ()
+DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS = (
+    "_ALLOWED_CONTEXT_RECORD_TYPES",
+    "_STRUCTURAL_CONTEXT_RECORD_NAMES",
+    "record_name_lane_fallback",
+    "name_lane_fallback_counts",
+    "clear_name_lane_fallback_counts",
+)
+DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS = (
+    "with-phase",
+    "finalize-selected-item",
+    "backlog-drain",
+)
+DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS = ("with-phase",)
+DESIGN_DELTA_G8_RETAINED_BRIDGES = ("materialize_lisp_frontend_work_item_inputs",)
+DESIGN_DELTA_G8_PRECONDITION_EVIDENCE_REFS = (
+    "design_delta_work_item_terminal_ok",
+    "design_delta_blocked_recovery_route_ok",
+    "design_delta_record_terminal_ok",
+    "design_delta_record_terminal_work_item_enum_bridge",
+    "design_delta_record_blocked_recovery_ok",
+    "design_delta_record_blocked_recovery_outcome_enum_bridge",
+    "design_delta_drain_status_ok",
+    "design_delta_drain_summary_ok",
+)
+DESIGN_DELTA_G8_GREP_GUARDS = (
+    "rg -n \"_ALLOWED_CONTEXT_RECORD_TYPES|_STRUCTURAL_CONTEXT_RECORD_NAMES|record_name_lane_fallback|name_lane_fallback_counts|clear_name_lane_fallback_counts\" orchestrator/workflow_lisp orchestrator/workflow",
+    "rg -n \"TEMP_COMPILER_INTRINSIC\" orchestrator/workflow_lisp",
+    "rg -n \"with-phase|finalize-selected-item|backlog-drain\" orchestrator/workflow_lisp/form_registry.py orchestrator/workflow_lisp/lowering orchestrator/workflow_lisp/wcc",
+    "rg -n \"classify_lisp_frontend_work_item_terminal|select_lisp_frontend_blocked_recovery_route|record_terminal_work_item|record_blocked_recovery_outcome|write_lisp_frontend_drain_status|finalize_lisp_frontend_drain_summary\" workflows/examples/inputs/workflow_lisp_migrations tests workflows/library",
+)
+DESIGN_DELTA_G8_VERIFICATION_COMMANDS = (
+    "python -m pytest tests/test_workflow_lisp_context_classification.py -q",
+    "python -m pytest tests/test_workflow_lisp_stdlib_form_migration.py -q",
+    "python -m pytest tests/test_workflow_lisp_build_artifacts.py -k \"design_delta_parent_drain or boundary_authority or adapter_census\" -q",
+    "python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k \"design_delta_parent_family_commands_use_production_adapter_interfaces or design_delta_parent_drain\" -q",
+    "python -m pytest tests/test_workflow_lisp_migration_parity.py -k \"design_delta_parent_drain or adapter_census or boundary_authority\" -q",
+    "python -m pytest tests/test_workflow_lisp_command_adapters.py -k \"design_delta_parent_drain or retirement\" -q",
+    "python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
 )
 FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "executable_ir": "executable_ir.json",
@@ -318,6 +375,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     )
     adapter_census_payload = None
     boundary_authority_report_payload = None
+    g8_deletion_evidence_payload = None
     if boundary_authority_registry is not None:
         adapter_census_payload = _serialize_design_delta_adapter_census(
             command_boundaries=command_boundaries,
@@ -329,6 +387,10 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             boundary_authority_registry=boundary_authority_registry,
             source_map_payload=source_map_payload,
         )
+        if boundary_authority_registry.get("workflow_family") == "design_delta_parent_drain":
+            g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
+                command_boundary_manifest=command_boundary_manifest,
+            )
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
         compile_result=compile_result,
@@ -340,6 +402,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         adapter_census_payload=adapter_census_payload,
         boundary_authority_report_payload=boundary_authority_report_payload,
+        g8_deletion_evidence_payload=g8_deletion_evidence_payload,
     )
     manifest = _build_manifest(
         request=resolved_request,
@@ -1763,6 +1826,91 @@ def _serialize_design_delta_boundary_authority_report(
     }
 
 
+def _serialize_design_delta_g8_deletion_evidence(
+    *,
+    command_boundary_manifest: Mapping[str, object],
+) -> dict[str, object]:
+    present_deleted_rows = sorted(
+        row_name for row_name in DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS if row_name in command_boundary_manifest
+    )
+    if present_deleted_rows:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="design_delta_g8_deleted_manifest_row_present",
+                    message=(
+                        "design-delta G8 deletion evidence cannot pass while deleted manifest "
+                        f"rows remain active: {', '.join(present_deleted_rows)}"
+                    ),
+                    path=DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
+                ),
+            )
+        )
+    missing_retained_bridges = sorted(
+        bridge_name
+        for bridge_name in DESIGN_DELTA_G8_RETAINED_BRIDGES
+        if bridge_name not in command_boundary_manifest
+    )
+    if missing_retained_bridges:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="design_delta_g8_retained_bridge_missing",
+                    message=(
+                        "design-delta G8 deletion evidence requires retained bridge rows to "
+                        f"remain explicit: {', '.join(missing_retained_bridges)}"
+                    ),
+                    path=DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
+                ),
+            )
+        )
+    present_removed_heads = sorted(
+        head_name for head_name in DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS if get_form_spec(head_name) is not None
+    )
+    if present_removed_heads:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="design_delta_g8_removed_registry_head_present",
+                    message=(
+                        "design-delta G8 deletion evidence cannot pass while deleted public "
+                        f"registry heads remain callable: {', '.join(present_removed_heads)}"
+                    ),
+                ),
+            )
+        )
+    return {
+        "schema_version": "workflow_lisp_design_delta_g8_deletion_evidence.v1",
+        "workflow_family": "design_delta_parent_drain",
+        "removed_manifest_rows": list(DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS),
+        "removed_script_paths": list(DESIGN_DELTA_G8_REMOVED_SCRIPT_PATHS),
+        "removed_python_symbols": list(DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS),
+        "removed_registry_heads": list(DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS),
+        "retained_bridges": list(DESIGN_DELTA_G8_RETAINED_BRIDGES),
+        "precondition_evidence_refs": list(DESIGN_DELTA_G8_PRECONDITION_EVIDENCE_REFS),
+        "grep_guards": list(DESIGN_DELTA_G8_GREP_GUARDS),
+        "verification_commands": list(DESIGN_DELTA_G8_VERIFICATION_COMMANDS),
+        "line_count_delta": {
+            "removed_manifest_row_count": len(DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS),
+            "removed_script_path_count": len(DESIGN_DELTA_G8_REMOVED_SCRIPT_PATHS),
+            "removed_python_symbol_count": len(DESIGN_DELTA_G8_REMOVED_PYTHON_SYMBOLS),
+            "removed_registry_head_count": len(DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS),
+        },
+        "hook_surface_delta": {
+            "removed_registry_heads": list(DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS),
+            "imported_only_registry_heads": list(DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS),
+            "name_lane_fallback_removed": True,
+            "literal_executor_family_allowlist_removed": True,
+        },
+        "adapter_surface_delta": {
+            "removed_manifest_rows": list(DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS),
+            "retained_bridges": list(DESIGN_DELTA_G8_RETAINED_BRIDGES),
+            "removed_manifest_row_count": len(DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS),
+        },
+        "status": "pass",
+    }
+
+
 def _design_delta_contract_is_path_like(contract_definition: object) -> bool:
     return isinstance(contract_definition, Mapping) and contract_definition.get("type") == "relpath"
 
@@ -1834,6 +1982,7 @@ def _write_build_artifacts(
     workflow_boundary_projection_payload: Mapping[str, object],
     adapter_census_payload: Mapping[str, object] | None,
     boundary_authority_report_payload: Mapping[str, object] | None,
+    g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
@@ -1853,6 +2002,8 @@ def _write_build_artifacts(
         artifact_paths["adapter_census"] = build_root / "adapter_census.json"
     if boundary_authority_report_payload is not None:
         artifact_paths["boundary_authority_report"] = build_root / "boundary_authority_report.json"
+    if g8_deletion_evidence_payload is not None:
+        artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
     payloads = {
         "frontend_ast": _serialize_frontend_ast(compile_result),
         "expanded_frontend_ast": _serialize_expanded_frontend_ast(compile_result),
@@ -1870,6 +2021,8 @@ def _write_build_artifacts(
         payloads["adapter_census"] = _json_data(adapter_census_payload)
     if boundary_authority_report_payload is not None:
         payloads["boundary_authority_report"] = _json_data(boundary_authority_report_payload)
+    if g8_deletion_evidence_payload is not None:
+        payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence_payload)
     for name, path in artifact_paths.items():
         path.write_text(json.dumps(payloads[name], indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if emit_debug_yaml:

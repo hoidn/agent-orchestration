@@ -15,6 +15,7 @@
           ReviewFindings
           ReviewLoopResult
           PhaseScopeTargets
+          with-phase
           phase-scope
           review-revise-loop
           review-revise-loop-proc)
@@ -164,6 +165,8 @@
       review
       fix
       max))
+  (defmacro with-phase (ctx phase-name body)
+    (__with-phase__ ctx phase-name body))
   (defmacro phase-scope (name ctx-key ctx phase-key phase-name)
     (record std/phase/PhaseScopeTargets
       :ctx ctx

@@ -3,7 +3,7 @@
   (:target-dsl "2.14")
   (defmodule kiss_backlog_item)
   (import std/phase :only
-    (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
+    (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))
   (export run-backlog-item)
 
   (defpath BacklogItemPath

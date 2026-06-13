@@ -2,7 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule review_revise_parametric_design_docs)
-  (import std/phase :only (ReviewFindings review-revise-loop))
+  (import std/phase :only (ReviewFindings review-revise-loop with-phase))
   (export review-revise-parametric-design-docs)
 
   (defenum BlockerClass

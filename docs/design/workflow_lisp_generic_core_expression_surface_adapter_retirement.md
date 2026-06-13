@@ -1255,13 +1255,16 @@ Current G6 status note:
   `docs/workflow_lisp_g6_verification_gate.json` now counts
   `tests/test_workflow_lisp_resource_stdlib.py` plus
   `tests/test_workflow_lisp_stdlib_form_migration.py`;
-- imported callers shadow the compatibility intrinsics while the intrinsic
-  routes remain callable bridge-only lanes;
+- imported callers own the counted bridge surface, while legacy bare-form
+  fixtures are characterization-only and no longer count as G6 owner-lane
+  evidence;
 - dedicated `std/drain` executable-boundary proof remains owned by
   `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` on
   `validation_profile="DEDICATED_RUNTIME_PROOF"` rather than by shared
   parent-callable validation; and
-- G7 family cleanup plus G8 deletion remain future work for this body of work.
+- the G7 family cleanup and G8 deletion slice are now landed on the checked
+  owner lanes, so current work is verification and follow-on cleanup rather
+  than more bridge-surface enablement.
 
 ### 15.3 Acceptance
 

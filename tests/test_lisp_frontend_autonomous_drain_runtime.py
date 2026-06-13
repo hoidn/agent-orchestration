@@ -1981,6 +1981,89 @@ def test_prerequisite_recovery_self_selection_with_completed_waiting_gap_retries
     assert summary["selected_prerequisite_id"] == "generic-context-capability"
 
 
+def test_prerequisite_recovery_self_selected_gap_already_completed_does_not_require_blocked_entry(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    pre_selection_bundle = workspace / "state/drain/blocked-recovery.json"
+    selection_bundle = workspace / "state/drain/prerequisite-selector/selection.json"
+    selected_status = workspace / "state/drain/selected-prerequisite-status.txt"
+    summary_path = workspace / "artifacts/work/prerequisite-recovery-summary.json"
+    drain_status_path = workspace / "state/drain/prerequisite-recovery-status.txt"
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": ["parser-syntax"],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pre_selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    pre_selection_bundle.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "design_gap_id": "parser-syntax",
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_status": "PREREQUISITE_WORK_PENDING",
+                "recovery_event_id": "parser-syntax-implementation-blocked",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "parser-syntax",
+                "prerequisite_relation": "Finish parser-syntax directly now that its prerequisite work is complete.",
+                "selection_rationale": "The original blocked gap was selected and completed in this iteration.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selected_status.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "--pre-selection-bundle-path",
+        pre_selection_bundle.relative_to(workspace).as_posix(),
+        "--selection-bundle-path",
+        selection_bundle.relative_to(workspace).as_posix(),
+        "--selected-work-status-path",
+        selected_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "parser-syntax" not in state["blocked_design_gaps"]
+    assert state["history"][-1]["event"] == "prerequisite_recovery_satisfied"
+    assert state["history"][-1]["reason"] == "original_gap_completed"
+    assert state["history"][-1]["waiting_on_prerequisite_gap_id"] == "parser-syntax"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["record_status"] == "RETRY_READY"
+    assert summary["reason"] == "original_gap_completed"
+
+
 def test_prerequisite_recovery_recoverable_prerequisite_block_continues(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
@@ -2757,6 +2840,32 @@ def test_design_gap_architect_stays_single_pass_for_stage7_scope():
 
     assert set(fields) == {"draft_status"}
     assert draft_step["depends_on"]["inject"]["mode"] == "content"
+
+
+def test_design_delta_gap_architect_uses_supported_claude_default():
+    workflow = yaml.safe_load(
+        (ROOT / "workflows/library/lisp_frontend_design_delta_design_gap_architect.v214.yaml").read_text()
+    )
+    step_names = [step["name"] for step in workflow["steps"]]
+
+    assert step_names == [
+        "PrepareArchitectureTargets",
+        "BuildExistingArchitectureIndex",
+        "ValidateDesignGapDraftProviderRouting",
+        "DraftDesignGapArchitecture",
+        "ValidateDesignGapArchitecture",
+    ]
+    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
+    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "gpt-5.4"
+    assert workflow["providers"]["claude"]["defaults"]["model"] == "sonnet"
+
+    validate_step = next(
+        step for step in workflow["steps"] if step["name"] == "ValidateDesignGapDraftProviderRouting"
+    )
+    validator_source = validate_step["command"][2]
+
+    assert 'model in {"fable", "opus", "sonnet", "haiku"}' in validator_source
+    assert "provider=claude requires a Claude model" in validator_source
 
 
 def test_lisp_frontend_workflows_load(tmp_path):
@@ -3703,6 +3812,18 @@ def _write_plan_review_revise(workspace: Path) -> None:
     decision.write_text("REVISE\n", encoding="utf-8")
 
 
+def _append_or_write_plan_review_approve(workspace: Path) -> None:
+    root = _pending_plan_review_root(workspace)
+    decision = root / "plan_review_decision.txt"
+    pointer = root / "plan_review_report_path.txt"
+    target = workspace / pointer.read_text(encoding="utf-8").strip()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"decision": "APPROVE", "findings": []}) + "\n", encoding="utf-8")
+    mode = "a" if decision.exists() else "w"
+    with decision.open(mode, encoding="utf-8") as handle:
+        handle.write("APPROVE\n")
+
+
 def _revise_plan(workspace: Path) -> None:
     target = _plan_target(workspace)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -3919,6 +4040,18 @@ def _write_implementation_review_revise(workspace: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("# Implementation Review\n\nRevise required.\n", encoding="utf-8")
     decision.write_text("REVISE\n", encoding="utf-8")
+
+
+def _append_or_write_implementation_review_approve(workspace: Path) -> None:
+    root = _pending_implementation_review_root(workspace)
+    decision = root / "implementation_review_decision.txt"
+    pointer = root / "implementation_review_report_path.txt"
+    target = workspace / pointer.read_text(encoding="utf-8").strip()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Implementation Review\n\nApproved.\n", encoding="utf-8")
+    mode = "a" if decision.exists() else "w"
+    with decision.open(mode, encoding="utf-8") as handle:
+        handle.write("APPROVE\n")
 
 
 def _fix_implementation(workspace: Path) -> None:
@@ -4574,6 +4707,65 @@ def test_design_delta_target_design_recovery_revises_design_and_continues(tmp_pa
     assert any(event["event"] == "design_revision" for event in run_state["history"])
     assert "parser-syntax" not in run_state["blocked_design_gaps"]
     assert "Blocker Revision" in target_text
+
+
+def test_design_delta_plan_review_clears_stale_decision_before_second_review(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    workflow_path = workspace / "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review_revise),
+            ("RevisePlan", _revise_plan),
+            ("ReviewPlan", _append_or_write_plan_review_approve),
+            ("ExecuteImplementation", _write_execution_state),
+            ("ReviewImplementation", _write_implementation_review),
+            ("SelectNextWork", _write_selector_done),
+            ("ReviewDoneDecision", _write_done_review_approve),
+        ],
+        workflow_inputs=_design_delta_workflow_inputs(),
+    )
+
+    assert state["status"] == "completed"
+    decision = workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-work-item/plan-phase/plan_review_decision.txt"
+    assert decision.read_text(encoding="utf-8") == "APPROVE\n"
+
+
+def test_design_delta_implementation_review_clears_stale_decision_before_second_review(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    workflow_path = workspace / "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state),
+            ("ReviewImplementation", _write_implementation_review_revise),
+            ("FixImplementation", _fix_implementation),
+            ("ReviewImplementation", _append_or_write_implementation_review_approve),
+            ("SelectNextWork", _write_selector_done),
+            ("ReviewDoneDecision", _write_done_review_approve),
+        ],
+        workflow_inputs=_design_delta_workflow_inputs(),
+    )
+
+    assert state["status"] == "completed"
+    decision = (
+        workspace
+        / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-work-item/implementation-phase/implementation_review_decision.txt"
+    )
+    assert decision.read_text(encoding="utf-8") == "APPROVE\n"
 
 
 def test_design_delta_gap_design_recovery_continues_without_target_edit(tmp_path):

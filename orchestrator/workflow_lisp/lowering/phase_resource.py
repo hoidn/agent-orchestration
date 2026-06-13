@@ -67,7 +67,13 @@ from .generated_paths import allocate_generated_result_bundle, allocate_material
 from .phase_drain import _selected_item_summary_pointer_path
 from .phase_flow import _build_match_projection_anchor_step
 from .origins import LoweringOrigin, _rekey_origin_map
-from .pure_projection import build_pure_projection_payload, _infer_expr_type as _infer_pure_projection_expr_type, _output_bundle_fields, _output_contracts_for_type
+from .pure_projection import (
+    _infer_expr_type as _infer_pure_projection_expr_type,
+    _nominal_descriptor_name,
+    _output_bundle_fields,
+    _output_contracts_for_type,
+    build_pure_projection_payload,
+)
 from .phase_scope import _resolve_signature_expr_type
 from .values import _render_existing_output_ref, _resolve_inline_expr_value
 
@@ -845,7 +851,7 @@ def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
     if isinstance(type_ref, RecordTypeRef):
         return {
             "kind": "record",
-            "name": type_ref.name,
+            "name": _nominal_descriptor_name(type_ref),
             "fields": [
                 {
                     "name": field.name,
@@ -857,7 +863,7 @@ def _transition_type_descriptor(type_ref: TypeRef) -> dict[str, Any]:
     if isinstance(type_ref, UnionTypeRef):
         return {
             "kind": "union",
-            "name": type_ref.name,
+            "name": _nominal_descriptor_name(type_ref),
             "variants": [
                 {
                     "name": variant.name,

@@ -42,11 +42,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "codex"
+    default: "claude"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "gpt-5.4"
+    default: "fable"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -77,7 +77,7 @@ providers:
     command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
     input_mode: "stdin"
     defaults:
-      model: "claude-fable-5"
+      model: "fable"
       effort: "high"
 
 steps:
@@ -168,6 +168,7 @@ steps:
       - |
         import json
         import pathlib
+        import subprocess
         import sys
 
         provider = sys.argv[1]
@@ -176,11 +177,12 @@ steps:
         output_path = pathlib.Path(sys.argv[4])
 
         errors = []
-        if provider == "claude" and not (
-            model.startswith("claude-")
-            or model in {"fable", "opus", "sonnet", "haiku"}
-        ):
-            errors.append(f"provider=claude requires a Claude model, got {model!r}")
+        requested_provider = provider
+        requested_model = model
+        requested_effort = effort
+        fallback_reason = ""
+        if provider == "claude" and model not in {"fable", "claude-fable-5"}:
+            errors.append(f"design-gap drafting via Claude must use Fable, got {model!r}")
         if provider == "codex" and not (
             model.startswith("gpt-")
             or "codex" in model
@@ -194,12 +196,43 @@ steps:
                 f"unsupported effort {effort!r} for provider={provider}; "
                 f"allowed={sorted(allowed_efforts)}"
             )
+        if provider == "claude" and not errors:
+            probe = subprocess.run(
+                [
+                    "claude",
+                    "-p",
+                    "--model",
+                    model,
+                    "--effort",
+                    effort,
+                    "--permission-mode",
+                    "bypassPermissions",
+                ],
+                input="Say OK only.\n",
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=45,
+                check=False,
+            )
+            if probe.returncode != 0:
+                provider = "codex"
+                model = "gpt-5.5"
+                effort = "high"
+                fallback_reason = (
+                    "Claude Fable unavailable; falling back to Codex gpt-5.5. "
+                    + (probe.stdout or "").strip()
+                )
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "provider": provider,
             "model": model,
             "effort": effort,
+            "requested_provider": requested_provider,
+            "requested_model": requested_model,
+            "requested_effort": requested_effort,
+            "fallback_reason": fallback_reason,
             "routing_status": "INVALID" if errors else "VALID",
             "errors": errors,
         }
@@ -229,10 +262,10 @@ steps:
 
   - name: DraftDesignGapArchitecture
     id: draft_design_gap_architecture
-    provider: ${inputs.design_gap_draft_provider}
+    provider: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
     provider_params:
-      model: ${inputs.design_gap_draft_model}
-      effort: ${inputs.design_gap_draft_effort}
+      model: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
+      effort: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
     asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md
     timeout_sec: 1800
     depends_on:

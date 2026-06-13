@@ -578,6 +578,8 @@ def _lower_one_wcc_workflow(
     if context.top_level_artifacts:
         authored_mapping["artifacts"] = dict(context.top_level_artifacts)
 
+    lowering_core._canonicalize_match_case_sibling_refs(authored_mapping)
+
     generated_semantic_effects = _derive_generated_semantic_effects(
         authored_mapping.get("steps"),
         context=context,
@@ -988,6 +990,68 @@ def _match_subject_producer_step_name(binding_terminal: _TerminalResult) -> str 
     return None
 
 
+def _rewrite_nested_case_sibling_refs(
+    steps: list[dict[str, Any]],
+    *,
+    ancestor_sibling_names: tuple[str, ...] = (),
+) -> None:
+    current_sibling_names = tuple(
+        step_name
+        for step in steps
+        for step_name in (step.get("name"),)
+        if isinstance(step_name, str)
+    )
+    sibling_names = ancestor_sibling_names + tuple(
+        name for name in current_sibling_names if name not in ancestor_sibling_names
+    )
+    for step in steps:
+        rewritten = _rewrite_case_sibling_refs_in_value(step, sibling_names=sibling_names)
+        step.clear()
+        step.update(rewritten)
+        for nested_steps in _iter_nested_case_step_lists(step):
+            _rewrite_nested_case_sibling_refs(
+                nested_steps,
+                ancestor_sibling_names=sibling_names,
+            )
+
+
+def _iter_nested_case_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str, Any]], ...]:
+    nested: list[list[dict[str, Any]]] = []
+    for branch_name in ("then", "else"):
+        branch = step.get(branch_name)
+        if isinstance(branch, Mapping) and isinstance(branch.get("steps"), list):
+            nested.append(branch["steps"])
+    match_node = step.get("match")
+    if isinstance(match_node, Mapping):
+        for case in (match_node.get("cases") or {}).values():
+            if isinstance(case, Mapping) and isinstance(case.get("steps"), list):
+                nested.append(case["steps"])
+    repeat_until = step.get("repeat_until")
+    if isinstance(repeat_until, Mapping) and isinstance(repeat_until.get("steps"), list):
+        nested.append(repeat_until["steps"])
+    return tuple(nested)
+
+
+def _rewrite_case_sibling_refs_in_value(value: Any, *, sibling_names: tuple[str, ...]) -> Any:
+    if isinstance(value, str):
+        for step_name in sibling_names:
+            prefix = f"parent.steps.{step_name}."
+            if value.startswith(prefix):
+                return "self.steps." + value.removeprefix("parent.steps.")
+        return value
+    if isinstance(value, list):
+        return [_rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names) for item in value]
+    if isinstance(value, Mapping):
+        rewritten: dict[Any, Any] = {}
+        for key, item in value.items():
+            if key == "steps" and isinstance(item, list):
+                rewritten[key] = item
+                continue
+            rewritten[key] = _rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names)
+        return rewritten
+    return value
+
+
 def _defunctionalize_case(
     body: WccCase,
     *,
@@ -1134,6 +1198,7 @@ def _defunctionalize_case(
                     span=arm.body.metadata.source_span,
                 )
             )
+        _rewrite_nested_case_sibling_refs(arm_steps)
         hidden_inputs.update(arm_terminal.hidden_inputs)
         cases[arm.variant_name] = {
             "id": lowering_core._normalize_generated_step_id(case_name),

@@ -419,6 +419,109 @@ def _all_step_names_from_steps(steps: Sequence[object]) -> set[str]:
     return names
 
 
+def _canonicalize_match_case_sibling_refs(authored_mapping: dict[str, object]) -> None:
+    steps = authored_mapping.get("steps")
+    if not isinstance(steps, list):
+        return
+    _canonicalize_match_case_sibling_refs_in_steps(steps)
+
+
+def _canonicalize_match_case_sibling_refs_in_steps(steps: list[dict[str, Any]]) -> None:
+    for step in steps:
+        match_node = step.get("match")
+        if isinstance(match_node, Mapping):
+            cases = match_node.get("cases") or {}
+            if isinstance(cases, Mapping):
+                for case in cases.values():
+                    if not isinstance(case, Mapping):
+                        continue
+                    case_steps = case.get("steps")
+                    if isinstance(case_steps, list):
+                        _rewrite_nested_case_sibling_refs(case_steps)
+                        _canonicalize_match_case_sibling_refs_in_steps(case_steps)
+        for branch_name in ("then", "else"):
+            branch = step.get(branch_name)
+            if isinstance(branch, Mapping):
+                branch_steps = branch.get("steps")
+                if isinstance(branch_steps, list):
+                    _canonicalize_match_case_sibling_refs_in_steps(branch_steps)
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            repeat_steps = repeat_until.get("steps")
+            if isinstance(repeat_steps, list):
+                _canonicalize_match_case_sibling_refs_in_steps(repeat_steps)
+        for_each = step.get("for_each")
+        if isinstance(for_each, Mapping):
+            each_steps = for_each.get("steps")
+            if isinstance(each_steps, list):
+                _canonicalize_match_case_sibling_refs_in_steps(each_steps)
+
+
+def _rewrite_nested_case_sibling_refs(
+    steps: list[dict[str, Any]],
+    *,
+    ancestor_sibling_names: tuple[str, ...] = (),
+    rewrite_current_level: bool = False,
+) -> None:
+    current_sibling_names = tuple(
+        step_name
+        for step in steps
+        for step_name in (step.get("name"),)
+        if isinstance(step_name, str)
+    )
+    sibling_names = ancestor_sibling_names + tuple(
+        name for name in current_sibling_names if name not in ancestor_sibling_names
+    )
+    for step in steps:
+        if rewrite_current_level:
+            rewritten = _rewrite_case_sibling_refs_in_value(step, sibling_names=sibling_names)
+            step.clear()
+            step.update(rewritten)
+        for nested_steps in _iter_nested_case_step_lists(step):
+            _rewrite_nested_case_sibling_refs(
+                nested_steps,
+                ancestor_sibling_names=sibling_names,
+                rewrite_current_level=True,
+            )
+
+
+def _iter_nested_case_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str, Any]], ...]:
+    nested: list[list[dict[str, Any]]] = []
+    for branch_name in ("then", "else"):
+        branch = step.get(branch_name)
+        if isinstance(branch, Mapping) and isinstance(branch.get("steps"), list):
+            nested.append(branch["steps"])
+    match_node = step.get("match")
+    if isinstance(match_node, Mapping):
+        for case in (match_node.get("cases") or {}).values():
+            if isinstance(case, Mapping) and isinstance(case.get("steps"), list):
+                nested.append(case["steps"])
+    repeat_until = step.get("repeat_until")
+    if isinstance(repeat_until, Mapping) and isinstance(repeat_until.get("steps"), list):
+        nested.append(repeat_until["steps"])
+    return tuple(nested)
+
+
+def _rewrite_case_sibling_refs_in_value(value: Any, *, sibling_names: tuple[str, ...]) -> Any:
+    if isinstance(value, str):
+        for step_name in sibling_names:
+            prefix = f"parent.steps.{step_name}."
+            if value.startswith(prefix):
+                return "self.steps." + value.removeprefix("parent.steps.")
+        return value
+    if isinstance(value, list):
+        return [_rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names) for item in value]
+    if isinstance(value, Mapping):
+        rewritten: dict[Any, Any] = {}
+        for key, item in value.items():
+            if key == "steps" and isinstance(item, list):
+                rewritten[key] = item
+                continue
+            rewritten[key] = _rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names)
+        return rewritten
+    return value
+
+
 def _iter_parent_ref_strings(payload: object) -> Sequence[str]:
     refs: list[str] = []
 
@@ -1073,6 +1176,8 @@ def _lower_one_workflow(
     if context.top_level_artifacts:
         authored_mapping["artifacts"] = dict(context.top_level_artifacts)
 
+    _canonicalize_match_case_sibling_refs(authored_mapping)
+
     generated_semantic_effects = _derive_generated_semantic_effects(
         authored_mapping.get("steps"),
         context=context,
@@ -1481,11 +1586,10 @@ def _output_contracts_for_type(
         )
         variant_names = tuple(projection.variant_fields)
         shared_names = {field.generated_name for field in projection.shared_fields}
-        variant_name_map = {
-            field.generated_name: variant_name
-            for variant_name, variant_fields in projection.variant_fields.items()
-            for field in variant_fields
-        }
+        variant_name_map: dict[str, list[str]] = {}
+        for variant_name, variant_fields in projection.variant_fields.items():
+            for field in variant_fields:
+                variant_name_map.setdefault(field.generated_name, []).append(variant_name)
         contracts: dict[str, dict[str, Any]] = {}
         for field in derive_workflow_boundary_fields(
             type_ref,
@@ -1508,9 +1612,9 @@ def _output_contracts_for_type(
                 metadata["field_role"] = "shared"
                 metadata["active_variants"] = list(variant_names)
             else:
-                active_variant = variant_name_map.get(field.generated_name)
-                metadata["field_role"] = "variant" if active_variant is not None else "unknown"
-                metadata["active_variants"] = [active_variant] if active_variant is not None else []
+                active_variants = variant_name_map.get(field.generated_name, [])
+                metadata["field_role"] = "variant" if active_variants else "unknown"
+                metadata["active_variants"] = active_variants
             definition["projection"] = metadata
             contracts[field.generated_name] = definition
         return contracts

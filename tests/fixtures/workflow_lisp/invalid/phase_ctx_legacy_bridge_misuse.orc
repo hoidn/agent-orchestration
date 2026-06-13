@@ -1,6 +1,8 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
+  (defmodule phase_ctx_legacy_bridge_misuse)
+  (import std/phase :only (with-phase))
   (defenum BlockerClass
     missing_resource)
   (defenum ImplementationStateTag

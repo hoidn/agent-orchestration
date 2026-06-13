@@ -887,23 +887,16 @@ def _build_repeat_until_call_resume_workflow() -> dict:
     }
 
 
-def _write_frontend_loop_recur_workflow(workspace: Path) -> Path:
+def _compile_frontend_loop_recur_bundle(workspace: Path):
     fixture = Path(__file__).parent / "fixtures" / "workflow_lisp" / "valid" / "loop_recur_minimal.orc"
     result = compile_stage3_module(
         fixture,
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
+        validate_shared=True,
         workspace_root=workspace,
     )
-    lowered = next(
-        workflow
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
-    )
-    workflow_path = workspace / "loop_recur_minimal.yaml"
-    workflow_path.write_text(yaml.safe_dump(lowered.authored_mapping, sort_keys=False), encoding="utf-8")
-    return workflow_path
+    return result.validated_bundles["loop-recur-minimal"]
 
 
 def _build_projection_runtime_plan_snapshot_workflow() -> dict:
@@ -1195,9 +1188,7 @@ def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resu
 def test_frontend_generated_loop_recur_runtime_plan_preserves_repeat_until_resume_authority(
     tmp_path: Path,
 ):
-    workflow_path = _write_frontend_loop_recur_workflow(tmp_path)
-
-    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle = _compile_frontend_loop_recur_bundle(tmp_path)
     runtime_plan = bundle.runtime_plan
     planner = ResumePlanner()
 
@@ -2508,6 +2499,7 @@ def test_resume_force_restart_uses_typed_boundary_projection_when_runtime_contex
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defmodule private_exec_context_phase_entry)",
+                "  (import std/phase :only (with-phase))",
                 "  (export entry run-phase)",
                 "  (defrecord RunCtx",
                 "    (run-id RunId)",

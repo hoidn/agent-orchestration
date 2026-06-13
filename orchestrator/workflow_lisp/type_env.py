@@ -75,16 +75,6 @@ PRELUDE_PATH_TYPES = {
 
 
 PRELUDE_TYPE_NAMES = PRELUDE_PRIMITIVE_TYPE_NAMES | frozenset(PRELUDE_PATH_TYPES)
-_STRUCTURAL_CONTEXT_RECORD_NAMES = frozenset(
-    {
-        "RunCtx",
-        "PhaseCtx",
-        "ItemCtx",
-        "DrainCtx",
-        "SelectionCtx",
-        "RecoveryCtx",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -999,10 +989,7 @@ def type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
 
 
 def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: RecordTypeRef) -> bool:
-    from .context_classification import (
-        classify_structural_private_exec_context,
-        record_name_lane_fallback,
-    )
+    from .context_classification import classify_structural_private_exec_context
 
     expected_name = _record_type_basename(expected)
     actual_name = _record_type_basename(actual)
@@ -1012,9 +999,6 @@ def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: Record
         classify_structural_private_exec_context(expected) is not None
         and classify_structural_private_exec_context(actual) is not None
     ):
-        return True
-    if expected_name in _STRUCTURAL_CONTEXT_RECORD_NAMES:
-        record_name_lane_fallback("structural_context_record_names")
         return True
     return False
 

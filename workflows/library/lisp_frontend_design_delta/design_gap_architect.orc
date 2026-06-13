@@ -7,11 +7,8 @@
   (export
     ArchitectureDocTarget
     ArchitectureTargets
-    ArchitectureValidationBundleTarget
     ArchitectureValidationDecision
-    CommandAdapterContractDoc
     DraftArchitectureDecision
-    DraftBundleTarget
     PlanDocTarget
     draft-design-gap-architecture
     validate-design-gap-architecture)
@@ -59,19 +56,17 @@
     ((steering SteeringDoc)
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
-     (command_adapter_contract CommandAdapterContractDoc)
      (progress_ledger SelectionBundlePath)
      (selection_bundle SelectionBundlePath)
      (architecture_targets ArchitectureTargets)
-     (existing_architecture_index WorkReport)
-     (draft_bundle_target DraftBundleTarget))
+     (existing_architecture_index WorkReport))
     -> DraftArchitectureDecision
     (provider-result providers.architect.draft
       :prompt prompts.architect.draft
       :inputs (steering
                target_design
                baseline_design
-               command_adapter_contract
+               "docs/design/workflow_command_adapter_contract.md"
                progress_ledger
                selection_bundle
                architecture_targets.architecture_path
@@ -79,21 +74,19 @@
                architecture_targets.check_commands_path
                architecture_targets.plan_target_path
                existing_architecture_index
-               draft_bundle_target)
+               "artifacts/work/draft_architecture_bundle.json")
       :returns DraftArchitectureDecision))
 
   (defworkflow validate-design-gap-architecture
-    ((draft_bundle DraftBundleTarget)
-     (architecture_targets_bundle SelectionBundlePath)
-     (validation_bundle_target ArchitectureValidationBundleTarget))
+    ((architecture_targets_bundle SelectionBundlePath))
     -> ArchitectureValidationDecision
     (command-result validate_lisp_frontend_design_gap_architecture
       :argv ("python"
              "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"
              "--draft-bundle-path"
-             draft_bundle
+             "artifacts/work/draft_architecture_bundle.json"
              "--architecture-targets-path"
              architecture_targets_bundle
              "--output"
-             validation_bundle_target)
+             "artifacts/work/architecture_validation_bundle.json")
       :returns ArchitectureValidationDecision)))

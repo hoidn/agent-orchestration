@@ -718,12 +718,11 @@ path.execution-report
 
 The compiler must reject ambiguous unqualified names.
 
-Current bridge rule: imported bindings win over compiler-known
-`macro_bindable` compatibility heads. During the G6 bridge window, explicitly
-imported stdlib `with-phase` / `phase-scope`, `finalize-selected-item`, and
-`backlog-drain` must compile through the imported stdlib definition while the
-same intrinsic names remain callable only as compatibility routes for legacy
-fixtures and unrevised workflow families.
+Current rule: imported bindings are the counted and documented route for
+`with-phase` / `phase-scope`, `finalize-selected-item`, and `backlog-drain`.
+Promoted owner-lane evidence must compile through the imported stdlib
+definition. Any retained bare-form compatibility lane is characterization-only
+and does not count as current G6/G8 proof.
 
 Compiler-known list heads are classified through the form registry before
 elaboration. The registry distinguishes core special forms, core effect bridges,
@@ -2310,8 +2309,9 @@ This replaces fan-in through multiple handwritten blocked/completed scripts.
 
 Current checkout status: the accepted imported stdlib route is landed in
 `std/resource`. The promoted path uses a runtime-native declared transition
-plus `materialize-view` summary rendering, while any older direct per-form
-lowerer remains compatibility-only during the bridge window.
+plus `materialize-view` summary rendering. Current owner-lane evidence uses the
+imported stdlib fixture; legacy bare-form characterization no longer counts as
+shared-surface proof.
 
 ## 31. `backlog-drain`
 
@@ -2352,8 +2352,9 @@ Lowering:
 Current checkout status: the accepted imported stdlib route is landed in
 `std/drain`, with dedicated executable-boundary proof on
 `validation_profile="DEDICATED_RUNTIME_PROOF"` and separate frontend-only
-compile proof on `validate_shared=False`. Intrinsic `backlog-drain` lowering
-remains bridge-only compatibility until G7/G8 cleanup and deletion evidence.
+compile proof on `validate_shared=False`. Current owner-lane evidence uses the
+imported stdlib fixture on those lanes; legacy bare-form characterization no
+longer counts as bridge-surface proof after G8 deletion.
 - terminal typed result
 
 This is the high-level construct that should materially shrink top-level

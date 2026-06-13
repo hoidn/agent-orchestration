@@ -2,7 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule wcc_m4_implementation_phase_full_fixture)
-  (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))
+  (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))
   (export run)
   (defpath WorkReport
     :kind relpath

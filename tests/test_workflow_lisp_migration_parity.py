@@ -385,6 +385,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "workflow_boundary_projection",
                     "adapter_census",
                     "boundary_authority_report",
+                    "g8_deletion_evidence",
                 ],
                 "optional": ["expanded_debug_yaml"],
             },
@@ -939,7 +940,7 @@ def test_design_delta_parent_drain_requires_route_schema_identity(tmp_path: Path
     assert module.compute_non_regressive(report, today=date(2026, 6, 2)) is False
 
 
-def test_design_delta_parent_drain_resource_parity_rejects_state_writers_without_transition_semantics(
+def test_design_delta_parent_drain_resource_parity_rejects_deleted_helpers_still_present_in_manifest(
     tmp_path: Path,
 ) -> None:
     module = _parity_module()
@@ -950,57 +951,39 @@ def test_design_delta_parent_drain_resource_parity_rejects_state_writers_without
     manifest_path = _write_json(tmp_path / "parity_targets.json", manifest_payload)
     target = module.load_parity_targets(manifest_path)[0]
 
-    def row(*, state_writes: list[str], behavior_class: str, effects: list[str]) -> dict[str, object]:
-        return {
-            "kind": "certified_adapter",
-            "behavior_class": behavior_class,
-            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
-            "effects": effects,
-            "fixture_ids": ["ok"],
-            "negative_fixture_ids": ["bad"],
-            "owner_module": "lisp_frontend_design_delta/work_item",
-            "replacement_path": "runtime-native transition",
-            "invocation_protocol": "json_object_positional_arg",
-            "state_writes": state_writes,
-        }
-
     _write_json(
         tmp_path / target.command_boundaries_file,
         {
-            "record_terminal_work_item": row(
-                state_writes=["run_state_path"],
-                behavior_class="resource_transition",
-                effects=["structured_result"],
-            ),
-            "record_blocked_recovery_outcome": row(
-                state_writes=["run_state_path"],
-                behavior_class="resource_transition",
-                effects=["structured_result"],
-            ),
-            "write_lisp_frontend_drain_status": row(
-                state_writes=["run_state_path"],
-                behavior_class="resource_transition",
-                effects=["structured_result"],
-            ),
-            "finalize_lisp_frontend_drain_summary": row(
-                state_writes=[],
-                behavior_class="outcome_finalization",
-                effects=["structured_result"],
-            ),
+            "materialize_lisp_frontend_work_item_inputs": {
+                "kind": "certified_adapter",
+                "behavior_class": "structured_result",
+                "input_signature": [{"name": "state_root", "type_name": "Path.state-root"}],
+                "effects": ["structured_result"],
+                "fixture_ids": ["ok"],
+                "negative_fixture_ids": ["bad"],
+                "owner_module": "lisp_frontend_design_delta/work_item",
+                "replacement_path": "manifest-materialization bridge",
+                "invocation_protocol": "json_object_positional_arg",
+                "state_writes": [],
+            },
+            "record_terminal_work_item": {
+                "kind": "certified_adapter",
+            },
         },
     )
 
     evidence = module._resource_transition_parity_evidence(
         target=target,
+        g8_deletion_evidence=_design_delta_g8_deletion_evidence_payload(),
         repo_root=tmp_path,
     )
 
     assert evidence["status"] == "fail"
     assert evidence["helpers"]["record_terminal_work_item"]["status"] == "fail"
-    assert evidence["helpers"]["record_blocked_recovery_outcome"]["status"] == "fail"
+    assert "still present" in " ".join(evidence["reasons"])
 
 
-def test_design_delta_parent_drain_resource_parity_rejects_sidecar_semantic_effects(
+def test_design_delta_parent_drain_resource_parity_rejects_g8_evidence_missing_deleted_rows(
     tmp_path: Path,
 ) -> None:
     module = _parity_module()
@@ -1011,39 +994,29 @@ def test_design_delta_parent_drain_resource_parity_rejects_sidecar_semantic_effe
     manifest_path = _write_json(tmp_path / "parity_targets.json", manifest_payload)
     target = module.load_parity_targets(manifest_path)[0]
 
-    def row(*, state_writes: list[str]) -> dict[str, object]:
-        return {
-            "kind": "certified_adapter",
-            "behavior_class": "outcome_finalization",
-            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
-            "effects": ["structured_result"],
-            "semantic_effects": ["resource_transition", "ledger_update"],
-            "fixture_ids": ["ok"],
-            "negative_fixture_ids": ["bad"],
-            "owner_module": "lisp_frontend_design_delta/work_item",
-            "replacement_path": "runtime-native transition",
-            "invocation_protocol": "json_object_positional_arg",
-            "state_writes": state_writes,
-        }
-
     _write_json(
         tmp_path / target.command_boundaries_file,
         {
-            "record_terminal_work_item": row(state_writes=["run_state_path"]),
-            "record_blocked_recovery_outcome": row(state_writes=["run_state_path"]),
-            "write_lisp_frontend_drain_status": row(state_writes=["run_state_path"]),
-            "finalize_lisp_frontend_drain_summary": row(state_writes=[]),
+            "materialize_lisp_frontend_work_item_inputs": {
+                "kind": "certified_adapter",
+            },
         },
     )
 
     evidence = module._resource_transition_parity_evidence(
         target=target,
+        g8_deletion_evidence=_design_delta_g8_deletion_evidence_payload(
+            removed_manifest_rows=[
+                "classify_lisp_frontend_work_item_terminal",
+                "select_lisp_frontend_blocked_recovery_route",
+                "record_terminal_work_item",
+            ]
+        ),
         repo_root=tmp_path,
     )
 
     assert evidence["status"] == "fail"
-    assert evidence["helpers"]["record_terminal_work_item"]["status"] == "fail"
-    assert "unconsumed semantic_effects" in " ".join(evidence["reasons"])
+    assert "missing deleted rows" in " ".join(evidence["reasons"])
 
 
 def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -> None:
@@ -1076,55 +1049,18 @@ def test_design_delta_parent_drain_resource_transition_parity_fails_when_runtime
     manifest_path = _write_json(tmp_path / "parity_targets.json", payload)
     target = module.load_parity_targets(manifest_path)[0]
 
-    def row(*, transition_name: str) -> dict[str, object]:
-        return {
-            "kind": "certified_adapter",
-            "behavior_class": "resource_transition",
-            "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
-            "effects": ["resource_transition", "ledger_update"],
-            "fixture_ids": ["ok"],
-            "negative_fixture_ids": ["bad"],
-            "owner_module": "lisp_frontend_design_delta/work_item",
-            "replacement_path": "runtime-native transition",
-            "invocation_protocol": "json_object_positional_arg",
-            "state_writes": ["state/run-state.json"],
-            "transition_binding": {
-                "transition_name": transition_name,
-                "resource_kind": "drain-run-state",
-                "contract_role": "migration_backend",
-                "backend_selector": transition_name.rsplit("/", 1)[-1].replace("-", "_"),
-            },
-        }
-
     _write_json(
         tmp_path / target.command_boundaries_file,
         {
-            "record_terminal_work_item": row(
-                transition_name="lisp_frontend_design_delta/transitions::record-terminal-work-item"
-            ),
-            "record_blocked_recovery_outcome": row(
-                transition_name="lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome"
-            ),
-            "write_lisp_frontend_drain_status": row(
-                transition_name="lisp_frontend_design_delta/transitions::write-drain-status"
-            ),
-            "finalize_lisp_frontend_drain_summary": {
+            "materialize_lisp_frontend_work_item_inputs": {
                 "kind": "certified_adapter",
-                "behavior_class": "structured_result",
-                "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
-                "effects": ["structured_result"],
-                "fixture_ids": ["ok"],
-                "negative_fixture_ids": ["bad"],
-                "owner_module": "lisp_frontend_design_delta/work_item",
-                "replacement_path": "typed summary finalization",
-                "invocation_protocol": "json_object_positional_arg",
-                "state_writes": [],
             },
         },
     )
 
     evidence = module._resource_transition_parity_evidence(
         target=target,
+        g8_deletion_evidence=_design_delta_g8_deletion_evidence_payload(),
         repo_root=tmp_path,
     )
 
@@ -2456,7 +2392,7 @@ def test_design_delta_parent_drain_manifest_uses_explicit_dry_run_smoke_substitu
     assert "fake-provider smokes" in waiver["justification"]
 
 
-def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_g7_family_flip() -> None:
+def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_g8_deleted_manifest() -> None:
     payload = json.loads(
         (
             Path(__file__).resolve().parents[1]
@@ -2467,15 +2403,14 @@ def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_
     assert payload["materialize_lisp_frontend_work_item_inputs"]["retirement_label"] == "keep_bridge"
     assert payload["materialize_lisp_frontend_work_item_inputs"].get("retirement_status") is None
     for binding_name in (
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
         "record_terminal_work_item",
         "record_blocked_recovery_outcome",
         "write_lisp_frontend_drain_status",
         "finalize_lisp_frontend_drain_summary",
     ):
-        assert payload[binding_name]["retirement_status"] == "retired"
-    assert payload["finalize_lisp_frontend_drain_summary"]["view_binding"]["contract_role"] == (
-        "replacement_candidate"
-    )
+        assert binding_name not in payload
 
 
 def _design_delta_parent_target_fixture(tmp_path: Path):
@@ -2489,11 +2424,62 @@ def _design_delta_parent_target_fixture(tmp_path: Path):
     return module, manifest_path, target
 
 
+def _design_delta_g8_deletion_evidence_payload(
+    *,
+    removed_manifest_rows: list[str] | None = None,
+    removed_registry_heads: list[str] | None = None,
+    imported_only_registry_heads: list[str] | None = None,
+    status: str = "pass",
+) -> dict[str, object]:
+    return {
+        "schema_version": "workflow_lisp_design_delta_g8_deletion_evidence.v1",
+        "workflow_family": "design_delta_parent_drain",
+        "removed_manifest_rows": removed_manifest_rows
+        or [
+            "classify_lisp_frontend_work_item_terminal",
+            "select_lisp_frontend_blocked_recovery_route",
+            "record_terminal_work_item",
+            "record_blocked_recovery_outcome",
+            "write_lisp_frontend_drain_status",
+            "finalize_lisp_frontend_drain_summary",
+        ],
+        "removed_script_paths": [],
+        "removed_python_symbols": [
+            "_ALLOWED_CONTEXT_RECORD_TYPES",
+            "_STRUCTURAL_CONTEXT_RECORD_NAMES",
+            "record_name_lane_fallback",
+            "name_lane_fallback_counts",
+            "clear_name_lane_fallback_counts",
+        ],
+        "removed_registry_heads": removed_registry_heads
+        or ["with-phase", "finalize-selected-item", "backlog-drain"],
+        "retained_bridges": ["materialize_lisp_frontend_work_item_inputs"],
+        "precondition_evidence_refs": ["design_delta_drain_summary_ok"],
+        "grep_guards": ["rg -n \"TEMP_COMPILER_INTRINSIC\" orchestrator/workflow_lisp"],
+        "verification_commands": [
+            "python -m pytest tests/test_workflow_lisp_migration_parity.py -q"
+        ],
+        "line_count_delta": {"removed_manifest_row_count": 6},
+        "hook_surface_delta": {
+            "removed_registry_heads": removed_registry_heads
+            or ["with-phase", "finalize-selected-item", "backlog-drain"],
+            "imported_only_registry_heads": imported_only_registry_heads or ["with-phase"],
+        },
+        "adapter_surface_delta": {
+            "removed_manifest_row_count": 6,
+            "retained_bridges": ["materialize_lisp_frontend_work_item_inputs"],
+        },
+        "status": status,
+    }
+
+
 def _write_design_delta_g0_build_manifest(
     tmp_path: Path,
     *,
     include_adapter_census: bool = True,
     include_boundary_authority_report: bool = True,
+    include_g8_deletion_evidence: bool = True,
+    g8_removed_manifest_rows: list[str] | None = None,
     boundary_unclassified: list[str] | None = None,
     boundary_public_leaks: list[str] | None = None,
 ) -> Path:
@@ -2573,26 +2559,6 @@ def _write_design_delta_g0_build_manifest(
                         "retirement_status": "retired",
                         "liveness": "unreferenced",
                     },
-                    {
-                        "binding_name": "record_terminal_work_item",
-                        "behavior_class": "resource_transition",
-                        "retirement_class": "resource_transition",
-                        "retirement_label": "retire_to_transition",
-                    },
-                    {
-                        "binding_name": "finalize_lisp_frontend_drain_summary",
-                        "behavior_class": "outcome_finalization",
-                        "retirement_class": "view_writer",
-                        "retirement_label": "retire_to_view",
-                        "retirement_status": None,
-                        "liveness": "live",
-                        "view_binding": {
-                            "view_name": "design_delta_drain_summary_view",
-                            "renderer_id": "canonical-json",
-                            "renderer_version": 1,
-                            "contract_role": "replacement_candidate",
-                        },
-                    },
                 ],
             },
         )
@@ -2620,6 +2586,13 @@ def _write_design_delta_g0_build_manifest(
                 ],
             },
         )
+    if include_g8_deletion_evidence:
+        _write_json(
+            build_root / "g8_deletion_evidence.json",
+            _design_delta_g8_deletion_evidence_payload(
+                removed_manifest_rows=g8_removed_manifest_rows,
+            ),
+        )
     artifact_paths = {
         "core_workflow_ast": str(build_root / "core_workflow_ast.json"),
         "semantic_ir": str(build_root / "semantic_ir.json"),
@@ -2640,6 +2613,9 @@ def _write_design_delta_g0_build_manifest(
             build_root / "boundary_authority_report.json"
         )
         artifact_status["boundary_authority_report"] = "emitted"
+    if include_g8_deletion_evidence:
+        artifact_paths["g8_deletion_evidence"] = str(build_root / "g8_deletion_evidence.json")
+        artifact_status["g8_deletion_evidence"] = "emitted"
     _write_json(
         build_root / "manifest.json",
         {
@@ -2702,8 +2678,10 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
 
     assert report["adapter_census"]["workflow_family"] == "design_delta_parent_drain"
     assert report["boundary_authority_report"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["g8_deletion_evidence"]["workflow_family"] == "design_delta_parent_drain"
     assert report["compile_artifacts"]["required"]["adapter_census"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "pass"
+    assert report["compile_artifacts"]["required"]["g8_deletion_evidence"]["status"] == "pass"
 
 
 def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
@@ -2756,25 +2734,21 @@ def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapt
     assert "still live" in " ".join(evidence.get("reasons", []))
 
 
-def test_run_parity_target_fails_view_retirement_parity_when_finalizer_view_binding_is_missing(
+def test_run_parity_target_fails_view_retirement_parity_when_g8_evidence_omits_finalizer_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
-    build_root = _write_design_delta_g0_build_manifest(tmp_path)
-    adapter_census_path = build_root / "adapter_census.json"
-    payload = json.loads(adapter_census_path.read_text(encoding="utf-8"))
-    payload["rows"] = [
-        {
-            key: value
-            for key, value in row.items()
-            if key != "view_binding"
-        }
-        if row.get("binding_name") == "finalize_lisp_frontend_drain_summary"
-        else row
-        for row in payload["rows"]
-    ]
-    _write_json(adapter_census_path, payload)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        g8_removed_manifest_rows=[
+            "classify_lisp_frontend_work_item_terminal",
+            "select_lisp_frontend_blocked_recovery_route",
+            "record_terminal_work_item",
+            "record_blocked_recovery_outcome",
+            "write_lisp_frontend_drain_status",
+        ],
+    )
     _write_json(
         tmp_path
         / "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/migration-parity/design_delta_parent_drain_view_dual_run_report.json",
@@ -2804,7 +2778,42 @@ def test_run_parity_target_fails_view_retirement_parity_when_finalizer_view_bind
 
     evidence = report["evidence"]["view_retirement_parity"]
     assert evidence["status"] == "fail"
-    assert "view_binding" in " ".join(evidence.get("reasons", []))
+    assert "deleted finalizer row" in " ".join(evidence.get("reasons", []))
+
+
+def test_run_parity_target_fails_when_g8_evidence_does_not_require_imported_only_with_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    _write_json(
+        tmp_path / str(target.command_boundaries_file),
+        {
+            "materialize_lisp_frontend_work_item_inputs": {
+                "kind": "certified_adapter",
+            }
+        },
+    )
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _write_json(
+        build_root / "g8_deletion_evidence.json",
+        _design_delta_g8_deletion_evidence_payload(
+            removed_registry_heads=["finalize-selected-item", "backlog-drain"],
+            imported_only_registry_heads=[],
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["resource_transition_parity"]
+    assert evidence["status"] == "fail"
+    assert "with-phase" in " ".join(evidence.get("reasons", []))
 
 
 def test_run_parity_target_fails_boundary_parity_when_g0_report_has_unclassified_or_public_leaks(
@@ -2880,46 +2889,25 @@ def test_design_delta_parent_drain_resource_transition_parity_ignores_retirement
     _write_json(
         tmp_path / str(target.command_boundaries_file),
         {
-            helper: {
+            "materialize_lisp_frontend_work_item_inputs": {
                 "kind": "certified_adapter",
-                "stable_command": ["python", f"{helper}.py"],
-                "behavior_class": "resource_transition",
-                "input_signature": [{"name": "run_state_path", "type_name": "RunStatePath"}],
-                "effects": ["structured_result", "resource_transition", "ledger_update"],
-                "fixture_ids": [f"{helper}_ok"],
-                "negative_fixture_ids": [f"{helper}_bad"],
-                "owner_module": "lisp_frontend_design_delta/drain",
-                "replacement_path": "runtime-native transition",
+                "stable_command": ["python", "materialize.py"],
+                "behavior_class": "structured_result",
+                "input_signature": [{"name": "state_root", "type_name": "Path.state-root"}],
+                "effects": ["structured_result"],
+                "fixture_ids": ["materialize_ok"],
+                "negative_fixture_ids": ["materialize_bad"],
+                "owner_module": "lisp_frontend_design_delta/work_item",
+                "replacement_path": "manifest-materialization bridge",
                 "invocation_protocol": "json_object_positional_arg",
-                "state_writes": ["run_state_path"] if helper != "finalize_lisp_frontend_drain_summary" else [],
-                "retirement_class": "typed_projection",
-                "retirement_label": "retire_to_projection",
-                "replacement_surface": "typed projection",
-                "bridge_owner": "workflow-lisp",
-                "expiry_condition": "g2-typed-projection",
-                "evidence_refs": [f"{helper}_evidence"],
-                "transition_binding": (
-                    {
-                        "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-                        "resource_kind": "drain-run-state",
-                        "contract_role": "migration_backend",
-                        "backend_selector": helper,
-                    }
-                    if helper != "finalize_lisp_frontend_drain_summary"
-                    else None
-                ),
-            }
-            for helper in (
-                "record_terminal_work_item",
-                "record_blocked_recovery_outcome",
-                "write_lisp_frontend_drain_status",
-                "finalize_lisp_frontend_drain_summary",
-            )
+                "state_writes": [],
+            },
         },
     )
 
     evidence = module._resource_transition_parity_evidence(
         target=target,
+        g8_deletion_evidence=_design_delta_g8_deletion_evidence_payload(),
         repo_root=tmp_path,
     )
 
@@ -2949,6 +2937,39 @@ def test_run_parity_target_fails_cleanly_when_boundary_authority_report_artifact
     assert "boundary_authority_report" in report["evidence"]["public_private_boundary_parity"]["reason"]
 
 
+def test_run_parity_target_fails_cleanly_when_g8_deletion_evidence_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    _write_json(
+        tmp_path / str(target.command_boundaries_file),
+        {
+            "materialize_lisp_frontend_work_item_inputs": {
+                "kind": "certified_adapter",
+            }
+        },
+    )
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_g8_deletion_evidence=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["g8_deletion_evidence"]["status"] == "missing"
+    assert report["evidence"]["resource_transition_parity"]["status"] == "fail"
+    assert "g8_deletion_evidence" in " ".join(
+        report["evidence"]["resource_transition_parity"].get("reasons", [])
+    )
+
+
 def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> None:
     payload = json.loads(
         (
@@ -2962,6 +2983,7 @@ def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> Non
 
     assert "adapter_census" in target["compile_artifacts"]["required"]
     assert "boundary_authority_report" in target["compile_artifacts"]["required"]
+    assert "g8_deletion_evidence" in target["compile_artifacts"]["required"]
 
 
 def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_artifacts_as_parity_comparison(
@@ -2987,3 +3009,5 @@ def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_arti
     assert artifact_reasons["adapter_census"]["parity_constrained"] is True
     assert artifact_reasons["boundary_authority_report"]["reason"] == "parity_comparison"
     assert artifact_reasons["boundary_authority_report"]["parity_constrained"] is True
+    assert artifact_reasons["g8_deletion_evidence"]["reason"] == "parity_comparison"
+    assert artifact_reasons["g8_deletion_evidence"]["parity_constrained"] is True

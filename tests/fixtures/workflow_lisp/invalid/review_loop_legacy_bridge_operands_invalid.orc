@@ -2,7 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule review_loop_legacy_bridge_operands_invalid)
-  (import std/phase :only (ReviewLoopResult review-revise-loop))
+  (import std/phase :only (ReviewLoopResult review-revise-loop with-phase))
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"

@@ -1,6 +1,8 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
+  (defmodule neurips_implementation_attempt)
+  (import std/phase :only (with-phase))
   (defenum BlockerClass
     missing_resource
     unavailable_hardware

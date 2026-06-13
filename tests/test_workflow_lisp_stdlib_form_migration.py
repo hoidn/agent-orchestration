@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
@@ -134,11 +135,17 @@ def _compile_module_fixture(path: Path, *, tmp_path: Path):
     )
 
 
-def _type_name_suffix(type_name: str) -> str:
-    normalized = type_name.split("::", 1)[-1]
-    if normalized == "GapDraftResult":
-        return "GapResult"
-    return normalized
+def _compile_inline_module(source: str, *, module_name: str, tmp_path: Path):
+    module_path = (tmp_path / Path(*module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    return compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        command_boundaries=_command_boundary_environment().bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
 
 
 def test_intrinsic_form_route_accounting_api_starts_empty_and_is_deterministic() -> None:
@@ -154,23 +161,86 @@ def test_intrinsic_form_route_accounting_api_starts_empty_and_is_deterministic()
     assert read_counts() == {}
 
 
-def test_bridge_form_registry_metadata_keeps_intrinsics_macro_bindable_for_stdlib_shadowing() -> None:
+@pytest.mark.parametrize(
+    "form_name",
+    ("finalize-selected-item", "backlog-drain"),
+)
+def test_g8_deletes_compatibility_intrinsic_registry_heads(form_name: str) -> None:
     registry = _form_registry_module()
 
-    expected = {
-        "with-phase": "std/phase",
-        "finalize-selected-item": "std/resource",
-        "backlog-drain": "std/drain",
-    }
+    assert registry.get_form_spec(form_name) is None
 
-    for form_name, owner_module in expected.items():
-        spec = registry.get_form_spec(form_name)
 
-        assert spec is not None
-        assert spec.kind.value == "temp_compiler_intrinsic"
-        assert spec.macro_bindable is True
-        assert getattr(spec, "stdlib_owner_module", None) == owner_module
-        assert "G8" in (getattr(spec, "compatibility_route", "") or "")
+def test_g8_deletes_public_with_phase_registry_head() -> None:
+    registry = _form_registry_module()
+
+    assert registry.get_form_spec("with-phase") is None
+
+
+def test_imported_stdlib_with_phase_still_compiles_without_intrinsic_accounting(
+    tmp_path: Path,
+) -> None:
+    dispatch = _control_dispatch_module()
+    reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
+    read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
+
+    assert callable(reset_counts)
+    assert callable(read_counts)
+
+    reset_counts()
+    result = _compile_inline_module(
+        """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule imported_with_phase_fixture)
+  (import std/context :only (PhaseCtx))
+  (import std/phase :only (with-phase))
+  (export run-phase)
+  (defrecord Result
+    (phase_name Symbol)
+    (state_root Path.state-root))
+  (defworkflow run-phase
+    ((phase-ctx PhaseCtx))
+    -> Result
+    (with-phase phase-ctx imported-phase
+      (record Result
+        :phase_name phase-ctx.phase-name
+        :state_root phase-ctx.state-root))))""",
+        module_name="imported_with_phase_fixture",
+        tmp_path=tmp_path,
+    )
+
+    assert result.entry_result.typed_workflows
+    assert read_counts() == {}
+
+
+def test_bare_with_phase_requires_imported_stdlib_route(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_inline_module(
+            """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule bare_with_phase_fixture)
+  (import std/context :only (PhaseCtx))
+  (export run-phase)
+  (defrecord Result
+    (phase_name Symbol)
+    (state_root Path.state-root))
+  (defworkflow run-phase
+    ((phase-ctx PhaseCtx))
+    -> Result
+    (with-phase phase-ctx imported-phase
+      (record Result
+        :phase_name phase-ctx.phase-name
+        :state_root phase-ctx.state-root))))""",
+            module_name="bare_with_phase_fixture",
+            tmp_path=tmp_path,
+        )
+
+    assert any(
+        diagnostic.code == "procedure_call_unknown" and "with-phase" in diagnostic.message
+        for diagnostic in excinfo.value.diagnostics
+    )
 
 
 def test_imported_binding_precedence_prefers_stdlib_form_routes_over_intrinsic_heads(tmp_path: Path) -> None:
@@ -189,61 +259,43 @@ def test_imported_binding_precedence_prefers_stdlib_form_routes_over_intrinsic_h
     assert read_counts() == {}
 
 
-def test_intrinsic_route_accounting_records_legacy_finalize_and_drain_hits(tmp_path: Path) -> None:
-    dispatch = _control_dispatch_module()
-    reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
-    read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
+@pytest.mark.parametrize(
+    ("intrinsic_fixture", "expected_form_name"),
+    (
+        (RESOURCE_INTRINSIC_FIXTURE, "finalize-selected-item"),
+        (DRAIN_INTRINSIC_FIXTURE, "backlog-drain"),
+    ),
+)
+def test_legacy_intrinsic_fixtures_fail_after_g8_registry_head_deletion(
+    tmp_path: Path,
+    intrinsic_fixture: Path,
+    expected_form_name: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            intrinsic_fixture,
+            command_boundaries=_command_boundary_environment(
+                gap_output_type_name="GapDraftResult" if intrinsic_fixture == DRAIN_INTRINSIC_FIXTURE else "GapResult"
+            ).bindings_by_name,
+            validate_shared=False,
+            workspace_root=tmp_path / intrinsic_fixture.stem,
+            lowering_route="legacy",
+        )
 
-    assert callable(reset_counts)
-    assert callable(read_counts)
-
-    reset_counts()
-    compile_stage3_module(
-        RESOURCE_INTRINSIC_FIXTURE,
-        command_boundaries=_command_boundary_environment().bindings_by_name,
-        validate_shared=False,
-        workspace_root=tmp_path / "intrinsic-resource",
-        lowering_route="legacy",
-    )
-    compile_stage3_module(
-        DRAIN_INTRINSIC_FIXTURE,
-        command_boundaries=_command_boundary_environment(gap_output_type_name="GapDraftResult").bindings_by_name,
-        validate_shared=False,
-        workspace_root=tmp_path / "intrinsic-drain",
-        lowering_route="legacy",
-    )
-
-    counts = read_counts()
-    assert counts["finalize-selected-item"] > 0
-    assert counts["backlog-drain"] > 0
+    assert expected_form_name in " ".join(diagnostic.message for diagnostic in excinfo.value.diagnostics)
 
 
 @pytest.mark.parametrize(
-    ("intrinsic_fixture", "stdlib_fixture"),
+    "stdlib_fixture",
     (
-        (RESOURCE_INTRINSIC_FIXTURE, RESOURCE_STDLIB_FIXTURE),
-        (DRAIN_INTRINSIC_FIXTURE, DRAIN_STDLIB_FIXTURE),
+        RESOURCE_STDLIB_FIXTURE,
+        DRAIN_STDLIB_FIXTURE,
     ),
 )
-def test_dual_route_vectors_preserve_typed_return_shapes(
+def test_stdlib_vectors_still_compile_on_promoted_route_after_g8_deletion(
     tmp_path: Path,
-    intrinsic_fixture: Path,
     stdlib_fixture: Path,
 ) -> None:
-    intrinsic = compile_stage3_module(
-        intrinsic_fixture,
-        command_boundaries=_command_boundary_environment(
-            gap_output_type_name="GapDraftResult" if intrinsic_fixture == DRAIN_INTRINSIC_FIXTURE else "GapResult"
-        ).bindings_by_name,
-        validate_shared=False,
-        workspace_root=tmp_path / "intrinsic",
-        lowering_route="legacy",
-    )
-    stdlib = _compile_module_fixture(stdlib_fixture, tmp_path=tmp_path / "stdlib")
+    result = _compile_module_fixture(stdlib_fixture, tmp_path=tmp_path / stdlib_fixture.stem)
 
-    intrinsic_names = sorted(_type_name_suffix(workflow.signature.return_type_ref.name) for workflow in intrinsic.typed_workflows)
-    stdlib_names = sorted(
-        _type_name_suffix(workflow.signature.return_type_ref.name) for workflow in stdlib.entry_result.typed_workflows
-    )
-
-    assert stdlib_names == intrinsic_names
+    assert result.entry_result.typed_workflows

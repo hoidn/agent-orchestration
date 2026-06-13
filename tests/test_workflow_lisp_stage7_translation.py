@@ -185,12 +185,12 @@ def _iter_nested_steps(steps):
                     yield from _iter_nested_steps(case.get("steps"))
 
 
-def test_neurips_plan_gate_resume_typechecks_union_start_workflow_call() -> None:
-    typed = _typecheck_fixture(VALID_PLAN_GATE_FIXTURE)
+def test_neurips_plan_gate_resume_typechecks_union_start_workflow_call(tmp_path: Path) -> None:
+    typed = _compile(VALID_PLAN_GATE_FIXTURE, tmp_path=tmp_path, validate_shared=False).typed_workflows
 
     assert [workflow.definition.name for workflow in typed] == [
-        "plan-run",
-        "resume-plan-gate",
+        "neurips_plan_gate_resume::plan-run",
+        "neurips_plan_gate_resume::resume-plan-gate",
     ]
 
 
@@ -199,13 +199,23 @@ def test_neurips_plan_gate_resume_lowers_and_validates(tmp_path: Path) -> None:
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "resume-plan-gate"
+        if workflow.typed_workflow.definition.name == "neurips_plan_gate_resume::resume-plan-gate"
     )
-    branch_step = next(step for step in authored["steps"] if step.get("name") == "resume-plan-gate__result")
+    branch_step = next(
+        step
+        for step in authored["steps"]
+        if step.get("name") == "neurips_plan_gate_resume::resume-plan-gate__result"
+    )
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
 
-    assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
-    assert tuple(result.validated_bundles) == ("plan-run", "resume-plan-gate")
+    assert any(
+        step.get("call") == "neurips_plan_gate_resume::plan-run"
+        for step in _iter_nested_steps(start_steps)
+    )
+    assert tuple(result.validated_bundles) == (
+        "neurips_plan_gate_resume::plan-run",
+        "neurips_plan_gate_resume::resume-plan-gate",
+    )
 
 
 def test_neurips_selected_item_compiles_and_validates(tmp_path: Path) -> None:
@@ -241,9 +251,9 @@ def test_neurips_remaining_drain_compiles_and_validates(tmp_path: Path) -> None:
     assert any(target and target.startswith("gap-draft") for target in call_targets)
 
 
-def test_neurips_plan_gate_resume_contract_invalid() -> None:
+def test_neurips_plan_gate_resume_contract_invalid(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(INVALID_PLAN_GATE_FIXTURE)
+        _compile(INVALID_PLAN_GATE_FIXTURE, tmp_path=tmp_path, validate_shared=False)
 
     assert excinfo.value.diagnostics[0].code == "resume_or_start_contract_invalid"
 

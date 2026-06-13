@@ -670,10 +670,20 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
     )
 
 
-def test_compile_stage3_module_validates_backlog_drain_through_shared_surface(tmp_path: Path) -> None:
-    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+def test_compile_stage3_module_validates_imported_backlog_drain_through_frontend_surface(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_DRAIN_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=False,
+    )
 
-    drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
+    drain = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::drain")
+    )
     repeat_step = next(step for step in drain.authored_mapping["steps"] if "repeat_until" in step)
 
     assert repeat_step["repeat_until"]["max_iterations"] == 4

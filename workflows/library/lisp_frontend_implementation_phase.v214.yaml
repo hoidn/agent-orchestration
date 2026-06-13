@@ -364,6 +364,19 @@ steps:
                     from:
                       ref: self.steps.WriteLoopReviewDecision.artifacts.review_decision
                 steps:
+                  - name: ResetImplementationReviewDecision
+                    id: reset_implementation_review_decision
+                    command:
+                      - python
+                      - -c
+                      - |
+                        import pathlib
+                        import sys
+
+                        path = pathlib.Path(sys.argv[1])
+                        if path.exists():
+                            path.unlink()
+                      - ${inputs.state_root}/implementation_review_decision.txt
                   - name: RunChecks
                     id: run_checks
                     command:

@@ -1500,7 +1500,9 @@ def test_lowering_declared_resource_transition_emits_generated_runtime_step(tmp_
     assert lowered.typed_workflow.definition.name == "orchestrate"
 
 
-def test_shared_validation_accepts_resource_transition_and_finalize_selected_item(tmp_path: Path) -> None:
+def test_shared_validation_accepts_resource_transition_and_imported_finalize_selected_item(
+    tmp_path: Path,
+) -> None:
     command_boundaries = _command_boundary_environment().bindings_by_name
     transition_result = compile_stage3_module(
         VALID_TRANSITION_FIXTURE,
@@ -1508,9 +1510,14 @@ def test_shared_validation_accepts_resource_transition_and_finalize_selected_ite
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    finalize_result = compile_stage3_module(
-        VALID_FINALIZE_FIXTURE,
-        command_boundaries=command_boundaries,
+    _workflow_path, _result, _validated = _compile_linked_module_fixture(
+        VALID_STDLIB_FINALIZE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    shared_finalize = compile_stage3_entrypoint(
+        _workflow_path,
+        source_roots=(tmp_path,),
+        command_boundaries=_runtime_command_boundary_environment().bindings_by_name,
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -1518,9 +1525,10 @@ def test_shared_validation_accepts_resource_transition_and_finalize_selected_ite
     assert {
         workflow.typed_workflow.definition.name for workflow in transition_result.lowered_workflows
     } >= {"move-selected-item"}
-    assert {
-        workflow.typed_workflow.definition.name for workflow in finalize_result.lowered_workflows
-    } >= {"run-selected-item"}
+    assert any(
+        workflow.typed_workflow.definition.name.endswith("::run-selected-item")
+        for workflow in shared_finalize.entry_result.lowered_workflows
+    )
 
 
 def test_stdlib_finalize_selected_item_executes_promoted_route_with_runtime_native_transition_and_view(

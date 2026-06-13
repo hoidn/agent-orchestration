@@ -5,6 +5,7 @@
   (import std/context
     :as context
     :only (PhaseCtx))
+  (import std/phase :only (with-phase))
   (export entry run-phase)
   (defrecord Result
     (phase_name Symbol)

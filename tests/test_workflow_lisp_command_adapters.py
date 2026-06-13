@@ -557,7 +557,7 @@ def test_compile_stage3_module_preserves_certified_transition_backend_metadata_f
     assert backend["invocation_protocol"] == "json_object_positional_arg"
 
 
-def test_design_delta_parent_drain_manifest_keeps_contract_behavior_class_and_parses_retirement_lane() -> None:
+def test_design_delta_parent_drain_manifest_keeps_only_retained_g8_rows_and_contract_metadata() -> None:
     payload = json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8"))
 
     bindings = _parse_command_boundaries_manifest(
@@ -574,49 +574,15 @@ def test_design_delta_parent_drain_manifest_keeps_contract_behavior_class_and_pa
     assert getattr(projection, "expiry_condition")
     assert getattr(projection, "evidence_refs")
 
-    classify_terminal = bindings["classify_lisp_frontend_work_item_terminal"]
-    classify_signature = {
-        field.name: field.type_name for field in classify_terminal.input_signature
-    }
-    assert classify_signature == {
-        "plan_review_decision": "PlanReviewDecision",
-        "implementation_state": "ImplementationState",
-        "implementation_review_decision": "ImplementationReviewDecision",
-        "work_item_source": "WorkItemSource",
-    }
-
-    blocked_recovery_route = bindings["select_lisp_frontend_blocked_recovery_route"]
-    blocked_recovery_signature = {
-        field.name: field.type_name for field in blocked_recovery_route.input_signature
-    }
-    assert blocked_recovery_signature["terminal_route"] == "String"
-    assert blocked_recovery_signature["work_item_source"] == "WorkItemSource"
-    assert blocked_recovery_signature["blocked_recovery_route"] == "BlockedRecoveryRoute"
-    assert blocked_recovery_signature["reason"] == "BlockedRecoveryReason"
-
-    record_terminal = bindings["record_terminal_work_item"]
-    assert getattr(record_terminal, "transition_binding").transition_name == (
-        "lisp_frontend_design_delta/transitions::record-terminal-work-item"
-    )
-    assert getattr(record_terminal, "transition_binding").contract_role == "migration_backend"
-    assert {field.name: field.type_name for field in record_terminal.input_signature}["work_item_source"] == (
-        "WorkItemSource"
-    )
-    assert set(getattr(record_terminal, "evidence_refs")) >= {
-        "design_delta_record_terminal_ok",
-        "design_delta_record_terminal_work_item_enum_bridge",
-    }
-
-    record_blocked_recovery = bindings["record_blocked_recovery_outcome"]
-    signature_by_name = {
-        field.name: field.type_name for field in record_blocked_recovery.input_signature
-    }
-    assert signature_by_name["work_item_source"] == "WorkItemSource"
-    assert signature_by_name["recovery_route"] == "BlockedRecoveryRoute"
-    assert set(getattr(record_blocked_recovery, "evidence_refs")) >= {
-        "design_delta_record_blocked_recovery_ok",
-        "design_delta_record_blocked_recovery_outcome_enum_bridge",
-    }
+    for deleted_binding in (
+        "classify_lisp_frontend_work_item_terminal",
+        "select_lisp_frontend_blocked_recovery_route",
+        "record_terminal_work_item",
+        "record_blocked_recovery_outcome",
+        "write_lisp_frontend_drain_status",
+        "finalize_lisp_frontend_drain_summary",
+    ):
+        assert deleted_binding not in bindings
 
     backlog_checks = bindings["run_neurips_backlog_checks"]
     assert getattr(backlog_checks, "retirement_class") == "genuine_system"
