@@ -180,6 +180,12 @@ def _procedure_specialization_source_path() -> Path:
     return path
 
 
+def _specialization_typecheck_source_path() -> Path:
+    path = Path(importlib.import_module("orchestrator.workflow_lisp.specialization_typecheck").__file__)
+    assert path.is_file()
+    return path
+
+
 def _definition_context(path: Path):
     syntax_module = build_syntax_module(read_sexpr_file(path))
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
@@ -1486,6 +1492,21 @@ def test_specialization_workflow_call_imports_managed_write_root_helper() -> Non
 
     imported_from_workflow_calls = _imported_symbols_from(source_path, "lowering.workflow_calls")
     assert "_managed_write_root_binding_step" in imported_from_workflow_calls
+
+
+def test_compiler_uses_specialization_typecheck_owner_for_pending_parametric_specializations() -> None:
+    compiler_path = Path(_compiler_module().__file__)
+    specialization_typecheck_path = _specialization_typecheck_source_path()
+
+    assert "materialize_pending_parametric_specialization" in specialization_typecheck_path.read_text(
+        encoding="utf-8"
+    )
+    assert "from .procedure_specialization import specialize_typed_procedure" not in compiler_path.read_text(
+        encoding="utf-8"
+    )
+    assert "from .specialization_typecheck import materialize_pending_parametric_specialization" in compiler_path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_compiler_keeps_typecheck_procedure_definitions_compat_entrypoint() -> None:

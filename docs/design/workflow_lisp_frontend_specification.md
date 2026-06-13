@@ -926,6 +926,11 @@ concrete type, checks any declared constraints, emits or reuses a deterministic
 specialization, and then typechecks/lowers the concrete helper through the
 ordinary WCC path.
 
+The current checkout implements this as an instantiate-then-typecheck contract:
+definition-time generic-body checking is provisional for capabilities granted by
+declared structural constraints, while the authoritative body typecheck and
+effect summary are recomputed on the instantiated helper before lowering.
+
 Type parameters and compile-time references must not appear in:
 
 - Core Workflow AST;
@@ -1163,6 +1168,10 @@ to concrete monomorphic helpers before ordinary typechecking, WCC elaboration,
 Core AST projection, Semantic IR, Executable IR, and runtime execution. Runtime
 state must not carry type parameters, procedure values, provider refs, prompt
 refs, or closure environments.
+
+For imported specializations, the helper body's free names resolve in the
+defining module's environment, extended with the specializing call site's
+concrete type, ProcRef, and value bindings.
 
 #### 8.8.1 Why `defproc` Exists
 
@@ -2800,8 +2809,9 @@ Generated private names are deterministic:
 
 Source maps point back to the original `defproc`.
 Imported private-subworkflow projections elaborate against the defining
-module's type environment, while specialized procedures elaborate against the
-specializing unit's environment.
+module's type environment. Specialized procedures use the defining module's
+environment for free-name resolution and extend it with specializing-unit
+concrete bindings for type arguments, ProcRefs, and values.
 
 ## 52. `call` Elaboration
 
@@ -3243,6 +3253,7 @@ Checks:
 - `parametric_constraint_malformed`
 - `parametric_constraint_unknown`
 - `parametric_constraint_unsatisfied`
+- `parametric_capability_undeclared`
 - `loop_state_requires_typed_fields`
 - `loop_state_duplicate_field`
 - `loop_state_unknown_field`

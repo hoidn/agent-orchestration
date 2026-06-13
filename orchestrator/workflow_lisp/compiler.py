@@ -3396,7 +3396,7 @@ def _infer_stage3_effect_summaries(
         consume_parametric_specialization_requests,
         reset_parametric_specialization_requests,
     )
-    from .procedure_specialization import specialize_typed_procedure
+    from .specialization_typecheck import materialize_pending_parametric_specialization
 
     reset_generated_local_procedure_state()
     reset_parametric_specialization_requests()
@@ -3439,31 +3439,18 @@ def _infer_stage3_effect_summaries(
                     if name not in {typed.definition.name for typed in typed_procedures}
                 )
             if pending_parametric_from_procedures:
-                typed_by_name = {
-                    **visible_typed_procedures_by_name,
-                    **{procedure.definition.name: procedure for procedure in typed_procedures},
-                }
                 added_specialization = False
                 for request in pending_parametric_from_procedures:
-                    if request.specialized_name in procedure_targets:
-                        continue
-                    base_procedure = typed_by_name.get(request.base_name)
-                    if base_procedure is None:
-                        continue
-                    procedure_targets[request.specialized_name] = specialize_typed_procedure(
-                        base_procedure,
-                        type_bindings=request.type_bindings,
-                        proc_ref_bindings=request.proc_ref_bindings,
-                        shared_union_field_capabilities=request.shared_union_field_capabilities,
-                        remaining_params=request.remaining_params,
-                        workflow_path=Path(base_procedure.definition.span.start.path),
+                    specialized = materialize_pending_parametric_specialization(
+                        request,
+                        procedure_targets=procedure_targets,
+                        visible_typed_procedures_by_name=visible_typed_procedures_by_name,
+                        typed_procedures=typed_procedures,
                         type_env=type_env,
-                        typed_procedures_by_name=typed_by_name,
-                        specialized_name=request.specialized_name,
-                        origin_span=request.origin_span,
-                        origin_form_path=request.origin_form_path,
-                        defer_lowering_resolution=True,
                     )
+                    if specialized is None:
+                        continue
+                    procedure_targets[request.specialized_name] = specialized
                     added_specialization = True
                 if added_specialization:
                     continue
@@ -3520,31 +3507,18 @@ def _infer_stage3_effect_summaries(
                 )
                 procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
             if pending_parametric_from_workflows:
-                typed_by_name = {
-                    **visible_typed_procedures_by_name,
-                    **{procedure.definition.name: procedure for procedure in typed_procedures},
-                }
                 added_specialization = False
                 for request in pending_parametric_from_workflows:
-                    if request.specialized_name in procedure_targets:
-                        continue
-                    base_procedure = typed_by_name.get(request.base_name)
-                    if base_procedure is None:
-                        continue
-                    procedure_targets[request.specialized_name] = specialize_typed_procedure(
-                        base_procedure,
-                        type_bindings=request.type_bindings,
-                        proc_ref_bindings=request.proc_ref_bindings,
-                        shared_union_field_capabilities=request.shared_union_field_capabilities,
-                        remaining_params=request.remaining_params,
-                        workflow_path=Path(base_procedure.definition.span.start.path),
+                    specialized = materialize_pending_parametric_specialization(
+                        request,
+                        procedure_targets=procedure_targets,
+                        visible_typed_procedures_by_name=visible_typed_procedures_by_name,
+                        typed_procedures=typed_procedures,
                         type_env=type_env,
-                        typed_procedures_by_name=typed_by_name,
-                        specialized_name=request.specialized_name,
-                        origin_span=request.origin_span,
-                        origin_form_path=request.origin_form_path,
-                        defer_lowering_resolution=True,
                     )
+                    if specialized is None:
+                        continue
+                    procedure_targets[request.specialized_name] = specialized
                     added_specialization = True
                 if added_specialization:
                     continue
