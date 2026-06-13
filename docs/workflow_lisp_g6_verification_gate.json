@@ -22,11 +22,6 @@
       "reason": "Landed stdlib review/revise behavior that the later phase-form migration must preserve."
     },
     {
-      "suite": "tests/test_workflow_lisp_resource_stdlib.py",
-      "scope_class": "tranche_owned_shared",
-      "reason": "Landed resource and transition stdlib baseline that G6 finalize and drain forms build on."
-    },
-    {
       "suite": "tests/test_workflow_lisp_macros.py",
       "scope_class": "tranche_owned_shared",
       "reason": "Macro expansion and hygiene guarantees required by stdlib form wrappers."
@@ -60,6 +55,11 @@
     }
   ],
   "later_tranche_suites": [
+    {
+      "suite": "tests/test_workflow_lisp_resource_stdlib.py",
+      "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms",
+      "reason": "Resource-stdlib coverage still exercises pending std/resource and std/drain fixtures, so it remains informative until G6 lands tracked builtins."
+    },
     {
       "suite": "tests/test_workflow_lisp_stdlib_form_migration.py",
       "owner": "workflow-lisp-generic-core-g6-stdlib-migration-phase-drain-forms",
