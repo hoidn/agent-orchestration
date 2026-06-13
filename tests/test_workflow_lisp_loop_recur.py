@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
@@ -13,6 +15,9 @@ VALID_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 VALID_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_union_result.orc"
 VALID_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
 VALID_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
+VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE = (
+    FIXTURES / "valid" / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
+)
 INVALID_MISSING_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_missing_done.orc"
 INVALID_CONTINUE_FIXTURE = FIXTURES / "invalid" / "loop_recur_continue_type_mismatch.orc"
 INVALID_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_done_type_mismatch.orc"
@@ -20,6 +25,9 @@ INVALID_FN_OUTSIDE_FIXTURE = FIXTURES / "invalid" / "loop_recur_fn_outside_loop.
 INVALID_ON_EXHAUSTED_IMPURE_FIXTURE = FIXTURES / "invalid" / "loop_recur_on_exhausted_impure.orc"
 INVALID_ON_EXHAUSTED_TYPE_MISMATCH_FIXTURE = (
     FIXTURES / "invalid" / "loop_recur_on_exhausted_type_mismatch.orc"
+)
+INVALID_ON_EXHAUSTED_SCALAR_FRAME_COMPUTED_VALUE_FIXTURE = (
+    FIXTURES / "invalid" / "loop_recur_on_exhausted_scalar_frame_computed_value.orc"
 )
 MODULE_FIXTURES = FIXTURES / "modules"
 VALID_IF_LOOP_FIXTURE = FIXTURES / "valid" / "if_conditionals_loop_body.orc"
@@ -88,6 +96,13 @@ def test_typecheck_loop_recur_rejects_on_exhausted_type_mismatch(tmp_path: Path)
         _compile(INVALID_ON_EXHAUSTED_TYPE_MISMATCH_FIXTURE, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "loop_recur_done_type_mismatch")
+
+
+def test_typecheck_loop_recur_rejects_computed_scalar_on_exhausted_value(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(INVALID_ON_EXHAUSTED_SCALAR_FRAME_COMPUTED_VALUE_FIXTURE, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "workflow_return_not_exportable")
 
 
 def test_typecheck_loop_recur_resets_variant_proof_each_iteration(tmp_path: Path) -> None:
@@ -301,6 +316,38 @@ def test_loop_recur_on_exhausted_fixture_validates_through_shared_repeat_until(
     assert [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows] == [
         "loop-recur-on-exhausted-record"
     ]
+
+
+def test_loop_recur_on_exhausted_scalar_frame_carriage_executes_through_shared_repeat_until(
+    tmp_path: Path,
+) -> None:
+    result = _compile(
+        VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    assert result.lowering_schema_version == 2
+
+    bundle = result.validated_bundles["loop-recur-on-exhausted-scalar-frame-carriage"]
+    state_manager = StateManager(workspace=tmp_path, run_id="loop-recur-on-exhausted-scalar-frame-carriage")
+    state_manager.initialize(VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE.as_posix())
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
+    loop_step = state["steps"]["loop-recur-on-exhausted-scalar-frame-carriage__loop"]
+
+    assert state["status"] == "completed"
+    assert loop_step["artifacts"]["result__attempt_count"] == {
+        "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__attempt_count"
+    }
+    assert loop_step["artifacts"]["result__reason"] == {
+        "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__exhaustion_reason"
+    }
+    assert state["workflow_outputs"] == {
+        "return__variant": "EXHAUSTED",
+        "return__attempt_count": 1,
+        "return__reason": "retrying",
+    }
 
 
 def test_lowering_loop_recur_supports_literal_initial_state(tmp_path: Path) -> None:

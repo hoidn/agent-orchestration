@@ -1,6 +1,8 @@
 """Tests for loader DSL validation per specs/dsl.md and acceptance tests."""
 
 from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 import re
 
@@ -47,6 +49,30 @@ def _compile_loop_recur_workflow(workspace: Path) -> dict:
         if workflow.typed_workflow.definition.name == "loop-recur-minimal"
     )
     return lowered.authored_mapping
+
+
+def _compile_loop_recur_scalar_frame_carriage_workflow(workspace: Path):
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "workflow_lisp"
+        / "valid"
+        / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
+    )
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=workspace,
+    )
+    return next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-scalar-frame-carriage"
+    )
 
 
 def _compile_collection_structured_result_workflow(workspace: Path) -> dict:
@@ -1670,6 +1696,27 @@ class TestLoaderValidation:
         assert any("repeat_until.on_exhausted.outputs.decision is invalid" in msg for msg in messages)
         assert any("repeat_until.on_exhausted.outputs.loop_exhausted is invalid" in msg for msg in messages)
 
+    def test_repeat_until_on_exhausted_rejects_ref_override_in_authored_yaml(self):
+        """Authored YAML may not use ref-backed on_exhausted scalar overrides."""
+        workflow = self._repeat_until_on_exhausted_workflow(
+            on_exhausted={
+                "outputs": {
+                    "decision": {"ref": "self.steps.Route.artifacts.decision"},
+                    "loop_exhausted": True,
+                }
+            },
+        )
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any(
+            "repeat_until.on_exhausted.outputs.decision must be a scalar literal"
+            in str(err.message)
+            for err in exc_info.value.errors
+        )
+
     def test_repeat_until_on_exhausted_rejects_relpath_output_override(self):
         """on_exhausted currently supports scalar loop outputs only."""
         workflow = self._repeat_until_on_exhausted_workflow()
@@ -1956,6 +2003,79 @@ class TestLoaderValidation:
             and checkpoint.checkpoint_kind == "repeat_until_frame"
             for checkpoint in loaded.runtime_plan.resume_checkpoints
         )
+
+    def test_frontend_generated_loop_recur_on_exhausted_refs_only_accept_loop_frame_state_outputs(self):
+        """Compiler validation accepts only the exact generated loop-frame state refs."""
+        from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+        from orchestrator.workflow_lisp.lowering import validate_lowered_workflows
+
+        lowered = _compile_loop_recur_scalar_frame_carriage_workflow(self.workspace)
+        validated = validate_lowered_workflows((lowered,), workspace_root=self.workspace)
+        surface = thaw_surface_workflow(
+            validated["loop-recur-on-exhausted-scalar-frame-carriage"]
+        )
+        loop_step = next(step for step in surface["steps"] if step["name"].endswith("__loop"))
+        outputs = loop_step["repeat_until"]["on_exhausted"]["outputs"]
+
+        assert outputs["result__attempt_count"] == {
+            "ref": (
+                "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop."
+                "artifacts.state__attempt_count"
+            )
+        }
+        assert outputs["result__reason"] == {
+            "ref": (
+                "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop."
+                "artifacts.state__exhaustion_reason"
+            )
+        }
+
+        cases = (
+            {
+                "attempt_count": (
+                    "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop."
+                    "artifacts.result__attempt_count"
+                ),
+                "reason": (
+                    "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop."
+                    "artifacts.result__reason"
+                ),
+            },
+            {
+                "attempt_count": (
+                    "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop."
+                    "artifacts.state__bogus"
+                ),
+                "reason": (
+                    "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop."
+                    "artifacts.state__attempt_count"
+                ),
+            },
+        )
+        for refs in cases:
+            mutated_mapping = deepcopy(lowered.authored_mapping)
+            mutated_step = next(
+                step for step in mutated_mapping["steps"] if step["name"].endswith("__loop")
+            )
+            mutated_outputs = mutated_step["repeat_until"]["on_exhausted"]["outputs"]
+            mutated_outputs["result__attempt_count"] = {"ref": refs["attempt_count"]}
+            mutated_outputs["result__reason"] = {"ref": refs["reason"]}
+            mutated = replace(lowered, authored_mapping=mutated_mapping)
+
+            with pytest.raises(LispFrontendCompileError) as exc_info:
+                validate_lowered_workflows((mutated,), workspace_root=self.workspace)
+
+            messages = [diagnostic.message for diagnostic in exc_info.value.diagnostics]
+            assert any(
+                "repeat_until.on_exhausted.outputs.result__attempt_count must be a scalar literal"
+                in message
+                for message in messages
+            )
+            assert any(
+                "repeat_until.on_exhausted.outputs.result__reason must be a scalar literal"
+                in message
+                for message in messages
+            )
 
     def test_match_requires_enum_ref(self):
         """Structured match only accepts enum refs."""

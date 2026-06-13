@@ -1080,9 +1080,16 @@ def _lower_loop_terminal_expr(
             )
         else:
             exhaustion_local_values = dict(local_values)
-            exhaustion_local_values[loop_binding_name] = _resolve_inline_expr_value(
-                state_expr,
-                local_values=local_values,
+            exhaustion_local_values[loop_binding_name] = (
+                _loop_projection_local_value(
+                    state_projection,
+                    state_projection_output_refs,
+                )
+                if state_projection_output_refs
+                else _resolve_inline_expr_value(
+                    state_expr,
+                    local_values=local_values,
+                )
             )
             projected_values.extend(
                 _loop_projection_materialize_values(
@@ -1297,7 +1304,11 @@ def _loop_projection_materialize_values(
         return current_value
 
     values: list[dict[str, Any]] = []
-    if active_variant_name is not None and projection.union_projection is not None:
+    if projection.union_projection is not None and (
+        active_variant_name is not None
+        or isinstance(resolved_value, UnionVariantExpr)
+        or isinstance(expr, UnionVariantExpr)
+    ):
         projected_variant_name = (
             resolved_value.variant_name
             if isinstance(resolved_value, UnionVariantExpr)
@@ -1470,12 +1481,6 @@ def _loop_on_exhausted_outputs(
         if "literal" in source:
             outputs[value["name"]] = source["literal"]
         elif "ref" in source:
-            field_expr = _loop_on_exhausted_expr_at_path(expr, result_field.source_path[1:])
-            if isinstance(result_type, UnionTypeRef) and _loop_on_exhausted_scalar_uses_loop_state(
-                field_expr,
-                loop_binding_name=loop_binding_name,
-            ):
-                continue
             outputs[value["name"]] = {"ref": source["ref"]}
         else:
             raise _compile_error(
@@ -1497,19 +1502,6 @@ def _loop_on_exhausted_expr_at_path(expr: Any, field_path: tuple[str, ...]) -> A
     if not field_path:
         return expr
     return None
-
-
-def _loop_on_exhausted_scalar_uses_loop_state(
-    field_expr: Any | None,
-    *,
-    loop_binding_name: str,
-) -> bool:
-    if not isinstance(field_expr, FieldAccessExpr):
-        return False
-    base = field_expr.base
-    while isinstance(base, FieldAccessExpr):
-        base = base.base
-    return isinstance(base, NameExpr) and base.name == loop_binding_name
 
 
 def _loop_on_exhausted_non_scalar_uses_loop_state(

@@ -678,6 +678,9 @@ def _lower_one_wcc_workflow(
             for name, definition in context.top_level_artifacts.items()
             if isinstance(name, str) and isinstance(definition, Mapping) and definition.get("kind") == "collection"
         ),
+        generated_repeat_until_on_exhausted_refs=(
+            lowering_core._capture_generated_repeat_until_on_exhausted_refs(authored_mapping)
+        ),
     )
 
 

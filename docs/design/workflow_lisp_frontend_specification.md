@@ -1452,6 +1452,13 @@ Required behavior:
 
 - exhausting `:max` after a completed iteration may produce a typed
   non-completion result when an explicit `:on-exhausted` projection is present;
+- direct scalar field accesses rooted in the loop binding lower through
+  `repeat_until.on_exhausted.outputs` as loop-frame refs on the WCC/schema-2
+  route, so exhausted variants may preserve state-derived scalar fields without
+  adding effectful work;
+- arbitrary computed scalar `:on-exhausted` expressions still are not evaluated
+  at exhaustion time; authors must carry those values through loop state before
+  exhaustion if they need them in the terminal result;
 - body failures, loop-output resolution failures, and predicate failures remain
   ordinary failures, not exhaustion results;
 - direct non-scalar `on_exhausted` overrides are rejected;

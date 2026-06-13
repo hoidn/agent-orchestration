@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -337,6 +337,48 @@ class LoweredWorkflow:
     compatibility_bridge_inputs: tuple[str, ...] = ()
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     private_artifact_ids: tuple[str, ...] = ()
+    generated_repeat_until_on_exhausted_refs: Mapping[str, Mapping[str, str]] = field(
+        default_factory=dict
+    )
+
+
+def _capture_generated_repeat_until_on_exhausted_refs(
+    authored_mapping: Mapping[str, object],
+) -> Mapping[str, Mapping[str, str]]:
+    steps = authored_mapping.get("steps")
+    if not isinstance(steps, Sequence):
+        return MappingProxyType({})
+
+    captured: dict[str, Mapping[str, str]] = {}
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        step_name = step.get("name")
+        repeat_until = step.get("repeat_until")
+        if not isinstance(step_name, str) or not isinstance(repeat_until, Mapping):
+            continue
+        on_exhausted = repeat_until.get("on_exhausted")
+        if not isinstance(on_exhausted, Mapping):
+            continue
+        outputs = on_exhausted.get("outputs")
+        if not isinstance(outputs, Mapping):
+            continue
+
+        refs: dict[str, str] = {}
+        for output_name, value in outputs.items():
+            if not isinstance(output_name, str) or not isinstance(value, Mapping):
+                continue
+            ref = value.get("ref")
+            if set(value) != {"ref"} or not isinstance(ref, str):
+                continue
+            ref = ref.strip()
+            if not ref:
+                continue
+            refs[output_name] = ref
+        if refs:
+            captured[step_name] = MappingProxyType(refs)
+
+    return MappingProxyType(captured)
 
 
 def _origin_for_workflow(*args, **kwargs):
@@ -889,6 +931,9 @@ def _lower_one_workflow(
             if isinstance(name, str)
             and isinstance(definition, Mapping)
             and definition.get("kind") == "collection"
+        ),
+        generated_repeat_until_on_exhausted_refs=_capture_generated_repeat_until_on_exhausted_refs(
+            authored_mapping
         ),
     )
 
@@ -1901,6 +1946,11 @@ def _validate_one_lowered_workflow(
 
     loader = WorkflowLoader(workspace_root)
     loader._allow_private_collection_output_schemas = True
+    loader._allow_generated_repeat_until_on_exhausted_refs = True
+    loader._generated_repeat_until_on_exhausted_refs = {
+        step_name: dict(output_refs)
+        for step_name, output_refs in lowered_workflow.generated_repeat_until_on_exhausted_refs.items()
+    }
     workflow = dict(lowered_workflow.authored_mapping)
     loader.errors = []
     loader._workflow_input_specs = {

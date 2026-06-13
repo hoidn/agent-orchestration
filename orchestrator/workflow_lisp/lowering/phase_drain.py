@@ -1436,6 +1436,9 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
         origin_map=origin_map,
         boundary_projection=lowered_workflow.boundary_projection,
         private_artifact_ids=lowered_workflow.private_artifact_ids,
+        generated_repeat_until_on_exhausted_refs=(
+            lowered_workflow.generated_repeat_until_on_exhausted_refs
+        ),
     )
 
 

@@ -103,6 +103,8 @@ class WorkflowLoader:
         self._current_workflow_is_imported = False
         self._current_validation_workflow_name: Optional[str] = None
         self._allow_private_collection_output_schemas = False
+        self._allow_generated_repeat_until_on_exhausted_refs = False
+        self._generated_repeat_until_on_exhausted_refs: Dict[str, Dict[str, str]] = {}
 
     def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
         """Load and validate workflow YAML into the typed bundle surface."""
@@ -115,6 +117,7 @@ class WorkflowLoader:
         self._current_imports = {}
         self._provider_registry = ProviderRegistry()
         self._current_validation_workflow_name = None
+        self._generated_repeat_until_on_exhausted_refs = {}
         workflow = self._load_workflow(Path(workflow_path).resolve())
         if self.errors:
             self._raise_validation_errors()
@@ -2338,6 +2341,12 @@ class WorkflowLoader:
             if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
                 self._add_error(f"{value_context} may only override scalar repeat_until outputs")
                 continue
+            if self._is_generated_repeat_until_on_exhausted_ref(
+                value,
+                step_name=step_name,
+                output_name=output_name,
+            ):
+                continue
             if isinstance(value, (dict, list)):
                 self._add_error(f"{value_context} must be a scalar literal")
                 continue
@@ -2345,6 +2354,31 @@ class WorkflowLoader:
                 validate_contract_value(value, spec, workspace=self.workspace)
             except OutputContractError as exc:
                 self._add_error(f"{value_context} is invalid: {exc}")
+
+    def _is_generated_repeat_until_on_exhausted_ref(
+        self,
+        value: Any,
+        *,
+        step_name: str,
+        output_name: str,
+    ) -> bool:
+        """Allow only the exact compiler-emitted loop-frame state ref for this output."""
+
+        if not self._allow_generated_repeat_until_on_exhausted_refs:
+            return False
+        if not (
+            isinstance(value, dict)
+            and set(value) == {'ref'}
+            and isinstance(value.get('ref'), str)
+        ):
+            return False
+        ref = value['ref'].strip()
+        if not ref:
+            return False
+        expected_ref = (
+            self._generated_repeat_until_on_exhausted_refs.get(step_name, {}).get(output_name)
+        )
+        return ref == expected_ref
 
     def _rewrite_repeat_until_condition_refs(
         self,

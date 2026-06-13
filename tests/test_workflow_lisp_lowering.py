@@ -73,8 +73,14 @@ LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
 LOOP_RECUR_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
+LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE = (
+    FIXTURES / "valid" / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
+)
 LOOP_RECUR_ON_EXHAUSTED_NON_SCALAR_FIXTURE = (
     FIXTURES / "invalid" / "loop_recur_on_exhausted_non_scalar_override.orc"
+)
+LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_COMPUTED_VALUE_FIXTURE = (
+    FIXTURES / "invalid" / "loop_recur_on_exhausted_scalar_frame_computed_value.orc"
 )
 MODULE_FIXTURES = FIXTURES / "modules"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
@@ -2020,6 +2026,60 @@ def test_lowering_loop_recur_emits_repeat_until_on_exhausted_outputs(tmp_path: P
     assert "result__report" not in repeat_step["repeat_until"]["on_exhausted"]["outputs"]
 
 
+def test_lowering_loop_recur_emits_scalar_loop_frame_refs_for_union_on_exhausted_outputs(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
+        lowering_route="wcc_m4",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert result.lowering_schema_version == 2
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-scalar-frame-carriage"
+    )
+    repeat_step = next(step for step in lowered.authored_mapping["steps"] if "repeat_until" in step)
+    outputs = repeat_step["repeat_until"]["on_exhausted"]["outputs"]
+
+    assert outputs == {
+        "result__variant": "EXHAUSTED",
+        "result__attempt_count": {
+            "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__attempt_count"
+        },
+        "result__reason": {
+            "ref": "root.steps.loop-recur-on-exhausted-scalar-frame-carriage__loop.artifacts.state__exhaustion_reason"
+        },
+        "status": "DONE",
+    }
+
+
+def test_lowering_loop_recur_rejects_computed_scalar_on_exhausted_value(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_COMPUTED_VALUE_FIXTURE,
+            lowering_route="wcc_m4",
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert diagnostic.span.start.path.endswith("loop_recur_on_exhausted_scalar_frame_computed_value.orc")
+    assert diagnostic.form_path == (
+        "workflow-lisp",
+        "defworkflow",
+        "loop-recur-on-exhausted-scalar-frame-computed-value",
+    )
+
+
 def test_lowering_loop_recur_rejects_non_scalar_on_exhausted_override(
     tmp_path: Path,
 ) -> None:
@@ -2137,6 +2197,40 @@ def test_lowering_loop_recur_on_exhausted_preserves_origin_map_for_generated_ste
     assert loop_origin.form_path == on_exhausted.form_path
     assert result_origin.span == on_exhausted.span
     assert result_origin.form_path == on_exhausted.form_path
+    assert reason_origin.span == on_exhausted.span
+    assert reason_origin.form_path == on_exhausted.form_path
+
+
+def test_lowering_loop_recur_scalar_frame_carriage_preserves_origin_map_for_generated_steps(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
+        lowering_route="wcc_m4",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-on-exhausted-scalar-frame-carriage"
+    )
+    loop_expr = lowered.typed_workflow.typed_body.expr
+    on_exhausted = loop_expr.on_exhausted_result_expr
+    assert on_exhausted is not None
+
+    loop_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-scalar-frame-carriage__loop"]
+    result_origin = lowered.origin_map.step_spans["loop-recur-on-exhausted-scalar-frame-carriage__result"]
+    attempt_origin = lowered.origin_map.generated_output_spans["return__attempt_count"]
+    reason_origin = lowered.origin_map.generated_output_spans["return__reason"]
+
+    assert loop_origin.span == on_exhausted.span
+    assert loop_origin.form_path == on_exhausted.form_path
+    assert result_origin.span == on_exhausted.span
+    assert result_origin.form_path == on_exhausted.form_path
+    assert attempt_origin.span == on_exhausted.span
+    assert attempt_origin.form_path == on_exhausted.form_path
     assert reason_origin.span == on_exhausted.span
     assert reason_origin.form_path == on_exhausted.form_path
 
