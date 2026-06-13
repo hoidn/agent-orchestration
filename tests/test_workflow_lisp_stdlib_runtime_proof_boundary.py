@@ -92,7 +92,7 @@ def test_dedicated_runtime_proof_profile_builds_validated_entry_bundle_for_impor
     assert dispatch.intrinsic_form_lowering_counts().get("backlog-drain", 0) == 0
 
 
-def test_shared_callable_profile_keeps_generated_structured_match_guard_active(
+def test_shared_callable_profile_keeps_generated_structured_branch_guard_active(
     tmp_path: Path,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -105,7 +105,7 @@ def test_shared_callable_profile_keeps_generated_structured_match_guard_active(
     diagnostics = [diag for diag in excinfo.value.diagnostics if diag.code == "workflow_boundary_type_invalid"]
 
     assert len(diagnostics) == 2
-    assert all("structured match is only supported on top-level steps in v2.6" in diag.message for diag in diagnostics)
+    assert all("structured if/else is only supported on top-level steps in v2.2" in diag.message for diag in diagnostics)
     assert any("__terminal__body__gap" in diag.message for diag in diagnostics)
     assert any("__terminal__body__selected" in diag.message for diag in diagnostics)
 
@@ -297,7 +297,7 @@ def test_runtime_proof_profile_rejects_authored_parent_scope_fallback_refs_even_
     )
     lowered = _selected_lowered_workflow(result)
     authored = deepcopy(lowered.authored_mapping)
-    blocked_steps = authored["steps"][1]["repeat_until"]["steps"][-1]["match"]["cases"]["GAP"]["steps"][-1]["match"]["cases"]["BLOCKED"]["steps"]
+    blocked_steps = authored["steps"][1]["repeat_until"]["steps"][-1]["match"]["cases"]["GAP"]["steps"][-1]["else"]["steps"]
     blocked_steps.append(
         {
             "name": "drain_stdlib_backlog_drain_stdlib::drain__runtime_proof_parent_scope_guard",

@@ -1807,7 +1807,8 @@ def _compile_stage3_graph(
     prompt_externs: Mapping[str, str] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
-    validation_profile: Stage3ValidationProfile,
+    validate_shared: bool | None = None,
+    validation_profile: Stage3ValidationProfile | str | None = None,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -1821,6 +1822,10 @@ def _compile_stage3_graph(
     """
 
     normalized_lowering_route = normalize_lowering_route(lowering_route)
+    normalized_validation_profile = _normalize_stage3_validation_profile(
+        validate_shared=validate_shared,
+        validation_profile=validation_profile,
+    )
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
@@ -2117,13 +2122,13 @@ def _compile_stage3_graph(
             type_env=type_env,
         )
         requires_internal_bundle_validation = (
-            validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE
+            normalized_validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE
             and module_name != graph.entry_module_name
             and bool(export_surfaces[module_name].workflows_by_name)
         )
         validated_exports: Mapping[str, LoadedWorkflowBundle]
         if (
-            validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
+            normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
             or requires_internal_bundle_validation
         ):
             validated_exports = validate_lowered_workflows(
@@ -2155,11 +2160,11 @@ def _compile_stage3_graph(
             lowered_workflows=lowered_workflows,
             validated_bundles=(
                 validated_exports
-                if validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
+                if normalized_validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
                 else {}
             ),
             diagnostics=diagnostics,
-            validation_profile=validation_profile,
+            validation_profile=normalized_validation_profile,
             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
         )
@@ -2210,7 +2215,7 @@ def _compile_stage3_graph(
         compiled_results_by_name=compiled_results_by_name,
         validated_bundles_by_name=exported_validated_bundles_by_name,
         diagnostics=tuple(aggregate_diagnostics),
-        validation_profile=validation_profile,
+        validation_profile=normalized_validation_profile,
         retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(tuple(aggregate_diagnostics)),
     )
 
@@ -3137,9 +3142,15 @@ def _validate_definition_module(
             import_scope.unqualified_schema_bindings
         )
 
-    available_type_names = PRELUDE_TYPE_NAMES | frozenset(
+    local_type_names = frozenset(
         name for name, definition in definition_names.items() if not isinstance(definition, SchemaDef)
-    ) | imported_type_names
+    )
+    qualified_local_type_names = (
+        frozenset(f"{module.module_name}/{name}" for name in local_type_names)
+        if module.module_name
+        else frozenset()
+    )
+    available_type_names = PRELUDE_TYPE_NAMES | local_type_names | qualified_local_type_names | imported_type_names
     for definition in module.definitions:
         if isinstance(definition, RecordDef):
             diagnostics.extend(_validate_field_list(definition.fields, _definition_form_path(definition)))

@@ -189,6 +189,11 @@ Implement the work in ordered tranches:
   substrate for hygienic dotted field access from macro-bound values and
   accepted helper-call carriage in the expression positions those macros need,
   with no compiler-name special case.
+- G5C1 (P0 prerequisite before counting loop-carried G6 drain evidence):
+  shared nested loop-body `match` / `continue` branch-local ref carriage, so
+  a proven match arm may carry sibling workflow-call outputs onto the next
+  loop frame without unresolved materialization or compiler-name special
+  cases.
 - G5D0 (P0 prerequisite before counting G5D or bounded-exhaustion G6 drain
   evidence): shared scalar loop-frame carriage through
   `repeat_until.on_exhausted.outputs`, so direct scalar refs rooted in the
@@ -226,7 +231,13 @@ G5C has shown that an imported stdlib macro can synthesize branch-local field
 projection and downstream helper/call arguments through ordinary macro
 expansion, specialization, typecheck, and WCC lowering without degrading
 hygienic dotted access or depending on a compiler branch keyed to
-`backlog-drain`, `std/drain`, or a workflow-family module name. Bounded-
+`backlog-drain`, `std/drain`, or a workflow-family module name. Loop-carried
+G6 drain routes are not selectable until G5C1 has shown that nested
+loop-body `match` arms may materialize sibling workflow-call outputs onto
+`continue` state and later loop frames through ordinary typecheck, WCC,
+lowering, shared validation, and executable ref resolution, with no carried
+cross-iteration proof beyond the explicit materialized fields and no
+compiler-name special case. Bounded-
 exhaustion G6 drain routes are not selectable until G5D0 has shown that
 direct scalar loop-frame refs may lower through
 `repeat_until.on_exhausted.outputs` as validated ref-backed scalar carriage,
@@ -987,6 +998,48 @@ prerequisite rather than widening G6, forcing `backlog-drain` back through a
 compiler-special compatibility lane, or claiming that direct dotted
 projection inside imported stdlib macros already works.
 
+### 15.1C1 Prerequisite: Shared Nested Loop-Body `match` / `continue` Branch-Local Ref Carriage
+
+G6 `backlog-drain`-style stdlib routes assume one additional route contract
+that is narrower than G5C's imported-macro payload proof and earlier than the
+existing exhaustion prerequisites: a nested loop-body `match` arm must be able
+to carry sibling workflow-call outputs through `continue` state when those
+outputs are available only inside that proven branch.
+
+The required contract is:
+
+- inside a `loop/recur` body, a nested `match` arm may construct `continue`
+  state from refs rooted in sibling workflow-call outputs or other branch-local
+  bindings that are valid only inside that proven arm;
+- lowering must materialize those carried refs onto the loop frame in a form
+  that later iterations and terminal projections can resolve through ordinary
+  executable ref lookup, without ad hoc scope rewriting keyed to one stdlib
+  form, workflow family, or proving fixture;
+- carrying those values does not preserve proof across iterations: later code
+  sees only the explicitly materialized loop-frame fields, and any
+  variant-specific access from a carried union value still requires ordinary
+  proof on that carried value; and
+- the route remains name-neutral and compiles through ordinary import, macro
+  expansion, specialization, typecheck, WCC lowering, shared validation, and
+  executable ref resolution without a compiler or validator branch keyed to
+  `std/drain`, `backlog-drain`, `gap-draft`, or a proving-fixture module name.
+
+If this capability is not yet proven, the next selectable work is this
+prerequisite rather than widening G5C, G5D0, G5D, or G6, or papering over the
+failure with fixture-specific ref rewriting.
+
+Current status note:
+
+- G5C1 is now landed on the focused shared proving lane exercised by
+  `tests/test_workflow_lisp_nested_loop_match_continue_carriage.py`.
+- The positive route proves that a nested loop-body `match` arm may materialize
+  sibling workflow-call outputs onto `continue` state, re-read those fields on
+  later iterations, and finish through ordinary shared validation plus
+  executable ref resolution on the WCC/schema-2 route.
+- The same lane keeps the required failures closed for branch-local ref leaks
+  and for carried union values that attempt variant-specific access without a
+  fresh rematch.
+
 ### 15.1D Prerequisite: Shared Scalar Loop-Frame Carriage Through `repeat_until.on_exhausted.outputs`
 
 G6 `backlog-drain`-style stdlib routes now consume one narrower prerequisite
@@ -1117,6 +1170,9 @@ Current evidence note:
 - Consume G5C's imported stdlib macro payload-projection and helper-composition
   proof before counting `backlog-drain` or other imported-macro-heavy G6
   drain evidence.
+- Consume G5C1's nested loop-body `match` / `continue` branch-local ref
+  carriage proof before counting `backlog-drain` or other G6 drain evidence
+  that carries sibling workflow-call outputs through loop state.
 - Consume G5D0's shared scalar loop-frame carriage proof before counting G5D
   or any bounded-exhaustion `backlog-drain` evidence.
 - Consume G5D's pure exhaustion-projection and post-loop terminal-carriage
@@ -1153,6 +1209,16 @@ Current evidence note:
   `tests/test_workflow_lisp_imported_stdlib_macro_payload_helper_composition.py`,
   which pins the helper-composed `let*` route into downstream workflow-call
   arguments, record constructors, and variant constructors.
+- G5C1 counts as satisfied only when focused evidence shows that one ordinary
+  imported route carries sibling workflow-call outputs through a nested
+  loop-body `match` arm into `continue` state, later loop execution or terminal
+  projection re-reads those carried fields successfully through ordinary
+  executable ref resolution, and a negative lane still fails closed when a
+  branch-local ref is used without being materialized onto the loop frame. The
+  dedicated proof lane is
+  `tests/test_workflow_lisp_nested_loop_match_continue_carriage.py`, which pins
+  the positive carry-forward route plus the branch-local-leak and proof-reset
+  negatives.
 - G5D0 counts as satisfied only when focused WCC/schema-2 evidence shows that
   one direct union fixture lowers scalar loop-frame refs into
   `repeat_until.on_exhausted.outputs`, one direct-computed-scalar fixture still
@@ -1339,10 +1405,11 @@ G1 + G3 -> G5
 G3 + G4 + G5 -> G5A
 G5A -> G5B
 G5A + G5B -> G5C
-G5A + G5B + G5C -> G5D0
-G5A + G5B + G5C + G5D0 -> G5D
-G5A + G5B + G5C + G5D -> G5E
-G3 + G5 + G5A + G5B + G5C + G5D + G5E -> G6
+G5A + G5B + G5C -> G5C1
+G5A + G5B + G5C + G5C1 -> G5D0
+G5A + G5B + G5C + G5C1 + G5D0 -> G5D
+G5A + G5B + G5C + G5C1 + G5D -> G5E
+G3 + G5 + G5A + G5B + G5C + G5C1 + G5D + G5E -> G6
 G1..G6 -> G7
 G7 + promotion evidence -> G8
 ```
@@ -1358,6 +1425,7 @@ Relationship to post-foundation:
 | G5A | imported generic effectful-composition substrate |
 | G5B | verification baseline for stdlib migration |
 | G5C | imported macro/proc authoring substrate for drain stdlib migration |
+| G5C1 | nested loop-body `match` / `continue` ref-carriage substrate |
 | G5D0 | shared scalar exhaustion-output carriage |
 | G5D | imported stdlib loop exhaustion and post-loop terminal carriage |
 | G5E | dedicated stdlib proving-fixture executable-boundary carriage |
@@ -1403,6 +1471,7 @@ Relationship to post-foundation:
 - G5A imported-generic stdlib effectful-composition proof.
 - G5B shared verification-baseline and builtin-stdlib-routing proof.
 - G5C imported stdlib macro payload-projection and helper-composition proof.
+- G5C1 nested loop-body `match` / `continue` branch-local ref-carriage proof.
 - G5D0 shared scalar loop-frame exhaustion-output carriage proof.
 - G5D imported stdlib loop exhaustion and post-loop terminal-carriage proof.
 - G5E dedicated stdlib proving-fixture executable-boundary proof.
@@ -1427,6 +1496,10 @@ Relationship to post-foundation:
   imported macro route still lacks an accepted way to carry hygienic
   branch-local dotted field projection or helper-composed payload arguments
   through ordinary expansion/typecheck/WCC lowering;
+- counting `backlog-drain`-class G6 stdlib-migration evidence while the same
+  imported route still lacks an accepted way to carry sibling workflow-call
+  outputs through nested loop-body `match` / `continue` state and later loop
+  ref resolution without fixture-specific scope rewriting;
 - counting `backlog-drain`-class G6 stdlib-migration evidence while the same
   route still lacks G5D0's accepted ref-backed scalar loop-frame carriage
   through `repeat_until.on_exhausted.outputs`;
@@ -1545,6 +1618,11 @@ fixtures still pass and a CI guard rejects reintroduction.
   an accepted helper-composition equivalent through ordinary expansion,
   specialization, typecheck, and WCC lowering with no compiler-name special
   case.
+- G6 `backlog-drain`-class evidence is counted only after G5C1 proves that
+  nested loop-body `match` arms can carry sibling workflow-call outputs
+  through `continue` state and later loop execution without unresolved
+  materialization, fixture-specific scope rewriting, or carried cross-iteration
+  proof.
 - G6 `backlog-drain`-class evidence is counted only after G5D0 proves that
   direct scalar loop-frame refs survive `repeat_until.on_exhausted.outputs`,
   shared validation, and final output resolution as ordinary ref-backed scalar

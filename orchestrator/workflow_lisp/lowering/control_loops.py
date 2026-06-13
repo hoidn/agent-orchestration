@@ -139,7 +139,7 @@ def _emit_repeat_until_from_emitter_input(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step
+    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step, _match_arm_local_values
 
     expr = emitter_input
     source_expr = emitter_input.source_expr or emitter_input
@@ -642,9 +642,10 @@ def _lower_loop_body_expr(
     binding_terminal: _TerminalResult,
     body_step_name: str,
     active_variant_name: str | None = None,
+    allow_structured_match_step: bool = True,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     from .control_dispatch import _normalize_let_binding
-    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step
+    from .control_match import _binding_terminal_for_inline_match, _build_match_projection_anchor_step, _match_arm_local_values
 
     if isinstance(expr, LetStarExpr):
         binding_name, binding_expr = expr.bindings[0]
@@ -687,6 +688,7 @@ def _lower_loop_body_expr(
             binding_terminal=binding_terminal,
             body_step_name=body_step_name,
             active_variant_name=active_variant_name,
+            allow_structured_match_step=allow_structured_match_step,
         )
         hidden_inputs: dict[str, LoweringOrigin] = {}
         if normalized_binding.terminal is not None:
@@ -725,14 +727,27 @@ def _lower_loop_body_expr(
             state_projection=state_projection,
             result_projection=result_projection,
         )
-        cases: dict[str, Any] = {}
         subject_type = context.local_type_bindings.get(expr.subject.name)
-        for arm in expr.arms:
-            arm_local_values = {
+
+        def lower_match_arm(arm, *, nested_body_step_name: str) -> tuple[list[dict[str, Any]], _TerminalResult]:
+            parent_local_values = {
                 name: _loop_parent_scope_value(value)
                 for name, value in local_values.items()
             }
-            arm_local_values[arm.binding_name] = _loop_parent_scope_value(local_values.get(expr.subject.name))
+            arm_binding_type = None
+            if isinstance(subject_type, UnionTypeRef):
+                arm_binding_type = context.type_env.union_variant(
+                    subject_type,
+                    arm.variant_name,
+                    span=expr.subject.span,
+                    form_path=expr.subject.form_path,
+                )
+            arm_local_values = _match_arm_local_values(
+                local_values=parent_local_values,
+                binding_name=arm.binding_name,
+                binding_terminal=match_terminal,
+                binding_type=arm_binding_type,
+            )
             next_loop_binding_name = arm.binding_name if expr.subject.name == loop_binding_name else loop_binding_name
             arm_context = _copy_context_with_composition_scope(
                 context,
@@ -741,16 +756,11 @@ def _lower_loop_body_expr(
                 scope_kind="match_case",
                 owner_step_name=body_step_name,
             )
-            if isinstance(subject_type, UnionTypeRef):
+            if arm_binding_type is not None:
                 arm_context = _context_with_local_type_binding(
                     arm_context,
                     binding_name=arm.binding_name,
-                    binding_type=context.type_env.union_variant(
-                        subject_type,
-                        arm.variant_name,
-                        span=expr.subject.span,
-                        form_path=expr.subject.form_path,
-                    ),
+                    binding_type=arm_binding_type,
                 )
             arm_steps, arm_terminal = _lower_loop_body_expr(
                 arm.body,
@@ -762,8 +772,101 @@ def _lower_loop_body_expr(
                 context=arm_context,
                 local_values=arm_local_values,
                 binding_terminal=match_terminal,
-                body_step_name=f"{body_step_name}__{arm.variant_name.lower()}",
+                body_step_name=nested_body_step_name,
                 active_variant_name=arm.variant_name,
+                allow_structured_match_step=False,
+            )
+            return arm_steps, arm_terminal
+
+        if not allow_structured_match_step:
+            def lower_nested_match_as_if(arms: tuple[Any, ...], *, nested_step_name: str) -> tuple[list[dict[str, Any]], _TerminalResult]:
+                arm = arms[0]
+                then_steps, then_terminal = lower_match_arm(
+                    arm,
+                    nested_body_step_name=f"{nested_step_name}__{arm.variant_name.lower()}",
+                )
+                if len(arms) == 1:
+                    return then_steps, then_terminal
+                else_steps, else_terminal = lower_nested_match_as_if(
+                    tuple(arms[1:]),
+                    nested_step_name=f"{nested_step_name}__else",
+                )
+                then_outputs = {
+                    name: {
+                        **dict(definition),
+                        "from": {"ref": _loop_case_ref(then_terminal.output_refs[name])},
+                    }
+                    for name, definition in loop_output_contracts.items()
+                }
+                else_outputs = {
+                    name: {
+                        **dict(definition),
+                        "from": {"ref": _loop_case_ref(else_terminal.output_refs[name])},
+                    }
+                    for name, definition in loop_output_contracts.items()
+                }
+                if not then_steps:
+                    then_steps = [
+                        _build_match_projection_anchor_step(
+                            match_step_name=nested_step_name,
+                            variant_name=f"{arm.variant_name.lower()}__then",
+                            case_outputs=then_outputs,
+                            context=context,
+                            span=arm.body.span,
+                        )
+                    ]
+                if not else_steps:
+                    else_steps = [
+                        _build_match_projection_anchor_step(
+                            match_step_name=nested_step_name,
+                            variant_name=f"{arm.variant_name.lower()}__else",
+                            case_outputs=else_outputs,
+                            context=context,
+                            span=arm.body.span,
+                        )
+                    ]
+                nested_step_id = _normalize_generated_step_id(nested_step_name)
+                _record_step_origin(context, step_name=nested_step_name, step_id=nested_step_id, source=expr)
+                return [
+                    {
+                        "name": nested_step_name,
+                        "id": nested_step_id,
+                        "if": {
+                            "compare": {
+                                "left": {"ref": match_terminal.output_refs["return__variant"]},
+                                "op": "eq",
+                                "right": arm.variant_name,
+                            }
+                        },
+                        "then": {
+                            "id": _normalize_generated_step_id(f"{nested_step_name}__then"),
+                            "outputs": then_outputs,
+                            "steps": then_steps,
+                        },
+                        "else": {
+                            "id": _normalize_generated_step_id(f"{nested_step_name}__else"),
+                            "outputs": else_outputs,
+                            "steps": else_steps,
+                        },
+                    }
+                ], _TerminalResult(
+                    step_name=nested_step_name,
+                    step_id=nested_step_id,
+                    output_refs={
+                        name: f"root.steps.{nested_step_name}.artifacts.{name}"
+                        for name in loop_output_contracts
+                    },
+                    output_kind="if",
+                    hidden_inputs={},
+                )
+
+            return lower_nested_match_as_if(tuple(expr.arms), nested_step_name=body_step_name)
+
+        cases: dict[str, Any] = {}
+        for arm in expr.arms:
+            arm_steps, arm_terminal = lower_match_arm(
+                arm,
+                nested_body_step_name=f"{body_step_name}__{arm.variant_name.lower()}",
             )
             cases[arm.variant_name] = {
                 "id": _normalize_generated_step_id(f"{body_step_name}__{arm.variant_name.lower()}"),
@@ -879,6 +982,7 @@ def _lower_loop_body_expr(
             binding_terminal=binding_terminal,
             body_step_name=f"{body_step_name}__then",
             active_variant_name=active_variant_name,
+            allow_structured_match_step=False,
         )
         else_steps, else_terminal = _lower_loop_body_expr(
             expr.else_expr,
@@ -892,6 +996,7 @@ def _lower_loop_body_expr(
             binding_terminal=binding_terminal,
             body_step_name=f"{body_step_name}__else",
             active_variant_name=active_variant_name,
+            allow_structured_match_step=False,
         )
         loop_output_contracts = _loop_output_contracts(
             state_projection=state_projection,

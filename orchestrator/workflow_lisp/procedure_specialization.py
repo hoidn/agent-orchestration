@@ -664,6 +664,16 @@ def _match_outputs_are_step_backed(
                 local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
+                binding_type=(
+                    type_env.union_variant(
+                        subject_type,
+                        arm.variant_name,
+                        span=match_expr.subject.span,
+                        form_path=match_expr.subject.form_path,
+                    )
+                    if isinstance(subject_type, UnionTypeRef)
+                    else None
+                ),
             ),
             local_type_bindings=(
                 {

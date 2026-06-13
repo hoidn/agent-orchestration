@@ -2574,30 +2574,7 @@ def _infer_expr_type(
             procedure_return_types=procedure_return_types,
         )
         if isinstance(then_type, LoopControlTypeRef) and isinstance(else_type, LoopControlTypeRef):
-            if then_type.result_type_ref is None and else_type.result_type_ref is None:
-                if not type_refs_compatible(then_type.state_type_ref, else_type.state_type_ref):
-                    raise TypeError("if loop-control continue state types must match during WCC inference")
-                return LoopControlTypeRef(
-                    state_type_ref=then_type.state_type_ref,
-                    result_type_ref=None,
-                )
-            if then_type.result_type_ref is not None and else_type.result_type_ref is not None:
-                if not type_refs_compatible(then_type.result_type_ref, else_type.result_type_ref):
-                    raise TypeError("if loop-control done result types must match during WCC inference")
-                return LoopControlTypeRef(
-                    state_type_ref=then_type.state_type_ref,
-                    result_type_ref=then_type.result_type_ref,
-                )
-            result_type_ref = then_type.result_type_ref or else_type.result_type_ref
-            state_type_ref = (
-                then_type.state_type_ref
-                if then_type.result_type_ref is None
-                else else_type.state_type_ref
-            )
-            return LoopControlTypeRef(
-                state_type_ref=state_type_ref,
-                result_type_ref=result_type_ref,
-            )
+            return _merge_loop_control_types(then_type, else_type, owner="if")
         if not type_refs_compatible(then_type, else_type):
             raise TypeError("if branch types must match during WCC inference")
         return then_type
@@ -2611,22 +2588,33 @@ def _infer_expr_type(
         )
         if not isinstance(subject_type, UnionTypeRef):
             raise TypeError("match subject must have a union type")
-        first_arm = expr.arms[0]
-        first_env = dict(value_env)
-        first_env[first_arm.binding_name] = type_env.union_variant(
-            subject_type,
-            first_arm.variant_name,
-            span=first_arm.span,
-            form_path=first_arm.form_path,
-            expansion_stack=first_arm.expansion_stack,
-        )
-        return _infer_expr_type(
-            first_arm.body,
-            type_env=type_env,
-            value_env=first_env,
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
-        )
+        inferred_type: TypeRef | LoopControlTypeRef | None = None
+        for arm in expr.arms:
+            arm_env = dict(value_env)
+            arm_env[arm.binding_name] = type_env.union_variant(
+                subject_type,
+                arm.variant_name,
+                span=arm.span,
+                form_path=arm.form_path,
+                expansion_stack=arm.expansion_stack,
+            )
+            arm_type = _infer_expr_type(
+                arm.body,
+                type_env=type_env,
+                value_env=arm_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+            )
+            if inferred_type is None:
+                inferred_type = arm_type
+                continue
+            if isinstance(inferred_type, LoopControlTypeRef) and isinstance(arm_type, LoopControlTypeRef):
+                inferred_type = _merge_loop_control_types(inferred_type, arm_type, owner="match")
+                continue
+            if not type_refs_compatible(inferred_type, arm_type):
+                raise TypeError("match arm types must match during WCC inference")
+        assert inferred_type is not None
+        return inferred_type
     if isinstance(expr, WithPhaseExpr):
         return _infer_expr_type(
             expr.body,
@@ -2698,6 +2686,34 @@ def _infer_expr_type(
     if isinstance(expr, BindProcExpr):
         return value_env.get(expr.base_expr.target_name, PrimitiveTypeRef(name="String"))
     raise TypeError(f"unsupported WCC type inference node: {type(expr).__name__}")
+
+
+def _merge_loop_control_types(
+    left: LoopControlTypeRef,
+    right: LoopControlTypeRef,
+    *,
+    owner: str,
+) -> LoopControlTypeRef:
+    if left.result_type_ref is None and right.result_type_ref is None:
+        if not type_refs_compatible(left.state_type_ref, right.state_type_ref):
+            raise TypeError(f"{owner} loop-control continue state types must match during WCC inference")
+        return LoopControlTypeRef(
+            state_type_ref=left.state_type_ref,
+            result_type_ref=None,
+        )
+    if left.result_type_ref is not None and right.result_type_ref is not None:
+        if not type_refs_compatible(left.result_type_ref, right.result_type_ref):
+            raise TypeError(f"{owner} loop-control done result types must match during WCC inference")
+        return LoopControlTypeRef(
+            state_type_ref=left.state_type_ref,
+            result_type_ref=left.result_type_ref,
+        )
+    result_type_ref = left.result_type_ref or right.result_type_ref
+    state_type_ref = left.state_type_ref if left.result_type_ref is None else right.state_type_ref
+    return LoopControlTypeRef(
+        state_type_ref=state_type_ref,
+        result_type_ref=result_type_ref,
+    )
 
 
 def _resolve_wcc_type_name(

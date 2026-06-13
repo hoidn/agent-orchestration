@@ -1480,7 +1480,11 @@ Required behavior:
 - direct non-scalar `on_exhausted` overrides are rejected;
 - imported generic `.orc` bodies may carry specialized loop-frame fields through
   ordinary `loop/recur :state` only after specialization has erased type
-  parameters from the runtime-visible state contract.
+  parameters from the runtime-visible state contract; and
+- a nested loop-body `match` arm may materialize sibling workflow-call outputs
+  onto `continue` state and later loop frames on the ordinary WCC/schema-2
+  route, but any later variant-specific access still requires fresh proof on
+  the carried value rather than hidden cross-iteration proof.
 
 ## 14. Workflow Calls
 

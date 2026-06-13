@@ -1056,16 +1056,18 @@ def _defunctionalize_case(
     for arm in body.arms:
         case_name = f"{match_step_name}__{arm.variant_name.lower()}"
         arm_context = lowering_core._copy_context_with_step_prefix(context, step_name_prefix=case_name)
+        arm_binding_type = None
         if isinstance(subject_type, UnionTypeRef):
+            arm_binding_type = context.type_env.union_variant(
+                subject_type,
+                arm.variant_name,
+                span=body.metadata.source_span,
+                form_path=body.metadata.form_path,
+            )
             arm_context = _context_with_local_type_binding(
                 arm_context,
                 binding_name=arm.binding_name,
-                binding_type=context.type_env.union_variant(
-                    subject_type,
-                    arm.variant_name,
-                    span=body.metadata.source_span,
-                    form_path=body.metadata.form_path,
-                ),
+                binding_type=arm_binding_type,
             )
         arm_steps, arm_terminal = _defunctionalize_body(
             arm.body,
@@ -1074,6 +1076,7 @@ def _defunctionalize_case(
                 local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
+                binding_type=arm_binding_type,
             ),
             scope_analysis=scope_analysis,
             jump_target=jump_target,

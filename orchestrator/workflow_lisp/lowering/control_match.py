@@ -228,16 +228,18 @@ def _control_lower_match_expr_impl(
             scope_kind="match_case",
             owner_step_name=match_step_name,
         )
+        arm_binding_type: TypeRef | None = None
         if isinstance(subject_type, UnionTypeRef):
+            arm_binding_type = context.type_env.union_variant(
+                subject_type,
+                arm.variant_name,
+                span=match_expr.subject.span,
+                form_path=match_expr.subject.form_path,
+            )
             arm_context = _context_with_local_type_binding(
                 arm_context,
                 binding_name=arm.binding_name,
-                binding_type=context.type_env.union_variant(
-                    subject_type,
-                    arm.variant_name,
-                    span=match_expr.subject.span,
-                    form_path=match_expr.subject.form_path,
-                ),
+                binding_type=arm_binding_type,
             )
         case_steps, case_terminal = _lower_conditional_branch_expr(
             arm.body,
@@ -248,6 +250,7 @@ def _control_lower_match_expr_impl(
                 local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
+                binding_type=arm_binding_type,
             ),
         )
         case_fragment = build_fragment(
@@ -275,6 +278,7 @@ def _control_lower_match_expr_impl(
                     local_values=local_values,
                     binding_name=arm.binding_name,
                     binding_terminal=binding_terminal,
+                    binding_type=arm_binding_type,
                 ),
                 span=arm.body.span,
                 form_path=arm.body.form_path,
@@ -578,11 +582,20 @@ def _control_match_arm_local_values_impl(
     local_values: Mapping[str, Any],
     binding_name: str,
     binding_terminal: _TerminalResult,
+    binding_type: TypeRef | None = None,
 ) -> dict[str, Any]:
     localized_output_refs = {
         output_name: _match_subject_scope_value(output_ref)
         for output_name, output_ref in binding_terminal.output_refs.items()
     }
+    if isinstance(binding_type, VariantCaseTypeRef):
+        allowed_field_names = {"variant", *(field.name for field in binding_type.definition.fields)}
+        localized_output_refs = {
+            output_name: output_ref
+            for output_name, output_ref in localized_output_refs.items()
+            if output_name == "return__variant"
+            or output_name.removeprefix("return__").split("__", 1)[0] in allowed_field_names
+        }
     return {
         **local_values,
         binding_name: _build_output_step_local_value(localized_output_refs),
@@ -605,7 +618,7 @@ def _control_binding_terminal_for_inline_match_impl(local_value: Any) -> _Termin
 def _match_subject_scope_value(value: Any) -> Any:
     if isinstance(value, str):
         if value.startswith("self.steps."):
-            return "root.steps." + value.removeprefix("self.steps.")
+            return "parent.steps." + value.removeprefix("self.steps.")
         return value
     if isinstance(value, Mapping):
         return {name: _match_subject_scope_value(item) for name, item in value.items()}

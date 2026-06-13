@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from orchestrator.workflow.pure_expr import (
@@ -29,6 +31,8 @@ from ..expressions import (
     RecordUpdateExpr,
     UnionVariantExpr,
 )
+from ..reader import read_sexpr_file
+from ..syntax import build_syntax_module
 from ..type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -263,11 +267,51 @@ def _pure_projection_type_equivalent(
         if not inferred_type.allowed_values:
             return True
         return set(inferred_type.allowed_values) == set(result_type.allowed_values)
+    inferred_definition = getattr(inferred_type, "definition", None)
+    result_definition = getattr(result_type, "definition", None)
+    if (
+        inferred_definition is not None
+        and result_definition is not None
+        and type(inferred_type) is type(result_type)
+        and getattr(inferred_definition, "name", None) == getattr(result_definition, "name", None)
+        and getattr(getattr(inferred_definition, "span", None), "start", None) is not None
+        and getattr(getattr(result_definition, "span", None), "start", None) is not None
+        and inferred_definition.span.start.path == result_definition.span.start.path
+    ):
+        return True
     return False
 
 
 def _short_type_name(name: str) -> str:
     return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
+
+
+@lru_cache(maxsize=None)
+def _module_export_info(source_path: str) -> tuple[str, frozenset[str]] | None:
+    path = Path(source_path)
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    if syntax_module.module_name is None:
+        return None
+    return syntax_module.module_name, frozenset(syntax_module.exports)
+
+
+def _nominal_descriptor_name(type_ref: TypeRef) -> str:
+    if "::" in type_ref.name:
+        return type_ref.name
+    if "/" in type_ref.name:
+        module_name, member_name = type_ref.name.rsplit("/", 1)
+        return f"{module_name}::{member_name}"
+    definition = getattr(type_ref, "definition", None)
+    span = getattr(definition, "span", None)
+    start = getattr(span, "start", None)
+    source_path = getattr(start, "path", None)
+    if source_path:
+        info = _module_export_info(source_path)
+        if info is not None:
+            module_name, exported_names = info
+            if getattr(definition, "name", None) in exported_names:
+                return f"{module_name}::{definition.name}"
+    return type_ref.name
 
 
 def _payload_expr(
@@ -650,13 +694,15 @@ def _field_type(type_ref: TypeRef, field_name: str, *, type_env: FrontendTypeEnv
                 return type_env.resolve_type(field.type_name, span=field.span, form_path=())
     if isinstance(type_ref, UnionTypeRef):
         for variant in type_ref.definition.variants:
-            for field in variant.fields:
-                if field.name == field_name:
-                    return type_env.resolve_type(field.type_name, span=field.span, form_path=())
+            resolved = type_ref.variant_field_types.get(variant.name, {}).get(field_name)
+            if resolved is not None:
+                return resolved
     if isinstance(type_ref, VariantCaseTypeRef):
-        for field in type_ref.definition.fields:
-            if field.name == field_name:
-                return type_env.resolve_type(field.type_name, span=field.span, form_path=())
+        union_type = type_env.resolve_type(type_ref.union_name, span=type_ref.definition.span, form_path=())
+        if isinstance(union_type, UnionTypeRef):
+            resolved = union_type.variant_field_types.get(type_ref.variant_name, {}).get(field_name)
+            if resolved is not None:
+                return resolved
     raise KeyError(f"unknown field `{field_name}` on `{type(type_ref).__name__}`")
 
 
@@ -684,7 +730,7 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
     if isinstance(type_ref, RecordTypeRef):
         return {
             "kind": "record",
-            "name": type_ref.name,
+            "name": _nominal_descriptor_name(type_ref),
             "fields": [
                 {
                     "name": field.name,
@@ -696,7 +742,7 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
     if isinstance(type_ref, UnionTypeRef):
         return {
             "kind": "union",
-            "name": type_ref.name,
+            "name": _nominal_descriptor_name(type_ref),
             "variants": [
                 {
                     "name": variant.name,
@@ -715,6 +761,9 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
             ],
         }
     if isinstance(type_ref, VariantCaseTypeRef):
+        union_type = type_env.resolve_type(type_ref.union_name, span=type_ref.definition.span, form_path=())
+        if not isinstance(union_type, UnionTypeRef):
+            raise TypeError(f"expected union type for variant case `{type_ref.union_name}`")
         return {
             "kind": "variant_case",
             "union_name": type_ref.union_name,
@@ -723,7 +772,7 @@ def _type_descriptor(type_ref: TypeRef, *, type_env: FrontendTypeEnvironment) ->
                 {
                     "name": field.name,
                     "type": _type_descriptor(
-                        type_env.resolve_type(field.type_name, span=field.span, form_path=()),
+                        union_type.variant_field_types[type_ref.variant_name][field.name],
                         type_env=type_env,
                     ),
                 }
@@ -846,11 +895,10 @@ def _structured_output_contracts(
     )
     variant_names = tuple(projection.variant_fields)
     shared_names = {field.generated_name for field in projection.shared_fields}
-    variant_name_map = {
-        field.generated_name: variant_name
-        for variant_name, variant_fields in projection.variant_fields.items()
-        for field in variant_fields
-    }
+    variant_name_map: dict[str, list[str]] = {}
+    for variant_name, variant_fields in projection.variant_fields.items():
+        for field in variant_fields:
+            variant_name_map.setdefault(field.generated_name, []).append(variant_name)
     contracts: dict[str, dict[str, Any]] = {}
     for field in fields:
         definition = dict(field.contract_definition)
@@ -867,9 +915,9 @@ def _structured_output_contracts(
             metadata["field_role"] = "shared"
             metadata["active_variants"] = list(variant_names)
         else:
-            active_variant = variant_name_map.get(field.generated_name)
-            metadata["field_role"] = "variant" if active_variant is not None else "unknown"
-            metadata["active_variants"] = [active_variant] if active_variant is not None else []
+            active_variants = variant_name_map.get(field.generated_name, [])
+            metadata["field_role"] = "variant" if active_variants else "unknown"
+            metadata["active_variants"] = active_variants
         definition["projection"] = metadata
         contracts[field.generated_name] = definition
     return contracts
