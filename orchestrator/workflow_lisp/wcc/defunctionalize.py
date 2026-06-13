@@ -583,6 +583,11 @@ def _lower_one_wcc_workflow(
         context=context,
         workflow_origin=workflow_origin,
     )
+    runtime_proof_nested_structured_step_names, runtime_proof_shared_validation_parent_ref_allowances, runtime_proof_executable_parent_ref_allowances = lowering_core._runtime_proof_allowances(
+        authored_mapping,
+        step_origins=context.step_spans,
+        is_generated_private_workflow=is_generated_private_workflow,
+    )
 
     return lowering_core.LoweredWorkflow(
         typed_workflow=typed_workflow,
@@ -671,6 +676,7 @@ def _lower_one_wcc_workflow(
             generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
+        is_generated_private_workflow=is_generated_private_workflow,
         private_exec_context_bindings=tuple(context.private_exec_context_bindings),
         compatibility_bridge_inputs=tuple(
             name
@@ -683,6 +689,9 @@ def _lower_one_wcc_workflow(
             for name, definition in context.top_level_artifacts.items()
             if isinstance(name, str) and isinstance(definition, Mapping) and definition.get("kind") == "collection"
         ),
+        runtime_proof_nested_structured_step_names=runtime_proof_nested_structured_step_names,
+        runtime_proof_shared_validation_parent_ref_allowances=runtime_proof_shared_validation_parent_ref_allowances,
+        runtime_proof_executable_parent_ref_allowances=runtime_proof_executable_parent_ref_allowances,
         generated_repeat_until_on_exhausted_refs=(
             lowering_core._capture_generated_repeat_until_on_exhausted_refs(authored_mapping)
         ),

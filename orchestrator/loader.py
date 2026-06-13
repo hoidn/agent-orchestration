@@ -2,6 +2,7 @@
 
 import re
 from copy import deepcopy
+from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Set
@@ -57,6 +58,13 @@ class PreservingLoader(yaml.SafeLoader):
     pass
 
 
+class WorkflowBoundaryValidationPolicy(str, Enum):
+    """How strictly shared-loader boundary validation should gate bundle construction."""
+
+    PUBLIC_CALLABLE = "public_callable"
+    DEDICATED_RUNTIME_PROOF = "dedicated_runtime_proof"
+
+
 # Override the implicit resolver for boolean values to prevent 'on' from being converted to True
 # This removes the implicit tag resolvers that convert strings like 'on', 'off', 'yes', 'no' to booleans
 PreservingLoader.yaml_implicit_resolvers = dict(PreservingLoader.yaml_implicit_resolvers)
@@ -90,8 +98,15 @@ class WorkflowLoader:
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14",
     ]
 
-    def __init__(self, workspace: Path):
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        boundary_validation_policy: "WorkflowBoundaryValidationPolicy" = None,
+    ):
         """Initialize loader with workspace root."""
+        if boundary_validation_policy is None:
+            boundary_validation_policy = WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
         self.workspace = workspace.resolve()
         self.errors: List[ValidationError] = []
         self._workflow_input_specs: Dict[str, Dict[str, Any]] = {}
@@ -104,6 +119,9 @@ class WorkflowLoader:
         self._current_validation_workflow_name: Optional[str] = None
         self._allow_private_collection_output_schemas = False
         self._allow_generated_repeat_until_on_exhausted_refs = False
+        self._boundary_validation_policy = boundary_validation_policy
+        self._dedicated_runtime_proof_nested_structured_step_names: Set[str] = set()
+        self._dedicated_runtime_proof_parent_ref_allowances: Set[tuple[str, str]] = set()
         self._generated_repeat_until_on_exhausted_refs: Dict[str, Dict[str, str]] = {}
 
     def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
@@ -1080,7 +1098,8 @@ class WorkflowLoader:
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
-                    allow_nested=allow_nested_structured,
+                    allow_nested=allow_nested_structured
+                    or name in self._dedicated_runtime_proof_nested_structured_step_names,
                     proof_context=proof_context,
                 )
                 continue
@@ -1099,7 +1118,8 @@ class WorkflowLoader:
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
-                    allow_nested=allow_nested_structured,
+                    allow_nested=allow_nested_structured
+                    or name in self._dedicated_runtime_proof_nested_structured_step_names,
                     proof_context=proof_context,
                 )
                 continue
@@ -4236,6 +4256,8 @@ class WorkflowLoader:
         artifacts_registry: Optional[Any] = None,
     ) -> Dict[str, Any]:
         artifact_map: Dict[str, Dict[str, Any]] = self._build_scope_artifact_catalog(steps, artifacts_registry)
+        all_steps = self._collect_all_steps(steps)
+        all_artifact_map = self._build_scope_artifact_catalog(all_steps, artifacts_registry)
         step_names: List[str] = []
 
         for step in steps:
@@ -4268,8 +4290,10 @@ class WorkflowLoader:
 
         return {
             'artifacts': artifact_map,
+            'all_artifacts': all_artifact_map,
             'multi_visit': self._detect_multi_visit_steps(edges),
             'non_step_results': self._build_scope_non_step_result_targets(steps),
+            'all_non_step_results': self._build_scope_non_step_result_targets(all_steps),
         }
 
     def _build_scope_artifact_catalog(
@@ -5015,6 +5039,7 @@ class WorkflowLoader:
             return None
 
         scope_name = ref.split('.', 1)[0]
+        resolved_scope_name = scope_name
         if self._version_at_least(version, "2.0"):
             if scope_name == 'root':
                 if not ref.startswith('root.steps.'):
@@ -5058,12 +5083,30 @@ class WorkflowLoader:
             return None
 
         target_step = parsed_ref.step_name
-        if scope_name == 'root':
+        if (
+            scope_name == 'parent'
+            and target_step not in artifacts_catalog
+            and self._boundary_validation_policy is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
+            and (step_name, ref) in self._dedicated_runtime_proof_parent_ref_allowances
+        ):
+            nested_artifacts = root_catalog.get('all_artifacts', {})
+            if isinstance(nested_artifacts, dict) and target_step in nested_artifacts:
+                artifacts_catalog = nested_artifacts
+                resolved_scope_name = 'all'
+
+        if resolved_scope_name == 'root':
             multi_visit = root_catalog.get('multi_visit', set())
             non_step_results = root_catalog.get('non_step_results', set())
-        elif scope_name == 'parent':
+        elif resolved_scope_name == 'parent':
             multi_visit = parent_multi_visit or set()
             non_step_results = parent_non_step_results or set()
+        elif resolved_scope_name == 'all':
+            multi_visit = (
+                root_catalog.get('multi_visit', set())
+                | (parent_multi_visit or set())
+                | scope_multi_visit
+            )
+            non_step_results = root_catalog.get('all_non_step_results', set())
         else:
             multi_visit = scope_multi_visit
             non_step_results = scope_non_step_results

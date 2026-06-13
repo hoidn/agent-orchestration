@@ -2,16 +2,22 @@ import importlib
 from pathlib import Path
 import json
 import re
+import shutil
 from textwrap import dedent
 
 import pytest
 
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
     compile_stage3_entrypoint,
     compile_stage3_module,
+    validate_lowered_workflows,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -29,9 +35,11 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_stdlib_transition.orc"
 VALID_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
 VALID_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_selected_item.orc"
@@ -241,6 +249,204 @@ def _compile(path: Path, *, tmp_path: Path, include_transition: bool = True):
         validate_shared=False,
         workspace_root=tmp_path,
     )
+
+
+def _runtime_command_boundary_environment() -> CommandBoundaryEnvironment:
+    bindings = dict(_command_boundary_environment().bindings_by_name)
+    transition = bindings["apply_resource_transition"]
+    bindings["apply_resource_transition"] = CertifiedAdapterBinding(
+        name=transition.name,
+        stable_command=(
+            "python",
+            str(REPO_ROOT / "orchestrator" / "workflow_lisp" / "adapters" / "apply_resource_transition.py"),
+        ),
+        input_contract=transition.input_contract,
+        output_type_name=transition.output_type_name,
+        effects=transition.effects,
+        path_safety=transition.path_safety,
+        source_map_behavior=transition.source_map_behavior,
+        fixture_ids=transition.fixture_ids,
+        negative_fixture_ids=transition.negative_fixture_ids,
+    )
+    return build_command_boundary_environment(bindings)
+
+
+def _compile_linked_module_fixture(path: Path, *, tmp_path: Path):
+    source = path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None, f"fixture is missing defmodule: {path}"
+    resolved_module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    runtime_command_boundaries = _runtime_command_boundary_environment()
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        command_boundaries=runtime_command_boundaries.bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    validated = validate_lowered_workflows(
+        result.entry_result.lowered_workflows,
+        workspace_root=tmp_path,
+        imported_workflow_bundles=result.entry_result.workflow_catalog.imported_bundles_by_name,
+    )
+    return module_path, result, validated
+
+
+def _default_state_value(type_payload: dict[str, object]) -> object:
+    kind = type_payload.get("kind")
+    if kind == "primitive":
+        primitive_name = type_payload.get("name")
+        if primitive_name == "String":
+            return ""
+        if primitive_name == "Bool":
+            return False
+        if primitive_name == "Int":
+            return 0
+        if primitive_name == "Float":
+            return 0.0
+        if primitive_name == "Json":
+            return {}
+    if kind == "record":
+        return {
+            str(field["name"]): _default_state_value(dict(field["type"]))
+            for field in type_payload.get("fields", ())
+        }
+    if kind == "path":
+        name = str(type_payload.get("name", ""))
+        if "Report" in name or "report" in name:
+            return "artifacts/work/seed-report.md"
+        return "state/seed-state.json"
+    if kind == "enum":
+        allowed = tuple(type_payload.get("allowed", ()))
+        assert allowed
+        return allowed[0]
+    if kind == "list":
+        return []
+    if kind == "map":
+        return {}
+    if kind == "optional":
+        return None
+    raise AssertionError(f"unsupported test seed type: {type_payload!r}")
+
+
+def _iter_surface_steps(steps):
+    for step in steps or ():
+        yield step
+        for branch_step in step.then_branch or ():
+            yield from _iter_surface_steps((branch_step,))
+        for branch_step in step.else_branch or ():
+            yield from _iter_surface_steps((branch_step,))
+        for branch_step in step.for_each_steps or ():
+            yield from _iter_surface_steps((branch_step,))
+        for case in step.match_cases.values():
+            yield from _iter_surface_steps(case.steps)
+
+
+def _seed_native_resource_states(bundle, workspace: Path) -> None:
+    for step in _iter_surface_steps(bundle.surface.steps):
+        declaration = step.resource_transition.get("declaration")
+        resource = step.resource_transition.get("resource")
+        if declaration is None or resource is None:
+            continue
+        if declaration.resource.backing.kind != "native":
+            continue
+        state_path = workspace / str(resource["state_path"])
+        if state_path.exists():
+            continue
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "transition_schema_version": 1,
+                    "resource_id": resource["resource_id"],
+                    "resource_kind": resource["resource_kind"],
+                    "state_version": "native:0:seed",
+                    "state": _default_state_value(dict(declaration.resource.state_type)),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+
+def _write_resource_runtime_scripts(workspace: Path) -> None:
+    scripts_dir = workspace / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    script_payloads = {
+        "resolve_roadmap_sync.py": {
+            "body": {
+                "status": "aligned",
+            },
+            "artifact_relpaths": (),
+        },
+        "resolve_plan_gate.py": {
+            "body": {
+                "variant": "APPROVED",
+                "execution-report-path": "artifacts/work/plan-gate-approved.md",
+            },
+            "artifact_relpaths": ("artifacts/work/plan-gate-approved.md",),
+        },
+        "execute_implementation.py": {
+            "body": {
+                "variant": "COMPLETED",
+                "execution-report-path": "artifacts/work/implementation-execution.md",
+            },
+            "artifact_relpaths": ("artifacts/work/implementation-execution.md",),
+        },
+    }
+    for script_name, payload in script_payloads.items():
+        lines = [
+            "import json",
+            "import os",
+            "from pathlib import Path",
+            "",
+        ]
+        for relpath in payload["artifact_relpaths"]:
+            lines.extend(
+                [
+                    f"artifact_path = Path({relpath!r})",
+                    "artifact_path.parent.mkdir(parents=True, exist_ok=True)",
+                    "artifact_path.write_text('generated\\n', encoding='utf-8')",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                'bundle_path = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])',
+                "bundle_path.parent.mkdir(parents=True, exist_ok=True)",
+                f"bundle_path.write_text(json.dumps({payload['body']!r}) + '\\n', encoding='utf-8')",
+            ]
+        )
+        (scripts_dir / script_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _bound_runtime_inputs(bundle, workspace: Path, inputs: dict[str, object]) -> dict[str, object]:
+    runtime_inputs = dict(workflow_runtime_input_contracts(bundle))
+    public_inputs = {
+        input_name: contract
+        for input_name, contract in runtime_inputs.items()
+        if not input_name.startswith("__write_root__")
+    }
+    return bind_workflow_inputs(public_inputs, inputs, workspace)
+
+
+def _execute_bundle(bundle, *, workflow_path: Path, workspace: Path, inputs: dict[str, object], run_id: str):
+    _seed_native_resource_states(bundle, workspace)
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize(
+        workflow_path.as_posix(),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_bound_runtime_inputs(bundle, workspace, inputs),
+    )
+    for relpath in ("scripts", "docs", "state"):
+        source = workspace / relpath
+        if source.exists():
+            shutil.copytree(source, state_manager.run_root / relpath, dirs_exist_ok=True)
+    return WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute(on_error="stop")
 
 
 def _iter_nested_steps(steps):
@@ -1311,3 +1517,56 @@ def test_shared_validation_accepts_resource_transition_and_finalize_selected_ite
     assert {
         workflow.typed_workflow.definition.name for workflow in finalize_result.lowered_workflows
     } >= {"run-selected-item"}
+
+
+def test_stdlib_finalize_selected_item_executes_promoted_route_with_runtime_native_transition_and_view(
+    tmp_path: Path,
+) -> None:
+    workflow_path, _result, validated = _compile_linked_module_fixture(
+        VALID_STDLIB_FINALIZE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    bundle = validated["resource_stdlib_finalize_selected_item_stdlib::run-selected-item"]
+    _write_resource_runtime_scripts(tmp_path)
+
+    backlog_item = tmp_path / "docs" / "backlog" / "active" / "item-1.md"
+    backlog_item.parent.mkdir(parents=True, exist_ok=True)
+    backlog_item.write_text("selected item\n", encoding="utf-8")
+    (tmp_path / "docs" / "backlog" / "in_progress").mkdir(parents=True, exist_ok=True)
+    final_plan_gate_state = tmp_path / "state" / "selected" / "final-plan-gate.json"
+    final_plan_gate_state.parent.mkdir(parents=True, exist_ok=True)
+    final_plan_gate_state.write_text("{}\n", encoding="utf-8")
+    ledger_path = tmp_path / "state" / "runtime" / "ledger.json"
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text("[]\n", encoding="utf-8")
+    (tmp_path / "state" / "items" / "item-1").mkdir(parents=True, exist_ok=True)
+
+    state = _execute_bundle(
+        bundle,
+        workflow_path=workflow_path,
+        workspace=tmp_path,
+        run_id="resource-stdlib-runtime",
+        inputs={
+            "item-ctx__run__run-id": "resource-stdlib-runtime",
+            "item-ctx__run__state-root": "state/runtime",
+            "item-ctx__run__artifact-root": "artifacts/work",
+            "item-ctx__item-id": "item-1",
+            "item-ctx__state-root": "state/items/item-1",
+            "item-ctx__artifact-root": "artifacts/work",
+            "item-ctx__ledger": "state/runtime/ledger.json",
+            "selected__item-id": "item-1",
+            "selected__item-path": "docs/backlog/active/item-1.md",
+            "selected__is-active": True,
+            "selected__final-plan-gate-state": "state/selected/final-plan-gate.json",
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"]["return__variant"] == "CONTINUE"
+    assert state["workflow_outputs"]["return__summary-path"] == "artifacts/work/implementation-execution.md"
+    assert state["workflow_outputs"]["return__run-state"] == "state/selected/final-plan-gate.json"
+    assert (tmp_path / "artifacts" / "work" / "implementation-execution.md").is_file()
+    resource_state_paths = sorted(tmp_path.rglob("*selected-item-outcome-state.json"))
+    transition_audit_paths = sorted(tmp_path.rglob("*record-selected-item-outcome-audit.jsonl"))
+    assert resource_state_paths
+    assert transition_audit_paths

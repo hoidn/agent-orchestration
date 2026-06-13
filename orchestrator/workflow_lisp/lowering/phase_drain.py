@@ -1435,7 +1435,20 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
         authored_mapping=authored_mapping,
         origin_map=origin_map,
         boundary_projection=lowered_workflow.boundary_projection,
+        is_generated_private_workflow=lowered_workflow.is_generated_private_workflow,
+        private_exec_context_bindings=lowered_workflow.private_exec_context_bindings,
+        compatibility_bridge_inputs=lowered_workflow.compatibility_bridge_inputs,
+        generated_path_allocations=lowered_workflow.generated_path_allocations,
         private_artifact_ids=lowered_workflow.private_artifact_ids,
+        runtime_proof_nested_structured_step_names=(
+            lowered_workflow.runtime_proof_nested_structured_step_names
+        ),
+        runtime_proof_shared_validation_parent_ref_allowances=(
+            lowered_workflow.runtime_proof_shared_validation_parent_ref_allowances
+        ),
+        runtime_proof_executable_parent_ref_allowances=(
+            lowered_workflow.runtime_proof_executable_parent_ref_allowances
+        ),
         generated_repeat_until_on_exhausted_refs=(
             lowered_workflow.generated_repeat_until_on_exhausted_refs
         ),

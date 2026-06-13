@@ -2742,6 +2742,12 @@ Contains:
 
 Executable IR no longer contains macros, procedures, or unresolved type forms.
 
+Dedicated stdlib proving fixtures may also compile under a named
+runtime-proof validation profile. That lane still has to assemble ordinary
+`LoadedWorkflowBundle` values, derive Semantic IR / runtime-plan projections,
+and pass executable IR validation, but it does not by itself certify that the
+same workflow is promotion-ready as a public or parent-callable boundary.
+
 ## 49. Runtime Plan
 
 Final runtime plan includes:
@@ -3111,6 +3117,13 @@ Recommended sequence:
 12. state layout validation
 13. source-map coverage validation
 14. executable lowering validation
+
+Stage 3 may expose more than one validation profile over this sequence:
+frontend-only proof stops before shared bundle construction, shared-callable
+proof runs the ordinary public-boundary/shared-validation lane, and dedicated
+runtime-proof runs the shared bundle plus executable checks needed for
+validated executable bundles while leaving parent-callable/public-boundary
+promotion proof to the stricter shared-callable lane.
 
 ```mermaid
 flowchart LR

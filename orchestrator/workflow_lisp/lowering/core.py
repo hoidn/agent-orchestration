@@ -37,13 +37,13 @@ from types import MappingProxyType
 from typing import Any
 
 from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
-from orchestrator.loader import WorkflowLoader
+from orchestrator.loader import WorkflowBoundaryValidationPolicy, WorkflowLoader
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
-from orchestrator.workflow.references import StructuredStepReference
+from orchestrator.workflow.references import StructuredStepReference, parse_structured_ref
 from orchestrator.workflow.state_layout import (
     GeneratedPathAllocation,
     derive_entrypoint_managed_write_root_allocations,
@@ -334,10 +334,14 @@ class LoweredWorkflow:
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
     boundary_projection: WorkflowBoundaryProjection
+    is_generated_private_workflow: bool = False
     private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
     compatibility_bridge_inputs: tuple[str, ...] = ()
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     private_artifact_ids: tuple[str, ...] = ()
+    runtime_proof_nested_structured_step_names: tuple[str, ...] = ()
+    runtime_proof_shared_validation_parent_ref_allowances: tuple[tuple[str, str], ...] = ()
+    runtime_proof_executable_parent_ref_allowances: tuple[tuple[str, str], ...] = ()
     generated_repeat_until_on_exhausted_refs: Mapping[str, Mapping[str, str]] = field(
         default_factory=dict
     )
@@ -380,6 +384,246 @@ def _capture_generated_repeat_until_on_exhausted_refs(
             captured[step_name] = MappingProxyType(refs)
 
     return MappingProxyType(captured)
+
+
+def _all_step_names_from_steps(steps: Sequence[object]) -> set[str]:
+    names: set[str] = set()
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        name = step.get("name")
+        if isinstance(name, str) and name:
+            names.add(name)
+        if_block = step.get("then")
+        if isinstance(if_block, Mapping):
+            names.update(_all_step_names_from_steps(if_block.get("steps", ())))
+        else_block = step.get("else")
+        if isinstance(else_block, Mapping):
+            names.update(_all_step_names_from_steps(else_block.get("steps", ())))
+        match_node = step.get("match")
+        if isinstance(match_node, Mapping):
+            cases = match_node.get("cases")
+            if isinstance(cases, Mapping):
+                for case_block in cases.values():
+                    if isinstance(case_block, Mapping):
+                        names.update(_all_step_names_from_steps(case_block.get("steps", ())))
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            names.update(_all_step_names_from_steps(repeat_until.get("steps", ())))
+            on_exhausted = repeat_until.get("on_exhausted")
+            if isinstance(on_exhausted, Mapping):
+                names.update(_all_step_names_from_steps(on_exhausted.get("steps", ())))
+        for_each = step.get("for_each")
+        if isinstance(for_each, Mapping):
+            names.update(_all_step_names_from_steps(for_each.get("steps", ())))
+    return names
+
+
+def _iter_parent_ref_strings(payload: object) -> Sequence[str]:
+    refs: list[str] = []
+
+    def visit(value: object) -> None:
+        if isinstance(value, Mapping):
+            ref = value.get("ref")
+            if isinstance(ref, str) and ref.startswith("parent.steps."):
+                refs.append(ref)
+            for nested in value.values():
+                visit(nested)
+            return
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for nested in value:
+                visit(nested)
+
+    visit(payload)
+    return tuple(refs)
+
+
+def _scan_parent_ref_allowances(
+    payload: object,
+    *,
+    owner_label: str | None,
+    parent_scope_names: frozenset[str],
+    all_step_names: frozenset[str],
+    shared_validation_allowances: set[tuple[str, str]],
+    executable_allowances: set[tuple[str, str]],
+) -> None:
+    for ref in _iter_parent_ref_strings(payload):
+        try:
+            parsed = parse_structured_ref(ref, all_step_names)
+        except Exception:
+            continue
+        if parsed.step_name in parent_scope_names or parsed.step_name not in all_step_names:
+            continue
+        if owner_label is not None:
+            shared_validation_allowances.add((owner_label, ref))
+            executable_allowances.add((owner_label, ref))
+
+
+def _is_runtime_proof_generated_private_step(
+    step_name: str,
+    *,
+    step_origins: Mapping[str, LoweringOrigin],
+    is_generated_private_workflow: bool,
+) -> bool:
+    if is_generated_private_workflow:
+        return True
+    origin = step_origins.get(step_name)
+    if origin is None:
+        return False
+    return bool(origin.expansion_stack) or "__%macro__" in step_name
+
+
+def _runtime_proof_parent_ref_allowances_for_generated_private_steps(
+    allowances: Sequence[tuple[str, str]],
+    *,
+    step_origins: Mapping[str, LoweringOrigin],
+    is_generated_private_workflow: bool,
+) -> tuple[tuple[str, str], ...]:
+    filtered: set[tuple[str, str]] = set()
+    for owner_label, ref in allowances:
+        owner_step = owner_label.split(".", 1)[0]
+        if _is_runtime_proof_generated_private_step(
+            owner_step,
+            step_origins=step_origins,
+            is_generated_private_workflow=is_generated_private_workflow,
+        ):
+            filtered.add((owner_label, ref))
+    return tuple(sorted(filtered))
+
+
+def _runtime_proof_allowances(
+    authored_mapping: Mapping[str, object],
+    *,
+    step_origins: Mapping[str, LoweringOrigin],
+    is_generated_private_workflow: bool,
+) -> tuple[tuple[str, ...], tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
+    top_level_steps = authored_mapping.get("steps", ())
+    if not isinstance(top_level_steps, Sequence):
+        return (), (), ()
+    all_step_names = frozenset(_all_step_names_from_steps(top_level_steps))
+    nested_structured_steps: set[str] = set()
+    shared_validation_allowances: set[tuple[str, str]] = set()
+    executable_allowances: set[tuple[str, str]] = set()
+
+    def recurse(steps: Sequence[object], *, top_level: bool) -> None:
+        scope_step_names = frozenset(
+            step.get("name")
+            for step in steps
+            if isinstance(step, Mapping) and isinstance(step.get("name"), str)
+        )
+        for step in steps:
+            if not isinstance(step, Mapping):
+                continue
+            step_name = step.get("name")
+            if not isinstance(step_name, str) or not step_name:
+                continue
+            step_is_generated_private = _is_runtime_proof_generated_private_step(
+                step_name,
+                step_origins=step_origins,
+                is_generated_private_workflow=is_generated_private_workflow,
+            )
+            if not top_level and (
+                isinstance(step.get("if"), Mapping) or isinstance(step.get("match"), Mapping)
+            ) and step_is_generated_private:
+                nested_structured_steps.add(step_name)
+
+            immediate_payload = {
+                key: value
+                for key, value in step.items()
+                if key not in {"then", "else", "match", "repeat_until", "for_each"}
+            }
+            if step_is_generated_private:
+                _scan_parent_ref_allowances(
+                    immediate_payload,
+                    owner_label=step_name,
+                    parent_scope_names=scope_step_names,
+                    all_step_names=all_step_names,
+                    shared_validation_allowances=shared_validation_allowances,
+                    executable_allowances=executable_allowances,
+                )
+
+            then_block = step.get("then")
+            if isinstance(then_block, Mapping):
+                outputs = then_block.get("outputs")
+                if isinstance(outputs, Mapping):
+                    for output_name, spec in outputs.items():
+                        if isinstance(output_name, str) and step_is_generated_private:
+                            _scan_parent_ref_allowances(
+                                spec,
+                                owner_label=f"{step_name}.then.outputs.{output_name}",
+                                parent_scope_names=scope_step_names,
+                                all_step_names=all_step_names,
+                                shared_validation_allowances=shared_validation_allowances,
+                                executable_allowances=executable_allowances,
+                            )
+                recurse(then_block.get("steps", ()), top_level=False)
+
+            else_block = step.get("else")
+            if isinstance(else_block, Mapping):
+                outputs = else_block.get("outputs")
+                if isinstance(outputs, Mapping):
+                    for output_name, spec in outputs.items():
+                        if isinstance(output_name, str) and step_is_generated_private:
+                            _scan_parent_ref_allowances(
+                                spec,
+                                owner_label=f"{step_name}.else.outputs.{output_name}",
+                                parent_scope_names=scope_step_names,
+                                all_step_names=all_step_names,
+                                shared_validation_allowances=shared_validation_allowances,
+                                executable_allowances=executable_allowances,
+                            )
+                recurse(else_block.get("steps", ()), top_level=False)
+
+            match_node = step.get("match")
+            if isinstance(match_node, Mapping):
+                cases = match_node.get("cases")
+                if isinstance(cases, Mapping):
+                    for case_name, case_block in cases.items():
+                        if not isinstance(case_name, str) or not isinstance(case_block, Mapping):
+                            continue
+                        outputs = case_block.get("outputs")
+                        if isinstance(outputs, Mapping):
+                            for output_name, spec in outputs.items():
+                                if isinstance(output_name, str) and step_is_generated_private:
+                                    _scan_parent_ref_allowances(
+                                        spec,
+                                        owner_label=f"{step_name}.match.cases.{case_name}.outputs.{output_name}",
+                                        parent_scope_names=scope_step_names,
+                                        all_step_names=all_step_names,
+                                        shared_validation_allowances=shared_validation_allowances,
+                                        executable_allowances=executable_allowances,
+                                    )
+                        recurse(case_block.get("steps", ()), top_level=False)
+
+            repeat_until = step.get("repeat_until")
+            if isinstance(repeat_until, Mapping):
+                outputs = repeat_until.get("outputs")
+                if isinstance(outputs, Mapping):
+                    for output_name, spec in outputs.items():
+                        if isinstance(output_name, str) and step_is_generated_private:
+                            _scan_parent_ref_allowances(
+                                spec,
+                                owner_label=f"{step_name}.repeat_until.outputs.{output_name}",
+                                parent_scope_names=scope_step_names,
+                                all_step_names=all_step_names,
+                                shared_validation_allowances=shared_validation_allowances,
+                                executable_allowances=executable_allowances,
+                            )
+                recurse(repeat_until.get("steps", ()), top_level=False)
+                on_exhausted = repeat_until.get("on_exhausted")
+                if isinstance(on_exhausted, Mapping):
+                    recurse(on_exhausted.get("steps", ()), top_level=False)
+
+            for_each = step.get("for_each")
+            if isinstance(for_each, Mapping):
+                recurse(for_each.get("steps", ()), top_level=False)
+
+    recurse(top_level_steps, top_level=True)
+    return (
+        tuple(sorted(nested_structured_steps)),
+        tuple(sorted(shared_validation_allowances)),
+        tuple(sorted(executable_allowances)),
+    )
 
 
 def _origin_for_workflow(*args, **kwargs):
@@ -557,11 +801,21 @@ def lower_workflow_definitions(
     return tuple(ordered)
 
 
+def _boundary_validation_policy_for_profile(
+    validation_profile: object | None,
+) -> WorkflowBoundaryValidationPolicy:
+    profile_name = getattr(validation_profile, "name", validation_profile)
+    if profile_name == "DEDICATED_RUNTIME_PROOF":
+        return WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
+    return WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE
+
+
 def validate_lowered_workflows(
     lowered_workflows: tuple[LoweredWorkflow, ...],
     *,
     workspace_root: Path,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    validation_profile: object | None = None,
 ) -> Mapping[str, LoadedWorkflowBundle]:
     """Run lowered workflow dictionaries through the existing validation path.
 
@@ -610,6 +864,7 @@ def validate_lowered_workflows(
             workspace_root=workspace_root,
             imported_bundles=imported_bundles,
             workflow_is_imported=workflow_name in imported_names,
+            boundary_validation_policy=_boundary_validation_policy_for_profile(validation_profile),
         )
         validated[workflow_name] = bundle
         visiting.remove(workflow_name)
@@ -823,6 +1078,11 @@ def _lower_one_workflow(
         context=context,
         workflow_origin=workflow_origin,
     )
+    runtime_proof_nested_structured_step_names, runtime_proof_shared_validation_parent_ref_allowances, runtime_proof_executable_parent_ref_allowances = _runtime_proof_allowances(
+        authored_mapping,
+        step_origins=context.step_spans,
+        is_generated_private_workflow=is_generated_private_workflow,
+    )
 
     return LoweredWorkflow(
         typed_workflow=typed_workflow,
@@ -919,6 +1179,7 @@ def _lower_one_workflow(
             generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
+        is_generated_private_workflow=is_generated_private_workflow,
         private_exec_context_bindings=tuple(context.private_exec_context_bindings),
         compatibility_bridge_inputs=tuple(
             name
@@ -933,6 +1194,9 @@ def _lower_one_workflow(
             and isinstance(definition, Mapping)
             and definition.get("kind") == "collection"
         ),
+        runtime_proof_nested_structured_step_names=runtime_proof_nested_structured_step_names,
+        runtime_proof_shared_validation_parent_ref_allowances=runtime_proof_shared_validation_parent_ref_allowances,
+        runtime_proof_executable_parent_ref_allowances=runtime_proof_executable_parent_ref_allowances,
         generated_repeat_until_on_exhausted_refs=_capture_generated_repeat_until_on_exhausted_refs(
             authored_mapping
         ),
@@ -1959,16 +2223,37 @@ def _validate_one_lowered_workflow(
     workspace_root: Path,
     imported_bundles: Mapping[str, LoadedWorkflowBundle],
     workflow_is_imported: bool,
+    boundary_validation_policy: WorkflowBoundaryValidationPolicy,
 ) -> LoadedWorkflowBundle:
     """Validate one lowered workflow mapping through the shared loader path."""
 
-    loader = WorkflowLoader(workspace_root)
+    loader = WorkflowLoader(
+        workspace_root,
+        boundary_validation_policy=boundary_validation_policy,
+    )
     loader._allow_private_collection_output_schemas = True
     loader._allow_generated_repeat_until_on_exhausted_refs = True
     loader._generated_repeat_until_on_exhausted_refs = {
         step_name: dict(output_refs)
         for step_name, output_refs in lowered_workflow.generated_repeat_until_on_exhausted_refs.items()
     }
+    if boundary_validation_policy is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF:
+        loader._dedicated_runtime_proof_nested_structured_step_names = set(
+            step_name
+            for step_name in lowered_workflow.runtime_proof_nested_structured_step_names
+            if _is_runtime_proof_generated_private_step(
+                step_name,
+                step_origins=lowered_workflow.origin_map.step_spans,
+                is_generated_private_workflow=lowered_workflow.is_generated_private_workflow,
+            )
+        )
+        loader._dedicated_runtime_proof_parent_ref_allowances = set(
+            _runtime_proof_parent_ref_allowances_for_generated_private_steps(
+                lowered_workflow.runtime_proof_shared_validation_parent_ref_allowances,
+                step_origins=lowered_workflow.origin_map.step_spans,
+                is_generated_private_workflow=lowered_workflow.is_generated_private_workflow,
+            )
+        )
     workflow = dict(lowered_workflow.authored_mapping)
     loader.errors = []
     loader._workflow_input_specs = {
@@ -2010,6 +2295,16 @@ def _validate_one_lowered_workflow(
             surface,
             imports=imported_bundles,
             private_artifact_ids=lowered_workflow.private_artifact_ids,
+            runtime_proof_parent_ref_allowances=(
+                _runtime_proof_parent_ref_allowances_for_generated_private_steps(
+                    lowered_workflow.runtime_proof_executable_parent_ref_allowances,
+                    step_origins=lowered_workflow.origin_map.step_spans,
+                    is_generated_private_workflow=lowered_workflow.is_generated_private_workflow,
+                )
+                if boundary_validation_policy
+                is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
+                else ()
+            ),
         )
     except WorkflowValidationError as exc:
         _raise_remapped_validation_error(lowered_workflow, list(exc.errors))

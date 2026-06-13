@@ -17,6 +17,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from enum import Enum
 from pathlib import Path
 
 from orchestrator.exceptions import WorkflowValidationError
@@ -213,6 +214,121 @@ _EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
 )
 
 
+class Stage3ValidationProfile(str, Enum):
+    """Named Stage 3 validation lanes used by the executable frontend."""
+
+    FRONTEND_ONLY = "frontend_only"
+    SHARED_CALLABLE = "shared_callable"
+    DEDICATED_RUNTIME_PROOF = "dedicated_runtime_proof"
+
+
+def _coerce_stage3_validation_profile(
+    validation_profile: Stage3ValidationProfile | str,
+) -> Stage3ValidationProfile:
+    if isinstance(validation_profile, Stage3ValidationProfile):
+        return validation_profile
+    profile_text = str(validation_profile).strip()
+    try:
+        return Stage3ValidationProfile[profile_text]
+    except KeyError as exc:
+        try:
+            return Stage3ValidationProfile(profile_text.lower())
+        except ValueError as value_exc:
+            raise ValueError(f"unknown Stage 3 validation profile `{validation_profile}`") from value_exc
+
+
+def _normalize_stage3_validation_profile(
+    *,
+    validate_shared: bool | None,
+    validation_profile: Stage3ValidationProfile | str | None,
+) -> Stage3ValidationProfile:
+    if validation_profile is None:
+        if validate_shared is False:
+            return Stage3ValidationProfile.FRONTEND_ONLY
+        return Stage3ValidationProfile.SHARED_CALLABLE
+
+    normalized = _coerce_stage3_validation_profile(validation_profile)
+    if validate_shared is None:
+        return normalized
+
+    expected = (
+        Stage3ValidationProfile.SHARED_CALLABLE
+        if validate_shared
+        else Stage3ValidationProfile.FRONTEND_ONLY
+    )
+    if normalized is not expected:
+        raise ValueError(
+            "contradictory Stage 3 validation inputs: "
+            f"`validate_shared={validate_shared}` conflicts with "
+            f"`validation_profile={normalized.name}`"
+        )
+    return normalized
+
+
+def _shared_validation_enabled(profile: Stage3ValidationProfile) -> bool:
+    return profile in {
+        Stage3ValidationProfile.SHARED_CALLABLE,
+        Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF,
+    }
+
+
+def _retained_non_promotable_diagnostics(
+    diagnostics: tuple[LispFrontendDiagnostic, ...],
+) -> tuple[LispFrontendDiagnostic, ...]:
+    return tuple(
+        diagnostic
+        for diagnostic in diagnostics
+        if diagnostic.code == "low_level_state_path_in_high_level_module"
+    )
+
+
+def _merge_retained_non_promotable_diagnostics(
+    *diagnostic_groups: tuple[LispFrontendDiagnostic, ...],
+) -> tuple[LispFrontendDiagnostic, ...]:
+    merged: list[LispFrontendDiagnostic] = []
+    seen: set[tuple[object, ...]] = set()
+    for group in diagnostic_groups:
+        for diagnostic in group:
+            key = (
+                diagnostic.code,
+                diagnostic.message,
+                diagnostic.span,
+                diagnostic.form_path,
+                diagnostic.expansion_stack,
+                diagnostic.notes,
+                diagnostic.phase,
+                diagnostic.validation_pass,
+                diagnostic.authority_layer,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(diagnostic)
+    return tuple(merged)
+
+
+def _dedicated_runtime_proof_boundary_diagnostics(
+    lowered_workflows,
+    *,
+    workspace_root: Path,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
+) -> tuple[LispFrontendDiagnostic, ...]:
+    try:
+        validate_lowered_workflows(
+            lowered_workflows,
+            workspace_root=workspace_root,
+            imported_workflow_bundles=imported_workflow_bundles,
+            validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
+        )
+    except LispFrontendCompileError as exc:
+        return tuple(
+            diagnostic
+            for diagnostic in exc.diagnostics
+            if diagnostic.code == "workflow_boundary_type_invalid"
+        )
+    return ()
+
+
 def _builtin_stdlib_source_root() -> Path:
     """Return the repo-owned Workflow Lisp stdlib source root."""
 
@@ -300,6 +416,8 @@ class LinkedStage3CompileResult:
     compiled_results_by_name: Mapping[str, Stage3CompileResult]
     validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle]
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
+    validation_profile: Stage3ValidationProfile | None = None
+    retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
 
 
 def compile_stage1_entrypoint(
@@ -369,7 +487,8 @@ def compile_stage3_entrypoint(
     prompt_externs: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
-    validate_shared: bool = True,
+    validate_shared: bool | None = None,
+    validation_profile: Stage3ValidationProfile | str | None = None,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -383,6 +502,10 @@ def compile_stage3_entrypoint(
     """
 
     normalized_lowering_route = normalize_lowering_route(lowering_route)
+    normalized_validation_profile = _normalize_stage3_validation_profile(
+        validate_shared=validate_shared,
+        validation_profile=validation_profile,
+    )
     if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
         _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
 
@@ -393,7 +516,7 @@ def compile_stage3_entrypoint(
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries=command_boundaries,
-        validate_shared=validate_shared,
+        validation_profile=normalized_validation_profile,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
@@ -411,7 +534,25 @@ def compile_stage3_entrypoint(
     )
     if compile_result is None:
         raise RuntimeError("module-graph compilation did not produce a result")
-    return replace(compile_result, diagnostics=diagnostics)
+    retained_non_promotable = _retained_non_promotable_diagnostics(diagnostics)
+    if normalized_validation_profile is Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF:
+        retained_non_promotable = _merge_retained_non_promotable_diagnostics(
+            retained_non_promotable,
+            _dedicated_runtime_proof_boundary_diagnostics(
+                compile_result.entry_result.lowered_workflows,
+                workspace_root=workspace_root or path.parent,
+                imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
+            ),
+        )
+    return replace(
+        compile_result,
+        diagnostics=diagnostics,
+        retained_non_promotable_diagnostics=retained_non_promotable,
+        entry_result=replace(
+            compile_result.entry_result,
+            retained_non_promotable_diagnostics=retained_non_promotable,
+        ),
+    )
 
 
 def compile_stage3_module(
@@ -421,7 +562,8 @@ def compile_stage3_module(
     prompt_externs: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
-    validate_shared: bool = True,
+    validate_shared: bool | None = None,
+    validation_profile: Stage3ValidationProfile | str | None = None,
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -429,6 +571,10 @@ def compile_stage3_module(
     """Compile one `.orc` file through the executable frontend pipeline."""
 
     normalized_lowering_route = normalize_lowering_route(lowering_route)
+    normalized_validation_profile = _normalize_stage3_validation_profile(
+        validate_shared=validate_shared,
+        validation_profile=validation_profile,
+    )
     if _syntax_module_uses_module_graph(path):
         if normalized_lowering_route in {LoweringRoute.WCC_M2, LoweringRoute.WCC_M3}:
             _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
@@ -438,7 +584,7 @@ def compile_stage3_module(
             prompt_externs=prompt_externs,
             imported_workflow_bundles=imported_workflow_bundles,
             command_boundaries=command_boundaries,
-            validate_shared=validate_shared,
+            validation_profile=normalized_validation_profile,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
@@ -451,7 +597,7 @@ def compile_stage3_module(
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries=command_boundaries,
-        validate_shared=validate_shared,
+        validation_profile=normalized_validation_profile,
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
@@ -478,6 +624,16 @@ def compile_stage3_module(
         ),
         lint_profile=lint_profile,
     )
+    retained_non_promotable = _retained_non_promotable_diagnostics(diagnostics)
+    if normalized_validation_profile is Stage3ValidationProfile.DEDICATED_RUNTIME_PROOF:
+        retained_non_promotable = _merge_retained_non_promotable_diagnostics(
+            retained_non_promotable,
+            _dedicated_runtime_proof_boundary_diagnostics(
+                state.lowered_workflows,
+                workspace_root=workspace_root or path.parent,
+                imported_workflow_bundles=state.workflow_catalog.imported_bundles_by_name,
+            ),
+        )
     return Stage3CompileResult(
         module=state.module,
         workflow_catalog=state.workflow_catalog,
@@ -489,6 +645,8 @@ def compile_stage3_module(
         lowered_workflows=state.lowered_workflows,
         validated_bundles=state.validated_bundles,
         diagnostics=diagnostics,
+        validation_profile=normalized_validation_profile,
+        retained_non_promotable_diagnostics=retained_non_promotable,
         lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
     )
 
@@ -820,11 +978,16 @@ def _run_stage3_entrypoint_validation_pipeline(
     prompt_externs: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
-    validate_shared: bool,
+    validate_shared: bool | None = None,
+    validation_profile: Stage3ValidationProfile | None = None,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
+    normalized_validation_profile = _normalize_stage3_validation_profile(
+        validate_shared=validate_shared,
+        validation_profile=validation_profile,
+    )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     graph = resolve_module_graph(path, source_roots=source_roots)
     compile_result: LinkedStage3CompileResult | None = None
@@ -838,10 +1001,18 @@ def _run_stage3_entrypoint_validation_pipeline(
             prompt_externs=prompt_externs,
             imported_workflow_bundles=imported_workflow_bundles,
             command_boundaries=command_boundaries,
-            validate_shared=False,
+            validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
             workspace_root=workspace_root,
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
+        )
+        compile_result = replace(
+            compile_result,
+            entry_result=replace(
+                compile_result.entry_result,
+                validation_profile=normalized_validation_profile,
+            ),
+            validation_profile=normalized_validation_profile,
         )
         selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
         return replace(
@@ -867,13 +1038,14 @@ def _run_stage3_entrypoint_validation_pipeline(
 
     def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
         nonlocal compile_result
-        if not validate_shared:
+        if not _shared_validation_enabled(normalized_validation_profile):
             return state
         assert compile_result is not None
         validated_bundles = validate_lowered_workflows(
             compile_result.entry_result.lowered_workflows,
             workspace_root=workspace_root,
             imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
+            validation_profile=normalized_validation_profile,
         )
         compile_result = replace(
             compile_result,
@@ -920,7 +1092,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             artifact_ready=lambda state: bool(state.lowered_workflows),
         ),
     ]
-    if validate_shared:
+    if _shared_validation_enabled(normalized_validation_profile):
         passes.extend(
             [
                 ValidationPipelinePass(
@@ -1075,11 +1247,16 @@ def _run_stage3_validation_pipeline(
     prompt_externs: Mapping[str, str] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
-    validate_shared: bool,
+    validate_shared: bool | None = None,
+    validation_profile: Stage3ValidationProfile | None = None,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
+    normalized_validation_profile = _normalize_stage3_validation_profile(
+        validate_shared=validate_shared,
+        validation_profile=validation_profile,
+    )
     normalized_lowering_route = normalize_lowering_route(lowering_route)
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
@@ -1237,12 +1414,13 @@ def _run_stage3_validation_pipeline(
         return state
 
     def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
-        if not validate_shared:
+        if not _shared_validation_enabled(normalized_validation_profile):
             return state
         validated_bundles = validate_lowered_workflows(
             state.lowered_workflows,
             workspace_root=workspace_root,
             imported_workflow_bundles=effective_imported_workflow_bundles,
+            validation_profile=normalized_validation_profile,
         )
         return replace(state, validated_bundles=validated_bundles)
 
@@ -1299,7 +1477,7 @@ def _run_stage3_validation_pipeline(
             artifact_ready=lambda state: bool(state.lowered_workflows),
         ),
     ]
-    if validate_shared:
+    if _shared_validation_enabled(normalized_validation_profile):
         passes.extend(
             [
                 ValidationPipelinePass(
@@ -1629,7 +1807,7 @@ def _compile_stage3_graph(
     prompt_externs: Mapping[str, str] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
-    validate_shared: bool,
+    validation_profile: Stage3ValidationProfile,
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
@@ -1939,19 +2117,33 @@ def _compile_stage3_graph(
             type_env=type_env,
         )
         requires_internal_bundle_validation = (
-            not validate_shared
+            validation_profile is not Stage3ValidationProfile.SHARED_CALLABLE
             and module_name != graph.entry_module_name
             and bool(export_surfaces[module_name].workflows_by_name)
         )
         validated_exports: Mapping[str, LoadedWorkflowBundle]
-        if validate_shared or requires_internal_bundle_validation:
+        if (
+            validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
+            or requires_internal_bundle_validation
+        ):
             validated_exports = validate_lowered_workflows(
                 lowered_workflows,
                 workspace_root=workspace_root,
                 imported_workflow_bundles=effective_imported_bundles,
+                validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
             )
         else:
             validated_exports = {}
+        diagnostics = _collect_stage3_required_lint_diagnostics(
+            typed_workflows,
+            lowering_route=normalized_lowering_route,
+            workflow_catalog=workflow_catalog,
+            bridge_backing_input_names=frozenset(
+                resource.backing_path_input
+                for resource in definition_module.resources
+                if resource.backing_kind == "bridge" and resource.backing_path_input
+            ),
+        )
         result = Stage3CompileResult(
             module=definition_module,
             workflow_catalog=workflow_catalog,
@@ -1961,17 +2153,14 @@ def _compile_stage3_graph(
             typed_procedures=typed_procedures,
             typed_workflows=typed_workflows,
             lowered_workflows=lowered_workflows,
-            validated_bundles=validated_exports if validate_shared else {},
-            diagnostics=_collect_stage3_required_lint_diagnostics(
-                typed_workflows,
-                lowering_route=normalized_lowering_route,
-                workflow_catalog=workflow_catalog,
-                bridge_backing_input_names=frozenset(
-                    resource.backing_path_input
-                    for resource in definition_module.resources
-                    if resource.backing_kind == "bridge" and resource.backing_path_input
-                ),
+            validated_bundles=(
+                validated_exports
+                if validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
+                else {}
             ),
+            diagnostics=diagnostics,
+            validation_profile=validation_profile,
+            retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
         )
         compiled_results_by_name[module_name] = result
@@ -2021,6 +2210,8 @@ def _compile_stage3_graph(
         compiled_results_by_name=compiled_results_by_name,
         validated_bundles_by_name=exported_validated_bundles_by_name,
         diagnostics=tuple(aggregate_diagnostics),
+        validation_profile=validation_profile,
+        retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(tuple(aggregate_diagnostics)),
     )
 
 

@@ -378,6 +378,8 @@ class Stage3CompileResult:
     lowered_workflows: tuple["LoweredWorkflow", ...]
     validated_bundles: Mapping[str, "LoadedWorkflowBundle"]
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
+    validation_profile: object | None = None
+    retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     lowering_schema_version: int = 1
 
 

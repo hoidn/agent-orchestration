@@ -198,6 +198,11 @@ Implement the work in ordered tranches:
   evidence): imported stdlib `loop/recur` exhaustion projection and post-loop
   terminal carriage for `backlog-drain`-style routes, so typed bounded
   exhaustion does not depend on effectful `:on-exhausted` work.
+- G5E (P0 prerequisite before counting dedicated G6 drain runtime-proof
+  evidence): dedicated stdlib proving-fixture executable-boundary carriage, so
+  imported `std/drain` proving routes can reach validated executable-bundle
+  construction on the owned runtime-proof lane without forcing G7
+  parent-callable boundary cleanup or weakening lower-level validation.
 - G6: stdlib migration of phase/drain forms onto the generic core.
 - G7: Design Delta Drain boundary and adapter cleanup.
 - G8: evidence-gated deletion of retired ontology tables, retired adapters, and
@@ -230,7 +235,12 @@ and G5D has shown that imported stdlib routes use that substrate with pure
 evidence is not complete until G5B has fixed the broader gate: the shared
 suites counted as G6 evidence must run against an explicit builtin stdlib
 inventory and must not depend on unfinished later-tranche modules or
-unrelated frontend regressions. G8 is deletion-only and must not be selected
+unrelated frontend regressions. Dedicated `std/drain` runtime-proof routes are
+not selectable until G5E has shown that the lowered imported route can produce
+a validated executable bundle on the owned runtime-proof lane without relying
+on G7 parent-callable boundary cleanup, `workflow_boundary_type_invalid` as a
+public-boundary proxy, or a compiler/validator branch keyed to a stdlib form,
+module, or proving-fixture name. G8 is deletion-only and must not be selected
 until evidence from G2 through G7 proves every removed path is unused.
 
 ## 3. Problem And Current Evidence To Verify
@@ -1048,6 +1058,56 @@ prerequisite rather than widening G5C, treating a bounded-exhaustion drain
 failure as macro-helper-composition debt, or widening G6 around an unresolved
 stdlib loop contract.
 
+### 15.1F Prerequisite: Dedicated Stdlib Proving-Fixture Executable-Boundary Carriage
+
+G6 `backlog-drain` runtime-proof work assumes one additional route contract
+that is narrower than G7 parent-callable boundary cleanup and later than the
+imported-stdlib macro/loop prerequisites above: a dedicated imported
+`std/drain` proving fixture must be able to lower into a validated executable
+bundle on the owned runtime-proof lane even when that fixture intentionally
+retains compatibility-shaped or otherwise non-promoted boundary surfaces for
+pairing and parity harnesses.
+
+The required contract is:
+
+- the dedicated runtime-proof lane may skip parent-callable/public-boundary
+  promotion obligations, but it must still preserve ordinary type, effect,
+  proof, source-map, state-layout, and executable-contract validation;
+- validated executable-bundle construction must distinguish public or
+  parent-callable boundary rules from generated/private helper boundaries and
+  from dedicated proving-fixture runtime-proof boundaries, rather than letting
+  `workflow_boundary_type_invalid` or equivalent public-boundary-only checks
+  block the owned lane;
+- generated/private helper workflows introduced by ordinary imported
+  `std/drain` composition must remain name-neutral and executable-bundle-valid
+  on that lane, with no compiler or validator branch keyed to `std/drain`,
+  `backlog-drain`, or a proving-fixture module name; and
+- if the same route still requires G7 parent-callable boundary rehabilitation,
+  the next selectable work is this prerequisite rather than widening G6,
+  weakening validation, or treating the dedicated proving fixture as
+  promotion-ready.
+
+This prerequisite exists because imported stdlib lowering success, macro/helper
+proof, and loop-exhaustion proof do not by themselves show that a lowered
+dedicated `std/drain` proving route can survive validated executable-bundle
+construction on its owned runtime-proof lane.
+
+If this capability is not yet proven, the next selectable work is this
+prerequisite rather than widening G6, converting the owned runtime-proof lane
+into G7 parent-callable cleanup, or papering over the failure with a
+stdlib-name special case.
+
+Current evidence note:
+
+- `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py` is the owned G5E
+  proof lane. It proves that the imported `std/drain` fixture can compile on
+  the explicit dedicated runtime-proof profile, produce a validated executable
+  bundle, preserve source-map and certified command-boundary evidence, and
+  retain non-promotable boundary diagnostics as machine-readable metadata.
+- The same module separately keeps the shared-callable/public-boundary guard
+  lane red on generated structured-match boundary rules, so G5E evidence does
+  not count as parent-callable readiness or G7 cleanup.
+
 ### 15.2 Tasks
 
 - Consume G5A's imported generic stdlib effectful-composition proof before
@@ -1062,6 +1122,9 @@ stdlib loop contract.
 - Consume G5D's pure exhaustion-projection and post-loop terminal-carriage
   proof before counting `backlog-drain` or other bounded-exhaustion G6 drain
   evidence.
+- Consume G5E's dedicated stdlib proving-fixture executable-boundary proof
+  before counting dedicated `std/drain` runtime-proof evidence on the owned
+  runtime lane.
 - Implement `std/context`, `std/resource`, `std/projection`, and `std/drain`
   modules.
 - Express `with-phase` as context construction plus scoped allocation.
@@ -1099,6 +1162,13 @@ stdlib loop contract.
 - G5D broader imported-stdlib evidence remains gated by G5D0 plus its own
   route-specific prerequisites and proof lane; G5D0 is necessary substrate,
   but it is not by itself counted as imported-stdlib or G6 evidence.
+- G5E counts as satisfied only when focused evidence shows that one imported
+  `std/drain` proving route lowers and then reaches validated
+  executable-bundle construction on the owned runtime-proof lane without
+  tripping `workflow_boundary_type_invalid` or an equivalent
+  public-boundary-only check, while a separate boundary-oriented lane still
+  proves that parent-callable/public-boundary validation remains active where
+  promotion readiness is actually required.
 - Stdlib forms compile through ordinary import/specialization/typecheck/WCC.
 - No promoted fixture depends on a compiler branch keyed to a stdlib form name.
 - Deleting a redundant hook does not change accepted fixture output.
@@ -1271,7 +1341,8 @@ G5A -> G5B
 G5A + G5B -> G5C
 G5A + G5B + G5C -> G5D0
 G5A + G5B + G5C + G5D0 -> G5D
-G3 + G5 + G5A + G5B + G5C + G5D -> G6
+G5A + G5B + G5C + G5D -> G5E
+G3 + G5 + G5A + G5B + G5C + G5D + G5E -> G6
 G1..G6 -> G7
 G7 + promotion evidence -> G8
 ```
@@ -1289,6 +1360,7 @@ Relationship to post-foundation:
 | G5C | imported macro/proc authoring substrate for drain stdlib migration |
 | G5D0 | shared scalar exhaustion-output carriage |
 | G5D | imported stdlib loop exhaustion and post-loop terminal carriage |
+| G5E | dedicated stdlib proving-fixture executable-boundary carriage |
 | G6 | imported/std composition and hook retirement |
 | G7 | parent-callable family cleanup |
 | G8 | post-promotion simplification and deletion |
@@ -1333,6 +1405,7 @@ Relationship to post-foundation:
 - G5C imported stdlib macro payload-projection and helper-composition proof.
 - G5D0 shared scalar loop-frame exhaustion-output carriage proof.
 - G5D imported stdlib loop exhaustion and post-loop terminal-carriage proof.
+- G5E dedicated stdlib proving-fixture executable-boundary proof.
 - G6 hook-redundancy evidence.
 - G7 family fixture with zero workflow-semantics adapters.
 - G8 deletion deltas and grep guards.
@@ -1361,6 +1434,11 @@ Relationship to post-foundation:
   imported stdlib route still depends on effectful `:on-exhausted` work or on
   non-baseline exhaustion projection instead of a pure loop-frame marker plus
   post-loop terminal projection;
+- counting dedicated `std/drain` runtime-proof or broader G6 evidence while
+  the same lowered imported route still fails validated executable-bundle
+  construction on `workflow_boundary_type_invalid` or an equivalent
+  parent-callable/public-boundary check that the G5E dedicated proving-fixture
+  lane is supposed to separate from G7 promotion cleanup;
 - counting broader imported-stdlib or G6 evidence solely from the shared
   scalar-carriage proof lane before the remaining route-specific boundary or
   builtin-stdlib prerequisites are green;
@@ -1475,6 +1553,11 @@ fixtures still pass and a CI guard rejects reintroduction.
   bounded exhaustion on the same imported stdlib route uses only pure
   `loop/recur :on-exhausted` loop-frame projection and performs any terminal
   transition/view work only after the loop returns a typed exhaustion result.
+- G6 dedicated `std/drain` runtime-proof evidence is counted only after G5E
+  proves that the same lowered imported route can reach validated
+  executable-bundle construction on the owned runtime-proof lane without
+  converting the work into G7 parent-callable boundary cleanup or adding a
+  stdlib-name special case.
 - G6 evidence is counted only after G5B defines the broader verification gate,
   makes its builtin stdlib inventory explicit, and removes accidental
   dependence on unfinished later-tranche modules or unrelated shared

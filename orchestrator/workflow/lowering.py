@@ -227,17 +227,35 @@ class _BindingContext:
         self,
         *,
         root_targets: Mapping[str, _BindingTarget],
+        all_targets: Mapping[str, _BindingTarget],
         self_targets: Mapping[str, _BindingTarget],
         parent_targets: Mapping[str, _BindingTarget],
+        runtime_proof_parent_ref_allowances: frozenset[tuple[str, str]] = frozenset(),
+        current_ref_owner: Optional[str] = None,
         current_loop_node_id: Optional[str] = None,
         iteration_owner_node_id: Optional[str] = None,
     ) -> None:
         self.root_targets = root_targets
+        self.all_targets = all_targets
         self.self_targets = self_targets
         self.parent_targets = parent_targets
+        self.runtime_proof_parent_ref_allowances = runtime_proof_parent_ref_allowances
+        self.current_ref_owner = current_ref_owner
         self.current_loop_node_id = current_loop_node_id
         self.iteration_owner_node_id = (
             current_loop_node_id if iteration_owner_node_id is None else iteration_owner_node_id
+        )
+
+    def with_owner(self, owner: Optional[str]) -> "_BindingContext":
+        return _BindingContext(
+            root_targets=self.root_targets,
+            all_targets=self.all_targets,
+            self_targets=self.self_targets,
+            parent_targets=self.parent_targets,
+            runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
+            current_ref_owner=owner,
+            current_loop_node_id=self.current_loop_node_id,
+            iteration_owner_node_id=self.iteration_owner_node_id,
         )
 
 
@@ -247,9 +265,11 @@ class _IRBuilder:
         surface: SurfaceWorkflow,
         *,
         private_artifact_ids: tuple[str, ...] = (),
+        runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = (),
     ) -> None:
         self.surface = surface
         self.private_artifact_ids = frozenset(private_artifact_ids)
+        self.runtime_proof_parent_ref_allowances = frozenset(runtime_proof_parent_ref_allowances)
         self.nodes: Dict[str, ExecutableNode] = {}
         self.body_region: List[str] = []
         self.finalization_region: List[str] = []
@@ -257,13 +277,16 @@ class _IRBuilder:
 
     def build(self) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
         root_targets = _surface_binding_targets(self.surface.steps)
+        all_targets = _surface_binding_targets_recursive(self.surface.steps)
         self._lower_linear_steps(
             self.surface.steps,
             region=WorkflowRegion.BODY,
             context=_BindingContext(
                 root_targets=root_targets,
+                all_targets=all_targets,
                 self_targets=root_targets,
                 parent_targets={},
+                runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
             ),
             presentation_prefix=None,
             top_level_region=self.body_region,
@@ -276,8 +299,10 @@ class _IRBuilder:
                 region=WorkflowRegion.FINALIZATION,
                 context=_BindingContext(
                     root_targets=root_targets,
+                    all_targets=all_targets,
                     self_targets=final_targets,
                     parent_targets={},
+                    runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
                 presentation_prefix="finally",
                 top_level_region=self.finalization_region,
@@ -290,8 +315,10 @@ class _IRBuilder:
             self.surface.artifacts,
             _BindingContext(
                 root_targets=root_targets,
+                all_targets=all_targets,
                 self_targets=root_targets,
                 parent_targets={},
+                runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
             ),
             private_artifact_ids=self.private_artifact_ids,
         )
@@ -313,8 +340,10 @@ class _IRBuilder:
                 },
                 _BindingContext(
                     root_targets=root_targets,
+                    all_targets=all_targets,
                     self_targets=root_targets,
                     parent_targets={},
+                    runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
             ),
             private_artifacts=private_artifacts,
@@ -334,8 +363,10 @@ class _IRBuilder:
                 self.surface.outputs,
                 _BindingContext(
                     root_targets=root_targets,
+                    all_targets=all_targets,
                     self_targets=root_targets,
                     parent_targets={},
+                    runtime_proof_parent_ref_allowances=self.runtime_proof_parent_ref_allowances,
                 ),
             ),
         )
@@ -445,6 +476,7 @@ class _IRBuilder:
         context: _BindingContext,
         presentation_name: str,
     ) -> ExecutableNode:
+        owner_context = context.with_owner(step.name)
         leaf_kind = _leaf_node_kind(step.kind, region)
         common = {
             "node_id": step.step_id,
@@ -473,26 +505,26 @@ class _IRBuilder:
                 ),
                 bound_inputs=MappingProxyType(
                     {
-                        name: _bind_literal_or_ref(value, context)
+                        name: _bind_literal_or_ref(value, owner_context)
                         for name, value in step.call_bindings.items()
                     }
                 ),
-                bound_when_predicate=_bind_predicate(step.when_predicate, context),
-                bound_assert_predicate=_bind_predicate(step.assert_predicate, context),
+                bound_when_predicate=_bind_predicate(step.when_predicate, owner_context),
+                bound_assert_predicate=_bind_predicate(step.assert_predicate, owner_context),
             )
         if region is WorkflowRegion.FINALIZATION:
             return FinalizationStepNode(
                 **common,
                 routed_transfers=routed_transfers,
                 execution_kind=_leaf_node_kind(step.kind, WorkflowRegion.BODY),
-                bound_when_predicate=_bind_predicate(step.when_predicate, context),
-                bound_assert_predicate=_bind_predicate(step.assert_predicate, context),
+                bound_when_predicate=_bind_predicate(step.when_predicate, owner_context),
+                bound_assert_predicate=_bind_predicate(step.assert_predicate, owner_context),
             )
         return LeafExecutableNode(
             **common,
             routed_transfers=routed_transfers,
-            bound_when_predicate=_bind_predicate(step.when_predicate, context),
-            bound_assert_predicate=_bind_predicate(step.assert_predicate, context),
+            bound_when_predicate=_bind_predicate(step.when_predicate, owner_context),
+            bound_assert_predicate=_bind_predicate(step.assert_predicate, owner_context),
         )
 
     def _build_repeat_until_node(
@@ -508,8 +540,10 @@ class _IRBuilder:
         body_targets = _surface_binding_targets(step.repeat_until.steps)
         body_context = _BindingContext(
             root_targets=context.root_targets,
+            all_targets=context.all_targets,
             self_targets=body_targets,
             parent_targets=context.self_targets,
+            runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
             current_loop_node_id=step.step_id,
             iteration_owner_node_id=step.step_id,
         )
@@ -546,9 +580,13 @@ class _IRBuilder:
             body_node_ids=tuple(body_node_ids),
             body_entry_node_id=body_node_ids[0] if body_node_ids else None,
             bound_when_predicate=_bind_predicate(step.when_predicate, context),
-            condition=_bind_predicate(step.repeat_until.condition, body_context),
+            condition=_bind_predicate(step.repeat_until.condition, body_context.with_owner(step.name)),
             max_iterations=step.repeat_until.max_iterations,
-            output_contracts=_bind_contracts(step.repeat_until.outputs, body_context),
+            output_contracts=_bind_contracts(
+                step.repeat_until.outputs,
+                body_context,
+                owner_label_prefix=f"{step.name}.repeat_until.outputs",
+            ),
             on_exhausted_outputs=step.repeat_until.on_exhausted_outputs,
         )
 
@@ -563,8 +601,10 @@ class _IRBuilder:
         body_targets = _surface_binding_targets(step.for_each_steps)
         body_context = _BindingContext(
             root_targets=context.root_targets,
+            all_targets=context.all_targets,
             self_targets=body_targets,
             parent_targets=context.self_targets,
+            runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
             iteration_owner_node_id=step.step_id,
         )
         body_node_ids = self._lower_linear_steps(
@@ -636,8 +676,10 @@ class _IRBuilder:
             branch_targets = _surface_binding_targets(block.steps)
             branch_context = _BindingContext(
                 root_targets=context.root_targets,
+                all_targets=context.all_targets,
                 self_targets=branch_targets,
                 parent_targets=context.self_targets,
+                runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
                 current_loop_node_id=context.current_loop_node_id,
                 iteration_owner_node_id=context.iteration_owner_node_id,
             )
@@ -649,7 +691,11 @@ class _IRBuilder:
                 top_level_region=[],
             )
             self._patch_linear_fallthrough(branch_node_ids, final_target=join_node_id)
-            branch_outputs[branch_name] = _bind_contracts(block.outputs, branch_context)
+            branch_outputs[branch_name] = _bind_contracts(
+                block.outputs,
+                branch_context,
+                owner_label_prefix=f"{step.name}.{branch_name}.outputs",
+            )
             branch_projection[branch_name] = StructuredSelectionProjection(
                 marker_step_id=block.step_id,
                 marker_presentation_key=marker_presentation,
@@ -728,8 +774,10 @@ class _IRBuilder:
             case_targets = _surface_binding_targets(block.steps)
             case_context = _BindingContext(
                 root_targets=context.root_targets,
+                all_targets=context.all_targets,
                 self_targets=case_targets,
                 parent_targets=context.self_targets,
+                runtime_proof_parent_ref_allowances=context.runtime_proof_parent_ref_allowances,
                 current_loop_node_id=context.current_loop_node_id,
                 iteration_owner_node_id=context.iteration_owner_node_id,
             )
@@ -741,7 +789,11 @@ class _IRBuilder:
                 top_level_region=[],
             )
             self._patch_linear_fallthrough(case_node_ids, final_target=join_node_id)
-            case_outputs[case_name] = _bind_contracts(block.outputs, case_context)
+            case_outputs[case_name] = _bind_contracts(
+                block.outputs,
+                case_context,
+                owner_label_prefix=f"{step.name}.match.cases.{case_name}.outputs",
+            )
             case_projection[case_name] = StructuredSelectionProjection(
                 marker_step_id=block.step_id,
                 marker_presentation_key=marker_presentation,
@@ -1120,6 +1172,25 @@ def _surface_binding_targets(steps: tuple[SurfaceStep, ...]) -> Mapping[str, _Bi
     return targets
 
 
+def _surface_binding_targets_recursive(
+    steps: tuple[SurfaceStep, ...],
+) -> Mapping[str, _BindingTarget]:
+    targets: Dict[str, _BindingTarget] = dict(_surface_binding_targets(steps))
+    for step in steps:
+        if step.then_branch is not None:
+            targets.update(_surface_binding_targets_recursive(step.then_branch.steps))
+        if step.else_branch is not None:
+            targets.update(_surface_binding_targets_recursive(step.else_branch.steps))
+        if step.match_cases:
+            for block in step.match_cases.values():
+                targets.update(_surface_binding_targets_recursive(block.steps))
+        if step.for_each_steps:
+            targets.update(_surface_binding_targets_recursive(step.for_each_steps))
+        if step.repeat_until is not None:
+            targets.update(_surface_binding_targets_recursive(step.repeat_until.steps))
+    return MappingProxyType(targets)
+
+
 def _bind_goto_transfer(
     reason: str,
     goto_name: Any,
@@ -1184,6 +1255,8 @@ def _leaf_goto_transfers(
 def _bind_contracts(
     contracts: Mapping[str, SurfaceContract],
     context: _BindingContext,
+    *,
+    owner_label_prefix: Optional[str] = None,
 ) -> Mapping[str, ExecutableContract]:
     return MappingProxyType(
         {
@@ -1192,7 +1265,12 @@ def _bind_contracts(
                 kind=contract.kind,
                 value_type=contract.value_type,
                 definition=contract.definition,
-                source_address=_bind_surface_ref(contract.from_ref, context),
+                source_address=_bind_surface_ref(
+                    contract.from_ref,
+                    context.with_owner(f"{owner_label_prefix}.{name}")
+                    if owner_label_prefix is not None
+                    else context,
+                ),
             )
             for name, contract in contracts.items()
         }
@@ -1262,11 +1340,22 @@ def _bind_surface_ref(ref: Any, context: _BindingContext) -> Any:
             output_name=ref.output_name,
         )
     if isinstance(ref, StructuredStepReference):
+        ref_string = f"{ref.scope}.steps.{ref.step_name}.{ref.field}"
+        if ref.member:
+            ref_string = f"{ref_string}.{ref.member}"
         targets = {
             "root": context.root_targets,
             "self": context.self_targets,
             "parent": context.parent_targets,
         }.get(ref.scope)
+        if (
+            ref.scope == "parent"
+            and ref.step_name not in (targets or {})
+            and context.current_ref_owner is not None
+            and (context.current_ref_owner, ref_string) in context.runtime_proof_parent_ref_allowances
+            and ref.step_name in context.all_targets
+        ):
+            targets = context.all_targets
         if targets is None or ref.step_name not in targets:
             raise LoweringError(
                 f"Unable to bind ref for step '{ref.step_name}' in scope '{ref.scope}'"
@@ -1316,9 +1405,16 @@ def lower_surface_workflow(surface: SurfaceWorkflow) -> tuple[ExecutableWorkflow
     return lower_core_workflow_ast(core_workflow_ast)
 
 
-def _lower_surface_workflow_impl(surface: SurfaceWorkflow) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
+def _lower_surface_workflow_impl(
+    surface: SurfaceWorkflow,
+    *,
+    runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = (),
+) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
     """Lower one validated surface workflow into executable IR + compatibility projection."""
-    return _IRBuilder(surface).build()
+    return _IRBuilder(
+        surface,
+        runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
+    ).build()
 
 
 def build_loaded_workflow_bundle(
@@ -1326,11 +1422,16 @@ def build_loaded_workflow_bundle(
     *,
     imports: Mapping[str, LoadedWorkflowBundle],
     private_artifact_ids: tuple[str, ...] = (),
+    runtime_proof_parent_ref_allowances: tuple[tuple[str, str], ...] = (),
 ) -> LoadedWorkflowBundle:
     """Lower one validated surface workflow into the shared loaded bundle contract."""
 
     core_workflow_ast = build_core_workflow_ast(surface, imports, surface.provenance)
-    ir, projection = _IRBuilder(surface, private_artifact_ids=private_artifact_ids).build()
+    ir, projection = _IRBuilder(
+        surface,
+        private_artifact_ids=private_artifact_ids,
+        runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
+    ).build()
     validate_executable_workflow(ir)
     runtime_plan = derive_workflow_runtime_plan(ir, projection)
     semantic_ir = derive_workflow_semantic_ir(
