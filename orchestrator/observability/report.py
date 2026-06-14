@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
@@ -119,6 +120,57 @@ def _read_prompt_audit(run_root: Path, step_name: str) -> Optional[str]:
         return prompt_file.read_text(encoding="utf-8")
     except OSError:
         return None
+
+
+def _load_typed_terminal_observability_summary(run_root: Path) -> Optional[Dict[str, Any]]:
+    summaries_dir = run_root / "summaries"
+    payload_path = summaries_dir / "typed-terminal-summary.json"
+    summary_path = summaries_dir / "typed-terminal-summary.md"
+    report_path = summaries_dir / "observability_summary_report.json"
+    if not payload_path.exists() and not report_path.exists() and not summary_path.exists():
+        return None
+
+    payload: Mapping[str, Any] | None = None
+    report: Mapping[str, Any] | None = None
+    try:
+        if payload_path.exists():
+            loaded_payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_payload, Mapping):
+                payload = loaded_payload
+    except (OSError, json.JSONDecodeError):
+        payload = None
+    try:
+        if report_path.exists():
+            loaded_report = json.loads(report_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_report, Mapping):
+                report = loaded_report
+    except (OSError, json.JSONDecodeError):
+        report = None
+
+    projected: Dict[str, Any] = {
+        "available": True,
+        "authority": "observability_only",
+        "payload_path": "summaries/typed-terminal-summary.json",
+        "summary_path": "summaries/typed-terminal-summary.md",
+        "report_path": "summaries/observability_summary_report.json",
+    }
+    if isinstance(report, Mapping):
+        projected["status"] = report.get("status")
+    if isinstance(payload, Mapping):
+        terminal_value = payload.get("terminal_value")
+        transition_audit = payload.get("transition_audit")
+        if isinstance(terminal_value, Mapping):
+            if terminal_value.get("status") is not None:
+                projected["terminal_status"] = terminal_value.get("status")
+            for key in ("selected_item", "blocker_class", "reason"):
+                if terminal_value.get(key) is not None:
+                    projected[key] = terminal_value.get(key)
+        if isinstance(transition_audit, Mapping):
+            if transition_audit.get("status") is not None:
+                projected["transition_audit_status"] = transition_audit.get("status")
+            if transition_audit.get("row_count") is not None:
+                projected["transition_audit_rows"] = transition_audit.get("row_count")
+    return projected
 
 
 def _parse_iso_datetime(value: Any) -> Optional[datetime]:
@@ -376,6 +428,11 @@ def build_status_snapshot(
         run_payload["bound_inputs"] = state.get("bound_inputs", {})
     if isinstance(state.get("workflow_outputs"), dict):
         run_payload["workflow_outputs"] = state.get("workflow_outputs", {})
+    typed_terminal_summary = _load_typed_terminal_observability_summary(run_root)
+    if typed_terminal_summary is not None:
+        run_payload["observability_summaries"] = {
+            "typed_terminal": typed_terminal_summary,
+        }
     if isinstance(state.get("finalization"), dict) and state.get("finalization"):
         run_payload["finalization"] = state.get("finalization")
     if isinstance(state.get("error"), dict):
@@ -436,6 +493,32 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
             _render_kv_lines(sorted(workflow_outputs.items())),
             "",
         ])
+
+    observability_summaries = run.get("observability_summaries")
+    typed_terminal = (
+        observability_summaries.get("typed_terminal")
+        if isinstance(observability_summaries, dict)
+        else None
+    )
+    if isinstance(typed_terminal, dict):
+        lines.extend(
+            [
+                "## Typed Terminal Summary",
+                _render_kv_lines(
+                    [
+                        ("authority", typed_terminal.get("authority")),
+                        ("status", typed_terminal.get("status")),
+                        ("summary_path", typed_terminal.get("summary_path")),
+                        ("payload_path", typed_terminal.get("payload_path")),
+                        ("report_path", typed_terminal.get("report_path")),
+                        ("terminal_status", typed_terminal.get("terminal_status")),
+                        ("selected_item", typed_terminal.get("selected_item")),
+                        ("blocker_class", typed_terminal.get("blocker_class")),
+                    ]
+                ),
+                "",
+            ]
+        )
 
     run_error = run.get("error")
     if isinstance(run_error, dict) and run_error:

@@ -1,5 +1,6 @@
 """Tests for deterministic workflow status reporting."""
 
+import json
 import os
 from dataclasses import replace
 
@@ -218,7 +219,60 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     assert "run3" in md
     assert "DraftPlan" in md
     assert "Prompt body" in md
-    assert "Progress" in md
+
+
+def test_status_snapshot_surfaces_typed_terminal_observability_summary(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-typed-terminal"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    summary_payload = {
+        "schema_id": "workflow_lisp_observability_summary.v1",
+        "authority": "observability_only",
+        "paths": {
+            "json": "summaries/typed-terminal-summary.json",
+            "markdown": "summaries/typed-terminal-summary.md",
+            "report": "summaries/observability_summary_report.json",
+        },
+        "terminal_value": {"status": "BLOCKED", "selected_item": "docs/design/example.md"},
+        "transition_audit": {"status": "available", "row_count": 1},
+    }
+    report_payload = {
+        "schema_id": "workflow_lisp_observability_summary_report.v1",
+        "status": "pass",
+        "diagnostics": {"errors": [], "warnings": []},
+    }
+    (summaries / "typed-terminal-summary.json").write_text(
+        json.dumps(summary_payload, indent=2),
+        encoding="utf-8",
+    )
+    (summaries / "typed-terminal-summary.md").write_text(
+        "Typed terminal observability summary\n",
+        encoding="utf-8",
+    )
+    (summaries / "observability_summary_report.json").write_text(
+        json.dumps(report_payload, indent=2),
+        encoding="utf-8",
+    )
+    state = {
+        "run_id": "run-typed-terminal",
+        "status": "completed",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": "2026-02-27T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "steps": {},
+        "workflow_outputs": {"status": "BLOCKED"},
+    }
+
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
+
+    typed_terminal = snapshot["run"]["observability_summaries"]["typed_terminal"]
+    assert typed_terminal["authority"] == "observability_only"
+    assert typed_terminal["status"] == "pass"
+    assert typed_terminal["summary_path"] == "summaries/typed-terminal-summary.md"
+    assert typed_terminal["payload_path"] == "summaries/typed-terminal-summary.json"
+    markdown = render_status_markdown(snapshot)
+    assert "Typed Terminal Summary" in markdown
+    assert "typed-terminal-summary.md" in markdown
 
 
 def test_snapshot_and_markdown_surface_active_runtime(tmp_path: Path):

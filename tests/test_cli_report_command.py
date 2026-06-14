@@ -102,6 +102,65 @@ def test_report_supports_json_format(tmp_path, capsys, monkeypatch):
     assert payload["run"]["run_id"] == "20260227T000003Z-cccccc"
 
 
+def test_report_json_surfaces_typed_terminal_observability_summary_read_only(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000003Z-typedterminal"
+    run_dir = _write_run(runs_root, run_id)
+    summaries = run_dir / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "typed-terminal-summary.json").write_text(
+        json.dumps(
+            {
+                "schema_id": "workflow_lisp_observability_summary.v1",
+                "authority": "observability_only",
+                "paths": {
+                    "json": "summaries/typed-terminal-summary.json",
+                    "markdown": "summaries/typed-terminal-summary.md",
+                    "report": "summaries/observability_summary_report.json",
+                },
+                "terminal_value": {"status": "BLOCKED"},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (summaries / "typed-terminal-summary.md").write_text("typed terminal summary\n", encoding="utf-8")
+    (summaries / "observability_summary_report.json").write_text(
+        json.dumps(
+            {
+                "schema_id": "workflow_lisp_observability_summary_report.v1",
+                "status": "pass",
+                "diagnostics": {"errors": [], "warnings": []},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    state_file = run_dir / "state.json"
+    state_payload = json.loads(state_file.read_text(encoding="utf-8"))
+    state_payload["status"] = "completed"
+    state_file.write_text(json.dumps(state_payload, indent=2), encoding="utf-8")
+    before = state_file.read_text(encoding="utf-8")
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    typed_terminal = payload["run"]["observability_summaries"]["typed_terminal"]
+    assert typed_terminal["authority"] == "observability_only"
+    assert typed_terminal["payload_path"] == "summaries/typed-terminal-summary.json"
+    assert typed_terminal["summary_path"] == "summaries/typed-terminal-summary.md"
+    assert typed_terminal["report_path"] == "summaries/observability_summary_report.json"
+    assert state_file.read_text(encoding="utf-8") == before
+
+
 def test_report_writes_output_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     runs_root = tmp_path / ".orchestrate" / "runs"

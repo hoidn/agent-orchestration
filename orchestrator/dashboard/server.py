@@ -2674,6 +2674,7 @@ class DashboardApp:
             for key, label in (
                 ("summary_path", "summary"),
                 ("snapshot_path", "snapshot"),
+                ("report_path", "report"),
                 ("error_path", "error"),
             ):
                 value = entry.get(key)
@@ -2913,6 +2914,7 @@ class DashboardApp:
         for key, output_key in (
             ("summary_path", "summary_href"),
             ("snapshot_path", "snapshot_href"),
+            ("report_path", "report_href"),
             ("error_path", "error_href"),
         ):
             value = entry.get(key)
@@ -3433,6 +3435,7 @@ class DashboardApp:
         for key, label in (
             ("summary_path", "summary"),
             ("snapshot_path", "snapshot"),
+            ("report_path", "report"),
             ("error_path", "error"),
         ):
             value = entry.get(key)

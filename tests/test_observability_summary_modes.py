@@ -513,3 +513,48 @@ steps:
         "summaries/RunOnce.provider.root.reviewloop_0.iteration.runonce"
     )
     assert str(provider_entry["summary_path"]).endswith(".summary.md")
+
+
+def test_summary_observer_writes_provider_free_typed_terminal_entry(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-typed-terminal"
+    provider_executor = _FakeProviderExecutor()
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=provider_executor,
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        profile="phase-performance",
+    )
+
+    payload = {
+        "schema_id": "workflow_lisp_observability_summary.v1",
+        "authority": "observability_only",
+        "paths": {
+            "json": "summaries/typed-terminal-summary.json",
+            "markdown": "summaries/typed-terminal-summary.md",
+            "report": "summaries/observability_summary_report.json",
+        },
+        "terminal_value": {"status": "BLOCKED"},
+    }
+    report = {
+        "schema_id": "workflow_lisp_observability_summary_report.v1",
+        "status": "pass",
+        "diagnostics": {"errors": [], "warnings": []},
+    }
+
+    observer.emit_typed_terminal_summary(payload=payload, markdown="typed terminal summary\n", report=report)
+
+    index = json.loads((run_root / "summaries" / "index.json").read_text(encoding="utf-8"))
+    entry = index["entries"][0]
+    assert entry["step_name"] == "workflow-terminal"
+    assert entry["kind"] == "typed_terminal"
+    assert entry["profile"] == "workflow-lisp-c2"
+    assert entry["authority"] == "observability_only"
+    assert entry["summary_path"] == "summaries/typed-terminal-summary.md"
+    assert entry["report_path"] == "summaries/observability_summary_report.json"
+    assert (run_root / "summaries" / "README.md").exists()
+    assert (run_root / "summaries" / "run-summary.md").exists()
+    assert provider_executor.prepare_kwargs == []

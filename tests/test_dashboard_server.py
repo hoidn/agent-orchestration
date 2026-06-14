@@ -2206,6 +2206,91 @@ def test_summary_hub_missing_or_invalid_index_is_safe(tmp_path: Path):
     assert 'href="/runs/w0/run1/files/run/summaries/index.json"' in body
 
 
+def test_summary_hub_surfaces_typed_terminal_summary_and_live_payload(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "typed-terminal-summary.json").write_text(
+        json.dumps(
+            {
+                "schema_id": "workflow_lisp_observability_summary.v1",
+                "authority": "observability_only",
+                "paths": {
+                    "json": "summaries/typed-terminal-summary.json",
+                    "markdown": "summaries/typed-terminal-summary.md",
+                    "report": "summaries/observability_summary_report.json",
+                },
+                "terminal_value": {"status": "BLOCKED", "selected_item": "docs/design/example.md"},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (summaries / "typed-terminal-summary.md").write_text("typed terminal summary\n", encoding="utf-8")
+    (summaries / "observability_summary_report.json").write_text(
+        json.dumps(
+            {
+                "schema_id": "workflow_lisp_observability_summary_report.v1",
+                "status": "pass",
+                "diagnostics": {"errors": [], "warnings": []},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (summaries / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {
+                        "step_name": "workflow-terminal",
+                        "kind": "typed_terminal",
+                        "profile": "workflow-lisp-c2",
+                        "status": "completed",
+                        "authority": "observability_only",
+                        "summary_path": "summaries/typed-terminal-summary.md",
+                        "snapshot_path": "summaries/typed-terminal-summary.json",
+                        "report_path": "summaries/observability_summary_report.json",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    state_file = run_root / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "completed",
+                "workflow_file": "workflow.yaml",
+                "workflow_outputs": {"status": "BLOCKED"},
+                "steps": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = state_file.read_text(encoding="utf-8")
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "workflow-terminal" in body
+    assert "typed-terminal-summary.md" in body
+    assert "typed-terminal-summary.json" in body
+    assert "observability_summary_report.json" in body
+
+    live_response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json")
+    payload = json.loads(live_response.body.decode("utf-8"))
+    assert live_response.status == 200
+    assert payload["summaries"]["counts"]["typed_terminal"] == 1
+    latest = payload["summaries"]["current_step_latest"]
+    if latest is not None:
+        assert latest["kind"] == "typed_terminal"
+    assert state_file.read_text(encoding="utf-8") == before
+
+
 def test_summary_hub_does_not_link_unsafe_index_paths(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"
     summaries = run_root / "summaries"

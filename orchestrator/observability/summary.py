@@ -91,6 +91,42 @@ class SummaryObserver:
         if not ok and not self.best_effort:
             raise RuntimeError(f"Summary generation failed for step '{step_name}'")
 
+    def emit_typed_terminal_summary(
+        self,
+        *,
+        payload: Dict[str, Any],
+        markdown: str,
+        report: Dict[str, Any],
+    ) -> None:
+        """Write one deterministic workflow-terminal summary without a provider."""
+
+        json_path = self.aggregate_summaries_dir / "typed-terminal-summary.json"
+        markdown_path = self.aggregate_summaries_dir / "typed-terminal-summary.md"
+        report_path = self.aggregate_summaries_dir / "observability_summary_report.json"
+        json_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        markdown_path.write_text(
+            markdown if markdown.endswith("\n") else markdown + "\n",
+            encoding="utf-8",
+        )
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        entry = {
+            "step_name": "workflow-terminal",
+            "kind": "typed_terminal",
+            "profile": "workflow-lisp-c2",
+            "authority": "observability_only",
+            "status": "completed",
+            "snapshot_path": self._relative_to_run_root(json_path, self.aggregate_run_root),
+            "summary_path": self._relative_to_run_root(markdown_path, self.aggregate_run_root),
+            "report_path": self._relative_to_run_root(report_path, self.aggregate_run_root),
+            "error_path": None,
+        }
+        self._upsert_index_entry(
+            index_path=self.aggregate_summaries_dir / "index.json",
+            root=self.aggregate_run_root,
+            entry=entry,
+        )
+
     def _run_summary(self, stem: str, prompt: str, entry: Dict[str, Any]) -> bool:
         summary_path = self.summaries_dir / f"{stem}.summary.md"
         error_path = self.summaries_dir / f"{stem}.error.json"
@@ -226,6 +262,39 @@ class SummaryObserver:
             if render_human_files:
                 self._render_root_hub(payload)
 
+    def _upsert_index_entry(
+        self,
+        *,
+        index_path: Path,
+        root: Path,
+        entry: Dict[str, Any],
+    ) -> None:
+        with self._index_lock:
+            payload = self._read_index(index_path)
+            payload["run_root"] = str(root)
+            entries = payload.setdefault("entries", [])
+            if not isinstance(entries, list):
+                entries = []
+                payload["entries"] = entries
+            filtered = []
+            for existing in entries:
+                if not isinstance(existing, dict):
+                    filtered.append(existing)
+                    continue
+                if (
+                    existing.get("step_name") == entry.get("step_name")
+                    and existing.get("kind") == entry.get("kind")
+                    and existing.get("profile") == entry.get("profile")
+                ):
+                    continue
+                filtered.append(existing)
+            filtered.append(entry)
+            payload["entries"] = filtered
+            tmp_path = index_path.with_suffix(".json.tmp")
+            tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            tmp_path.replace(index_path)
+            self._render_root_hub(payload)
+
     @staticmethod
     def _read_index(index_path: Path) -> Dict[str, Any]:
         if index_path.exists():
@@ -252,11 +321,16 @@ class SummaryObserver:
             "Detailed summary files remain beside the run or call frame that produced them.",
             "",
         ]
-        grouped = {"provider": [], "phase": [], "step": []}
+        grouped = {"typed_terminal": [], "provider": [], "phase": [], "step": []}
         for entry in entries:
             if isinstance(entry, dict):
                 grouped.setdefault(str(entry.get("kind", "step")), []).append(entry)
-        for kind, title in (("provider", "Provider Steps"), ("phase", "Phase Boundaries"), ("step", "Other Steps")):
+        for kind, title in (
+            ("typed_terminal", "Workflow Terminal"),
+            ("provider", "Provider Steps"),
+            ("phase", "Phase Boundaries"),
+            ("step", "Other Steps"),
+        ):
             kind_entries = grouped.get(kind, [])
             if not kind_entries:
                 continue
