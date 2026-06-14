@@ -13,6 +13,7 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_provenance
+from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 from tests.workflow_bundle_helpers import materialize_projection_body_steps, thaw_surface_workflow
 
 
@@ -129,14 +130,7 @@ def _compile_nested_implementation_phase_workflow(workspace: Path) -> dict:
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
             ),
-            "validate_review_findings_v1": ExternalToolBinding(
-                name="validate_review_findings_v1",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-                ),
-            ),
+            "validate_review_findings_v1": validate_review_findings_v1_binding(),
         },
         validate_shared=True,
         workspace_root=workspace,

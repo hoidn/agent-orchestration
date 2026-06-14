@@ -12,6 +12,10 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compi
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.diagnostics import serialize_diagnostic
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.workflow_lisp_command_boundaries import (
+    run_neurips_backlog_checks_binding,
+    validate_review_findings_v1_binding,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -114,14 +118,7 @@ def _build_entrypoint_source_map_document(
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
             ),
-            "validate_review_findings_v1": ExternalToolBinding(
-                name="validate_review_findings_v1",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-                ),
-            ),
+            "validate_review_findings_v1": validate_review_findings_v1_binding(),
         },
         validate_shared=validate_shared,
         workspace_root=tmp_path,
@@ -167,21 +164,8 @@ def _build_design_delta_implementation_phase_source_map_document(
             ),
         },
         command_boundaries={
-            "run_neurips_backlog_checks": ExternalToolBinding(
-                name="run_neurips_backlog_checks",
-                stable_command=(
-                    "python",
-                    "workflows/library/scripts/run_neurips_backlog_checks.py",
-                ),
-            ),
-            "validate_review_findings_v1": ExternalToolBinding(
-                name="validate_review_findings_v1",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-                ),
-            ),
+            "run_neurips_backlog_checks": run_neurips_backlog_checks_binding(),
+            "validate_review_findings_v1": validate_review_findings_v1_binding(),
         },
         validate_shared=True,
         workspace_root=tmp_path,

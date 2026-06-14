@@ -32,6 +32,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccPureOp,
     WccRecJoin,
 )
+from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -76,10 +77,7 @@ def _compile_review_loop_wcc_m4(path: Path, *, tmp_path: Path):
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
             ),
-            "validate_review_findings_v1": ExternalToolBinding(
-                name="validate_review_findings_v1",
-                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_review_findings_v1"),
-            ),
+            "validate_review_findings_v1": validate_review_findings_v1_binding(),
         },
         lowering_route="wcc_m4",
         validate_shared=True,

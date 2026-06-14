@@ -36,6 +36,7 @@ from orchestrator.workflow_lisp.workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -562,14 +563,7 @@ def test_compile_stage3_entrypoint_rejects_unsupported_wcc_m1_route_for_module_g
                     "prompts.implementation.fix": "prompts/implementation/fix.md",
                 },
                 "command_boundaries": {
-                    "validate_review_findings_v1": ExternalToolBinding(
-                        name="validate_review_findings_v1",
-                        stable_command=(
-                            "python",
-                            "-m",
-                            "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-                        ),
-                    ),
+                    "validate_review_findings_v1": validate_review_findings_v1_binding(),
                 },
             },
         ),

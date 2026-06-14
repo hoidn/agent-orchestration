@@ -27,6 +27,7 @@ from orchestrator.workflow_lisp.wcc.route import (
     lowering_schema_for_route,
     normalize_lowering_route,
 )
+from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
 from tests.workflow_lisp_characterization import build_behavior_observation, load_characterization_cases
 
 
@@ -55,14 +56,7 @@ def _m5_command_boundaries() -> dict[str, ExternalToolBinding]:
             name="run_checks",
             stable_command=("python", "scripts/run_checks.py"),
         ),
-        "validate_review_findings_v1": ExternalToolBinding(
-            name="validate_review_findings_v1",
-            stable_command=(
-                "python",
-                "-m",
-                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-            ),
-        ),
+        "validate_review_findings_v1": validate_review_findings_v1_binding(),
     }
 
 
@@ -118,6 +112,15 @@ def test_wcc_m5_default_route_and_schema_are_wcc_after_readiness_gate() -> None:
     assert LOWERING_SCHEMA_WCC == 2
     assert LOWERING_SCHEMA_LEGACY == 1
     assert normalize_lowering_route(None) is LoweringRoute.WCC_M4
+
+
+def test_design_delta_review_findings_fixture_binding_carries_g0_metadata() -> None:
+    binding = validate_review_findings_v1_binding()
+
+    assert binding.retirement_class == "validation"
+    assert binding.retirement_label == "keep_bridge"
+    assert binding.bridge_owner == "std/phase"
+    assert binding.evidence_refs
 
 
 def test_lowering_schema_mapping_is_route_neutral() -> None:

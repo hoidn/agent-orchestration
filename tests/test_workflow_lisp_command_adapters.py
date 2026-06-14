@@ -18,6 +18,7 @@ from orchestrator.workflow_lisp.expressions import CommandResultExpr, elaborate_
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.syntax import SyntaxNode
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.variables.substitution import VariableSubstitutor
 
 
@@ -383,6 +384,24 @@ def test_command_result_adapter_manifest_rejects_invalid_transition_binding_role
 
     assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
     assert "migration_backend" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_g0_helper_without_retirement_metadata_is_rejected() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_command_boundary_environment(
+            {
+                "validate_review_findings_v1": ExternalToolBinding(
+                    name="validate_review_findings_v1",
+                    stable_command=(
+                        "python",
+                        "-m",
+                        "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                    ),
+                )
+            }
+        )
+
+    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
 
 
 def test_compile_stage3_module_rejects_transition_binding_backend_mismatch(tmp_path: Path) -> None:

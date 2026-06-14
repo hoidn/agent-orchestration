@@ -23,6 +23,7 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.providers.executor import ProviderExecutor
 from tests.golden_state import _build_observation, _thaw
+from tests.workflow_lisp_command_boundaries import external_tool_binding_from_manifest
 from tests.test_workflow_ir_lowering import _detach_core_ast_surface_links
 
 
@@ -253,7 +254,7 @@ def _resolve_command_boundaries(value: dict[str, Any] | Path | None) -> dict[str
         stable_command = payload.get("stable_command")
         if not isinstance(stable_command, list) or not all(isinstance(item, str) for item in stable_command):
             raise ValueError(f"command boundary {name} stable_command must be a string array")
-        bindings[name] = ExternalToolBinding(name=name, stable_command=tuple(stable_command))
+        bindings[name] = external_tool_binding_from_manifest(name, payload)
     return bindings
 
 
