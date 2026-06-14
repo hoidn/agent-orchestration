@@ -376,6 +376,7 @@
           "adapter_census",
           "boundary_authority_report",
           "value_flow_census_report",
+          "consumer_rendering_census_report",
           "g8_deletion_evidence"
         ],
         "optional": [

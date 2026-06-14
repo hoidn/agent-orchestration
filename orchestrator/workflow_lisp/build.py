@@ -29,6 +29,11 @@ from .command_boundaries import (
     ViewBindingMetadata,
 )
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
+from .consumer_rendering_census import (
+    build_consumer_rendering_census_report,
+    extract_materialize_view_effects,
+    load_consumer_rendering_census,
+)
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
 from .form_registry import get_form_spec
@@ -85,6 +90,30 @@ DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.value_flow_census.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.consumer_rendering_census.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_view_dual_run_vectors.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "artifacts"
+    / "work"
+    / "LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN"
+    / "migration-parity"
+    / "design_delta_parent_drain_view_dual_run_report.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH = (
     Path(__file__).resolve().parents[2]
@@ -237,6 +266,7 @@ class FrontendBuildManifest:
     lowering_schema_version: int = 1
     boundary_authority_registry: Mapping[str, object] | None = None
     value_flow_census: Mapping[str, object] | None = None
+    consumer_rendering_census: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -343,6 +373,10 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     value_flow_census = _maybe_load_design_delta_value_flow_census(
         entry_workflow=entry_selection.canonical_name,
     )
+    consumer_rendering_census = _maybe_load_design_delta_consumer_rendering_census(
+        entry_workflow=entry_selection.canonical_name,
+        value_flow_census=value_flow_census,
+    )
     resume_plumbing_retirement_manifest = (
         _maybe_load_design_delta_resume_plumbing_retirement_manifest(
             entry_workflow=entry_selection.canonical_name,
@@ -375,6 +409,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         command_boundary_manifest=command_boundary_manifest,
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
+        consumer_rendering_census=consumer_rendering_census,
         resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
@@ -420,12 +455,21 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     adapter_census_payload = None
     boundary_authority_report_payload = None
     value_flow_census_report_payload = None
+    consumer_rendering_census_report_payload = None
     resume_plumbing_retirement_report_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
     checkpoint_shadow_report_payload = None
     g8_deletion_evidence_payload = None
+    view_dual_run_vectors = None
+    view_dual_run_report = None
     if boundary_authority_registry is not None:
+        view_dual_run_vectors = _maybe_load_design_delta_view_dual_run_vectors(
+            entry_workflow=entry_selection.canonical_name,
+        )
+        view_dual_run_report = _maybe_load_design_delta_view_dual_run_report(
+            entry_workflow=entry_selection.canonical_name,
+        )
         adapter_census_payload = _serialize_design_delta_adapter_census(
             command_boundaries=command_boundaries,
             command_boundary_manifest=command_boundary_manifest,
@@ -484,6 +528,81 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                         ),
                     )
                 )
+            if consumer_rendering_census is not None:
+                consumer_rendering_census_report_payload = (
+                    build_consumer_rendering_census_report(
+                        manifest=consumer_rendering_census,
+                        value_flow_census=value_flow_census,
+                        materialize_view_effects=_collect_materialize_view_effects(
+                            compile_result
+                        ),
+                        command_boundary_manifest=command_boundary_manifest,
+                        boundary_authority_report=boundary_authority_report_payload,
+                        boundary_authority_report_path=str(
+                            build_root / "boundary_authority_report.json"
+                        ),
+                        prompt_externs=prompt_externs,
+                        prompt_externs_path=(
+                            str(resolved_request.prompt_externs_path)
+                            if resolved_request.prompt_externs_path
+                            else None
+                        ),
+                        provider_externs=provider_externs,
+                        provider_externs_path=(
+                            str(resolved_request.provider_externs_path)
+                            if resolved_request.provider_externs_path
+                            else None
+                        ),
+                        command_boundaries_path=(
+                            str(resolved_request.command_boundaries_path)
+                            if resolved_request.command_boundaries_path
+                            else None
+                        ),
+                        view_dual_run_vectors=view_dual_run_vectors,
+                        view_dual_run_vectors_path=str(
+                            DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH
+                        ),
+                        view_dual_run_report=view_dual_run_report,
+                        view_dual_run_report_path=str(
+                            DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH
+                        ),
+                    )
+                )
+                if consumer_rendering_census_report_payload.get("status") != "pass":
+                    first = {}
+                    diagnostics_bucket = consumer_rendering_census_report_payload.get(
+                        "diagnostics", []
+                    )
+                    if isinstance(diagnostics_bucket, list) and diagnostics_bucket:
+                        first = diagnostics_bucket[0]
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "consumer_rendering_census_invalid"
+                    )
+                    first_row_id = (
+                        str(first.get("row_id"))
+                        if isinstance(first, Mapping) and first.get("row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code="consumer_rendering_census_invalid",
+                                message=(
+                                    "design-delta consumer rendering census report failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
             candidate_rows = resume_plumbing_retirement.select_resume_plumbing_retirement_candidates(
                 value_flow_census
             )
@@ -635,6 +754,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         adapter_census_payload=adapter_census_payload,
         boundary_authority_report_payload=boundary_authority_report_payload,
         value_flow_census_report_payload=value_flow_census_report_payload,
+        consumer_rendering_census_report_payload=consumer_rendering_census_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
@@ -651,6 +771,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         emit_debug_yaml=resolved_request.emit_debug_yaml,
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
+        consumer_rendering_census=consumer_rendering_census,
         resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
     )
     manifest_path = build_root / "manifest.json"
@@ -1646,6 +1767,82 @@ def _maybe_load_design_delta_value_flow_census(
     }
 
 
+def _maybe_load_design_delta_consumer_rendering_census(
+    *,
+    entry_workflow: str,
+    value_flow_census: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if value_flow_census is None:
+        return None
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        return load_consumer_rendering_census(
+            DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH,
+            value_flow_census=value_flow_census,
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="consumer_rendering_census_invalid",
+                    message=f"design-delta consumer rendering census is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH,
+                ),
+            )
+        ) from exc
+
+
+def _maybe_load_design_delta_view_dual_run_vectors(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    if not DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH.is_file():
+        return None
+    payload = _load_json_file(
+        DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH,
+        label="design-delta view dual-run vectors",
+    )
+    if not isinstance(payload, Mapping):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="consumer_rendering_census_invalid",
+                    message="design-delta view dual-run vectors must be a JSON object",
+                    path=DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH,
+                ),
+            )
+        )
+    return dict(payload)
+
+
+def _maybe_load_design_delta_view_dual_run_report(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    if not DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH.is_file():
+        return None
+    payload = _load_json_file(
+        DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH,
+        label="design-delta view dual-run report",
+    )
+    if not isinstance(payload, Mapping):
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="consumer_rendering_census_invalid",
+                    message="design-delta view dual-run report must be a JSON object",
+                    path=DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH,
+                ),
+            )
+        )
+    return dict(payload)
+
+
 def _maybe_load_design_delta_resume_plumbing_retirement_manifest(
     *,
     entry_workflow: str,
@@ -1706,6 +1903,36 @@ def _value_flow_census_provenance(
         "sha256": f"sha256:{value_flow_census.get('__census_sha256__', '')}",
         "schema_version": str(value_flow_census.get("schema_version", "")),
     }
+
+
+def _consumer_rendering_census_provenance(
+    consumer_rendering_census: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if consumer_rendering_census is None:
+        return None
+    return {
+        "workflow_family": "design_delta_parent_drain",
+        "path": str(consumer_rendering_census.get("__manifest_path__", "")),
+        "sha256": f"sha256:{consumer_rendering_census.get('__manifest_sha256__', '')}",
+        "schema_version": str(consumer_rendering_census.get("schema_version", "")),
+    }
+
+
+def _collect_materialize_view_effects(
+    compile_result: LinkedStage3CompileResult,
+) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+    seen_effect_ids: set[str] = set()
+    for bundle in compile_result.validated_bundles_by_name.values():
+        semantic_ir_payload = workflow_semantic_ir_to_json(bundle.semantic_ir)
+        for effect in extract_materialize_view_effects(semantic_ir_payload):
+            effect_id = str(effect.get("effect_id", ""))
+            if effect_id:
+                if effect_id in seen_effect_ids:
+                    continue
+                seen_effect_ids.add(effect_id)
+            collected.append(effect)
+    return collected
 
 
 def _serialize_design_delta_adapter_census(
@@ -2296,6 +2523,7 @@ def _fingerprint_build(
     command_boundary_manifest: Mapping[str, object],
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
+    consumer_rendering_census: Mapping[str, object] | None,
     resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> str:
     source_payload = {
@@ -2326,6 +2554,9 @@ def _fingerprint_build(
         "value_flow_census": _json_data(value_flow_census)
         if value_flow_census is not None
         else None,
+        "consumer_rendering_census": _json_data(consumer_rendering_census)
+        if consumer_rendering_census is not None
+        else None,
         "resume_plumbing_retirement_manifest": _json_data(
             resume_plumbing_retirement_manifest
         )
@@ -2349,6 +2580,7 @@ def _write_build_artifacts(
     adapter_census_payload: Mapping[str, object] | None,
     boundary_authority_report_payload: Mapping[str, object] | None,
     value_flow_census_report_payload: Mapping[str, object] | None,
+    consumer_rendering_census_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
@@ -2378,6 +2610,10 @@ def _write_build_artifacts(
         artifact_paths["boundary_authority_report"] = build_root / "boundary_authority_report.json"
     if value_flow_census_report_payload is not None:
         artifact_paths["value_flow_census_report"] = build_root / "value_flow_census_report.json"
+    if consumer_rendering_census_report_payload is not None:
+        artifact_paths["consumer_rendering_census_report"] = (
+            build_root / "consumer_rendering_census_report.json"
+        )
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
             build_root / "resume_plumbing_retirement_report.json"
@@ -2418,6 +2654,10 @@ def _write_build_artifacts(
         payloads["boundary_authority_report"] = _json_data(boundary_authority_report_payload)
     if value_flow_census_report_payload is not None:
         payloads["value_flow_census_report"] = _json_data(value_flow_census_report_payload)
+    if consumer_rendering_census_report_payload is not None:
+        payloads["consumer_rendering_census_report"] = _json_data(
+            consumer_rendering_census_report_payload
+        )
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(
             resume_plumbing_retirement_report_payload
@@ -2490,6 +2730,7 @@ def _build_manifest(
     emit_debug_yaml: bool,
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
+    consumer_rendering_census: Mapping[str, object] | None,
     resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> FrontendBuildManifest:
     return FrontendBuildManifest(
@@ -2539,6 +2780,9 @@ def _build_manifest(
             boundary_authority_registry
         ),
         value_flow_census=_value_flow_census_provenance(value_flow_census),
+        consumer_rendering_census=_consumer_rendering_census_provenance(
+            consumer_rendering_census
+        ),
     )
 
 

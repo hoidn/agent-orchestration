@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 from dataclasses import asdict, is_dataclass, replace
@@ -34,6 +35,13 @@ DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH = (
 )
 DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.value_flow_census.json"
+)
+DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH = (
+    DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.consumer_rendering_census.json"
+)
+DESIGN_DELTA_RESUME_PLUMBING_RETIREMENT_PATH = (
+    DESIGN_DELTA_MIGRATION_INPUTS
+    / "design_delta_parent_drain.resume_plumbing_retirement.json"
 )
 # This checked-in candidate remains the authoritative proof source for the
 # imported-child prerequisite until the shipping library module lands its
@@ -212,6 +220,7 @@ def _build_design_delta_parent_drain(
     *,
     registry_payload: dict[str, object] | None = None,
     value_flow_census_payload: dict[str, object] | None = None,
+    consumer_rendering_census_payload: dict[str, object] | None = None,
     command_boundaries_path: Path | None = None,
 ):
     build = _build_module()
@@ -240,6 +249,51 @@ def _build_design_delta_parent_drain(
             census_path,
             raising=False,
         )
+        resume_manifest = _load_design_delta_resume_plumbing_retirement_manifest(
+            DESIGN_DELTA_RESUME_PLUMBING_RETIREMENT_PATH
+        )
+        resume_manifest["source_census"] = {
+            "path": str(census_path),
+            "fingerprint": (
+                "sha256:"
+                + hashlib.sha256(census_path.read_bytes()).hexdigest()
+            ),
+        }
+        resume_path = tmp_path / "design_delta_parent_drain.resume_plumbing_retirement.json"
+        resume_path.write_text(
+            json.dumps(resume_manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            build,
+            "DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH",
+            resume_path,
+            raising=False,
+        )
+        if consumer_rendering_census_payload is None:
+            consumer_rendering_census_payload = _load_design_delta_consumer_rendering_census()
+        source_census = consumer_rendering_census_payload.setdefault("source_census", {})
+        if not isinstance(source_census, dict):
+            source_census = {}
+            consumer_rendering_census_payload["source_census"] = source_census
+        source_census["path"] = str(census_path)
+        source_census.setdefault(
+            "schema_version",
+            "workflow_lisp_private_runtime_value_flow_census.v1",
+        )
+    if consumer_rendering_census_payload is not None:
+        consumer_path = tmp_path / "design_delta_parent_drain.consumer_rendering_census.json"
+        consumer_path.parent.mkdir(parents=True, exist_ok=True)
+        consumer_path.write_text(
+            json.dumps(consumer_rendering_census_payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            build,
+            "DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH",
+            consumer_path,
+            raising=False,
+        )
     return build_frontend_bundle(
         _design_delta_parent_drain_request(
             tmp_path,
@@ -254,6 +308,12 @@ def _load_design_delta_boundary_authority_registry() -> dict[str, object]:
 
 def _load_design_delta_value_flow_census() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH.read_text(encoding="utf-8"))
+
+
+def _load_design_delta_consumer_rendering_census() -> dict[str, object]:
+    return json.loads(
+        DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH.read_text(encoding="utf-8")
+    )
 
 
 def _load_design_delta_resume_plumbing_retirement_manifest(path: Path) -> dict[str, object]:
@@ -4712,6 +4772,306 @@ def test_design_delta_parent_drain_value_flow_census_changes_build_fingerprint(
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path / "second"),
         value_flow_census_payload=payload,
+    )
+
+    assert first.manifest.fingerprint != second.manifest.fingerprint
+
+
+def test_design_delta_parent_drain_build_emits_consumer_rendering_census_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "consumer_rendering_census_report" in result.artifact_paths
+    assert (
+        result.manifest.artifact_status["consumer_rendering_census_report"] == "emitted"
+    )
+    payload = json.loads(
+        result.artifact_paths["consumer_rendering_census_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+    assert payload["missing_rows"] == []
+    assert payload["stale_rows"] == []
+    assert payload["invalid_rows"] == []
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_records_manifest_and_u0_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["consumer_rendering_census_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["manifest_provenance"]["path"].endswith(
+        "design_delta_parent_drain.consumer_rendering_census.json"
+    )
+    assert payload["source_census_provenance"]["path"].endswith(
+        "design_delta_parent_drain.value_flow_census.json"
+    )
+    compiled_evidence = payload["compiled_evidence"]
+    assert compiled_evidence["boundary_authority_report"]["path"].endswith(
+        "boundary_authority_report.json"
+    )
+    assert compiled_evidence["prompt_externs"]["path"].endswith(
+        "design_delta_parent_drain.prompts.json"
+    )
+    assert compiled_evidence["provider_externs"]["path"].endswith(
+        "design_delta_parent_drain.providers.json"
+    )
+    assert compiled_evidence["view_dual_run_vectors"]["path"].endswith(
+        "design_delta_view_dual_run_vectors.json"
+    )
+    assert compiled_evidence["view_dual_run_report"]["path"].endswith(
+        "design_delta_parent_drain_view_dual_run_report.json"
+    )
+    provenance = result.manifest.consumer_rendering_census
+    assert provenance["workflow_family"] == "design_delta_parent_drain"
+    assert provenance["sha256"].startswith("sha256:")
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_reconciles_materialize_view_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["consumer_rendering_census_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    effect_row_ids = {
+        row["u0_row_id"] for row in payload["materialize_view_effect_rows"]
+    }
+    assert "drain.materialized.drain_summary" in effect_row_ids
+    assert "work_item.summary.summary_path" in effect_row_ids
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_rejects_unmatched_materialize_view_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original_collect = build._collect_materialize_view_effects
+
+    def _collect_with_unmatched_effect(compile_result):
+        effects = list(original_collect(compile_result))
+        effects.append(
+            {
+                "effect_id": (
+                    "effect:lisp_frontend_design_delta/selector::select-next-work:"
+                    "synthetic_unmatched_materialize_view:materialize_view"
+                ),
+                "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "target_path": "root.steps.selector.synthetic.summary_path",
+                "value_type": {
+                    "kind": "record",
+                    "name": "lisp_frontend_design_delta/types::SyntheticSelectorView",
+                },
+            }
+        )
+        return effects
+
+    monkeypatch.setattr(
+        build,
+        "_collect_materialize_view_effects",
+        _collect_with_unmatched_effect,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "consumer_rendering_census_invalid"
+    assert "consumer_rendering_census_row_missing" in excinfo.value.diagnostics[0].message
+    assert "synthetic_unmatched_materialize_view" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_rejects_same_workflow_unmatched_materialize_view_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original_collect = build._collect_materialize_view_effects
+
+    def _collect_with_same_workflow_unmatched_effect(compile_result):
+        effects = list(original_collect(compile_result))
+        effects.append(
+            {
+                "effect_id": (
+                    "effect:lisp_frontend_design_delta/drain::drain:"
+                    "root.lisp_frontend_design_delta_drain_drain__match_terminal__done__"
+                    "materialize_view__synthetic_extra_drain_view:materialize_view"
+                ),
+                "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "target_path": (
+                    "root.steps.lisp_frontend_design_delta/drain::drain__match_terminal__"
+                    "done__status.artifacts.synthetic_summary_path"
+                ),
+                "value_type": {
+                    "kind": "record",
+                    "name": "lisp_frontend_design_delta/types::DrainSummaryValue",
+                },
+            }
+        )
+        return effects
+
+    monkeypatch.setattr(
+        build,
+        "_collect_materialize_view_effects",
+        _collect_with_same_workflow_unmatched_effect,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "consumer_rendering_census_invalid"
+    assert "consumer_rendering_census_row_missing" in excinfo.value.diagnostics[0].message
+    assert "synthetic_extra_drain_view" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_rejects_missing_render_only_u0_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_consumer_rendering_census()
+    payload["rows"] = [
+        row for row in payload["rows"] if row["u0_row_id"] != "plan_phase.prompt.draft"
+    ]
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            consumer_rendering_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "consumer_rendering_census_invalid"
+    assert "consumer_rendering_census_row_missing" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_rejects_target_dependent_renderer_proof(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_consumer_rendering_census()
+    for row in payload["rows"]:
+        if row["u0_row_id"] == "drain.materialized.drain_summary":
+            row["target_binding"] = {
+                "kind": "consumer_owned_target",
+                "target_labels": ["artifacts/work/drain_summary.json"],
+            }
+            break
+    else:
+        raise AssertionError("expected drain summary row in checked consumer rendering census")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            consumer_rendering_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "consumer_rendering_census_invalid"
+    assert "consumer_rendering_target_dependent" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_rejects_unclassified_body_materialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_consumer_rendering_census()
+    for row in payload["rows"]:
+        if row["u0_row_id"] == "drain.materialized.drain_summary":
+            row["track_c_decision"] = "KEEP_TYPED"
+            break
+    else:
+        raise AssertionError("expected drain summary row in checked consumer rendering census")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            consumer_rendering_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "consumer_rendering_census_invalid"
+    assert (
+        "consumer_rendering_body_materialization_unclassified"
+        in excinfo.value.diagnostics[0].message
+    )
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_rejects_missing_bridge_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_consumer_rendering_census()
+    for row in payload["rows"]:
+        if row["u0_row_id"] == "work_item.pointer.selection_bundle_path":
+            row["bridge"] = None
+            break
+    else:
+        raise AssertionError("expected work-item pointer row in checked consumer rendering census")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            consumer_rendering_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "consumer_rendering_census_invalid"
+    assert "consumer_rendering_bridge_metadata_missing" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_consumer_rendering_report_changes_build_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _build_design_delta_parent_drain(
+        tmp_path / "first",
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path / "first"),
+    )
+    payload = _load_design_delta_consumer_rendering_census()
+    payload["rows"][0]["notes"] = str(payload["rows"][0].get("notes", "")) + " mutated"
+    second = _build_design_delta_parent_drain(
+        tmp_path / "second",
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path / "second"),
+        consumer_rendering_census_payload=payload,
     )
 
     assert first.manifest.fingerprint != second.manifest.fingerprint

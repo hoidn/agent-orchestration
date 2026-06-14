@@ -386,6 +386,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "adapter_census",
                     "boundary_authority_report",
                     "value_flow_census_report",
+                    "consumer_rendering_census_report",
                     "g8_deletion_evidence",
                 ],
                 "optional": ["expanded_debug_yaml"],
@@ -2480,6 +2481,7 @@ def _write_design_delta_g0_build_manifest(
     include_adapter_census: bool = True,
     include_boundary_authority_report: bool = True,
     include_value_flow_census_report: bool = True,
+    include_consumer_rendering_census_report: bool = True,
     include_g8_deletion_evidence: bool = True,
     g8_removed_manifest_rows: list[str] | None = None,
     boundary_unclassified: list[str] | None = None,
@@ -2490,6 +2492,7 @@ def _write_design_delta_g0_build_manifest(
     value_flow_stale_rows: list[dict[str, object]] | None = None,
     value_flow_invalid_rows: list[dict[str, object]] | None = None,
     value_flow_status: str = "pass",
+    consumer_rendering_status: str = "pass",
 ) -> Path:
     build_root = tmp_path / "build"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -2645,6 +2648,38 @@ def _write_design_delta_g0_build_manifest(
                 "status": value_flow_status,
             },
         )
+    if include_consumer_rendering_census_report:
+        _write_json(
+            build_root / "consumer_rendering_census_report.json",
+            {
+                "schema_version": "workflow_lisp_consumer_rendering_census_report.v1",
+                "workflow_family": "design_delta_parent_drain",
+                "checked_manifest": {
+                    "path": (
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "design_delta_parent_drain.consumer_rendering_census.json"
+                    ),
+                    "sha256": "sha256:consumer-rendering-census",
+                },
+                "source_census": {
+                    "path": (
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "design_delta_parent_drain.value_flow_census.json"
+                    ),
+                    "sha256": "sha256:value-flow-census",
+                },
+                "materialize_view_effect_rows": [
+                    {
+                        "u0_row_id": "drain.materialized.drain_summary",
+                        "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+                    }
+                ],
+                "missing_rows": [],
+                "stale_rows": [],
+                "invalid_rows": [],
+                "status": consumer_rendering_status,
+            },
+        )
     if include_g8_deletion_evidence:
         _write_json(
             build_root / "g8_deletion_evidence.json",
@@ -2677,6 +2712,11 @@ def _write_design_delta_g0_build_manifest(
             build_root / "value_flow_census_report.json"
         )
         artifact_status["value_flow_census_report"] = "emitted"
+    if include_consumer_rendering_census_report:
+        artifact_paths["consumer_rendering_census_report"] = str(
+            build_root / "consumer_rendering_census_report.json"
+        )
+        artifact_status["consumer_rendering_census_report"] = "emitted"
     if include_g8_deletion_evidence:
         artifact_paths["g8_deletion_evidence"] = str(build_root / "g8_deletion_evidence.json")
         artifact_status["g8_deletion_evidence"] = "emitted"
@@ -2743,11 +2783,67 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
     assert report["adapter_census"]["workflow_family"] == "design_delta_parent_drain"
     assert report["boundary_authority_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["value_flow_census_report"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["consumer_rendering_census_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["g8_deletion_evidence"]["workflow_family"] == "design_delta_parent_drain"
     assert report["compile_artifacts"]["required"]["adapter_census"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "pass"
+    assert (
+        report["compile_artifacts"]["required"]["consumer_rendering_census_report"]["status"]
+        == "pass"
+    )
     assert report["compile_artifacts"]["required"]["g8_deletion_evidence"]["status"] == "pass"
+
+
+def test_run_parity_target_fails_cleanly_when_consumer_rendering_census_report_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_consumer_rendering_census_report=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert (
+        report["compile_artifacts"]["required"]["consumer_rendering_census_report"]["status"]
+        == "missing"
+    )
+
+
+def test_run_parity_target_fails_when_consumer_rendering_census_report_is_non_passing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        consumer_rendering_status="fail",
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert (
+        report["compile_artifacts"]["required"]["consumer_rendering_census_report"]["status"]
+        == "fail"
+    )
+    assert "prerequisite" in report["compile_artifacts"]["required"][
+        "consumer_rendering_census_report"
+    ]["reason"]
 
 
 def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
@@ -3150,6 +3246,7 @@ def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> Non
     assert "adapter_census" in target["compile_artifacts"]["required"]
     assert "boundary_authority_report" in target["compile_artifacts"]["required"]
     assert "value_flow_census_report" in target["compile_artifacts"]["required"]
+    assert "consumer_rendering_census_report" in target["compile_artifacts"]["required"]
     assert "g8_deletion_evidence" in target["compile_artifacts"]["required"]
 
 
@@ -3178,5 +3275,7 @@ def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_arti
     assert artifact_reasons["boundary_authority_report"]["parity_constrained"] is True
     assert artifact_reasons["value_flow_census_report"]["reason"] == "parity_comparison"
     assert artifact_reasons["value_flow_census_report"]["parity_constrained"] is True
+    assert artifact_reasons["consumer_rendering_census_report"]["reason"] == "prerequisite_compile_evidence"
+    assert artifact_reasons["consumer_rendering_census_report"]["parity_constrained"] is True
     assert artifact_reasons["g8_deletion_evidence"]["reason"] == "parity_comparison"
     assert artifact_reasons["g8_deletion_evidence"]["parity_constrained"] is True
