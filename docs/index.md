@@ -278,15 +278,20 @@ document owns the answer.
 **Keywords:** lisp-frontend, generic-core, expression-surface, pure-projection, transitions, materialized-views, adapter-retirement, boundary-classes, runtime-simplification
 **Use this when:** Planning or reviewing the runtime ontology simplification, the pure-expression operator set, adapter retirement evidence, boundary authority classification, or stdlib migration of `with-phase` / `finalize-selected-item` / `backlog-drain`.
 
+### [Workflow Lisp Private Runtime State And Consumer Value Flow](design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md)
+**Description:** Draft future umbrella target for removing runtime/file plumbing from authored `.orc`: Track R makes execution resumability private through schema-versioned lexical checkpoints over WCC identity, while Track C makes rendering consumer-owned through prompt injection, observability summaries, entry-boundary publication policy, and compatibility bridge metadata. Typed values and resources remain semantic authority.
+**Keywords:** lisp-frontend, resume, checkpoints, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges, boundary-cleanup, values-before-artifacts
+**Use this when:** Planning or reviewing the combined cleanup of resume-only and render-only path plumbing from Workflow Lisp workflows.
+
 ### [Workflow Lisp Consumer-Side Rendering](design/workflow_lisp_consumer_side_rendering.md)
-**Description:** Draft future target that inverts materialization from producer-authored to consumer-derived: producers publish typed values, and rendering happens at consumer seams — typed values injected into prompts (ephemeral, evidenced by the composed-prompt log), human summaries derived by the observability layer from typed terminal results, per-variant `:publish` policy on entrypoint signatures lowering to the G4 kernel, and compatibility bridges maintained from classification metadata so retirement is metadata deletion. Body-level `materialize-view` shrinks to justified timed publications.
-**Keywords:** lisp-frontend, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges, values-before-artifacts, ergonomics
-**Use this when:** Planning or reviewing reductions in authored materialization, typed-value prompt injection, entry-boundary publication policy, or bridge-as-metadata retirement mechanics.
+**Description:** Predecessor draft for the umbrella target's consumer-rendering track.
+**Keywords:** lisp-frontend, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges
+**Use this when:** You need detailed source notes behind the umbrella target's Track C; use the umbrella target for next-work routing.
 
 ### [Workflow Lisp Lexical Execution Checkpoints](design/workflow_lisp_lexical_execution_checkpoints.md)
-**Description:** Draft future target separating execution resumability from domain durability: private lexical checkpoints (program point, typed environment, frames, proof scopes, completed-effect references, pending effect boundary) over WCC identity, schema-versioned and executable-digest checked, with explicit effect-boundary resume policies; typed resources and transitions remain the durable, audited, parity-comparable record, and resume-only authored plumbing (run-state paths, pointer/summary targets) leaves public `.orc` boundaries.
-**Keywords:** lisp-frontend, resume, checkpoints, lexical-state, wcc, transitions, idempotency, audit, fail-closed, boundary-cleanup
-**Use this when:** Planning or reviewing long-term resume architecture, effect-boundary resume policies, checkpoint validity/identity rules, or the retirement of resume-only public inputs.
+**Description:** Predecessor draft for the umbrella target's private lexical-checkpoint track.
+**Keywords:** lisp-frontend, resume, checkpoints, lexical-state, wcc, transitions, idempotency, audit, fail-closed
+**Use this when:** You need detailed source notes behind the umbrella target's Track R; use the umbrella target for next-work routing.
 
 ### [Workflow Lisp Core Calculus And Compiler Middle-End](design/workflow_lisp_core_calculus_middle_end.md)
 **Description:** Accepted compiler architecture for Workflow Lisp lowering in the migrated subset: a minimal core calculus with a real middle-end — ANF normalization, second-class join points, scope/effect/proof analysis, and defunctionalization into the existing validated flat runtime — with WCC schema 2 default for new compiles and legacy schema 1 retained for compatibility.
