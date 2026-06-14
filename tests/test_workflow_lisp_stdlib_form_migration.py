@@ -135,7 +135,7 @@ def _compile_module_fixture(path: Path, *, tmp_path: Path):
     )
 
 
-def _compile_inline_module(source: str, *, module_name: str, tmp_path: Path):
+def _compile_inline_module(source: str, *, module_name: str, tmp_path: Path, lowering_route: str | None = None):
     module_path = (tmp_path / Path(*module_name.split("/"))).with_suffix(".orc")
     module_path.parent.mkdir(parents=True, exist_ok=True)
     module_path.write_text(source, encoding="utf-8")
@@ -145,6 +145,7 @@ def _compile_inline_module(source: str, *, module_name: str, tmp_path: Path):
         command_boundaries=_command_boundary_environment().bindings_by_name,
         validate_shared=False,
         workspace_root=tmp_path,
+        lowering_route=lowering_route,
     )
 
 
@@ -165,16 +166,24 @@ def test_intrinsic_form_route_accounting_api_starts_empty_and_is_deterministic()
     "form_name",
     ("finalize-selected-item", "backlog-drain"),
 )
-def test_g8_deletes_compatibility_intrinsic_registry_heads(form_name: str) -> None:
+def test_g8_marks_resource_and_drain_registry_heads_as_compatibility_only(form_name: str) -> None:
     registry = _form_registry_module()
 
-    assert registry.get_form_spec(form_name) is None
+    spec = registry.get_form_spec(form_name)
+
+    assert spec is not None
+    assert spec.macro_bindable is True
+    assert "compatibility_route_only" in spec.feature_tags
 
 
-def test_g8_deletes_public_with_phase_registry_head() -> None:
+def test_g8_marks_public_with_phase_registry_head_as_compatibility_only() -> None:
     registry = _form_registry_module()
 
-    assert registry.get_form_spec("with-phase") is None
+    spec = registry.get_form_spec("with-phase")
+
+    assert spec is not None
+    assert spec.macro_bindable is True
+    assert "compatibility_route_only" in spec.feature_tags
 
 
 def test_imported_stdlib_with_phase_still_compiles_without_intrinsic_accounting(
@@ -214,10 +223,17 @@ def test_imported_stdlib_with_phase_still_compiles_without_intrinsic_accounting(
     assert read_counts() == {}
 
 
-def test_bare_with_phase_requires_imported_stdlib_route(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_inline_module(
-            """(workflow-lisp
+def test_bare_with_phase_uses_compatibility_intrinsic_accounting(tmp_path: Path) -> None:
+    dispatch = _control_dispatch_module()
+    reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
+    read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
+
+    assert callable(reset_counts)
+    assert callable(read_counts)
+
+    reset_counts()
+    result = _compile_inline_module(
+        """(workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule bare_with_phase_fixture)
@@ -233,14 +249,13 @@ def test_bare_with_phase_requires_imported_stdlib_route(tmp_path: Path) -> None:
       (record Result
         :phase_name phase-ctx.phase-name
         :state_root phase-ctx.state-root))))""",
-            module_name="bare_with_phase_fixture",
-            tmp_path=tmp_path,
-        )
-
-    assert any(
-        diagnostic.code == "procedure_call_unknown" and "with-phase" in diagnostic.message
-        for diagnostic in excinfo.value.diagnostics
+        module_name="bare_with_phase_fixture",
+        tmp_path=tmp_path,
+        lowering_route="legacy",
     )
+
+    assert result.entry_result.typed_workflows
+    assert read_counts().get("with-phase") == 1
 
 
 def test_imported_binding_precedence_prefers_stdlib_form_routes_over_intrinsic_heads(tmp_path: Path) -> None:
@@ -266,23 +281,31 @@ def test_imported_binding_precedence_prefers_stdlib_form_routes_over_intrinsic_h
         (DRAIN_INTRINSIC_FIXTURE, "backlog-drain"),
     ),
 )
-def test_legacy_intrinsic_fixtures_fail_after_g8_registry_head_deletion(
+def test_legacy_intrinsic_fixtures_use_compatibility_intrinsic_accounting(
     tmp_path: Path,
     intrinsic_fixture: Path,
     expected_form_name: str,
 ) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            intrinsic_fixture,
-            command_boundaries=_command_boundary_environment(
-                gap_output_type_name="GapDraftResult" if intrinsic_fixture == DRAIN_INTRINSIC_FIXTURE else "GapResult"
-            ).bindings_by_name,
-            validate_shared=False,
-            workspace_root=tmp_path / intrinsic_fixture.stem,
-            lowering_route="legacy",
-        )
+    dispatch = _control_dispatch_module()
+    reset_counts = getattr(dispatch, "reset_intrinsic_form_lowering_counts", None)
+    read_counts = getattr(dispatch, "intrinsic_form_lowering_counts", None)
 
-    assert expected_form_name in " ".join(diagnostic.message for diagnostic in excinfo.value.diagnostics)
+    assert callable(reset_counts)
+    assert callable(read_counts)
+
+    reset_counts()
+    result = compile_stage3_module(
+        intrinsic_fixture,
+        command_boundaries=_command_boundary_environment(
+            gap_output_type_name="GapDraftResult" if intrinsic_fixture == DRAIN_INTRINSIC_FIXTURE else "GapResult"
+        ).bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path / intrinsic_fixture.stem,
+        lowering_route="legacy",
+    )
+
+    assert result.typed_workflows
+    assert read_counts().get(expected_form_name) == 1
 
 
 @pytest.mark.parametrize(

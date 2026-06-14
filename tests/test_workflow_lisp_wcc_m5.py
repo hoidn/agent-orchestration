@@ -213,7 +213,6 @@ def test_run_workflow_lisp_stamps_lowering_schema_2_in_run_state(tmp_path: Path,
     providers_path = tmp_path / "providers.json"
     prompts_path = tmp_path / "prompts.json"
     commands_path = tmp_path / "commands.json"
-    review_findings_binding = validate_review_findings_v1_binding()
     providers_path.write_text(json.dumps(_m5_provider_externs()), encoding="utf-8")
     prompts_path.write_text(json.dumps(_m5_prompt_externs()), encoding="utf-8")
     commands_path.write_text(
@@ -225,13 +224,19 @@ def test_run_workflow_lisp_stamps_lowering_schema_2_in_run_state(tmp_path: Path,
                 },
                 "validate_review_findings_v1": {
                     "kind": "external_tool",
-                    "stable_command": list(review_findings_binding.stable_command),
-                    "retirement_class": review_findings_binding.retirement_class,
-                    "retirement_label": review_findings_binding.retirement_label,
-                    "replacement_surface": review_findings_binding.replacement_surface,
-                    "bridge_owner": review_findings_binding.bridge_owner,
-                    "expiry_condition": review_findings_binding.expiry_condition,
-                    "evidence_refs": list(review_findings_binding.evidence_refs),
+                    "stable_command": [
+                        "python",
+                        "-m",
+                        "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                    ],
+                    "retirement_class": "validation",
+                    "retirement_label": "keep_bridge",
+                    "replacement_surface": "typed review findings validation bridge",
+                    "bridge_owner": "std/phase",
+                    "expiry_condition": (
+                        "retain until typed review-findings validation parity replaces the command bridge"
+                    ),
+                    "evidence_refs": ["validate_review_findings_v1"],
                 },
             }
         ),

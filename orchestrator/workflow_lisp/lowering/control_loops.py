@@ -1442,6 +1442,14 @@ def _loop_projection_materialize_values(
             if field.generated_name == discriminant_name:
                 source: dict[str, Any] = {"literal": projected_variant_name}
             elif field.generated_name in shared_field_names or field.generated_name in active_variant_fields:
+                if field.contract_definition.get("type") in {"path", "relpath"} and isinstance(
+                    expr, UnionVariantExpr
+                ):
+                    field_expr = _union_variant_expr_value_at_path(expr, relative_path)
+                    context.generated_path_spans.setdefault(
+                        f"{context.step_name_prefix}.{field.generated_name}",
+                        _origin_from_context_source(context, field_expr),
+                    )
                 current_value = current_value_for(relative_path)
                 if isinstance(current_value, LiteralExpr):
                     source = {"literal": current_value.value}

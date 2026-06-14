@@ -1161,21 +1161,37 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
         "return__progress_report",
         "return__blocker_class",
     ]
-    assert outputs["return__execution_report"].definition == {
+    execution_report = outputs["return__execution_report"].definition
+    assert {
+        key: execution_report[key]
+        for key in ("kind", "type", "under", "must_exist_target")
+    } == {
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
         "must_exist_target": False,
-        "__allow_unresolved_source": True,
     }
-    assert outputs["return__progress_report"].definition == {
+    assert execution_report["projection"]["field_role"] == "variant"
+    assert execution_report["projection"]["active_variants"] == ["COMPLETED"]
+
+    progress_report = outputs["return__progress_report"].definition
+    assert {
+        key: progress_report[key]
+        for key in ("kind", "type", "under", "must_exist_target")
+    } == {
         "kind": "relpath",
         "type": "relpath",
         "under": "artifacts/work",
         "must_exist_target": False,
-        "__allow_unresolved_source": True,
     }
-    assert outputs["return__blocker_class"].definition == {
+    assert progress_report["projection"]["field_role"] == "variant"
+    assert progress_report["projection"]["active_variants"] == ["BLOCKED"]
+
+    blocker_class = outputs["return__blocker_class"].definition
+    assert {
+        key: blocker_class[key]
+        for key in ("kind", "type", "allowed")
+    } == {
         "kind": "scalar",
         "type": "enum",
         "allowed": [
@@ -1186,8 +1202,9 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
             "user_decision_required",
             "unrecoverable_after_fix_attempt",
         ],
-        "__allow_unresolved_source": True,
     }
+    assert blocker_class["projection"]["field_role"] == "variant"
+    assert blocker_class["projection"]["active_variants"] == ["BLOCKED"]
 
 
 def test_normalized_union_output_contracts_match_authored_boundary_shape() -> None:

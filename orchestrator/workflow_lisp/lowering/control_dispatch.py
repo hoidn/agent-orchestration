@@ -123,6 +123,7 @@ def _lower_command_result(*args, **kwargs):
 
 
 def _lower_with_phase(*args, **kwargs):
+    record_intrinsic_form_lowering("with-phase")
     return lowering_core._lower_with_phase(*args, **kwargs)
 
 

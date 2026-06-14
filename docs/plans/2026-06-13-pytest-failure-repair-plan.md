@@ -233,7 +233,7 @@ Run:
 ```bash
 /home/ollie/miniconda3/bin/pytest -q \
   tests/test_workflow_lisp_wcc_m5.py::test_compile_stage3_module_defaults_to_wcc_schema_2 \
-  tests/test_workflow_lisp_wcc_m4.py::test_wcc_m4_preserves_effectful_match_arm_steps_by_structure_not_workflow_name \
+  tests/test_workflow_lisp_wcc_m4.py::test_wcc_m4_hoists_effectful_match_arm_steps_by_structure_not_workflow_name \
   tests/test_workflow_lisp_source_map.py::test_source_map_records_generated_paths_inside_nested_branch_scopes \
   tests/test_workflow_semantic_ir.py::test_frontend_build_semantic_ir_projects_generated_snapshot_and_pointer_effects \
   -vv

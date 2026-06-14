@@ -30,10 +30,8 @@ DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
     / "design_delta_parent_drain.commands.json"
 )
 SHARED_BRIDGE_BINDING_NAMES = (
-    "classify_lisp_frontend_work_item_terminal",
-    "select_lisp_frontend_blocked_recovery_route",
-    "record_terminal_work_item",
-    "record_blocked_recovery_outcome",
+    "materialize_lisp_frontend_work_item_inputs",
+    "project_lisp_frontend_selector_action",
 )
 UPDATE_RUN_STATE_SCRIPT = (
     REPO_ROOT / "workflows" / "library" / "scripts" / "update_lisp_frontend_run_state.py"
@@ -190,13 +188,13 @@ def test_design_delta_shared_work_item_bridge_contracts_match_checked_in_manifes
 
 def test_design_delta_shared_work_item_recorder_coherence_guard_detects_seeded_divergence() -> None:
     manifest_bindings = _load_design_delta_manifest_bindings()
-    binding_name = "record_terminal_work_item"
+    binding_name = "materialize_lisp_frontend_work_item_inputs"
     manifest_binding = manifest_bindings[binding_name]
     divergent_binding = replace(
         manifest_binding,
         input_signature=tuple(
             replace(field, type_name="DefinitelyNotTheManifestType")
-            if field.name == "work_item_source"
+            if field.name == "selection_bundle_path"
             else field
             for field in manifest_binding.input_signature
         ),

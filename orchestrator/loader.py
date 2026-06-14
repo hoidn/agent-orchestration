@@ -220,6 +220,10 @@ class WorkflowLoader:
                 imported_bundles=imported_bundles,
                 validation_backend=self,
                 workflow_is_imported=expected_version is not None,
+                allow_generated_step_kinds=(
+                    self._boundary_validation_policy
+                    is WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF
+                ),
             )
             if surface is None:
                 return {}

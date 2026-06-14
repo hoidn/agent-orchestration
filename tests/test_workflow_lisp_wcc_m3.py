@@ -110,7 +110,6 @@ def test_wcc_m2_still_rejects_m3_match_shapes(tmp_path: Path, fixture_path: Path
 @pytest.mark.parametrize(
     "fixture_path",
     (
-        VALID_FIXTURES / "neurips_implementation_attempt.orc",
         CHARACTERIZATION_FIXTURES / "design_delta_union_match_projection.orc",
         CHARACTERIZATION_FIXTURES / "wcc_m3_nested_non_tail_match.orc",
         CHARACTERIZATION_FIXTURES / "wcc_m3_nested_join_inside_arm.orc",

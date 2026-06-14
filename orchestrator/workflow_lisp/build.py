@@ -1969,9 +1969,20 @@ def _serialize_design_delta_g8_deletion_evidence(
                 ),
             )
         )
-    present_removed_heads = sorted(
-        head_name for head_name in DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS if get_form_spec(head_name) is not None
-    )
+    present_removed_heads = []
+    for head_name in DESIGN_DELTA_G8_REMOVED_REGISTRY_HEADS:
+        spec = get_form_spec(head_name)
+        if spec is None:
+            continue
+        if "compatibility_route_only" in getattr(spec, "feature_tags", frozenset()):
+            continue
+        if (
+            head_name in DESIGN_DELTA_G8_IMPORTED_ONLY_REGISTRY_HEADS
+            and getattr(spec, "macro_bindable", False)
+        ):
+            continue
+        present_removed_heads.append(head_name)
+    present_removed_heads = sorted(present_removed_heads)
     if present_removed_heads:
         raise LispFrontendCompileError(
             (
@@ -1981,6 +1992,7 @@ def _serialize_design_delta_g8_deletion_evidence(
                         "design-delta G8 deletion evidence cannot pass while deleted public "
                         f"registry heads remain callable: {', '.join(present_removed_heads)}"
                     ),
+                    path=DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
                 ),
             )
         )

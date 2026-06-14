@@ -11,12 +11,14 @@ from .effects import (
 )
 from .expressions import (
     CommandResultExpr,
+    EnumMemberExpr,
     ExprNode,
     LiteralExpr,
     NameExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
 )
+from .phase import is_implementation_attempt_result_type
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
 
 
@@ -28,13 +30,20 @@ def typecheck_expected_extern_operand(
     recurse,
     typed_factory,
 ):
-    if isinstance(expr, NameExpr) and expr.name not in context.value_env:
+    extern_name = _extern_operand_name(expr)
+    if extern_name is not None and extern_name not in context.value_env:
         return typed_factory(
             expr=expr,
             type_ref=PrimitiveTypeRef(name=expected_primitive),
             effect=EMPTY_EFFECT_SUMMARY,
         )
     return recurse(expr)
+
+
+def _extern_operand_name(expr: ExprNode) -> str | None:
+    if isinstance(expr, (NameExpr, EnumMemberExpr)):
+        return expr.name
+    return None
 
 
 def _literal_string(expr: ExprNode) -> str | None:
@@ -216,6 +225,18 @@ def typecheck_provider_result_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    active_phase_scope = context.active_phase_scope
+    if (
+        getattr(active_phase_scope, "uses_legacy_bridge", False)
+        and not is_implementation_attempt_result_type(return_type)
+    ):
+        compat._raise_error(
+            "legacy implementation `with-phase` provider-result must return `ImplementationAttempt`",
+            code="provider_result_return_type_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     typed_provider = typecheck_expected_extern_operand(
         expr.provider,
         expected_primitive="Provider",
@@ -246,7 +267,8 @@ def typecheck_provider_result_expr(
             form_path=expr.prompt.form_path,
             expansion_stack=expr.prompt.expansion_stack,
         )
-    if not isinstance(expr.provider, NameExpr) or context.extern_environment is None:
+    provider_extern_name = _extern_operand_name(expr.provider)
+    if provider_extern_name is None or context.extern_environment is None:
         compat._raise_error(
             "`provider-result` requires a compiler-known provider extern",
             code="provider_result_provider_invalid",
@@ -254,16 +276,17 @@ def typecheck_provider_result_expr(
             form_path=expr.provider.form_path,
             expansion_stack=expr.provider.expansion_stack,
         )
-    provider_binding = context.extern_environment.bindings_by_name.get(expr.provider.name)
+    provider_binding = context.extern_environment.bindings_by_name.get(provider_extern_name)
     if not isinstance(provider_binding, ProviderExtern):
         compat._raise_error(
-            f"`provider-result` provider `{expr.provider.name}` is not a declared provider extern",
+            f"`provider-result` provider `{provider_extern_name}` is not a declared provider extern",
             code="provider_result_provider_invalid",
             span=expr.provider.span,
             form_path=expr.provider.form_path,
             expansion_stack=expr.provider.expansion_stack,
         )
-    if not isinstance(expr.prompt, NameExpr) or context.extern_environment is None:
+    prompt_extern_name = _extern_operand_name(expr.prompt)
+    if prompt_extern_name is None or context.extern_environment is None:
         compat._raise_error(
             "`provider-result` requires a compiler-known prompt extern",
             code="provider_result_prompt_invalid",
@@ -271,10 +294,10 @@ def typecheck_provider_result_expr(
             form_path=expr.prompt.form_path,
             expansion_stack=expr.prompt.expansion_stack,
         )
-    prompt_binding = context.extern_environment.bindings_by_name.get(expr.prompt.name)
+    prompt_binding = context.extern_environment.bindings_by_name.get(prompt_extern_name)
     if not isinstance(prompt_binding, PromptExtern):
         compat._raise_error(
-            f"`provider-result` prompt `{expr.prompt.name}` is not a declared prompt extern",
+            f"`provider-result` prompt `{prompt_extern_name}` is not a declared prompt extern",
             code="provider_result_prompt_invalid",
             span=expr.prompt.span,
             form_path=expr.prompt.form_path,
@@ -284,7 +307,7 @@ def typecheck_provider_result_expr(
     for input_expr in expr.inputs:
         typed_input = recurse(input_expr)
         input_summaries.append(typed_input.effect_summary)
-    provider_name = expr.provider.name if isinstance(expr.provider, NameExpr) else "provider-result"
+    provider_name = provider_extern_name or "provider-result"
     provider_summary = effect_summary_from_direct(
         direct_effects=(UsesProviderEffect(subject=tuple(provider_name.split("."))),)
     )

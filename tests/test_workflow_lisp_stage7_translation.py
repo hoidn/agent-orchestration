@@ -153,7 +153,13 @@ def _typecheck_fixture(path: Path):
     )
 
 
-def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
+def _compile(
+    path: Path,
+    *,
+    tmp_path: Path,
+    validate_shared: bool = False,
+    lowering_route: str | None = None,
+):
     return compile_stage3_module(
         path,
         provider_externs={
@@ -167,6 +173,7 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
         command_boundaries=_command_boundaries().bindings_by_name,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
+        lowering_route=lowering_route,
     )
 
 
@@ -236,7 +243,12 @@ def test_neurips_selected_item_compiles_and_validates(tmp_path: Path) -> None:
 
 
 def test_neurips_remaining_drain_compiles_and_validates(tmp_path: Path) -> None:
-    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+    result = _compile(
+        VALID_DRAIN_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+        lowering_route="legacy",
+    )
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows

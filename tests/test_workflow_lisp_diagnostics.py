@@ -1934,12 +1934,15 @@ def test_semantic_ir_invalid_from_promoted_effect_validation_preserves_subject_b
         raise WorkflowValidationError(
             [
                 ValidationError(
-                    message="semantic_ir_invalid: promoted effect references unknown statement `orchestrate__attempt__prompt_inputs`",
+                    message=(
+                        "semantic_ir_invalid: promoted effect references unknown statement "
+                        "`phase_snapshot_effects::orchestrate__attempt__prompt_inputs`"
+                    ),
                     subject_refs=(
                         ValidationSubjectRef(
                             subject_kind="step_id",
-                            subject_name="orchestrate__attempt__prompt_inputs",
-                            workflow_name="orchestrate",
+                            subject_name="phase_snapshot_effects::orchestrate__attempt__prompt_inputs",
+                            workflow_name="phase_snapshot_effects::orchestrate",
                         ),
                     ),
                 )

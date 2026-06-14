@@ -21,6 +21,7 @@ from orchestrator.workflow.executable_ir import (
     IncrementScalarStepConfig,
     MaterializeArtifactsStepConfig,
     ProviderStepConfig,
+    PureProjectionStepConfig,
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
     SelectVariantOutputStepConfig,
@@ -190,6 +191,10 @@ def materialize_execution_config_for_test(
 
     if isinstance(config, SelectVariantOutputStepConfig):
         _set_runtime_field(step, "select_variant_output", config.select_variant_output, include_empty=True)
+        return step
+
+    if isinstance(config, PureProjectionStepConfig):
+        _set_runtime_field(step, "pure_projection", config.pure_projection, include_empty=True)
         return step
 
     if isinstance(config, CallStepConfig):

@@ -493,7 +493,10 @@ def _lower_one_wcc_workflow(
     )
 
     for hidden_input_name, origin in terminal.hidden_inputs.items():
-        authored_inputs[hidden_input_name] = {"type": "relpath"}
+        authored_inputs[hidden_input_name] = {
+            "kind": "relpath",
+            "type": "relpath",
+        }
         context.generated_input_spans[hidden_input_name] = origin
         context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
     for allocation in context.generated_path_allocations:
@@ -501,7 +504,13 @@ def _lower_one_wcc_workflow(
         reason = allocation_reason(allocation)
         if not isinstance(hidden_input_name, str) or reason is None:
             continue
-        authored_inputs.setdefault(hidden_input_name, {"type": "relpath"})
+        authored_inputs.setdefault(
+            hidden_input_name,
+            {
+                "kind": "relpath",
+                "type": "relpath",
+            },
+        )
         origin = context.generated_path_spans.get(allocation.concrete_path_template)
         if origin is not None:
             context.generated_input_spans.setdefault(hidden_input_name, origin)
@@ -1648,6 +1657,14 @@ def _lower_wcc_terminal_export(
             hidden_inputs={},
         )
     if is_pure_projection_expr(expr):
+        static_terminal = _lower_static_terminal_projection(
+            expr,
+            type_ref=type_ref,
+            context=context,
+            local_values=local_values,
+        )
+        if static_terminal is not None:
+            return static_terminal
         terminal_step_name = f"{context.step_name_prefix}__terminal_projection"
         terminal_step_id = lowering_core._normalize_generated_step_id(terminal_step_name)
         lowered_projection = lower_pure_projection_step(
@@ -1677,6 +1694,104 @@ def _lower_wcc_terminal_export(
             ),
         )
     )
+
+
+def _lower_static_terminal_projection(
+    expr: Any,
+    *,
+    type_ref: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult] | None:
+    if not _contains_pure_operator(expr, local_values=local_values):
+        return None
+    static_value = try_evaluate_static_pure_expr(
+        expr,
+        result_type=type_ref,
+        context=context,
+        local_values=local_values,
+    )
+    if static_value is None:
+        return None
+
+    values: list[dict[str, Any]] = []
+    output_refs: dict[str, str] = {}
+    step_name = f"{context.step_name_prefix}__terminal_projection"
+    step_id = lowering_core._normalize_generated_step_id(step_name)
+    for field in lowering_core.derive_workflow_boundary_fields(
+        type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=context.signature.span,
+        form_path=context.signature.form_path,
+    ):
+        leaf = _static_terminal_leaf(static_value, field_path=field.source_path[1:])
+        if not _is_static_terminal_literal(leaf):
+            return None
+        values.append(
+            {
+                "name": field.generated_name,
+                "source": {"literal": leaf},
+                "contract": dict(field.contract_definition),
+            }
+        )
+        output_refs[field.generated_name] = f"root.steps.{step_name}.artifacts.{field.generated_name}"
+
+    step = {
+        "name": step_name,
+        "id": step_id,
+        "materialize_artifacts": {
+            "values": values,
+        },
+    }
+    lowering_core._record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    return [step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=output_refs,
+        output_kind="projection",
+        hidden_inputs={},
+    )
+
+
+def _static_terminal_leaf(value: Any, *, field_path: tuple[str, ...]) -> Any:
+    leaf = value
+    for field_name in field_path:
+        if not isinstance(leaf, Mapping):
+            return None
+        leaf = leaf.get(field_name)
+    return leaf
+
+
+def _is_static_terminal_literal(value: Any) -> bool:
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _contains_pure_operator(expr: Any, *, local_values: Mapping[str, Any]) -> bool:
+    if isinstance(expr, PureOpExpr):
+        return True
+    if isinstance(expr, NameExpr):
+        local_expr = local_values.get(expr.name)
+        return local_expr is not None and _contains_pure_operator(local_expr, local_values=local_values)
+    if isinstance(expr, RecordUpdateExpr):
+        return _contains_pure_operator(expr.base_expr, local_values=local_values) or any(
+            _contains_pure_operator(override_expr, local_values=local_values)
+            for _, override_expr in expr.overrides
+        )
+    if isinstance(expr, (RecordExpr, UnionVariantExpr)):
+        return any(_contains_pure_operator(field_expr, local_values=local_values) for _, field_expr in expr.fields)
+    if isinstance(expr, IfExpr):
+        return (
+            _contains_pure_operator(expr.condition_expr, local_values=local_values)
+            or _contains_pure_operator(expr.then_expr, local_values=local_values)
+            or _contains_pure_operator(expr.else_expr, local_values=local_values)
+        )
+    if isinstance(expr, LetStarExpr):
+        return any(
+            _contains_pure_operator(binding_expr, local_values=local_values)
+            for _, binding_expr in expr.bindings
+        ) or _contains_pure_operator(expr.body, local_values=local_values)
+    return False
 
 
 def _wcc_terminal_output_refs_for_expr(

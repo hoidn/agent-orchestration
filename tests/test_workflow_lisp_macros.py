@@ -140,13 +140,17 @@ def test_review_revise_loop_not_reserved_core_macro_name() -> None:
     assert bridge is None
 
 
-def test_removed_or_private_bridge_heads_do_not_reserve_imported_stdlib_surface_names() -> None:
+def test_stdlib_compatibility_heads_are_macro_bindable_but_not_reserved() -> None:
     registry = importlib.import_module("orchestrator.workflow_lisp.form_registry")
 
     reserved = registry.reserved_macro_names()
 
     for head_name in ("with-phase", "finalize-selected-item", "backlog-drain"):
-        assert registry.get_form_spec(head_name) is None
+        spec = registry.get_form_spec(head_name)
+
+        assert spec is not None
+        assert spec.macro_bindable is True
+        assert "compatibility_route_only" in spec.feature_tags
         assert head_name not in reserved
 
 

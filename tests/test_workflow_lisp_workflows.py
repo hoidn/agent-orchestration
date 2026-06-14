@@ -13,6 +13,7 @@ from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
     CallExpr,
+    EnumMemberExpr,
     LetStarExpr,
     MatchExpr,
     NameExpr,
@@ -317,9 +318,9 @@ def test_elaborate_expression_supports_call_and_provider_result_with_extern_symb
     assert [binding_name for binding_name, _ in call_expr.bindings] == ["input", "report_path"]
 
     assert isinstance(provider_expr, ProviderResultExpr)
-    assert isinstance(provider_expr.provider, NameExpr)
+    assert isinstance(provider_expr.provider, (NameExpr, EnumMemberExpr))
     assert provider_expr.provider.name == "providers.execute"
-    assert isinstance(provider_expr.prompt, NameExpr)
+    assert isinstance(provider_expr.prompt, (NameExpr, EnumMemberExpr))
     assert provider_expr.prompt.name == "prompts.implementation.execute"
     assert provider_expr.returns_type_name == "ImplementationState"
     assert len(provider_expr.inputs) == 2
@@ -648,7 +649,7 @@ def test_workflow_boundary_accepts_lowerable_collection_typed_params_under_wcc(t
     assert workflow_catalog.signatures_by_name["entry"].params[0][0] == "attempt_ids"
 
 
-def test_workflow_boundary_rejects_collection_typed_returns(tmp_path: Path) -> None:
+def test_workflow_boundary_rejects_unsupported_collection_typed_returns(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "workflow_boundary_collection_return.orc",
         "\n".join(
@@ -657,7 +658,7 @@ def test_workflow_boundary_rejects_collection_typed_returns(tmp_path: Path) -> N
                 '  (:language "0.1")',
                 '  (:target-dsl "2.14")',
                 "  (defrecord WorkflowOutput",
-                "    (attempt_ids List[Int]))",
+                "    (attempt_ids Map[String, Int]))",
                 "  (defworkflow entry",
                 "    ()",
                 "    -> WorkflowOutput",
@@ -665,12 +666,15 @@ def test_workflow_boundary_rejects_collection_typed_returns(tmp_path: Path) -> N
             ]
         ),
     )
+    module = _compile_definition_module(path)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(path))
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            validate_shared=False,
-            workspace_root=tmp_path,
+        build_workflow_catalog(
+            module,
+            workflow_defs,
+            FrontendTypeEnvironment.from_module(module),
+            allow_collection_return_boundaries=True,
         )
 
     _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
@@ -928,6 +932,7 @@ def test_compile_stage3_strips_workflow_ref_params_from_lowered_runtime_boundari
         },
         validate_shared=True,
         workspace_root=tmp_path,
+        lowering_route="legacy",
     )
 
     for lowered in result.lowered_workflows:

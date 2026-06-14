@@ -478,7 +478,8 @@ def test_resume_workflow_reuses_orc_launch_metadata_from_monitor_process(
             'name': 'orc-test',
             'steps': [],
             'context': {},
-        }
+        },
+        manifest=SimpleNamespace(lowering_schema_version=1),
     )
     exec_inst = MagicMock()
     exec_inst.execute.return_value = {'status': 'completed'}

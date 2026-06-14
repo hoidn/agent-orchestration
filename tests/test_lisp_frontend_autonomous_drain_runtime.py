@@ -836,10 +836,12 @@ def test_work_item_terminal_keeps_external_dependency_blocked_for_recovery_class
         output_path.relative_to(workspace).as_posix(),
     )
 
-    assert json.loads(output_path.read_text(encoding="utf-8")) == {
-        "terminal_route": "IMPLEMENTATION_BLOCKED",
-        "block_reason": "implementation_blocked",
-    }
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["terminal_route"] == "IMPLEMENTATION_BLOCKED"
+    assert payload["block_reason"] == "implementation_blocked"
+    assert payload["implementation_blocked"] is True
+    assert payload["plan_review_exhausted"] is False
+    assert payload["implementation_review_exhausted"] is False
 
 
 def test_blocked_recovery_user_decision_with_repo_scope_evidence_is_recoverable(tmp_path):
@@ -2855,17 +2857,17 @@ def test_design_delta_gap_architect_uses_supported_claude_default():
         "DraftDesignGapArchitecture",
         "ValidateDesignGapArchitecture",
     ]
-    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
-    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "gpt-5.4"
-    assert workflow["providers"]["claude"]["defaults"]["model"] == "sonnet"
+    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "claude"
+    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "fable"
+    assert workflow["providers"]["claude"]["defaults"]["model"] == "fable"
 
     validate_step = next(
         step for step in workflow["steps"] if step["name"] == "ValidateDesignGapDraftProviderRouting"
     )
     validator_source = validate_step["command"][2]
 
-    assert 'model in {"fable", "opus", "sonnet", "haiku"}' in validator_source
-    assert "provider=claude requires a Claude model" in validator_source
+    assert 'model not in {"fable", "claude-fable-5"}' in validator_source
+    assert "design-gap drafting via Claude must use Fable" in validator_source
 
 
 def test_lisp_frontend_workflows_load(tmp_path):

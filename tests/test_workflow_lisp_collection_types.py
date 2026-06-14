@@ -236,7 +236,7 @@ def test_compile_stage3_allows_list_relpath_workflow_boundary(tmp_path: Path) ->
         },
         "from": output_docs["from"],
     }
-    assert output_docs["from"]["ref"].endswith(".artifacts.docs")
+    assert output_docs["from"]["ref"].endswith(".artifacts.return__docs")
 
 
 def test_parse_type_expression_supports_proc_ref_signatures() -> None:

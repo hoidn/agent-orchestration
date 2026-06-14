@@ -2365,7 +2365,7 @@ def _validate_one_lowered_workflow(
         for name, spec in workflow.get("inputs", {}).items()
         if isinstance(name, str) and isinstance(spec, Mapping)
     }
-    loader._current_workflow_path = lowered_workflow.typed_workflow.definition.body.span.start.path
+    loader._current_workflow_path = lowered_workflow.typed_workflow.definition.span.start.path
     loader._current_workflow_path = Path(loader._current_workflow_path)
     loader._current_source_root = loader._current_workflow_path.parent
     loader._current_imports = dict(imported_bundles)

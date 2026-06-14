@@ -10,7 +10,7 @@ import pytest
 import tempfile
 import yaml
 
-from orchestrator.loader import WorkflowLoader
+from orchestrator.loader import WorkflowBoundaryValidationPolicy, WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_provenance
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
@@ -1986,7 +1986,11 @@ class TestLoaderValidation:
             encoding="utf-8",
         )
 
-        loaded = self.loader.load_bundle(workflow_path)
+        generated_loader = WorkflowLoader(
+            self.workspace,
+            boundary_validation_policy=WorkflowBoundaryValidationPolicy.DEDICATED_RUNTIME_PROOF,
+        )
+        loaded = generated_loader.load_bundle(workflow_path)
         body_steps = {
             step["name"]: step["step_id"] for step in materialize_projection_body_steps(loaded)
         }

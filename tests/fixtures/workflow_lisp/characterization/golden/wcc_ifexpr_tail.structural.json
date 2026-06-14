@@ -10,6 +10,7 @@
       "authored_mapping": {
         "inputs": {
           "__write_root__choose_summary__terminal_projection__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "approved_report": {

@@ -404,6 +404,7 @@ def test_authored_materialize_view_runtime_renders_allocated_target(tmp_path: Pa
 
 def test_authored_materialize_view_runtime_preserves_literal_ref_field_data(tmp_path: Path) -> None:
     bundle = _compile_single_ref_field_materialize_view_bundle(tmp_path)
+    step_name = bundle.surface.steps[0].name
     state_manager = StateManager(workspace=tmp_path, run_id="materialize-view-ref-field")
     state_manager.initialize(
         "materialize_view_single_ref_field.orc",
@@ -414,7 +415,7 @@ def test_authored_materialize_view_runtime_preserves_literal_ref_field_data(tmp_
     rendered_path = tmp_path / "artifacts/work/only-ref.json"
 
     assert result["status"] == "completed"
-    assert result["steps"]["runtime-summary"]["artifacts"] == {
+    assert result["steps"][step_name]["artifacts"] == {
         "return": "artifacts/work/only-ref.json"
     }
     assert rendered_path.read_bytes() == b'{"ref":"literal-string"}\n'

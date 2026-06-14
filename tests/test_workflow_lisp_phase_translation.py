@@ -143,7 +143,11 @@ def _compile_and_execute_phase_fixture(workspace: Path, *, mode: str) -> tuple[d
         validate_shared=True,
         workspace_root=workspace,
     )
-    bundle = compile_result.validated_bundles["run-implementation-attempt"]
+    bundle = next(
+        bundle
+        for name, bundle in compile_result.validated_bundles.items()
+        if name.endswith("run-implementation-attempt")
+    )
     state_manager = StateManager(workspace=workspace, run_id=f"phase-translation-{mode}")
     state_manager.initialize(
         VALID_FIXTURE.as_posix(),
@@ -223,7 +227,7 @@ def test_elaborate_phase_translation_fixture_builds_with_phase_and_phase_target_
     ]
 
 
-def test_compile_stage3_module_keeps_hand_authored_phase_fixture_without_macro_frames(tmp_path: Path) -> None:
+def test_compile_stage3_module_records_with_phase_macro_frame_for_phase_fixture(tmp_path: Path) -> None:
     result = compile_stage3_module(
         VALID_FIXTURE,
         provider_externs={"providers.execute": "fake"},
@@ -233,9 +237,12 @@ def test_compile_stage3_module_keeps_hand_authored_phase_fixture_without_macro_f
     )
 
     workflow = result.lowered_workflows[0]
-    origin = workflow.origin_map.step_spans["run-implementation-attempt__attempt"]
+    origin = workflow.origin_map.step_spans[
+        "neurips_implementation_attempt::run-implementation-attempt__attempt"
+    ]
 
-    assert origin.expansion_stack == ()
+    assert origin.expansion_stack
+    assert origin.expansion_stack[0].macro_name == "with-phase"
 
 
 def test_typecheck_rejects_phase_target_outside_with_phase() -> None:

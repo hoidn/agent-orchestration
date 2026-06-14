@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -60,6 +61,13 @@ class ManagedProviderRuntime:
         command.extend(["--", *invocation.command])
 
         env = dict(invocation.env)
+        repo_root = str(Path(__file__).resolve().parents[2])
+        existing_pythonpath = env.get("PYTHONPATH") or os.environ.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            repo_root
+            if not existing_pythonpath
+            else os.pathsep.join((repo_root, existing_pythonpath))
+        )
         env.update(
             {
                 "MANAGED_JOB_AUDIT_PATH": str(audit_path),

@@ -1,6 +1,17 @@
 {
   "domain_state_summaries": {},
   "files": {
+    "artifacts/work/execution_report.md": {
+      "sha256": "169447e615a009c0deff7eac3dad9f4e21fa27679db0032d68cb9f640cb70361",
+      "size": 20
+    },
+    "artifacts/work/implementation_state.json": {
+      "json": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED",
+        "variant": "COMPLETED"
+      }
+    },
     "state/fake_provider_scenario.json": {
       "json": {
         "provider_payloads": {
@@ -20,7 +31,7 @@
   },
   "selected_variants": [],
   "snapshot_candidate_keys": [],
-  "status": "failed",
+  "status": "completed",
   "steps": {
     "MaterializeImplementationAttemptPromptInputs": {
       "artifacts": {
@@ -33,130 +44,45 @@
       "status": "completed"
     },
     "neurips_implementation_attempt::run-implementation-attempt__attempt": {
-      "artifacts": {},
-      "error": {
-        "context": {
-          "error": "[Errno 2] No such file or directory: '/home/ollie/Documents/agent-orchestration/orchestrator/workflow_lisp/stdlib_modules/std/prompts/implementation/execute.md'",
-          "path": "prompts/implementation/execute.md",
-          "reason": "asset_file_read_failed",
-          "step": "neurips_implementation_attempt::run-implementation-attempt__attempt"
-        },
-        "message": "Provider prompt asset resolution failed",
-        "type": "contract_violation"
+      "artifacts": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED",
+        "variant": "COMPLETED"
       },
-      "status": "failed"
+      "error": null,
+      "status": "completed"
     },
     "neurips_implementation_attempt::run-implementation-attempt__match_attempt": {
-      "artifacts": {},
-      "error": {
-        "context": {
-          "cases": {
-            "BLOCKED": {
-              "marker": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED",
-              "status": "failed",
-              "steps": [
-                "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor"
-              ]
-            },
-            "COMPLETED": {
-              "marker": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED",
-              "status": "failed",
-              "steps": [
-                "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor"
-              ]
-            }
-          },
-          "reason": "multiple_selected_cases"
-        },
-        "message": "Structured match join failed",
-        "type": "contract_violation"
+      "artifacts": {
+        "return__implementation_state": "COMPLETED",
+        "return__implementation_state_bundle_path": "artifacts/work/implementation_state.json"
       },
-      "status": "failed"
+      "error": null,
+      "status": "completed"
     },
     "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED": {
       "artifacts": {},
-      "error": {
-        "context": {
-          "condition": {
-            "left": {
-              "field": "artifacts",
-              "member": "variant",
-              "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
-            },
-            "op": "eq",
-            "right": "BLOCKED"
-          }
-        },
-        "message": "Condition evaluation failed: Bound step field 'root.neurips_implementation_attempt_run_implementation_attempt__attempt.artifacts' is unavailable",
-        "type": "predicate_evaluation_failed"
-      },
-      "status": "failed"
+      "error": null,
+      "status": "skipped"
     },
     "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor": {
       "artifacts": {},
-      "error": {
-        "context": {
-          "assert": {
-            "left": {
-              "field": "artifacts",
-              "member": "implementation_state",
-              "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
-            },
-            "op": "eq",
-            "right": {
-              "field": "artifacts",
-              "member": "implementation_state",
-              "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
-            }
-          }
-        },
-        "message": "Bound step field 'root.neurips_implementation_attempt_run_implementation_attempt__attempt.artifacts' is unavailable",
-        "type": "predicate_evaluation_failed"
-      },
-      "status": "failed"
+      "error": null,
+      "status": "skipped"
     },
     "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED": {
       "artifacts": {},
-      "error": {
-        "context": {
-          "condition": {
-            "left": {
-              "field": "artifacts",
-              "member": "variant",
-              "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
-            },
-            "op": "eq",
-            "right": "COMPLETED"
-          }
-        },
-        "message": "Condition evaluation failed: Bound step field 'root.neurips_implementation_attempt_run_implementation_attempt__attempt.artifacts' is unavailable",
-        "type": "predicate_evaluation_failed"
-      },
-      "status": "failed"
+      "error": null,
+      "status": "completed"
     },
     "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor": {
       "artifacts": {},
-      "error": {
-        "context": {
-          "assert": {
-            "left": {
-              "field": "artifacts",
-              "member": "implementation_state",
-              "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
-            },
-            "op": "eq",
-            "right": {
-              "field": "artifacts",
-              "member": "implementation_state",
-              "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
-            }
-          }
-        },
-        "message": "Bound step field 'root.neurips_implementation_attempt_run_implementation_attempt__attempt.artifacts' is unavailable",
-        "type": "predicate_evaluation_failed"
-      },
-      "status": "failed"
+      "error": null,
+      "status": "completed"
     }
   },
-  "workflow_outputs": {}
+  "workflow_outputs": {
+    "return__implementation_state": "COMPLETED",
+    "return__implementation_state_bundle_path": "artifacts/work/implementation_state.json"
+  }
 }

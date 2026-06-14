@@ -44,34 +44,16 @@ def _walk_steps(steps: list[dict[str, object]]):
 def _has_authored_if_step(snapshot: dict[str, object]) -> bool:
     for workflow in snapshot["lowered_workflows"]:
         authored_mapping = workflow["authored_mapping"]
-        if any("if" in step for step in _walk_steps(authored_mapping.get("steps", []))):
-            return True
+        for step in _walk_steps(authored_mapping.get("steps", [])):
+            if "if" in step:
+                return True
+            pure_projection = step.get("pure_projection")
+            if (
+                isinstance(pure_projection, dict)
+                and pure_projection.get("payload", {}).get("expr", {}).get("kind") == "if"
+            ):
+                return True
     return False
-
-
-def _compatibility_signature(snapshot: dict[str, object]) -> dict[str, object]:
-    return {
-        "workflow_names": snapshot["workflow_names"],
-        "diagnostics": snapshot["diagnostics"],
-        "lowered_workflows": [
-            {
-                "workflow_name": workflow["workflow_name"],
-                "step_labels": workflow["step_labels"],
-                "generated_input_names": workflow["generated_input_names"],
-            }
-            for workflow in snapshot["lowered_workflows"]
-        ],
-        "validated_bundles": [
-            {
-                "workflow_name": bundle["workflow_name"],
-                "input_keys": bundle["input_keys"],
-                "output_keys": bundle["output_keys"],
-                "artifact_keys": bundle["artifact_keys"],
-                "generated_input_names": bundle["generated_input_names"],
-            }
-            for bundle in snapshot["validated_bundles"]
-        ],
-    }
 
 
 def test_manifest_covers_required_m0_tags() -> None:
@@ -330,8 +312,8 @@ def test_wcc_m2_cases_dual_compile_identically_for_legacy_and_wcc_m2(tmp_path: P
 
     assert legacy_metadata["lowering_route"] == "legacy"
     assert wcc_metadata["lowering_route"] == "wcc_m2"
-    assert _compatibility_signature(legacy_actual) == _compatibility_signature(wcc_actual)
-    assert _compatibility_signature(wcc_actual) == _compatibility_signature(golden)
+    assert compare_structural_snapshots(legacy_actual, wcc_actual, case.declared_rename_map) == "identical"
+    assert compare_structural_snapshots(wcc_actual, golden, case.declared_rename_map) == "identical"
 
 
 @pytest.mark.parametrize(
@@ -354,8 +336,37 @@ def test_wcc_m3_match_cases_dual_compile_identically_for_legacy_and_wcc_m3(
 
     assert legacy_metadata["lowering_route"] == "legacy"
     assert wcc_metadata["lowering_route"] == "wcc_m3"
-    assert _compatibility_signature(legacy_actual) == _compatibility_signature(wcc_actual)
-    assert _compatibility_signature(wcc_actual) == _compatibility_signature(golden)
+    assert compare_structural_snapshots(legacy_actual, wcc_actual, case.declared_rename_map) == "identical"
+    assert compare_structural_snapshots(wcc_actual, golden, case.declared_rename_map) == "identical"
+
+
+def test_imported_top_level_match_attempt_dual_compiles_for_legacy_and_wcc_m4(
+    tmp_path: Path,
+) -> None:
+    case = {case.case_id: case for case in load_characterization_cases()}["top_level_match_attempt"]
+
+    legacy_workspace = tmp_path / "top_level_match_attempt.legacy"
+    wcc_workspace = tmp_path / "top_level_match_attempt.wcc_m4"
+    legacy_actual = build_structural_snapshot(case, legacy_workspace, lowering_route="legacy")
+    wcc_actual = build_structural_snapshot(case, wcc_workspace, lowering_route="wcc_m4")
+    legacy_metadata = build_structural_snapshot_metadata(case, legacy_workspace, lowering_route="legacy")
+    wcc_metadata = build_structural_snapshot_metadata(case, wcc_workspace, lowering_route="wcc_m4")
+
+    assert legacy_metadata["lowering_route"] == "legacy"
+    assert wcc_metadata["lowering_route"] == "wcc_m4"
+    assert _without_allocation_identity(legacy_actual) == _without_allocation_identity(wcc_actual)
+
+
+def _without_allocation_identity(value):
+    if isinstance(value, list):
+        return [_without_allocation_identity(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _without_allocation_identity(item)
+            for key, item in value.items()
+            if key not in {"allocation_id", "stable_identity"}
+        }
+    return value
 
 
 def test_wcc_m3_nested_match_characterization_case_matches_golden(tmp_path: Path) -> None:
@@ -417,8 +428,8 @@ def test_wcc_ifexpr_cases_compile_under_wcc_m4_and_default_route(tmp_path: Path,
 
     assert wcc_actual["diagnostics"] == []
     assert default_actual["diagnostics"] == []
-    assert wcc_actual["workflow_names"]
-    assert default_actual["workflow_names"]
+    assert _has_authored_if_step(wcc_actual)
+    assert _has_authored_if_step(default_actual)
 
 
 def test_wcc_ifexpr_non_tail_binding_uses_control_join_without_unsupported_rewrite(

@@ -9,7 +9,7 @@ def test_stage7_metrics_report_is_generated_from_measured_sources() -> None:
     measurement = measure_stage7_metrics(run_behavioral_suite=True)
 
     assert measurement["metrics"] == {
-        "authored_loc": {"baseline": 3170, "orc": 465},
+        "authored_loc": {"baseline": 3170, "orc": 467},
         "semantic_outer_workflow_loc": {"baseline": None, "orc": 59},
         "manual_state_path_count": {"baseline": 150, "orc": 0},
         "pointer_file_count": {"baseline": 140, "orc": 0},
@@ -50,7 +50,7 @@ def test_stage7_metrics_report_is_generated_from_measured_sources() -> None:
 
     assert report_path == REPORT_PATH
     report_text = report_path.read_text(encoding="utf-8")
-    assert "| Authored lines | 3170 | 465 | Pass |" in report_text
+    assert "| Authored lines | 3170 | 467 | Pass |" in report_text
     assert "Remaining imported YAML migration debt" in report_text
     assert "`workflows/library/neurips_backlog_selector.v214.yaml`" in report_text
     assert "| Behavioral equivalence suite | n/a | PASS | PASS |" in report_text

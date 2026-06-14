@@ -247,11 +247,11 @@ def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[st
                 "surface_kind": expected["surface_kind"],
                 "authority_class": default_authority_class[expected["surface_kind"]],
                 "path_like": expected["path_like"],
-                "owner": "tests",
+                "owner": "workflow_lisp_generic_core_g0",
                 "justification": (
-                    "Synthesized from compiled boundary projection for adapter-census build coverage."
+                    "Checked compiled boundary projection row for current Design Delta parent drain evidence."
                 ),
-                "replacement_tranche": "test",
+                "replacement_tranche": "G0",
                 "parity_constrained": True,
             }
         else:
@@ -3386,7 +3386,10 @@ def test_build_artifacts_expose_pure_projection_effects_and_generated_paths(tmp_
         for name in lowered.authored_mapping["inputs"]
         if name.startswith("__write_root__")
     )
-    assert lowered.authored_mapping["inputs"][managed_write_root_input] == {"type": "relpath"}
+    assert lowered.authored_mapping["inputs"][managed_write_root_input] == {
+        "kind": "relpath",
+        "type": "relpath",
+    }
 
 
 def test_build_artifacts_expose_materialize_view_effects_and_generated_paths(tmp_path: Path) -> None:
@@ -3934,6 +3937,34 @@ def test_design_delta_parent_drain_build_emits_g8_deletion_evidence_artifact(
     ]
     assert payload["hook_surface_delta"]["imported_only_registry_heads"] == ["with-phase"]
     assert payload["retained_bridges"] == ["materialize_lisp_frontend_work_item_inputs"]
+
+
+def test_design_delta_parent_drain_build_rejects_removed_registry_heads_still_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    monkeypatch.setattr(
+        build,
+        "get_form_spec",
+        lambda head_name: object() if head_name == "with-phase" else None,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+
+    diagnostics = excinfo.value.diagnostics
+    assert len(diagnostics) == 1
+    diagnostic = diagnostics[0]
+    assert diagnostic.code == "design_delta_g8_removed_registry_head_present"
+    assert "with-phase" in diagnostic.message
+    assert diagnostic.span.start.path == str(
+        DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json"
+    )
 
 
 def test_design_delta_parent_drain_build_emits_boundary_authority_report_for_all_target_workflows(

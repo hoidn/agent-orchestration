@@ -10,6 +10,7 @@
       "authored_mapping": {
         "inputs": {
           "__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_apply_fix_v1__result__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "completed__checks_report_path": {
@@ -110,6 +111,7 @@
       "authored_mapping": {
         "inputs": {
           "__write_root__wcc_m4_implementation_phase_full_fixture_wcc_m4_implementation_phase_full_fixture_run_review_v1__result__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "completed__checks_report_path": {
@@ -332,21 +334,27 @@
       "authored_mapping": {
         "inputs": {
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__attempt__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__state__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_1d8d7b9ce033_d11b599fc528_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__wcc_m4_implementation_phase_full_fixture_run__match_attempt__completed__checks__run_checks__result_bundle": {
+            "kind": "relpath",
             "type": "relpath"
           },
           "inputs__design_review_prompt": {

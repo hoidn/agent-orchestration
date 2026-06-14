@@ -1274,7 +1274,7 @@ def _run_stage3_validation_pipeline(
             type_env,
             imported_workflow_bundles=effective_imported_workflow_bundles,
             allow_collection_input_boundaries=True,
-            allow_collection_return_boundaries=normalized_lowering_route is LoweringRoute.LEGACY,
+            allow_collection_return_boundaries=True,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
         function_catalog = build_function_catalog(function_defs, type_env=type_env)
@@ -1952,7 +1952,7 @@ def _compile_stage3_graph(
             imported_workflow_bundles=effective_imported_bundles,
             allow_hidden_context_callers=module_name == graph.entry_module_name,
             allow_collection_input_boundaries=True,
-            allow_collection_return_boundaries=normalized_lowering_route is LoweringRoute.LEGACY,
+            allow_collection_return_boundaries=True,
         )
         function_catalog = build_function_catalog(
             function_defs,

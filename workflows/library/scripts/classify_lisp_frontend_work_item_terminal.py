@@ -77,11 +77,14 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    terminal_route, block_reason = _classify(
-        args.plan_review_decision,
-        _read_required(Path(args.implementation_state_path)),
-        _read_required(Path(args.implementation_review_decision_path)),
-    )
+    if args.plan_review_decision == "REVISE":
+        terminal_route, block_reason = _classify(args.plan_review_decision, "", "")
+    else:
+        terminal_route, block_reason = _classify(
+            args.plan_review_decision,
+            _read_required(Path(args.implementation_state_path)),
+            _read_required(Path(args.implementation_review_decision_path)),
+        )
     _write_output(Path(args.output), terminal_route, block_reason)
     return 0
 

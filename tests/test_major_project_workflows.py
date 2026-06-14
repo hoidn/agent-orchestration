@@ -1373,7 +1373,16 @@ def test_neurips_implementation_phase_uses_terminal_implementation_states():
     materialize_script = "\n".join(str(part) for part in materialize["command"])
     assert "implementation_state.json" in materialize_script
     assert "phase_started_at_ns" in materialize_script
-    assert "Blocker Class" in materialize_script
+    assert "workflows/library/scripts/materialize_neurips_implementation_state.py" in materialize_script
+    materialize_fields = {field["name"]: field for field in materialize["output_bundle"]["fields"]}
+    assert materialize_fields["blocker_class"]["allowed"] == [
+        "missing_resource",
+        "unavailable_hardware",
+        "roadmap_conflict",
+        "external_dependency_outside_authority",
+        "user_decision_required",
+        "unrecoverable_after_fix_attempt",
+    ]
     assert write_state["expected_outputs"][0]["allowed"] == ["COMPLETED", "BLOCKED"]
     assert finalize["expected_outputs"][0]["allowed"] == ["COMPLETED", "BLOCKED"]
     assert execute["timeout_sec"] == 86400
@@ -1405,8 +1414,11 @@ def test_neurips_implementation_phase_materializer_uses_current_pass_evidence():
     materialize = _step_by_name(workflow, "MaterializeImplementationState")
     materialize_args = materialize["command"]
     assert "${inputs.state_root}/phase_started_at_ns.txt" in materialize_args
-    materialize_script = "\n".join(str(part) for part in materialize_args)
-    assert "is_fresh_report" in materialize_script
+    assert "workflows/library/scripts/materialize_neurips_implementation_state.py" in materialize_args
+    materialize_script = Path("workflows/library/scripts/materialize_neurips_implementation_state.py").read_text(
+        encoding="utf-8"
+    )
+    assert "_is_fresh_report" in materialize_script
     assert "Existing implementation state bundle" not in materialize_script
 
 

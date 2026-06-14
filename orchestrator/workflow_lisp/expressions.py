@@ -73,6 +73,10 @@ class EnumMemberExpr:
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
 
+    @property
+    def name(self) -> str:
+        return f"{self.enum_name}.{self.member_name}"
+
 
 @dataclass(frozen=True)
 class FieldAccessExpr:

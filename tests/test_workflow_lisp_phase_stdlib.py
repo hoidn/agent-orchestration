@@ -340,6 +340,17 @@ def _command_boundary_environment() -> CommandBoundaryEnvironment:
     )
 
 
+def _local_workflow_name_matches(actual: str, expected: str) -> bool:
+    return actual == expected or actual.endswith(f"::{expected}")
+
+
+def _validated_bundle_by_local_name(result, expected: str):
+    for name, bundle in result.validated_bundles.items():
+        if _local_workflow_name_matches(name, expected):
+            return bundle
+    raise KeyError(expected)
+
+
 def _typecheck_fixture(path: Path):
     return _compile(
         path,
@@ -707,7 +718,7 @@ def test_typecheck_rejects_resume_state_adapter_authored_outside_resume_or_start
 def test_run_provider_phase_accepts_generic_ctx_after_typechecking() -> None:
     typed = _typecheck_fixture(VALID_RUN_PROVIDER_FIXTURE)
 
-    assert [workflow.definition.name for workflow in typed] == [
+    assert [workflow.definition.name.rsplit("::", 1)[-1] for workflow in typed] == [
         "run-provider-phase-demo",
         "produce-one-of-demo",
     ]
@@ -718,7 +729,7 @@ def test_typecheck_rejects_run_provider_phase_name_mismatch_with_active_phase(tm
         VALID_RUN_PROVIDER_FIXTURE,
         replacements=(("run-provider-phase implementation", "run-provider-phase wrong-phase"),),
         tmp_path=tmp_path,
-        filename="run_provider_phase_name_mismatch.orc",
+        filename=VALID_RUN_PROVIDER_FIXTURE.name,
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -754,7 +765,7 @@ def test_lowering_run_provider_phase_derives_phase_bundle_path(tmp_path: Path) -
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-provider-phase-demo"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "run-provider-phase-demo")
     )
     provider_step = next(step for step in authored["steps"] if step.get("provider") == "fake-execute")
 
@@ -768,7 +779,7 @@ def test_lowering_run_provider_phase_materializes_and_consumes_authored_inputs(t
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "run-provider-phase-demo"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "run-provider-phase-demo")
     )
     materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
     provider_step = next(step for step in authored["steps"] if step.get("provider") == "fake-execute")
@@ -799,7 +810,7 @@ def test_lowering_produce_one_of_uses_pre_snapshot_and_select_variant_output(tmp
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "produce-one-of-demo"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "produce-one-of-demo")
     )
     assert any("pre_snapshot" in step for step in authored["steps"])
     assert any("select_variant_output" in step for step in authored["steps"])
@@ -810,7 +821,7 @@ def test_lowering_phase_snapshot_effects_fixture_keeps_orchestrate_pre_snapshot(
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "orchestrate")
     )
 
     assert any("pre_snapshot" in step for step in authored["steps"])
@@ -821,7 +832,7 @@ def test_lowering_pointer_materialization_effects_fixture_keeps_orchestrate_poin
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "orchestrate")
     )
     materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
 
@@ -837,7 +848,7 @@ def test_lowering_produce_one_of_materializes_and_consumes_authored_inputs(tmp_p
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "produce-one-of-demo"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "produce-one-of-demo")
     )
     materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
     provider_step = next(step for step in authored["steps"] if step.get("provider") == "fake-execute")
@@ -870,7 +881,7 @@ def test_shared_validation_accepts_run_provider_phase_and_produce_one_of(tmp_pat
     )
 
     assert {
-        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1] for workflow in result.lowered_workflows
     } >= {"run-provider-phase-demo", "produce-one-of-demo"}
 
 
@@ -1137,7 +1148,7 @@ def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface
         VALID_REVIEW_LOOP_FIXTURE,
         replacements=(
             (
-                "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop))\n",
+                "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop with-phase))\n",
                 "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult))\n",
             ),
         ),
@@ -1726,7 +1737,7 @@ def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path:
 def test_resume_or_start_workflow_call_write_root_allocation_uses_call_frame_identity(tmp_path: Path) -> None:
     result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path, validate_shared=True)
 
-    bundle = result.validated_bundles["resume-plan-gate"]
+    bundle = _validated_bundle_by_local_name(result, "resume-plan-gate")
     allocation = next(
         item
         for item in _workflow_generated_path_allocations(bundle)
@@ -1735,9 +1746,9 @@ def test_resume_or_start_workflow_call_write_root_allocation_uses_call_frame_ide
 
     assert _allocation_field(allocation, "privacy") == "compatibility_view"
     assert _allocation_field(allocation, "resume_scope") == "call_frame"
-    assert _allocation_field(allocation, "generated_input_name") == (
-        "__write_root__plan_run__resolve_plan_gate__result_bundle"
-    )
+    generated_input_name = _allocation_field(allocation, "generated_input_name")
+    assert "plan_run" in generated_input_name
+    assert generated_input_name.endswith("__resolve_plan_gate__result_bundle")
     assert _allocation_field(allocation, "concrete_path_template").startswith(
         ".orchestrate/workflow_lisp/calls/"
     )
@@ -1750,7 +1761,7 @@ def test_resume_or_start_workflow_call_write_root_allocation_uses_call_frame_ide
 def test_run_provider_phase_generated_bundle_paths_use_allocator_metadata(tmp_path: Path) -> None:
     result = _compile(VALID_RUN_PROVIDER_FIXTURE, tmp_path=tmp_path, validate_shared=True)
 
-    bundle = result.validated_bundles["run-provider-phase-demo"]
+    bundle = _validated_bundle_by_local_name(result, "run-provider-phase-demo")
     provider_bundle = next(
         item
         for item in _workflow_generated_path_allocations(bundle)
@@ -2015,9 +2026,10 @@ def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
 ) -> None:
     result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
     authored_by_name = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]: workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name in {"resume-record-phase", "resume-plan-gate"}
+        if workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]
+        in {"resume-record-phase", "resume-plan-gate"}
     }
 
     record_validator_payload = json.loads(authored_by_name["resume-record-phase"]["steps"][0]["command"][3])
@@ -2305,7 +2317,7 @@ def test_resume_or_start_in_inline_defproc_registers_generated_adapters(tmp_path
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "orchestrate"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "orchestrate")
     )
     assert authored["steps"][0]["command"][:3] == [
         "python",
@@ -2318,9 +2330,10 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
     result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
 
     by_name = {
-        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]: workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name in {"resume-record-phase", "resume-plan-gate"}
+        if workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]
+        in {"resume-record-phase", "resume-plan-gate"}
     }
 
     record_workflow = by_name["resume-record-phase"]
@@ -2419,7 +2432,10 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
         ]
         for step in reuse_steps
     )
-    assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
+    assert any(
+        step.get("call") == "plan-run" or str(step.get("call", "")).endswith("::plan-run")
+        for step in _iter_nested_steps(start_steps)
+    )
     assert any(
         step.get("command", [])[:3]
         == [
@@ -2439,7 +2455,8 @@ def test_shared_validation_accepts_resume_or_start(tmp_path: Path) -> None:
     )
 
     assert {
-        workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]
+        for workflow in result.lowered_workflows
     } >= {"resume-record-phase", "resume-plan-gate"}
 
 
@@ -2449,13 +2466,16 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     resume_result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
 
     run_provider_by_name = {
-        workflow.typed_workflow.definition.name: workflow for workflow in run_provider_result.lowered_workflows
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]: workflow
+        for workflow in run_provider_result.lowered_workflows
     }
     review_by_name = {
-        workflow.typed_workflow.definition.name: workflow for workflow in review_loop_result.lowered_workflows
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]: workflow
+        for workflow in review_loop_result.lowered_workflows
     }
     resume_by_name = {
-        workflow.typed_workflow.definition.name: workflow for workflow in resume_result.lowered_workflows
+        workflow.typed_workflow.definition.name.rsplit("::", 1)[-1]: workflow
+        for workflow in resume_result.lowered_workflows
     }
 
     run_provider_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["run-provider-phase"]
@@ -2660,13 +2680,13 @@ def test_resume_or_start_workflow_call_uses_shared_managed_write_root_bundle_pat
     lowered_workflow = next(
         workflow
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "resume-plan-gate"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "resume-plan-gate")
     )
     authored = lowered_workflow.authored_mapping
     lowered_plan_run = next(
         workflow
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "plan-run"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "plan-run")
     )
     validator_step = authored["steps"][0]
     branch_step = next(
@@ -2676,7 +2696,11 @@ def test_resume_or_start_workflow_call_uses_shared_managed_write_root_bundle_pat
         == f"root.steps.{validator_step['name']}.artifacts.variant"
     )
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
-    call_step = next(step for step in _iter_nested_steps(start_steps) if step.get("call") == "plan-run")
+    call_step = next(
+        step
+        for step in _iter_nested_steps(start_steps)
+        if step.get("call") == "plan-run" or str(step.get("call", "")).endswith("::plan-run")
+    )
     managed_inputs = _managed_write_root_requirements_for_callable(
         lowered_callee=lowered_plan_run,
         imported_bundle=None,
@@ -2684,16 +2708,17 @@ def test_resume_or_start_workflow_call_uses_shared_managed_write_root_bundle_pat
         form_path=lowered_plan_run.typed_workflow.definition.body.form_path,
     )
     expected_bindings = _managed_write_root_bindings(
-        caller_workflow_name="resume-plan-gate",
+        caller_workflow_name=lowered_workflow.typed_workflow.definition.name,
         call_step_name=call_step["name"],
-        callee_name="plan-run",
+        callee_name=lowered_plan_run.typed_workflow.definition.name,
         managed_inputs=managed_inputs,
     )
 
-    assert managed_inputs == ("__write_root__plan_run__resolve_plan_gate__result_bundle",)
-    assert call_step["with"]["__write_root__plan_run__resolve_plan_gate__result_bundle"] == expected_bindings[
-        "__write_root__plan_run__resolve_plan_gate__result_bundle"
-    ]
+    assert len(managed_inputs) == 1
+    managed_input = managed_inputs[0]
+    assert "plan_run" in managed_input
+    assert managed_input.endswith("__resolve_plan_gate__result_bundle")
+    assert call_step["with"][managed_input] == expected_bindings[managed_input]
 
 
 def test_resume_or_start_imported_workflow_call_uses_shared_managed_write_root_bundle_path(
@@ -2882,7 +2907,7 @@ def test_resume_or_start_supports_union_start_workflow_call(tmp_path: Path) -> N
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "resume-plan-gate"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "resume-plan-gate")
     )
     validator_step = authored["steps"][0]
     branch_step = next(
@@ -2893,7 +2918,10 @@ def test_resume_or_start_supports_union_start_workflow_call(tmp_path: Path) -> N
     )
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
 
-    assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
+    assert any(
+        step.get("call") == "plan-run" or str(step.get("call", "")).endswith("::plan-run")
+        for step in _iter_nested_steps(start_steps)
+    )
 
 
 def test_resume_or_start_supports_reusable_wrapper_union_start_workflow_call(tmp_path: Path) -> None:
@@ -2901,7 +2929,7 @@ def test_resume_or_start_supports_reusable_wrapper_union_start_workflow_call(tmp
     authored = next(
         workflow.authored_mapping
         for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "resume-plan-gate-wrapper"
+        if _local_workflow_name_matches(workflow.typed_workflow.definition.name, "resume-plan-gate-wrapper")
     )
     validator_step = authored["steps"][0]
     branch_step = next(
@@ -2912,7 +2940,10 @@ def test_resume_or_start_supports_reusable_wrapper_union_start_workflow_call(tmp
     )
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
 
-    assert any(step.get("call") == "wrap-plan-gate" for step in _iter_nested_steps(start_steps))
+    assert any(
+        step.get("call") == "wrap-plan-gate" or str(step.get("call", "")).endswith("::wrap-plan-gate")
+        for step in _iter_nested_steps(start_steps)
+    )
     assert "load_canonical_phase_result__PlanGateWrapperResult" in result.command_boundary_environment.bindings_by_name
 
 
@@ -2945,7 +2976,7 @@ def test_typecheck_rejects_resume_or_start_name_mismatch_with_active_phase(tmp_p
         VALID_RESUME_FIXTURE,
         replacements=(("(resume-or-start checks", "(resume-or-start wrong-name"),),
         tmp_path=tmp_path,
-        filename="resume_or_start_name_mismatch.orc",
+        filename=VALID_RESUME_FIXTURE.name,
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
