@@ -4426,6 +4426,27 @@ def test_design_delta_parent_drain_value_flow_census_report_covers_declared_work
     assert set(payload["declared_workflow_surfaces"]) == reported_surfaces
 
 
+def test_design_delta_parent_drain_value_flow_census_report_refs_checked_path_like_boundary_inventory(
+) -> None:
+    payload = _load_design_delta_value_flow_census()
+    covered_boundary_rows = {
+        (row["workflow_surface"], row["symbol_or_field"])
+        for row in payload["rows"]
+        if any(
+            isinstance(evidence, dict)
+            and evidence.get("kind") == "boundary_authority_report"
+            for evidence in row.get("source_evidence", [])
+        )
+    }
+    expected_boundary_rows = {
+        (row["workflow_name"], row["field_name"])
+        for row in _load_design_delta_boundary_authority_registry()["rows"]
+        if row["path_like"]
+    }
+
+    assert covered_boundary_rows == expected_boundary_rows
+
+
 def test_design_delta_parent_drain_value_flow_census_rejects_missing_checked_row(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

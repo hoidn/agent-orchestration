@@ -411,6 +411,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                 checked_census_path=Path(str(value_flow_census.get("__census_path__", ""))),
                 checked_census_sha256=str(value_flow_census.get("__census_sha256__", "")),
                 boundary_authority_report=boundary_authority_report_payload,
+                boundary_authority_registry=boundary_authority_registry,
                 source_map_payload=source_map_payload,
                 prompt_externs=prompt_externs,
                 provider_externs=provider_externs,

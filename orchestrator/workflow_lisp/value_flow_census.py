@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-from collections.abc import Mapping
 
 
 VALUE_FLOW_CENSUS_SCHEMA_VERSION = "workflow_lisp_private_runtime_value_flow_census.v1"
@@ -59,203 +58,21 @@ RENDER_ONLY_PLUMBING_CLASSES = frozenset(
     {"prompt_rendering", "human_rendering", "entry_publication"}
 )
 SEMANTIC_AUTHORITY_CLASSES = frozenset({"public_authored", "public_artifact"})
-PATH_LIKE_COMMAND_TYPE_TOKENS = ("Path", "File", "Ledger", "Bundle")
-
-
-@dataclass(frozen=True)
-class ExpectedCompiledRow:
-    row_id: str
-    workflow_surface: str
-    source_kind: str
-    symbol_or_field: str
-    boundary_authority_class: str
-    evidence_lane: str
-    evidence_ref: str
-    path_or_contract: str
-
-
-EXPECTED_DESIGN_DELTA_PARENT_DRAIN_ROWS = (
-    ExpectedCompiledRow(
-        row_id="drain.input.baseline_design_path",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="public_input",
-        symbol_or_field="baseline_design_path",
-        boundary_authority_class="public_authored",
-        evidence_lane="boundary",
-        evidence_ref="public_authored",
-        path_or_contract="BaselineDesignPath",
-    ),
-    ExpectedCompiledRow(
-        row_id="drain.input.target_design_path",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="public_input",
-        symbol_or_field="target_design_path",
-        boundary_authority_class="public_authored",
-        evidence_lane="boundary",
-        evidence_ref="public_authored",
-        path_or_contract="TargetDesignPath",
-    ),
-    ExpectedCompiledRow(
-        row_id="drain.record.architecture_targets_check_commands_path",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="record_field",
-        symbol_or_field="architecture_targets__check_commands_path",
-        boundary_authority_class="public_authored",
-        evidence_lane="boundary",
-        evidence_ref="public_authored",
-        path_or_contract="ArchitectureTargets.check_commands_path",
-    ),
-    ExpectedCompiledRow(
-        row_id="drain.loop.run_state_path",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="loop_state_field",
-        symbol_or_field="run_state_path",
-        boundary_authority_class="compatibility_bridge",
-        evidence_lane="boundary",
-        evidence_ref="compatibility_bridge",
-        path_or_contract="RunStatePath",
-    ),
-    ExpectedCompiledRow(
-        row_id="drain.bridge.manifest_path",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="bridge_file",
-        symbol_or_field="manifest_path",
-        boundary_authority_class="compatibility_bridge",
-        evidence_lane="boundary",
-        evidence_ref="compatibility_bridge",
-        path_or_contract="StateFileExisting",
-    ),
-    ExpectedCompiledRow(
-        row_id="work_item.pointer.selection_bundle_path",
-        workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
-        source_kind="pointer_path",
-        symbol_or_field="selection_bundle_path",
-        boundary_authority_class="compatibility_bridge",
-        evidence_lane="boundary",
-        evidence_ref="compatibility_bridge",
-        path_or_contract="SelectionBundlePath",
-    ),
-    ExpectedCompiledRow(
-        row_id="work_item.command.selection_bundle_path",
-        workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
-        source_kind="command_adapter_input",
-        symbol_or_field="selection_bundle_path",
-        boundary_authority_class="compatibility_bridge",
-        evidence_lane="command_boundary_input",
-        evidence_ref="materialize_lisp_frontend_work_item_inputs.selection_bundle_path",
-        path_or_contract="SelectionBundlePath",
-    ),
-    ExpectedCompiledRow(
-        row_id="implementation_phase.external.backlog_checks",
-        workflow_surface="lisp_frontend_design_delta/implementation_phase::implementation-phase",
-        source_kind="command_adapter_input",
-        symbol_or_field="run_neurips_backlog_checks",
-        boundary_authority_class="generated_internal",
-        evidence_lane="command_boundary_binding",
-        evidence_ref="run_neurips_backlog_checks",
-        path_or_contract="external_tool",
-    ),
-    ExpectedCompiledRow(
-        row_id="design_gap_architect_validate.output.work_item_bundle_path",
-        workflow_surface="lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
-        source_kind="public_output",
-        symbol_or_field="return__work_item_bundle_path",
-        boundary_authority_class="public_artifact",
-        evidence_lane="boundary",
-        evidence_ref="public_artifact",
-        path_or_contract="WorkItemBundlePath",
-    ),
-    ExpectedCompiledRow(
-        row_id="drain.materialized.drain_summary",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="materialized_output",
-        symbol_or_field="return__drain-summary",
-        boundary_authority_class="materialized_view",
-        evidence_lane="boundary",
-        evidence_ref="materialized_view",
-        path_or_contract="DrainSummaryMaterializedView",
-    ),
-    ExpectedCompiledRow(
-        row_id="work_item.summary.summary_path",
-        workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
-        source_kind="summary_report_target",
-        symbol_or_field="return__summary",
-        boundary_authority_class="materialized_view",
-        evidence_lane="boundary",
-        evidence_ref="materialized_view",
-        path_or_contract="WorkItemSummaryPath",
-    ),
-    ExpectedCompiledRow(
-        row_id="selector.prompt.select_next_work",
-        workflow_surface="lisp_frontend_design_delta/selector::select-next-work",
-        source_kind="prompt_input_file",
-        symbol_or_field="prompts.selector.select-next-work",
-        boundary_authority_class="compatibility_bridge",
-        evidence_lane="prompt_manifest",
-        evidence_ref="prompts.selector.select-next-work",
-        path_or_contract="workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
-    ),
-    ExpectedCompiledRow(
-        row_id="plan_phase.input.plan_target_path",
-        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        source_kind="public_input",
-        symbol_or_field="plan_target_path",
-        boundary_authority_class="public_authored",
-        evidence_lane="boundary",
-        evidence_ref="public_authored",
-        path_or_contract="PlanTargetPath",
-    ),
-    ExpectedCompiledRow(
-        row_id="plan_phase.output.approved_plan_path",
-        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        source_kind="public_output",
-        symbol_or_field="return__approved_plan_path",
-        boundary_authority_class="public_artifact",
-        evidence_lane="boundary",
-        evidence_ref="public_artifact",
-        path_or_contract="ApprovedPlanPath",
-    ),
-    ExpectedCompiledRow(
-        row_id="plan_phase.prompt.draft",
-        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        source_kind="prompt_input_file",
-        symbol_or_field="prompts.plan.draft",
-        boundary_authority_class="compatibility_bridge",
-        evidence_lane="prompt_manifest",
-        evidence_ref="prompts.plan.draft",
-        path_or_contract="workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-    ),
-    ExpectedCompiledRow(
-        row_id="plan_phase.provider.draft",
-        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        source_kind="provider_target",
-        symbol_or_field="providers.plan.draft",
-        boundary_authority_class="generated_internal",
-        evidence_lane="provider_manifest",
-        evidence_ref="providers.plan.draft",
-        path_or_contract="codex",
-    ),
-    ExpectedCompiledRow(
-        row_id="design_gap_architect.provider.architect_draft",
-        workflow_surface="lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-        source_kind="provider_target",
-        symbol_or_field="providers.architect.draft",
-        boundary_authority_class="generated_internal",
-        evidence_lane="provider_manifest",
-        evidence_ref="providers.architect.draft",
-        path_or_contract="codex",
-    ),
-    ExpectedCompiledRow(
-        row_id="drain.generated.state_root",
-        workflow_surface="lisp_frontend_design_delta/drain::drain",
-        source_kind="generated_path",
-        symbol_or_field="run__state-root",
-        boundary_authority_class="runtime_derived",
-        evidence_lane="boundary",
-        evidence_ref="runtime_derived",
-        path_or_contract="RunCtx.state_root",
-    ),
+BOUNDARY_EVIDENCE_KINDS = frozenset(
+    {
+        "boundary_authority_report",
+        "compiled_boundary_projection",
+        "boundary_authority_registry",
+    }
 )
+BOUNDARY_AUTHORITY_BUCKETS = {
+    "public_authored": "public_authored",
+    "compatibility_bridge": "compatibility_bridge",
+    "runtime_derived": "runtime_derived",
+    "generated_internal": "generated_internal",
+    "materialized_view": "materialized_view",
+    "public_artifact": "public_artifact",
+}
 
 
 def load_value_flow_census(path: Path) -> dict[str, Any]:
@@ -354,7 +171,10 @@ def load_value_flow_census(path: Path) -> dict[str, Any]:
         ):
             raise ValueError(f"row `{row_id}` needs resource/transition evidence")
         command_boundary = row.get("command_boundary")
-        if plumbing_class == "genuine_external_io" or source_kind == "command_adapter_input":
+        if (
+            plumbing_class == "genuine_external_io"
+            or source_kind == "command_adapter_input"
+        ):
             if not isinstance(command_boundary, Mapping):
                 raise ValueError(f"row `{row_id}` requires command-boundary evidence")
             _validate_command_boundary_metadata(command_boundary, row_id=row_id)
@@ -364,11 +184,17 @@ def load_value_flow_census(path: Path) -> dict[str, Any]:
                     f"row `{row_id}` command_boundary must be an object when present"
                 )
             _validate_command_boundary_metadata(command_boundary, row_id=row_id)
-        if source_kind == "pointer_path" and boundary_authority_class in SEMANTIC_AUTHORITY_CLASSES:
+        if (
+            source_kind == "pointer_path"
+            and boundary_authority_class in SEMANTIC_AUTHORITY_CLASSES
+        ):
             raise ValueError(
                 f"row `{row_id}` pointer_path cannot be classified as semantic authority"
             )
-        if plumbing_class == "resume_only" and boundary_authority_class == "public_authored":
+        if (
+            plumbing_class == "resume_only"
+            and boundary_authority_class == "public_authored"
+        ):
             raise ValueError(
                 f"row `{row_id}` resume_only plumbing cannot be public_authored"
             )
@@ -429,50 +255,57 @@ def reconcile_value_flow_census(
     prompt_externs: Mapping[str, str | Mapping[str, str]],
     provider_externs: Mapping[str, str],
     command_boundary_manifest: Mapping[str, object],
+    boundary_authority_registry: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    compiled_rows = _collect_expected_design_delta_parent_drain_rows(
-        boundary_authority_report=boundary_authority_report,
-        source_map_payload=source_map_payload,
-        prompt_externs=prompt_externs,
-        provider_externs=provider_externs,
-        command_boundary_manifest=command_boundary_manifest,
-    )
     declared_workflow_surfaces = list(census["coverage"]["workflow_surfaces"])
-    checked_rows = { _row_key(row): dict(row) for row in census["rows"] }
-    compiled_rows_by_key = { _row_key(row): row for row in compiled_rows }
+    compiled_boundary_rows = _collect_boundary_compiled_rows(
+        boundary_authority_report=boundary_authority_report,
+        boundary_authority_registry=boundary_authority_registry,
+    )
+    compiled_boundary_by_key = {
+        _boundary_key(row["workflow_surface"], row["symbol_or_field"]): row
+        for row in compiled_boundary_rows
+    }
+    checked_rows = [dict(row) for row in census["rows"]]
+    covered_boundary_keys: set[tuple[str, str]] = set()
+    stale_rows: list[dict[str, Any]] = []
+    invalid_rows: list[dict[str, Any]] = []
+
+    for checked_row in checked_rows:
+        if _row_has_boundary_evidence(checked_row):
+            boundary_key = _checked_boundary_key(checked_row)
+            compiled_boundary_row = compiled_boundary_by_key.get(boundary_key)
+            if compiled_boundary_row is None:
+                stale_rows.append(_checked_row_summary(checked_row))
+            else:
+                covered_boundary_keys.add(boundary_key)
+                if (
+                    checked_row["boundary_authority_class"]
+                    != compiled_boundary_row["boundary_authority_class"]
+                ):
+                    invalid_rows.append(
+                        {
+                            "row_id": checked_row["row_id"],
+                            "reason": "boundary_authority_class does not match compiled evidence",
+                            "expected": compiled_boundary_row["boundary_authority_class"],
+                            "actual": checked_row["boundary_authority_class"],
+                        }
+                    )
+        _validate_manifest_backed_row(
+            checked_row=checked_row,
+            source_map_payload=source_map_payload,
+            prompt_externs=prompt_externs,
+            provider_externs=provider_externs,
+            command_boundary_manifest=command_boundary_manifest,
+            stale_rows=stale_rows,
+            invalid_rows=invalid_rows,
+        )
+
     missing_rows = [
         _compiled_row_summary(row)
-        for key, row in compiled_rows_by_key.items()
-        if key not in checked_rows
+        for key, row in compiled_boundary_by_key.items()
+        if key not in covered_boundary_keys
     ]
-    stale_rows = [
-        _checked_row_summary(row)
-        for key, row in checked_rows.items()
-        if key not in compiled_rows_by_key
-    ]
-    invalid_rows: list[dict[str, Any]] = []
-    for key, checked_row in checked_rows.items():
-        compiled_row = compiled_rows_by_key.get(key)
-        if compiled_row is None:
-            continue
-        if checked_row["boundary_authority_class"] != compiled_row["boundary_authority_class"]:
-            invalid_rows.append(
-                {
-                    "row_id": checked_row["row_id"],
-                    "reason": "boundary_authority_class does not match compiled evidence",
-                    "expected": compiled_row["boundary_authority_class"],
-                    "actual": checked_row["boundary_authority_class"],
-                }
-            )
-        if checked_row["path_or_contract"] != compiled_row["path_or_contract"]:
-            invalid_rows.append(
-                {
-                    "row_id": checked_row["row_id"],
-                    "reason": "path_or_contract does not match compiled evidence",
-                    "expected": compiled_row["path_or_contract"],
-                    "actual": checked_row["path_or_contract"],
-                }
-            )
     extra_compiled_rows = [
         {
             "row_id": f"workflow_surface::{workflow_surface}",
@@ -503,7 +336,7 @@ def reconcile_value_flow_census(
                 "plumbing_class": row["plumbing_class"],
                 "boundary_authority_class": row["boundary_authority_class"],
             }
-            for row in census["rows"]
+            for row in checked_rows
             if row["workflow_surface"] == workflow_surface
         ]
         workflow_rows.append(
@@ -526,6 +359,7 @@ def reconcile_value_flow_census(
         "extra_compiled_rows": extra_compiled_rows,
         "compiled_evidence": {
             "boundary_authority_report": "boundary_authority_report.json",
+            "boundary_authority_registry": boundary_authority_registry is not None,
             "source_map": "source_map.json",
             "prompt_extern_manifest": True,
             "provider_extern_manifest": True,
@@ -535,83 +369,154 @@ def reconcile_value_flow_census(
     }
 
 
-def _collect_expected_design_delta_parent_drain_rows(
+def _collect_boundary_compiled_rows(
     *,
     boundary_authority_report: Mapping[str, Any],
+    boundary_authority_registry: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if boundary_authority_registry is not None:
+        rows = boundary_authority_registry.get("rows")
+        if isinstance(rows, list):
+            return [
+                _boundary_registry_row_summary(row)
+                for row in rows
+                if isinstance(row, Mapping)
+                and bool(row.get("path_like"))
+                and _non_empty_string(row.get("workflow_name"))
+                and _non_empty_string(row.get("field_name"))
+                and _non_empty_string(row.get("authority_class"))
+            ]
+
+    compiled_rows: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for workflow_row in boundary_authority_report.get("workflows", []):
+        if not isinstance(workflow_row, Mapping):
+            continue
+        workflow_surface = workflow_row.get("workflow_name")
+        if not _non_empty_string(workflow_surface):
+            continue
+        for bucket_name, authority_class in BOUNDARY_AUTHORITY_BUCKETS.items():
+            bucket = workflow_row.get(bucket_name)
+            if not isinstance(bucket, list):
+                continue
+            for field_name in bucket:
+                if not _non_empty_string(field_name):
+                    continue
+                boundary_key = _boundary_key(str(workflow_surface), str(field_name))
+                if boundary_key in seen_keys:
+                    continue
+                seen_keys.add(boundary_key)
+                compiled_rows.append(
+                    {
+                        "row_id": (
+                            "compiled_boundary::"
+                            f"{workflow_surface}::{field_name}"
+                        ),
+                        "workflow_surface": str(workflow_surface),
+                        "source_kind": _infer_source_kind(
+                            field_name=str(field_name),
+                            authority_class=authority_class,
+                        ),
+                        "symbol_or_field": str(field_name),
+                        "boundary_authority_class": authority_class,
+                    }
+                )
+    return compiled_rows
+
+
+def _boundary_registry_row_summary(row: Mapping[str, Any]) -> dict[str, Any]:
+    workflow_surface = str(row["workflow_name"])
+    field_name = str(row["field_name"])
+    authority_class = str(row["authority_class"])
+    surface_kind = str(row.get("surface_kind", ""))
+    return {
+        "row_id": f"compiled_boundary::{workflow_surface}::{field_name}",
+        "workflow_surface": workflow_surface,
+        "source_kind": _infer_source_kind(
+            field_name=field_name,
+            authority_class=authority_class,
+            surface_kind=surface_kind,
+        ),
+        "symbol_or_field": field_name,
+        "boundary_authority_class": authority_class,
+    }
+
+
+def _validate_manifest_backed_row(
+    *,
+    checked_row: Mapping[str, Any],
     source_map_payload: Mapping[str, Any],
     prompt_externs: Mapping[str, str | Mapping[str, str]],
     provider_externs: Mapping[str, str],
     command_boundary_manifest: Mapping[str, object],
-) -> list[dict[str, Any]]:
-    boundary_rows = {
-        str(row["workflow_name"]): row
-        for row in boundary_authority_report.get("workflows", [])
-        if isinstance(row, Mapping) and isinstance(row.get("workflow_name"), str)
+    stale_rows: list[dict[str, Any]],
+    invalid_rows: list[dict[str, Any]],
+) -> None:
+    evidence_list = checked_row.get("source_evidence")
+    if not isinstance(evidence_list, list):
+        return
+    evidence_kinds = {
+        str(evidence.get("kind"))
+        for evidence in evidence_list
+        if isinstance(evidence, Mapping)
     }
+    workflow_surface = str(checked_row["workflow_surface"])
+
+    if "prompt_extern_manifest" in evidence_kinds:
+        prompt_binding = str(checked_row["symbol_or_field"])
+        if prompt_binding not in prompt_externs:
+            stale_rows.append(_checked_row_summary(checked_row))
+    if "provider_extern_manifest" in evidence_kinds:
+        provider_binding = str(checked_row["symbol_or_field"])
+        provider_name = provider_externs.get(provider_binding)
+        if provider_name is None:
+            stale_rows.append(_checked_row_summary(checked_row))
+        elif str(provider_name) != str(checked_row["path_or_contract"]):
+            invalid_rows.append(
+                {
+                    "row_id": checked_row["row_id"],
+                    "reason": "provider target does not match provider extern manifest",
+                    "expected": provider_name,
+                    "actual": checked_row["path_or_contract"],
+                }
+            )
+    if "command_boundary_manifest" not in evidence_kinds and "source_map" not in evidence_kinds:
+        return
+    command_boundary = checked_row.get("command_boundary")
+    if not isinstance(command_boundary, Mapping):
+        stale_rows.append(_checked_row_summary(checked_row))
+        return
+    command_name = _string_or_none(command_boundary.get("command_name"))
+    if not command_name:
+        stale_rows.append(_checked_row_summary(checked_row))
+        return
+    manifest_entry = command_boundary_manifest.get(command_name)
+    if not isinstance(manifest_entry, Mapping):
+        stale_rows.append(_checked_row_summary(checked_row))
+        return
+    input_signature_ref = _string_or_none(command_boundary.get("input_signature_ref"))
+    if input_signature_ref is not None:
+        signature = manifest_entry.get("input_signature")
+        if not isinstance(signature, list) or not any(
+            isinstance(entry, Mapping) and entry.get("name") == input_signature_ref
+            for entry in signature
+        ):
+            stale_rows.append(_checked_row_summary(checked_row))
+            return
     source_map_workflows = source_map_payload.get("workflows")
     if not isinstance(source_map_workflows, Mapping):
-        source_map_workflows = {}
-    compiled_rows: list[dict[str, Any]] = []
-    for spec in EXPECTED_DESIGN_DELTA_PARENT_DRAIN_ROWS:
-        if spec.evidence_lane == "boundary":
-            workflow_row = boundary_rows.get(spec.workflow_surface)
-            if not isinstance(workflow_row, Mapping):
-                continue
-            bucket = workflow_row.get(spec.evidence_ref)
-            if not isinstance(bucket, list) or spec.symbol_or_field not in bucket:
-                continue
-        elif spec.evidence_lane == "prompt_manifest":
-            binding = prompt_externs.get(spec.evidence_ref)
-            if not binding:
-                continue
-        elif spec.evidence_lane == "provider_manifest":
-            provider = provider_externs.get(spec.evidence_ref)
-            if provider != spec.path_or_contract:
-                continue
-        elif spec.evidence_lane == "command_boundary_binding":
-            manifest_entry = command_boundary_manifest.get(spec.evidence_ref)
-            workflow = source_map_workflows.get(spec.workflow_surface)
-            if not isinstance(manifest_entry, Mapping) or not isinstance(workflow, Mapping):
-                continue
-            command_boundaries = workflow.get("command_boundaries")
-            if not isinstance(command_boundaries, list) or not any(
-                isinstance(boundary, Mapping)
-                and boundary.get("command_name") == spec.evidence_ref
-                for boundary in command_boundaries
-            ):
-                continue
-        elif spec.evidence_lane == "command_boundary_input":
-            command_name, input_name = spec.evidence_ref.split(".", 1)
-            manifest_entry = command_boundary_manifest.get(command_name)
-            workflow = source_map_workflows.get(spec.workflow_surface)
-            if not isinstance(manifest_entry, Mapping) or not isinstance(workflow, Mapping):
-                continue
-            signature = manifest_entry.get("input_signature")
-            if not isinstance(signature, list) or not any(
-                isinstance(entry, Mapping) and entry.get("name") == input_name
-                for entry in signature
-            ):
-                continue
-            command_boundaries = workflow.get("command_boundaries")
-            if not isinstance(command_boundaries, list) or not any(
-                isinstance(boundary, Mapping)
-                and boundary.get("command_name") == command_name
-                for boundary in command_boundaries
-            ):
-                continue
-        else:
-            continue
-        compiled_rows.append(
-            {
-                "row_id": spec.row_id,
-                "workflow_surface": spec.workflow_surface,
-                "source_kind": spec.source_kind,
-                "symbol_or_field": spec.symbol_or_field,
-                "boundary_authority_class": spec.boundary_authority_class,
-                "path_or_contract": spec.path_or_contract,
-            }
-        )
-    return compiled_rows
+        return
+    workflow_payload = source_map_workflows.get(workflow_surface)
+    if not isinstance(workflow_payload, Mapping):
+        stale_rows.append(_checked_row_summary(checked_row))
+        return
+    command_boundaries = workflow_payload.get("command_boundaries")
+    if not isinstance(command_boundaries, list) or not any(
+        isinstance(boundary, Mapping)
+        and boundary.get("command_name") == command_name
+        for boundary in command_boundaries
+    ):
+        stale_rows.append(_checked_row_summary(checked_row))
 
 
 def _validate_bridge_metadata(bridge: Mapping[str, Any], *, row_id: str) -> None:
@@ -664,20 +569,15 @@ def _compiled_workflow_surfaces_with_path_like_evidence(
             continue
         if any(
             isinstance(workflow_row.get(bucket_name), list) and workflow_row.get(bucket_name)
-            for bucket_name in (
-                "public_authored",
-                "compatibility_bridge",
-                "runtime_derived",
-                "generated_internal",
-                "materialized_view",
-                "public_artifact",
-            )
+            for bucket_name in BOUNDARY_AUTHORITY_BUCKETS
         ):
             workflow_surfaces.add(workflow_surface)
     source_map_workflows = source_map_payload.get("workflows")
     if isinstance(source_map_workflows, Mapping):
         for workflow_surface, workflow_payload in source_map_workflows.items():
-            if not isinstance(workflow_surface, str) or not isinstance(workflow_payload, Mapping):
+            if not isinstance(workflow_surface, str) or not isinstance(
+                workflow_payload, Mapping
+            ):
                 continue
             command_boundaries = workflow_payload.get("command_boundaries")
             if isinstance(command_boundaries, list) and command_boundaries:
@@ -685,12 +585,78 @@ def _compiled_workflow_surfaces_with_path_like_evidence(
     return workflow_surfaces
 
 
-def _row_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
-    return (
-        str(row["workflow_surface"]),
-        str(row["source_kind"]),
-        str(row["symbol_or_field"]),
-    )
+def _checked_boundary_key(row: Mapping[str, Any]) -> tuple[str, str]:
+    for evidence in row.get("source_evidence", []):
+        if not isinstance(evidence, Mapping):
+            continue
+        if evidence.get("kind") not in BOUNDARY_EVIDENCE_KINDS:
+            continue
+        workflow_surface = _string_or_none(evidence.get("workflow_name")) or str(
+            row["workflow_surface"]
+        )
+        field_name = _string_or_none(evidence.get("field_name")) or str(
+            row["symbol_or_field"]
+        )
+        return _boundary_key(workflow_surface, field_name)
+    return _boundary_key(str(row["workflow_surface"]), str(row["symbol_or_field"]))
+
+
+def _row_has_boundary_evidence(row: Mapping[str, Any]) -> bool:
+    for evidence in row.get("source_evidence", []):
+        if isinstance(evidence, Mapping) and evidence.get("kind") in BOUNDARY_EVIDENCE_KINDS:
+            return True
+    return False
+
+
+def _boundary_key(workflow_surface: str, field_name: str) -> tuple[str, str]:
+    return (workflow_surface, field_name)
+
+
+def _infer_source_kind(
+    *,
+    field_name: str,
+    authority_class: str,
+    surface_kind: str | None = None,
+) -> str:
+    if surface_kind == "managed_write_root":
+        return "generated_path"
+    if surface_kind == "runtime_context_input":
+        return "generated_path"
+    if surface_kind == "generated_internal_input":
+        return "generated_path"
+    if surface_kind == "flattened_output":
+        if authority_class == "materialized_view":
+            return "materialized_output"
+        return "public_output"
+    if surface_kind == "compatibility_bridge_input":
+        if field_name == "run_state_path":
+            return "loop_state_field"
+        if field_name == "selection_bundle_path":
+            return "pointer_path"
+        return "bridge_file"
+    if surface_kind == "public_input":
+        if "__" in field_name:
+            return "record_field"
+        return "public_input"
+    if field_name.startswith("__write_root__"):
+        return "generated_path"
+    if field_name.endswith("state-root") or field_name.endswith("artifact-root"):
+        return "generated_path"
+    if field_name == "run_state_path":
+        return "loop_state_field"
+    if field_name == "selection_bundle_path":
+        return "pointer_path"
+    if field_name.startswith("return__"):
+        if authority_class == "materialized_view":
+            return "materialized_output"
+        return "public_output"
+    if "__" in field_name and authority_class == "public_authored":
+        return "record_field"
+    if authority_class in {"runtime_derived", "generated_internal"}:
+        return "generated_path"
+    if authority_class == "compatibility_bridge":
+        return "bridge_file"
+    return "public_input"
 
 
 def _compiled_row_summary(row: Mapping[str, Any]) -> dict[str, Any]:

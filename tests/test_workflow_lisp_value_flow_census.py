@@ -248,3 +248,47 @@ def test_load_value_flow_census_rejects_compatibility_bridge_without_bridge_meta
 
     with pytest.raises(ValueError, match="bridge metadata"):
         module.load_value_flow_census(path)
+
+
+def test_reconcile_value_flow_census_reports_missing_compiled_boundary_rows_outside_legacy_allowlist() -> None:
+    module = _module()
+    census = _valid_payload()
+    census["rows"] = [
+        row
+        for row in census["rows"]
+        if row["symbol_or_field"] == "baseline_design_path"
+    ]
+    boundary_authority_report = {
+        "workflows": [
+            {
+                "workflow_name": "lisp_frontend_design_delta/drain::drain",
+                "public_authored": [
+                    "baseline_design_path",
+                    "architecture_targets__architecture_path",
+                ],
+                "compatibility_bridge": [],
+                "runtime_derived": [],
+                "generated_internal": [],
+                "materialized_view": [],
+                "public_artifact": [],
+            }
+        ]
+    }
+
+    report = module.reconcile_value_flow_census(
+        census=census,
+        checked_census_path=Path("design_delta_parent_drain.value_flow_census.json"),
+        checked_census_sha256="deadbeef",
+        boundary_authority_report=boundary_authority_report,
+        source_map_payload={"workflows": {}},
+        prompt_externs={},
+        provider_externs={},
+        command_boundary_manifest={},
+    )
+
+    assert report["status"] == "fail"
+    assert any(
+        row["workflow_surface"] == "lisp_frontend_design_delta/drain::drain"
+        and row["symbol_or_field"] == "architecture_targets__architecture_path"
+        for row in report["missing_rows"]
+    )
