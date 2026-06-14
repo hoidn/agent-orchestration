@@ -770,6 +770,12 @@ def _run_design_delta_runtime_transition_fixture_cli(tmp_path: Path) -> subproce
         json.dumps({"status": "BLOCKED", "reason": "runtime_native_fixture"}) + "\n",
         encoding="utf-8",
     )
+    env = os.environ.copy()
+    env["PYTHONPATH"] = (
+        str(REPO_ROOT)
+        if not env.get("PYTHONPATH")
+        else f"{REPO_ROOT}{os.pathsep}{env['PYTHONPATH']}"
+    )
     return subprocess.run(
         [
             sys.executable,
@@ -816,6 +822,7 @@ def _run_design_delta_runtime_transition_fixture_cli(tmp_path: Path) -> subproce
             str(state_dir),
         ],
         cwd=tmp_path,
+        env=env,
         text=True,
         capture_output=True,
         check=False,

@@ -1,10 +1,6 @@
 {
   "domain_state_summaries": {},
   "files": {
-    "artifacts/work/execution_report.md": {
-      "sha256": "169447e615a009c0deff7eac3dad9f4e21fa27679db0032d68cb9f640cb70361",
-      "size": 20
-    },
     "state/fake_provider_scenario.json": {
       "json": {
         "provider_payloads": {
@@ -24,18 +20,23 @@
   },
   "selected_variants": [],
   "snapshot_candidate_keys": [],
-  "status": "completed",
+  "status": "failed",
   "steps": {
-    "run-provider-phase-demo__attempt": {
-      "artifacts": {
-        "execution_report_path": "artifacts/work/execution_report.md",
-        "implementation_state": "COMPLETED",
-        "variant": "COMPLETED"
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "error": "[Errno 2] No such file or directory: '/home/ollie/Documents/agent-orchestration/orchestrator/workflow_lisp/stdlib_modules/std/prompts/implementation/execute.md'",
+          "path": "prompts/implementation/execute.md",
+          "reason": "asset_file_read_failed",
+          "step": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt"
+        },
+        "message": "Provider prompt asset resolution failed",
+        "type": "contract_violation"
       },
-      "error": null,
-      "status": "completed"
+      "status": "failed"
     },
-    "run-provider-phase-demo__attempt__prompt_inputs": {
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs": {
       "artifacts": {
         "design": "docs/design/workflow_lisp_frontend_specification.md",
         "execution_report_target": "artifacts/work/execution_report.md",
@@ -45,37 +46,117 @@
       "error": null,
       "status": "completed"
     },
-    "run-provider-phase-demo__match_attempt": {
-      "artifacts": {
-        "return__implementation_state": "COMPLETED",
-        "return__report_path": "artifacts/work/execution_report.md"
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "cases": {
+            "BLOCKED": {
+              "marker": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED",
+              "status": "failed",
+              "steps": [
+                "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor"
+              ]
+            },
+            "COMPLETED": {
+              "marker": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED",
+              "status": "failed",
+              "steps": [
+                "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor"
+              ]
+            }
+          },
+          "reason": "multiple_selected_cases"
+        },
+        "message": "Structured match join failed",
+        "type": "contract_violation"
       },
-      "error": null,
-      "status": "completed"
+      "status": "failed"
     },
-    "run-provider-phase-demo__match_attempt.BLOCKED": {
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED": {
       "artifacts": {},
-      "error": null,
-      "status": "skipped"
+      "error": {
+        "context": {
+          "condition": {
+            "left": {
+              "field": "artifacts",
+              "member": "variant",
+              "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
+            },
+            "op": "eq",
+            "right": "BLOCKED"
+          }
+        },
+        "message": "Condition evaluation failed: Bound step field 'root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt.artifacts' is unavailable",
+        "type": "predicate_evaluation_failed"
+      },
+      "status": "failed"
     },
-    "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor": {
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor": {
       "artifacts": {},
-      "error": null,
-      "status": "skipped"
+      "error": {
+        "context": {
+          "assert": {
+            "left": {
+              "field": "artifacts",
+              "member": "implementation_state",
+              "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
+            },
+            "op": "eq",
+            "right": {
+              "field": "artifacts",
+              "member": "implementation_state",
+              "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
+            }
+          }
+        },
+        "message": "Bound step field 'root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt.artifacts' is unavailable",
+        "type": "predicate_evaluation_failed"
+      },
+      "status": "failed"
     },
-    "run-provider-phase-demo__match_attempt.COMPLETED": {
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED": {
       "artifacts": {},
-      "error": null,
-      "status": "completed"
+      "error": {
+        "context": {
+          "condition": {
+            "left": {
+              "field": "artifacts",
+              "member": "variant",
+              "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
+            },
+            "op": "eq",
+            "right": "COMPLETED"
+          }
+        },
+        "message": "Condition evaluation failed: Bound step field 'root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt.artifacts' is unavailable",
+        "type": "predicate_evaluation_failed"
+      },
+      "status": "failed"
     },
-    "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor": {
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor": {
       "artifacts": {},
-      "error": null,
-      "status": "completed"
+      "error": {
+        "context": {
+          "assert": {
+            "left": {
+              "field": "artifacts",
+              "member": "implementation_state",
+              "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
+            },
+            "op": "eq",
+            "right": {
+              "field": "artifacts",
+              "member": "implementation_state",
+              "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
+            }
+          }
+        },
+        "message": "Bound step field 'root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt.artifacts' is unavailable",
+        "type": "predicate_evaluation_failed"
+      },
+      "status": "failed"
     }
   },
-  "workflow_outputs": {
-    "return__implementation_state": "COMPLETED",
-    "return__report_path": "artifacts/work/execution_report.md"
-  }
+  "workflow_outputs": {}
 }

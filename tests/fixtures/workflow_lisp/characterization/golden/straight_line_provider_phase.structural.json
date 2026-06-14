@@ -12,38 +12,38 @@
           "design": {
             "kind": "relpath",
             "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/design.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/design.txt",
             "type": "relpath",
             "under": "docs/design"
           },
           "execution_report_target": {
             "kind": "relpath",
             "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/execution_report_target.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/execution_report_target.txt",
             "type": "relpath",
             "under": "artifacts/work"
           },
           "plan": {
             "kind": "relpath",
             "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/plan.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/plan.txt",
             "type": "relpath",
             "under": "docs/plans"
           },
           "progress_report_target": {
             "kind": "relpath",
             "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/progress_report_target.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/progress_report_target.txt",
             "type": "relpath",
             "under": "artifacts/work"
           }
         },
         "inputs": {
-          "__phase_prompt__produce-one-of-demo__attempt__execution_report_target": {
+          "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__execution_report_target": {
             "kind": "relpath",
             "type": "relpath"
           },
-          "__phase_prompt__produce-one-of-demo__attempt__progress_report_target": {
+          "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__progress_report_target": {
             "kind": "relpath",
             "type": "relpath"
           },
@@ -98,7 +98,7 @@
             "under": "state"
           }
         },
-        "name": "produce-one-of-demo",
+        "name": "phase_stdlib_run_provider_phase::produce-one-of-demo",
         "outputs": {
           "return__implementation_state": {
             "allowed": [
@@ -106,14 +106,14 @@
               "BLOCKED"
             ],
             "from": {
-              "ref": "root.steps.produce-one-of-demo__match_attempt.artifacts.return__implementation_state"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.artifacts.return__implementation_state"
             },
             "kind": "scalar",
             "type": "enum"
           },
           "return__report_path": {
             "from": {
-              "ref": "root.steps.produce-one-of-demo__match_attempt.artifacts.return__report_path"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.artifacts.return__report_path"
             },
             "kind": "relpath",
             "must_exist_target": true,
@@ -123,7 +123,7 @@
         },
         "steps": [
           {
-            "id": "produce_one_of_demo__attempt__prompt_inputs",
+            "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__prompt_inputs",
             "materialize_artifacts": {
               "values": [
                 {
@@ -132,7 +132,7 @@
                   },
                   "name": "design",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/design.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/design.txt"
                   },
                   "source": {
                     "input": "inputs__design"
@@ -144,7 +144,7 @@
                   },
                   "name": "plan",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/plan.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/plan.txt"
                   },
                   "source": {
                     "input": "inputs__plan"
@@ -159,10 +159,10 @@
                   },
                   "name": "execution_report_target",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/execution_report_target.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/execution_report_target.txt"
                   },
                   "source": {
-                    "input": "__phase_prompt__produce-one-of-demo__attempt__execution_report_target"
+                    "input": "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__execution_report_target"
                   }
                 },
                 {
@@ -174,15 +174,15 @@
                   },
                   "name": "progress_report_target",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/progress_report_target.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/progress_report_target.txt"
                   },
                   "source": {
-                    "input": "__phase_prompt__produce-one-of-demo__attempt__progress_report_target"
+                    "input": "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__progress_report_target"
                   }
                 }
               ]
             },
-            "name": "produce-one-of-demo__attempt__prompt_inputs",
+            "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__prompt_inputs",
             "publishes": [
               {
                 "artifact": "design",
@@ -226,19 +226,19 @@
                 "policy": "latest_successful"
               }
             ],
-            "id": "produce_one_of_demo__attempt__produce",
-            "name": "produce-one-of-demo__attempt__produce",
+            "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__produce",
+            "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__produce",
             "pre_snapshot": {
               "candidates": {
                 "BLOCKED": {
-                  "ref": "root.steps.produce-one-of-demo__attempt__prompt_inputs.artifacts.progress_report_target"
+                  "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__prompt_inputs.artifacts.progress_report_target"
                 },
                 "COMPLETED": {
-                  "ref": "root.steps.produce-one-of-demo__attempt__prompt_inputs.artifacts.execution_report_target"
+                  "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__prompt_inputs.artifacts.execution_report_target"
                 }
               },
               "digest": "sha256",
-              "name": "produce-one-of-demo__attempt_before"
+              "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt_before"
             },
             "prompt_consumes": [
               "design",
@@ -249,8 +249,8 @@
             "provider": "fake"
           },
           {
-            "id": "produce_one_of_demo__attempt__select_variant",
-            "name": "produce-one-of-demo__attempt__select_variant",
+            "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__select_variant",
+            "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant",
             "select_variant_output": {
               "discriminant": {
                 "allowed": [
@@ -264,7 +264,7 @@
               "evidence": {
                 "mode": "snapshot_diff",
                 "snapshot": {
-                  "ref": "root.steps.produce-one-of-demo__attempt__produce.snapshots.produce-one-of-demo__attempt_before"
+                  "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__produce.snapshots.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt_before"
                 }
               },
               "path": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
@@ -319,11 +319,11 @@
             }
           },
           {
-            "id": "produce_one_of_demo__attempt",
+            "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt",
             "match": {
               "cases": {
                 "BLOCKED": {
-                  "id": "produce_one_of_demo__attempt__blocked",
+                  "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked",
                   "outputs": {
                     "blocker_class": {
                       "allowed": [
@@ -335,14 +335,14 @@
                         "unrecoverable_after_fix_attempt"
                       ],
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.blocker_class"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.blocker_class"
                       },
                       "kind": "scalar",
                       "type": "enum"
                     },
                     "execution_report_path": {
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.progress_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.progress_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": false,
@@ -362,7 +362,7 @@
                     },
                     "progress_report_path": {
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.progress_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.progress_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": false,
@@ -375,7 +375,7 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
                       },
                       "kind": "scalar",
                       "type": "enum"
@@ -408,21 +408,21 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
                           }
                         }
                       },
-                      "id": "produce_one_of_demo__attempt__blocked__projection_anchor",
-                      "name": "produce-one-of-demo__attempt__blocked__projection_anchor"
+                      "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked__projection_anchor",
+                      "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__blocked__projection_anchor"
                     }
                   ]
                 },
                 "COMPLETED": {
-                  "id": "produce_one_of_demo__attempt__completed",
+                  "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed",
                   "outputs": {
                     "blocker_class": {
                       "allowed": [
@@ -441,7 +441,7 @@
                     },
                     "execution_report_path": {
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.execution_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.execution_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": false,
@@ -461,7 +461,7 @@
                     },
                     "progress_report_path": {
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.execution_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.execution_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": false,
@@ -474,7 +474,7 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
                       },
                       "kind": "scalar",
                       "type": "enum"
@@ -525,30 +525,30 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
                           }
                         }
                       },
-                      "id": "produce_one_of_demo__attempt__completed__projection_anchor",
-                      "name": "produce-one-of-demo__attempt__completed__projection_anchor"
+                      "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed__projection_anchor",
+                      "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__completed__projection_anchor"
                     }
                   ]
                 }
               },
-              "ref": "root.steps.produce-one-of-demo__attempt__select_variant.artifacts.variant"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant.artifacts.variant"
             },
-            "name": "produce-one-of-demo__attempt"
+            "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt"
           },
           {
-            "id": "produce_one_of_demo__match_attempt",
+            "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt",
             "match": {
               "cases": {
                 "BLOCKED": {
-                  "id": "produce_one_of_demo__match_attempt__blocked",
+                  "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked",
                   "outputs": {
                     "return__implementation_state": {
                       "allowed": [
@@ -556,14 +556,14 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.implementation_state"
                       },
                       "kind": "scalar",
                       "type": "enum"
                     },
                     "return__report_path": {
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.progress_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.progress_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": true,
@@ -576,21 +576,21 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.implementation_state"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.implementation_state"
                           }
                         }
                       },
-                      "id": "produce_one_of_demo__match_attempt__blocked__projection_anchor",
-                      "name": "produce-one-of-demo__match_attempt__blocked__projection_anchor"
+                      "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked__projection_anchor",
+                      "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__blocked__projection_anchor"
                     }
                   ]
                 },
                 "COMPLETED": {
-                  "id": "produce_one_of_demo__match_attempt__completed",
+                  "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed",
                   "outputs": {
                     "return__implementation_state": {
                       "allowed": [
@@ -598,14 +598,14 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.implementation_state"
                       },
                       "kind": "scalar",
                       "type": "enum"
                     },
                     "return__report_path": {
                       "from": {
-                        "ref": "root.steps.produce-one-of-demo__attempt.artifacts.execution_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.execution_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": true,
@@ -618,45 +618,45 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.implementation_state"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.produce-one-of-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.implementation_state"
                           }
                         }
                       },
-                      "id": "produce_one_of_demo__match_attempt__completed__projection_anchor",
-                      "name": "produce-one-of-demo__match_attempt__completed__projection_anchor"
+                      "id": "phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed__projection_anchor",
+                      "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__completed__projection_anchor"
                     }
                   ]
                 }
               },
-              "ref": "root.steps.produce-one-of-demo__attempt.artifacts.variant"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.artifacts.variant"
             },
-            "name": "produce-one-of-demo__match_attempt"
+            "name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt"
           }
         ],
         "version": "2.14"
       },
       "generated_input_names": [
-        "__phase_prompt__produce-one-of-demo__attempt__execution_report_target",
-        "__phase_prompt__produce-one-of-demo__attempt__progress_report_target"
+        "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__execution_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__progress_report_target"
       ],
       "step_labels": [
-        "produce-one-of-demo__attempt__prompt_inputs",
-        "produce-one-of-demo__attempt__produce",
-        "produce-one-of-demo__attempt__select_variant",
-        "produce-one-of-demo__attempt",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__prompt_inputs",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__produce",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt",
         "MaterializeSharedFields",
-        "produce-one-of-demo__attempt__blocked__projection_anchor",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__blocked__projection_anchor",
         "MaterializeSharedFields",
-        "produce-one-of-demo__attempt__completed__projection_anchor",
-        "produce-one-of-demo__match_attempt",
-        "produce-one-of-demo__match_attempt__blocked__projection_anchor",
-        "produce-one-of-demo__match_attempt__completed__projection_anchor"
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__completed__projection_anchor",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__blocked__projection_anchor",
+        "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__completed__projection_anchor"
       ],
-      "workflow_name": "produce-one-of-demo"
+      "workflow_name": "phase_stdlib_run_provider_phase::produce-one-of-demo"
     },
     {
       "authored_mapping": {
@@ -664,38 +664,38 @@
           "design": {
             "kind": "relpath",
             "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/design.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/design.txt",
             "type": "relpath",
             "under": "docs/design"
           },
           "execution_report_target": {
             "kind": "relpath",
             "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/execution_report_target.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/execution_report_target.txt",
             "type": "relpath",
             "under": "artifacts/work"
           },
           "plan": {
             "kind": "relpath",
             "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/plan.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/plan.txt",
             "type": "relpath",
             "under": "docs/plans"
           },
           "progress_report_target": {
             "kind": "relpath",
             "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/progress_report_target.txt",
+            "pointer": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/progress_report_target.txt",
             "type": "relpath",
             "under": "artifacts/work"
           }
         },
         "inputs": {
-          "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target": {
+          "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target": {
             "kind": "relpath",
             "type": "relpath"
           },
-          "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target": {
+          "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target": {
             "kind": "relpath",
             "type": "relpath"
           },
@@ -750,7 +750,7 @@
             "under": "state"
           }
         },
-        "name": "run-provider-phase-demo",
+        "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo",
         "outputs": {
           "return__implementation_state": {
             "allowed": [
@@ -758,14 +758,14 @@
               "BLOCKED"
             ],
             "from": {
-              "ref": "root.steps.run-provider-phase-demo__match_attempt.artifacts.return__implementation_state"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.artifacts.return__implementation_state"
             },
             "kind": "scalar",
             "type": "enum"
           },
           "return__report_path": {
             "from": {
-              "ref": "root.steps.run-provider-phase-demo__match_attempt.artifacts.return__report_path"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.artifacts.return__report_path"
             },
             "kind": "relpath",
             "must_exist_target": true,
@@ -775,7 +775,7 @@
         },
         "steps": [
           {
-            "id": "run_provider_phase_demo__attempt__prompt_inputs",
+            "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs",
             "materialize_artifacts": {
               "values": [
                 {
@@ -784,7 +784,7 @@
                   },
                   "name": "design",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/design.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/design.txt"
                   },
                   "source": {
                     "input": "inputs__design"
@@ -796,7 +796,7 @@
                   },
                   "name": "plan",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/plan.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/plan.txt"
                   },
                   "source": {
                     "input": "inputs__plan"
@@ -811,10 +811,10 @@
                   },
                   "name": "execution_report_target",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/execution_report_target.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/execution_report_target.txt"
                   },
                   "source": {
-                    "input": "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target"
+                    "input": "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target"
                   }
                 },
                 {
@@ -826,15 +826,15 @@
                   },
                   "name": "progress_report_target",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/progress_report_target.txt"
+                    "path": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/progress_report_target.txt"
                   },
                   "source": {
-                    "input": "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target"
+                    "input": "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target"
                   }
                 }
               ]
             },
-            "name": "run-provider-phase-demo__attempt__prompt_inputs",
+            "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
             "publishes": [
               {
                 "artifact": "design",
@@ -878,9 +878,9 @@
                 "policy": "latest_successful"
               }
             ],
-            "id": "run_provider_phase_demo__attempt",
+            "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt",
             "inject_output_contract": true,
-            "name": "run-provider-phase-demo__attempt",
+            "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
             "prompt_consumes": [
               "design",
               "plan",
@@ -950,11 +950,11 @@
             }
           },
           {
-            "id": "run_provider_phase_demo__match_attempt",
+            "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt",
             "match": {
               "cases": {
                 "BLOCKED": {
-                  "id": "run_provider_phase_demo__match_attempt__blocked",
+                  "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked",
                   "outputs": {
                     "return__implementation_state": {
                       "allowed": [
@@ -962,14 +962,14 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.implementation_state"
                       },
                       "kind": "scalar",
                       "type": "enum"
                     },
                     "return__report_path": {
                       "from": {
-                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.progress_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.progress_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": true,
@@ -982,21 +982,21 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.implementation_state"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.implementation_state"
                           }
                         }
                       },
-                      "id": "run_provider_phase_demo__match_attempt__blocked__projection_anchor",
-                      "name": "run-provider-phase-demo__match_attempt__blocked__projection_anchor"
+                      "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked__projection_anchor",
+                      "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor"
                     }
                   ]
                 },
                 "COMPLETED": {
-                  "id": "run_provider_phase_demo__match_attempt__completed",
+                  "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed",
                   "outputs": {
                     "return__implementation_state": {
                       "allowed": [
@@ -1004,14 +1004,14 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.implementation_state"
                       },
                       "kind": "scalar",
                       "type": "enum"
                     },
                     "return__report_path": {
                       "from": {
-                        "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.execution_report_path"
+                        "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.execution_report_path"
                       },
                       "kind": "relpath",
                       "must_exist_target": true,
@@ -1024,44 +1024,44 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.implementation_state"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.implementation_state"
                           }
                         }
                       },
-                      "id": "run_provider_phase_demo__match_attempt__completed__projection_anchor",
-                      "name": "run-provider-phase-demo__match_attempt__completed__projection_anchor"
+                      "id": "phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed__projection_anchor",
+                      "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor"
                     }
                   ]
                 }
               },
-              "ref": "root.steps.run-provider-phase-demo__attempt.artifacts.variant"
+              "ref": "root.steps.phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt.artifacts.variant"
             },
-            "name": "run-provider-phase-demo__match_attempt"
+            "name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt"
           }
         ],
         "version": "2.14"
       },
       "generated_input_names": [
-        "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target",
-        "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target"
+        "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target"
       ],
       "step_labels": [
-        "run-provider-phase-demo__attempt__prompt_inputs",
-        "run-provider-phase-demo__attempt",
-        "run-provider-phase-demo__match_attempt",
-        "run-provider-phase-demo__match_attempt__blocked__projection_anchor",
-        "run-provider-phase-demo__match_attempt__completed__projection_anchor"
+        "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
+        "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
+        "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt",
+        "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor",
+        "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor"
       ],
-      "workflow_name": "run-provider-phase-demo"
+      "workflow_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo"
     }
   ],
   "schema_version": "workflow_lisp.characterization.v1",
   "selected_workflow_name": null,
-  "source_digest": "5a504b007a0b0e30ba3974dbc87a608180ff9ab15b3149cac12acb4afe978fe4",
+  "source_digest": "f8070741641fa985362c918de728588c885a09a105964fa299ff859c2ce33398",
   "validated_bundles": [
     {
       "artifact_keys": [
@@ -1071,64 +1071,64 @@
         "progress_report_target"
       ],
       "generated_input_names": [
-        "__phase_prompt__produce-one-of-demo__attempt__execution_report_target",
-        "__phase_prompt__produce-one-of-demo__attempt__progress_report_target"
+        "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__execution_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__progress_report_target"
       ],
       "generated_paths": [
         {
-          "allocation_id": "alloc:produce-one-of-demo:variant_projection_bundle:3c0672ebe9536b27",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_produce-one-of-demo:variant_projection_bundle:af4969b0f6e80172",
           "concrete_path_template": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "variant_projection_bundle",
-          "stable_identity": "produce-one-of-demo/produce-one-of-demo__attempt__select_variant/select_variant"
+          "stable_identity": "phase_stdlib_run_provider_phase::produce-one-of-demo/phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant/select_variant"
         },
         {
-          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:110fae21cf6c033d",
-          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/design.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_produce-one-of-demo:materialized_value_view:fae4461371b63048",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/design.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "produce-one-of-demo/prompt_inputs/design"
+          "stable_identity": "phase_stdlib_run_provider_phase::produce-one-of-demo/prompt_inputs/design"
         },
         {
-          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:9a53aca7c122f0bb",
-          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/plan.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_produce-one-of-demo:materialized_value_view:ac380bd8df04b5b8",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/plan.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "produce-one-of-demo/prompt_inputs/plan"
+          "stable_identity": "phase_stdlib_run_provider_phase::produce-one-of-demo/prompt_inputs/plan"
         },
         {
-          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:4d98b60ee331d8fd",
-          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/execution_report_target.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_produce-one-of-demo:materialized_value_view:97232fa898790743",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/execution_report_target.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "produce-one-of-demo/prompt_inputs/execution_report_target"
+          "stable_identity": "phase_stdlib_run_provider_phase::produce-one-of-demo/prompt_inputs/execution_report_target"
         },
         {
-          "allocation_id": "alloc:produce-one-of-demo:materialized_value_view:14324f93dc3a1c28",
-          "concrete_path_template": ".orchestrate/workflow_lisp/produce-one-of-demo/materialized/progress_report_target.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_produce-one-of-demo:materialized_value_view:21c7d415c0f4254a",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::produce-one-of-demo/materialized/progress_report_target.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "produce-one-of-demo/prompt_inputs/progress_report_target"
+          "stable_identity": "phase_stdlib_run_provider_phase::produce-one-of-demo/prompt_inputs/progress_report_target"
         }
       ],
       "input_keys": [
-        "__phase_prompt__produce-one-of-demo__attempt__execution_report_target",
-        "__phase_prompt__produce-one-of-demo__attempt__progress_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__execution_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__progress_report_target",
         "inputs__design",
         "inputs__plan",
         "phase-ctx__artifact-root",
@@ -1146,37 +1146,37 @@
         "call_boundaries": {},
         "for_each_nodes": {},
         "match_cases": {
-          "root.produce_one_of_demo__attempt": {
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt": {
             "BLOCKED": {
-              "marker_presentation_key": "produce-one-of-demo__attempt.BLOCKED",
-              "marker_step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked",
+              "marker_presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED",
+              "marker_step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked",
               "step_presentation_keys": [
-                "produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
-                "produce-one-of-demo__attempt.BLOCKED.produce-one-of-demo__attempt__blocked__projection_anchor"
+                "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
+                "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__blocked__projection_anchor"
               ]
             },
             "COMPLETED": {
-              "marker_presentation_key": "produce-one-of-demo__attempt.COMPLETED",
-              "marker_step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed",
+              "marker_presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED",
+              "marker_step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed",
               "step_presentation_keys": [
-                "produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
-                "produce-one-of-demo__attempt.COMPLETED.produce-one-of-demo__attempt__completed__projection_anchor"
+                "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
+                "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__completed__projection_anchor"
               ]
             }
           },
-          "root.produce_one_of_demo__match_attempt": {
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt": {
             "BLOCKED": {
-              "marker_presentation_key": "produce-one-of-demo__match_attempt.BLOCKED",
-              "marker_step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked",
+              "marker_presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.BLOCKED",
+              "marker_step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked",
               "step_presentation_keys": [
-                "produce-one-of-demo__match_attempt.BLOCKED.produce-one-of-demo__match_attempt__blocked__projection_anchor"
+                "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__blocked__projection_anchor"
               ]
             },
             "COMPLETED": {
-              "marker_presentation_key": "produce-one-of-demo__match_attempt.COMPLETED",
-              "marker_step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed",
+              "marker_presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.COMPLETED",
+              "marker_step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed",
               "step_presentation_keys": [
-                "produce-one-of-demo__match_attempt.COMPLETED.produce-one-of-demo__match_attempt__completed__projection_anchor"
+                "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__completed__projection_anchor"
               ]
             }
           }
@@ -1186,16 +1186,16 @@
             "command": null,
             "compatibility_index": 0,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt__prompt_inputs",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__prompt_inputs",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt__prompt_inputs",
-            "presentation_key": "produce-one-of-demo__attempt__prompt_inputs",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__prompt_inputs",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__prompt_inputs",
             "provider": null,
             "region": "body",
             "report_kind": "materialize_artifacts",
-            "step_id": "root.produce_one_of_demo__attempt__prompt_inputs"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__prompt_inputs"
           },
           {
             "command": null,
@@ -1222,233 +1222,233 @@
                 "policy": "latest_successful"
               }
             ],
-            "display_name": "produce-one-of-demo__attempt__produce",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__produce",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt__produce",
-            "presentation_key": "produce-one-of-demo__attempt__produce",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__produce",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__produce",
             "provider": "fake",
             "region": "body",
             "report_kind": "provider",
-            "step_id": "root.produce_one_of_demo__attempt__produce"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__produce"
           },
           {
             "command": null,
             "compatibility_index": 2,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt__select_variant",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt__select_variant",
-            "presentation_key": "produce-one-of-demo__attempt__select_variant",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__select_variant",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__select_variant",
             "provider": null,
             "region": "body",
             "report_kind": "select_variant_output",
-            "step_id": "root.produce_one_of_demo__attempt__select_variant"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__select_variant"
           },
           {
             "command": null,
             "compatibility_index": 3,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt.COMPLETED",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed",
-            "presentation_key": "produce-one-of-demo__attempt.COMPLETED",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed"
           },
           {
             "command": null,
             "compatibility_index": 4,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.materialize_shared_fields",
-            "presentation_key": "produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed.materialize_shared_fields",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED.MaterializeSharedFields",
             "provider": null,
             "region": "body",
             "report_kind": "materialize_artifacts",
-            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.materialize_shared_fields"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed.materialize_shared_fields"
           },
           {
             "command": null,
             "compatibility_index": 5,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt.COMPLETED.produce-one-of-demo__attempt__completed__projection_anchor",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__completed__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.produce_one_of_demo__attempt__completed__projection_anchor",
-            "presentation_key": "produce-one-of-demo__attempt.COMPLETED.produce-one-of-demo__attempt__completed__projection_anchor",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed__projection_anchor",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.COMPLETED.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__completed__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.produce_one_of_demo__attempt__completed__projection_anchor"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 6,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt.BLOCKED",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked",
-            "presentation_key": "produce-one-of-demo__attempt.BLOCKED",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked"
           },
           {
             "command": null,
             "compatibility_index": 7,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.materialize_shared_fields",
-            "presentation_key": "produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked.materialize_shared_fields",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED.MaterializeSharedFields",
             "provider": null,
             "region": "body",
             "report_kind": "materialize_artifacts",
-            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.materialize_shared_fields"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked.materialize_shared_fields"
           },
           {
             "command": null,
             "compatibility_index": 8,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt.BLOCKED.produce-one-of-demo__attempt__blocked__projection_anchor",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__blocked__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.produce_one_of_demo__attempt__blocked__projection_anchor",
-            "presentation_key": "produce-one-of-demo__attempt.BLOCKED.produce-one-of-demo__attempt__blocked__projection_anchor",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked__projection_anchor",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt.BLOCKED.phase_stdlib_run_provider_phase::produce-one-of-demo__attempt__blocked__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.produce_one_of_demo__attempt__blocked__projection_anchor"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 9,
             "consumes": [],
-            "display_name": "produce-one-of-demo__attempt",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__attempt",
-            "presentation_key": "produce-one-of-demo__attempt",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__attempt",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_join",
-            "step_id": "root.produce_one_of_demo__attempt"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt"
           },
           {
             "command": null,
             "compatibility_index": 10,
             "consumes": [],
-            "display_name": "produce-one-of-demo__match_attempt.COMPLETED",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.COMPLETED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed",
-            "presentation_key": "produce-one-of-demo__match_attempt.COMPLETED",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.COMPLETED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed"
           },
           {
             "command": null,
             "compatibility_index": 11,
             "consumes": [],
-            "display_name": "produce-one-of-demo__match_attempt.COMPLETED.produce-one-of-demo__match_attempt__completed__projection_anchor",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__completed__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed.produce_one_of_demo__match_attempt__completed__projection_anchor",
-            "presentation_key": "produce-one-of-demo__match_attempt.COMPLETED.produce-one-of-demo__match_attempt__completed__projection_anchor",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed__projection_anchor",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__completed__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed.produce_one_of_demo__match_attempt__completed__projection_anchor"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 12,
             "consumes": [],
-            "display_name": "produce-one-of-demo__match_attempt.BLOCKED",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.BLOCKED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked",
-            "presentation_key": "produce-one-of-demo__match_attempt.BLOCKED",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.BLOCKED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked"
           },
           {
             "command": null,
             "compatibility_index": 13,
             "consumes": [],
-            "display_name": "produce-one-of-demo__match_attempt.BLOCKED.produce-one-of-demo__match_attempt__blocked__projection_anchor",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__blocked__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked.produce_one_of_demo__match_attempt__blocked__projection_anchor",
-            "presentation_key": "produce-one-of-demo__match_attempt.BLOCKED.produce-one-of-demo__match_attempt__blocked__projection_anchor",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked__projection_anchor",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt__blocked__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked.produce_one_of_demo__match_attempt__blocked__projection_anchor"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 14,
             "consumes": [],
-            "display_name": "produce-one-of-demo__match_attempt",
+            "display_name": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.produce_one_of_demo__match_attempt",
-            "presentation_key": "produce-one-of-demo__match_attempt",
+            "node_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt",
+            "presentation_key": "phase_stdlib_run_provider_phase::produce-one-of-demo__match_attempt",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_join",
-            "step_id": "root.produce_one_of_demo__match_attempt"
+            "step_id": "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt"
           }
         ],
         "ordered_node_ids": [
-          "root.produce_one_of_demo__attempt__prompt_inputs",
-          "root.produce_one_of_demo__attempt__produce",
-          "root.produce_one_of_demo__attempt__select_variant",
-          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed",
-          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.materialize_shared_fields",
-          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__completed.produce_one_of_demo__attempt__completed__projection_anchor",
-          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked",
-          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.materialize_shared_fields",
-          "root.produce_one_of_demo__attempt.produce_one_of_demo__attempt__blocked.produce_one_of_demo__attempt__blocked__projection_anchor",
-          "root.produce_one_of_demo__attempt",
-          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed",
-          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__completed.produce_one_of_demo__match_attempt__completed__projection_anchor",
-          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked",
-          "root.produce_one_of_demo__match_attempt.produce_one_of_demo__match_attempt__blocked.produce_one_of_demo__match_attempt__blocked__projection_anchor",
-          "root.produce_one_of_demo__match_attempt"
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__prompt_inputs",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__produce",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__select_variant",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed.materialize_shared_fields",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__completed__projection_anchor",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked.materialize_shared_fields",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt__blocked__projection_anchor",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__attempt",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__completed__projection_anchor",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt__blocked__projection_anchor",
+          "root.phase_stdlib_run_provider_phase_produce_one_of_demo__match_attempt"
         ],
         "repeat_until_nodes": {}
       },
-      "workflow_name": "produce-one-of-demo"
+      "workflow_name": "phase_stdlib_run_provider_phase::produce-one-of-demo"
     },
     {
       "artifact_keys": [
@@ -1458,64 +1458,64 @@
         "progress_report_target"
       ],
       "generated_input_names": [
-        "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target",
-        "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target"
+        "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target"
       ],
       "generated_paths": [
         {
-          "allocation_id": "alloc:run-provider-phase-demo:provider_result_bundle:9d05aed8c6b83841",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_run-provider-phase-demo:provider_result_bundle:c479542314cd4a6d",
           "concrete_path_template": "${inputs.phase-ctx__state-root}/phases/implementation/state.json",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
-          "stable_identity": "run-provider-phase-demo/run-provider-phase-demo__attempt/result_bundle"
+          "stable_identity": "phase_stdlib_run_provider_phase::run-provider-phase-demo/phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt/result_bundle"
         },
         {
-          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:d2fbbda524ee2c27",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/design.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_run-provider-phase-demo:materialized_value_view:2c48e391393ffbf7",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/design.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-provider-phase-demo/prompt_inputs/design"
+          "stable_identity": "phase_stdlib_run_provider_phase::run-provider-phase-demo/prompt_inputs/design"
         },
         {
-          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:08e0e79f91267acd",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/plan.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_run-provider-phase-demo:materialized_value_view:7dfe2574ca4a96a1",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/plan.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-provider-phase-demo/prompt_inputs/plan"
+          "stable_identity": "phase_stdlib_run_provider_phase::run-provider-phase-demo/prompt_inputs/plan"
         },
         {
-          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:dc91115af4b1b9bb",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/execution_report_target.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_run-provider-phase-demo:materialized_value_view:0e16ee3a1f881ecf",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/execution_report_target.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-provider-phase-demo/prompt_inputs/execution_report_target"
+          "stable_identity": "phase_stdlib_run_provider_phase::run-provider-phase-demo/prompt_inputs/execution_report_target"
         },
         {
-          "allocation_id": "alloc:run-provider-phase-demo:materialized_value_view:3cbda36ab0e949b1",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-provider-phase-demo/materialized/progress_report_target.txt",
+          "allocation_id": "alloc:phase_stdlib_run_provider_phase_run-provider-phase-demo:materialized_value_view:01d972f3a6ca708b",
+          "concrete_path_template": ".orchestrate/workflow_lisp/phase_stdlib_run_provider_phase::run-provider-phase-demo/materialized/progress_report_target.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-provider-phase-demo/prompt_inputs/progress_report_target"
+          "stable_identity": "phase_stdlib_run_provider_phase::run-provider-phase-demo/prompt_inputs/progress_report_target"
         }
       ],
       "input_keys": [
-        "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target",
-        "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target",
+        "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target",
         "inputs__design",
         "inputs__plan",
         "phase-ctx__artifact-root",
@@ -1533,19 +1533,19 @@
         "call_boundaries": {},
         "for_each_nodes": {},
         "match_cases": {
-          "root.run_provider_phase_demo__match_attempt": {
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt": {
             "BLOCKED": {
-              "marker_presentation_key": "run-provider-phase-demo__match_attempt.BLOCKED",
-              "marker_step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked",
+              "marker_presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED",
+              "marker_step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked",
               "step_presentation_keys": [
-                "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor"
+                "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor"
               ]
             },
             "COMPLETED": {
-              "marker_presentation_key": "run-provider-phase-demo__match_attempt.COMPLETED",
-              "marker_step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed",
+              "marker_presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED",
+              "marker_step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed",
               "step_presentation_keys": [
-                "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor"
+                "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor"
               ]
             }
           }
@@ -1555,16 +1555,16 @@
             "command": null,
             "compatibility_index": 0,
             "consumes": [],
-            "display_name": "run-provider-phase-demo__attempt__prompt_inputs",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__attempt__prompt_inputs",
-            "presentation_key": "run-provider-phase-demo__attempt__prompt_inputs",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__prompt_inputs",
             "provider": null,
             "region": "body",
             "report_kind": "materialize_artifacts",
-            "step_id": "root.run_provider_phase_demo__attempt__prompt_inputs"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs"
           },
           {
             "command": null,
@@ -1591,109 +1591,109 @@
                 "policy": "latest_successful"
               }
             ],
-            "display_name": "run-provider-phase-demo__attempt",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__attempt",
-            "presentation_key": "run-provider-phase-demo__attempt",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt",
             "provider": "fake",
             "region": "body",
             "report_kind": "provider",
-            "step_id": "root.run_provider_phase_demo__attempt"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt"
           },
           {
             "command": null,
             "compatibility_index": 2,
             "consumes": [],
-            "display_name": "run-provider-phase-demo__match_attempt.COMPLETED",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed",
-            "presentation_key": "run-provider-phase-demo__match_attempt.COMPLETED",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed"
           },
           {
             "command": null,
             "compatibility_index": 3,
             "consumes": [],
-            "display_name": "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed.run_provider_phase_demo__match_attempt__completed__projection_anchor",
-            "presentation_key": "run-provider-phase-demo__match_attempt.COMPLETED.run-provider-phase-demo__match_attempt__completed__projection_anchor",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed__projection_anchor",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.COMPLETED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__completed__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed.run_provider_phase_demo__match_attempt__completed__projection_anchor"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 4,
             "consumes": [],
-            "display_name": "run-provider-phase-demo__match_attempt.BLOCKED",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked",
-            "presentation_key": "run-provider-phase-demo__match_attempt.BLOCKED",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked"
           },
           {
             "command": null,
             "compatibility_index": 5,
             "consumes": [],
-            "display_name": "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked.run_provider_phase_demo__match_attempt__blocked__projection_anchor",
-            "presentation_key": "run-provider-phase-demo__match_attempt.BLOCKED.run-provider-phase-demo__match_attempt__blocked__projection_anchor",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked__projection_anchor",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt.BLOCKED.phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt__blocked__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked.run_provider_phase_demo__match_attempt__blocked__projection_anchor"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 6,
             "consumes": [],
-            "display_name": "run-provider-phase-demo__match_attempt",
+            "display_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_provider_phase_demo__match_attempt",
-            "presentation_key": "run-provider-phase-demo__match_attempt",
+            "node_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt",
+            "presentation_key": "phase_stdlib_run_provider_phase::run-provider-phase-demo__match_attempt",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_join",
-            "step_id": "root.run_provider_phase_demo__match_attempt"
+            "step_id": "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt"
           }
         ],
         "ordered_node_ids": [
-          "root.run_provider_phase_demo__attempt__prompt_inputs",
-          "root.run_provider_phase_demo__attempt",
-          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed",
-          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__completed.run_provider_phase_demo__match_attempt__completed__projection_anchor",
-          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked",
-          "root.run_provider_phase_demo__match_attempt.run_provider_phase_demo__match_attempt__blocked.run_provider_phase_demo__match_attempt__blocked__projection_anchor",
-          "root.run_provider_phase_demo__match_attempt"
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt__prompt_inputs",
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__attempt",
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed",
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__completed__projection_anchor",
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked",
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt__blocked__projection_anchor",
+          "root.phase_stdlib_run_provider_phase_run_provider_phase_demo__match_attempt"
         ],
         "repeat_until_nodes": {}
       },
-      "workflow_name": "run-provider-phase-demo"
+      "workflow_name": "phase_stdlib_run_provider_phase::run-provider-phase-demo"
     }
   ],
   "workflow_names": [
-    "produce-one-of-demo",
-    "run-provider-phase-demo"
+    "phase_stdlib_run_provider_phase::produce-one-of-demo",
+    "phase_stdlib_run_provider_phase::run-provider-phase-demo"
   ]
 }

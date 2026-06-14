@@ -340,6 +340,94 @@
       "notes": "Prompt file stays explicit until provider prompt composition can consume typed values directly."
     },
     {
+      "row_id": "plan_phase.input.plan_target_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "public_input",
+      "symbol_or_field": "plan_target_path",
+      "path_or_contract": "PlanTargetPath",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_entry",
+      "semantic_owner": "caller",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Authored plan target path keeps the plan-phase surface represented in the shared U0 census."
+    },
+    {
+      "row_id": "plan_phase.output.approved_plan_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "public_output",
+      "symbol_or_field": "return__approved_plan_path",
+      "path_or_contract": "ApprovedPlanPath",
+      "plumbing_class": "entry_publication",
+      "boundary_authority_class": "public_artifact",
+      "track_owner": "C",
+      "current_consumer": "downstream_work_item",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track C entry publication policy",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Approved plan publication remains an explicit consumer-facing artifact boundary."
+    },
+    {
+      "row_id": "plan_phase.prompt.draft",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.plan.draft",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "The draft-plan prompt file stays explicit until plan-phase prompt composition can consume typed values directly."
+    },
+    {
+      "row_id": "plan_phase.provider.draft",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "provider_target",
+      "symbol_or_field": "providers.plan.draft",
+      "path_or_contract": "codex",
+      "plumbing_class": "generated_internal",
+      "boundary_authority_class": "generated_internal",
+      "track_owner": "shared",
+      "current_consumer": "provider_runtime",
+      "semantic_owner": "provider_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Provider extern routing is recorded so plan-phase provider-target selection is part of the checked family census."
+    },
+    {
       "row_id": "design_gap_architect.provider.architect_draft",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
       "source_kind": "provider_target",

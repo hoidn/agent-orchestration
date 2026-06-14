@@ -236,7 +236,7 @@ def test_wcc_m4_pure_projection_runtime_regions_emit_visible_projection_steps(tm
     assert all(step["output_bundle"]["fields"] for step in pure_projection_steps)
 
 
-def test_wcc_m4_constant_folds_literal_only_pure_expression_without_projection_step(tmp_path: Path) -> None:
+def test_wcc_m4_literal_only_record_return_uses_typed_pure_projection(tmp_path: Path) -> None:
     module_path = tmp_path / "literal_fold.orc"
     module_path.write_text(
         "\n".join(
@@ -246,8 +246,11 @@ def test_wcc_m4_constant_folds_literal_only_pure_expression_without_projection_s
                 '  (:target-dsl "2.14")',
                 "  (defmodule literal_fold)",
                 "  (export fold)",
-                "  (defworkflow fold () -> Int",
-                "    (+ 1 (+ 2 3)))",
+                "  (defrecord Output",
+                "    (value Int))",
+                "  (defworkflow fold () -> Output",
+                "    (record Output",
+                "      :value (+ 1 (+ 2 3))))",
                 ")",
             ]
         )
@@ -265,10 +268,25 @@ def test_wcc_m4_constant_folds_literal_only_pure_expression_without_projection_s
     )
 
     steps = list(_walk_steps(result.lowered_workflows[0].authored_mapping["steps"]))
+    pure_projection = next(step for step in steps if "pure_projection" in step)
 
-    assert not any("pure_projection" in step for step in steps)
-    materialize = next(step for step in steps if "materialize_artifacts" in step)
-    assert materialize["materialize_artifacts"]["values"][0]["source"]["literal"] == 6
+    assert len(steps) == 1
+    assert pure_projection["output_bundle"]["fields"][0]["name"] == "return__value"
+    assert pure_projection["pure_projection"]["payload"]["expr"]["fields"][0]["value"] == {
+        "kind": "op",
+        "operator": "+",
+        "args": [
+            {"kind": "literal", "type": {"kind": "primitive", "name": "Int"}, "value": 1},
+            {
+                "kind": "op",
+                "operator": "+",
+                "args": [
+                    {"kind": "literal", "type": {"kind": "primitive", "name": "Int"}, "value": 2},
+                    {"kind": "literal", "type": {"kind": "primitive", "name": "Int"}, "value": 3},
+                ],
+            },
+        ],
+    }
 
 
 def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:
@@ -569,7 +587,7 @@ def test_wcc_m4_defunctionalizes_loop_recur_to_repeat_until(tmp_path: Path) -> N
     assert any("repeat_until" in step for step in lowered["steps"])
 
 
-def test_wcc_m4_hoists_effectful_match_arm_steps_by_structure_not_workflow_name(tmp_path: Path) -> None:
+def test_wcc_m4_preserves_effectful_match_arm_steps_by_structure_not_workflow_name(tmp_path: Path) -> None:
     module_path = tmp_path / "generic_effectful_match_arm_route.orc"
     module_path.write_text(
         "\n".join(
@@ -655,13 +673,22 @@ def test_wcc_m4_hoists_effectful_match_arm_steps_by_structure_not_workflow_name(
         for step in steps[:match_index]
         if step.get("provider") == "fake" and step["name"].endswith("__followup")
     ]
+    match_step = steps[match_index]
+    branch_provider_steps = [
+        step
+        for case in match_step["match"]["cases"].values()
+        for step in case.get("steps", [])
+        if step.get("provider") == "fake" and step["name"].endswith("__followup")
+    ]
 
-    assert len(hoisted_provider_steps) == 2
-    assert {step["when"]["compare"]["right"] for step in hoisted_provider_steps} == {
-        "COMPLETED",
-        "BLOCKED",
+    assert hoisted_provider_steps == []
+    assert len(branch_provider_steps) == 2
+    assert {step["name"] for step in branch_provider_steps} == {
+        "run__match_attempt__completed__followup",
+        "run__match_attempt__blocked__followup",
     }
-    assert all("requires_variant" not in step for step in hoisted_provider_steps)
+    assert all("when" not in step for step in branch_provider_steps)
+    assert all("requires_variant" not in step for step in branch_provider_steps)
 
 
 def test_wcc_m4_loop_emitter_does_not_call_legacy_loop_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

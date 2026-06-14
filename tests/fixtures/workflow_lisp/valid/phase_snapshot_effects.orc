@@ -3,6 +3,7 @@
   (:target-dsl "2.14")
   (defmodule phase_snapshot_effects)
   (import std/phase :only (with-phase))
+  (export orchestrate)
   (defenum BlockerClass
     missing_resource
     unavailable_hardware

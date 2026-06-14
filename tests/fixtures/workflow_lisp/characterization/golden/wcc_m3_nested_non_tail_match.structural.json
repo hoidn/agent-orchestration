@@ -10,11 +10,9 @@
       "authored_mapping": {
         "inputs": {
           "__write_root__summarize__attempt__result_bundle": {
-            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__summarize__review__result_bundle": {
-            "kind": "relpath",
             "type": "relpath"
           },
           "report": {

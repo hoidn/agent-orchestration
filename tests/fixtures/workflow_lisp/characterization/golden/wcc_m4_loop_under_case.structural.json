@@ -38,11 +38,9 @@
       "authored_mapping": {
         "inputs": {
           "__write_root__run__attempt__result_bundle": {
-            "kind": "relpath",
             "type": "relpath"
           },
           "__write_root__run__match_attempt__result_bundle": {
-            "kind": "relpath",
             "type": "relpath"
           },
           "report_path": {
@@ -678,6 +676,18 @@
                         "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.reason"
                       },
                       "kind": "scalar",
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "shared",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "string"
                     },
                     "return__report": {
@@ -686,6 +696,18 @@
                       },
                       "kind": "relpath",
                       "must_exist_target": true,
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "shared",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     },
@@ -694,6 +716,18 @@
                         "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.status"
                       },
                       "kind": "scalar",
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "shared",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "string"
                     },
                     "return__variant": {
@@ -706,6 +740,18 @@
                         "ref": "self.steps.run__match_attempt__blocked__result_bundle.artifacts.variant"
                       },
                       "kind": "scalar",
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "discriminant",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "enum"
                     }
                   },
@@ -873,6 +919,18 @@
                         "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__reason"
                       },
                       "kind": "scalar",
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "shared",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "string"
                     },
                     "return__report": {
@@ -881,6 +939,18 @@
                       },
                       "kind": "relpath",
                       "must_exist_target": true,
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "shared",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "relpath",
                       "under": "artifacts/work"
                     },
@@ -889,6 +959,18 @@
                         "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__status"
                       },
                       "kind": "scalar",
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "shared",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "string"
                     },
                     "return__variant": {
@@ -901,6 +983,18 @@
                         "ref": "root.steps.run__match_attempt__completed__result.artifacts.return__variant"
                       },
                       "kind": "scalar",
+                      "projection": {
+                        "active_variants": [
+                          "COMPLETED",
+                          "BLOCKED",
+                          "EXHAUSTED"
+                        ],
+                        "discriminant_output": "return__variant",
+                        "field_role": "discriminant",
+                        "projection_class": "union_workflow_boundary",
+                        "return_kind": "union",
+                        "union_output_group": "return"
+                      },
                       "type": "enum"
                     }
                   },

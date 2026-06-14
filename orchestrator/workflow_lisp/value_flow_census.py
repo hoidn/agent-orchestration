@@ -196,6 +196,46 @@ EXPECTED_DESIGN_DELTA_PARENT_DRAIN_ROWS = (
         path_or_contract="workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
     ),
     ExpectedCompiledRow(
+        row_id="plan_phase.input.plan_target_path",
+        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        source_kind="public_input",
+        symbol_or_field="plan_target_path",
+        boundary_authority_class="public_authored",
+        evidence_lane="boundary",
+        evidence_ref="public_authored",
+        path_or_contract="PlanTargetPath",
+    ),
+    ExpectedCompiledRow(
+        row_id="plan_phase.output.approved_plan_path",
+        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        source_kind="public_output",
+        symbol_or_field="return__approved_plan_path",
+        boundary_authority_class="public_artifact",
+        evidence_lane="boundary",
+        evidence_ref="public_artifact",
+        path_or_contract="ApprovedPlanPath",
+    ),
+    ExpectedCompiledRow(
+        row_id="plan_phase.prompt.draft",
+        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        source_kind="prompt_input_file",
+        symbol_or_field="prompts.plan.draft",
+        boundary_authority_class="compatibility_bridge",
+        evidence_lane="prompt_manifest",
+        evidence_ref="prompts.plan.draft",
+        path_or_contract="workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+    ),
+    ExpectedCompiledRow(
+        row_id="plan_phase.provider.draft",
+        workflow_surface="lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        source_kind="provider_target",
+        symbol_or_field="providers.plan.draft",
+        boundary_authority_class="generated_internal",
+        evidence_lane="provider_manifest",
+        evidence_ref="providers.plan.draft",
+        path_or_contract="codex",
+    ),
+    ExpectedCompiledRow(
         row_id="design_gap_architect.provider.architect_draft",
         workflow_surface="lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
         source_kind="provider_target",
@@ -251,6 +291,7 @@ def load_value_flow_census(path: Path) -> dict[str, Any]:
     seen_row_ids: set[str] = set()
     normalized_rows: list[dict[str, Any]] = []
     covered_source_kinds: set[str] = set()
+    covered_workflow_surfaces: set[str] = set()
     for index, raw_row in enumerate(rows):
         if not isinstance(raw_row, Mapping):
             raise ValueError(f"rows[{index}] must be an object")
@@ -273,7 +314,11 @@ def load_value_flow_census(path: Path) -> dict[str, Any]:
                 "unknown boundary_authority_class "
                 f"`{boundary_authority_class}` for row `{row_id}`"
             )
-        _require_string(row, "workflow_surface")
+        workflow_surface = _require_string(row, "workflow_surface")
+        if workflow_surface not in workflow_surfaces:
+            raise ValueError(
+                f"row `{row_id}` references workflow_surface `{workflow_surface}` outside coverage.workflow_surfaces"
+            )
         _require_string(row, "symbol_or_field")
         _require_string(row, "path_or_contract")
         _require_string(row, "track_owner")
@@ -332,6 +377,7 @@ def load_value_flow_census(path: Path) -> dict[str, Any]:
                 f"row `{row_id}` leaves generated path-like plumbing unclassified"
             )
         covered_source_kinds.add(source_kind)
+        covered_workflow_surfaces.add(workflow_surface)
         normalized_rows.append(row)
     for required_kind in required_source_kinds:
         if required_kind in covered_source_kinds:
@@ -349,6 +395,12 @@ def load_value_flow_census(path: Path) -> dict[str, Any]:
         if not isinstance(absent_evidence, list) or not absent_evidence:
             raise ValueError(
                 f"coverage.absent_source_kinds.{required_kind} requires source_evidence"
+            )
+    for workflow_surface in workflow_surfaces:
+        if workflow_surface not in covered_workflow_surfaces:
+            raise ValueError(
+                "coverage.workflow_surfaces contains "
+                f"`{workflow_surface}` with no checked rows"
             )
     return {
         "schema_version": VALUE_FLOW_CENSUS_SCHEMA_VERSION,
@@ -385,6 +437,7 @@ def reconcile_value_flow_census(
         provider_externs=provider_externs,
         command_boundary_manifest=command_boundary_manifest,
     )
+    declared_workflow_surfaces = list(census["coverage"]["workflow_surfaces"])
     checked_rows = { _row_key(row): dict(row) for row in census["rows"] }
     compiled_rows_by_key = { _row_key(row): row for row in compiled_rows }
     missing_rows = [
@@ -420,12 +473,28 @@ def reconcile_value_flow_census(
                     "actual": checked_row["path_or_contract"],
                 }
             )
-    extra_compiled_rows: list[dict[str, Any]] = []
+    extra_compiled_rows = [
+        {
+            "row_id": f"workflow_surface::{workflow_surface}",
+            "workflow_surface": workflow_surface,
+            "reason": (
+                "compiled workflow surface has path-like evidence but is not declared "
+                "in coverage.workflow_surfaces"
+            ),
+        }
+        for workflow_surface in sorted(
+            _compiled_workflow_surfaces_with_path_like_evidence(
+                boundary_authority_report=boundary_authority_report,
+                source_map_payload=source_map_payload,
+            )
+            - set(declared_workflow_surfaces)
+        )
+    ]
     status = "pass"
     if missing_rows or stale_rows or invalid_rows or extra_compiled_rows:
         status = "fail"
     workflow_rows = []
-    for workflow_surface in census["coverage"]["workflow_surfaces"]:
+    for workflow_surface in declared_workflow_surfaces:
         rows = [
             {
                 "row_id": row["row_id"],
@@ -437,19 +506,19 @@ def reconcile_value_flow_census(
             for row in census["rows"]
             if row["workflow_surface"] == workflow_surface
         ]
-        if rows:
-            workflow_rows.append(
-                {
-                    "workflow_surface": workflow_surface,
-                    "rows": rows,
-                }
-            )
+        workflow_rows.append(
+            {
+                "workflow_surface": workflow_surface,
+                "rows": rows,
+            }
+        )
     return {
         "schema_version": VALUE_FLOW_CENSUS_REPORT_SCHEMA_VERSION,
         "workflow_family": "design_delta_parent_drain",
         "checked_census_path": str(checked_census_path),
         "checked_census_fingerprint": f"sha256:{checked_census_sha256}",
         "required_source_kinds": list(census["coverage"]["required_source_kinds"]),
+        "declared_workflow_surfaces": declared_workflow_surfaces,
         "workflow_rows": workflow_rows,
         "missing_rows": missing_rows,
         "stale_rows": stale_rows,
@@ -579,6 +648,41 @@ def _validate_command_boundary_metadata(
             raise ValueError(
                 f"row `{row_id}` requires command-boundary evidence `{field_name}`"
             )
+
+
+def _compiled_workflow_surfaces_with_path_like_evidence(
+    *,
+    boundary_authority_report: Mapping[str, Any],
+    source_map_payload: Mapping[str, Any],
+) -> set[str]:
+    workflow_surfaces: set[str] = set()
+    for workflow_row in boundary_authority_report.get("workflows", []):
+        if not isinstance(workflow_row, Mapping):
+            continue
+        workflow_surface = workflow_row.get("workflow_name")
+        if not isinstance(workflow_surface, str) or not workflow_surface:
+            continue
+        if any(
+            isinstance(workflow_row.get(bucket_name), list) and workflow_row.get(bucket_name)
+            for bucket_name in (
+                "public_authored",
+                "compatibility_bridge",
+                "runtime_derived",
+                "generated_internal",
+                "materialized_view",
+                "public_artifact",
+            )
+        ):
+            workflow_surfaces.add(workflow_surface)
+    source_map_workflows = source_map_payload.get("workflows")
+    if isinstance(source_map_workflows, Mapping):
+        for workflow_surface, workflow_payload in source_map_workflows.items():
+            if not isinstance(workflow_surface, str) or not isinstance(workflow_payload, Mapping):
+                continue
+            command_boundaries = workflow_payload.get("command_boundaries")
+            if isinstance(command_boundaries, list) and command_boundaries:
+                workflow_surfaces.add(workflow_surface)
+    return workflow_surfaces
 
 
 def _row_key(row: Mapping[str, Any]) -> tuple[str, str, str]:

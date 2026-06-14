@@ -12,28 +12,28 @@
           "design": {
             "kind": "relpath",
             "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/design.txt",
             "type": "relpath",
             "under": "docs/design"
           },
           "execution_report_target": {
             "kind": "relpath",
             "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/execution_report_target.txt",
             "type": "relpath",
             "under": "artifacts/work"
           },
           "plan": {
             "kind": "relpath",
             "must_exist_target": true,
-            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/plan.txt",
             "type": "relpath",
             "under": "docs/plans"
           },
           "progress_report_target": {
             "kind": "relpath",
             "must_exist_target": false,
-            "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+            "pointer": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/progress_report_target.txt",
             "type": "relpath",
             "under": "artifacts/work"
           }
@@ -70,7 +70,7 @@
             "under": "artifacts/work"
           }
         },
-        "name": "run-implementation-attempt",
+        "name": "neurips_implementation_attempt::run-implementation-attempt",
         "outputs": {
           "return__implementation_state": {
             "allowed": [
@@ -78,14 +78,14 @@
               "BLOCKED"
             ],
             "from": {
-              "ref": "root.steps.run-implementation-attempt__match_attempt.artifacts.return__implementation_state"
+              "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__match_attempt.artifacts.return__implementation_state"
             },
             "kind": "scalar",
             "type": "enum"
           },
           "return__implementation_state_bundle_path": {
             "from": {
-              "ref": "root.steps.run-implementation-attempt__match_attempt.artifacts.return__implementation_state_bundle_path"
+              "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__match_attempt.artifacts.return__implementation_state_bundle_path"
             },
             "kind": "relpath",
             "must_exist_target": false,
@@ -104,7 +104,7 @@
                   },
                   "name": "design",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt"
+                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/design.txt"
                   },
                   "source": {
                     "input": "inputs__design"
@@ -116,7 +116,7 @@
                   },
                   "name": "plan",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt"
+                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/plan.txt"
                   },
                   "source": {
                     "input": "inputs__plan"
@@ -131,7 +131,7 @@
                   },
                   "name": "execution_report_target",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt"
+                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/execution_report_target.txt"
                   },
                   "source": {
                     "ref": "inputs.phase-ctx__execution_report_target"
@@ -146,7 +146,7 @@
                   },
                   "name": "progress_report_target",
                   "pointer": {
-                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt"
+                    "path": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/progress_report_target.txt"
                   },
                   "source": {
                     "ref": "inputs.phase-ctx__progress_report_target"
@@ -198,9 +198,9 @@
                 "policy": "latest_successful"
               }
             ],
-            "id": "run_implementation_attempt__attempt",
+            "id": "neurips_implementation_attempt_run_implementation_attempt__attempt",
             "inject_output_contract": true,
-            "name": "run-implementation-attempt__attempt",
+            "name": "neurips_implementation_attempt::run-implementation-attempt__attempt",
             "prompt_consumes": [
               "design",
               "plan",
@@ -270,11 +270,11 @@
             }
           },
           {
-            "id": "run_implementation_attempt__match_attempt",
+            "id": "neurips_implementation_attempt_run_implementation_attempt__match_attempt",
             "match": {
               "cases": {
                 "BLOCKED": {
-                  "id": "run_implementation_attempt__match_attempt__blocked",
+                  "id": "neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked",
                   "outputs": {
                     "return__implementation_state": {
                       "allowed": [
@@ -282,7 +282,7 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                        "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.implementation_state"
                       },
                       "kind": "scalar",
                       "type": "enum"
@@ -302,21 +302,21 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.implementation_state"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.implementation_state"
                           }
                         }
                       },
-                      "id": "run_implementation_attempt__match_attempt__blocked__projection_anchor",
-                      "name": "run-implementation-attempt__match_attempt__blocked__projection_anchor"
+                      "id": "neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked__projection_anchor",
+                      "name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor"
                     }
                   ]
                 },
                 "COMPLETED": {
-                  "id": "run_implementation_attempt__match_attempt__completed",
+                  "id": "neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed",
                   "outputs": {
                     "return__implementation_state": {
                       "allowed": [
@@ -324,7 +324,7 @@
                         "BLOCKED"
                       ],
                       "from": {
-                        "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                        "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.implementation_state"
                       },
                       "kind": "scalar",
                       "type": "enum"
@@ -344,23 +344,23 @@
                       "assert": {
                         "compare": {
                           "left": {
-                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.implementation_state"
                           },
                           "op": "eq",
                           "right": {
-                            "ref": "root.steps.run-implementation-attempt__attempt.artifacts.implementation_state"
+                            "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.implementation_state"
                           }
                         }
                       },
-                      "id": "run_implementation_attempt__match_attempt__completed__projection_anchor",
-                      "name": "run-implementation-attempt__match_attempt__completed__projection_anchor"
+                      "id": "neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed__projection_anchor",
+                      "name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor"
                     }
                   ]
                 }
               },
-              "ref": "root.steps.run-implementation-attempt__attempt.artifacts.variant"
+              "ref": "root.steps.neurips_implementation_attempt::run-implementation-attempt__attempt.artifacts.variant"
             },
-            "name": "run-implementation-attempt__match_attempt"
+            "name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt"
           }
         ],
         "version": "2.14"
@@ -368,17 +368,17 @@
       "generated_input_names": [],
       "step_labels": [
         "MaterializeImplementationAttemptPromptInputs",
-        "run-implementation-attempt__attempt",
-        "run-implementation-attempt__match_attempt",
-        "run-implementation-attempt__match_attempt__blocked__projection_anchor",
-        "run-implementation-attempt__match_attempt__completed__projection_anchor"
+        "neurips_implementation_attempt::run-implementation-attempt__attempt",
+        "neurips_implementation_attempt::run-implementation-attempt__match_attempt",
+        "neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor",
+        "neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor"
       ],
-      "workflow_name": "run-implementation-attempt"
+      "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
     }
   ],
   "schema_version": "workflow_lisp.characterization.v1",
   "selected_workflow_name": null,
-  "source_digest": "fa0ed8d2d142121eb2c1dceb184137c5bd1383a4cebcb04314a71069df5b9a7f",
+  "source_digest": "4b4c6db3f698048294d72db5e662dc9845455466c57b64294ec8d49772ea3614",
   "validated_bundles": [
     {
       "artifact_keys": [
@@ -390,54 +390,54 @@
       "generated_input_names": [],
       "generated_paths": [
         {
-          "allocation_id": "alloc:run-implementation-attempt:provider_result_bundle:2e1ac4cf6a237919",
+          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:provider_result_bundle:90ba2c806e6a79e3",
           "concrete_path_template": "${inputs.phase-ctx__implementation_state_bundle_path}",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "private_generated",
           "resume_scope": "step_visit",
           "semantic_role": "provider_result_bundle",
-          "stable_identity": "run-implementation-attempt/run-implementation-attempt__attempt/result_bundle"
+          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/neurips_implementation_attempt::run-implementation-attempt__attempt/result_bundle"
         },
         {
-          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:9933c74bd6afd70b",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:cfb6c7e5e79a295c",
+          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/design.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-implementation-attempt/prompt_inputs/design"
+          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/design"
         },
         {
-          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:e9154c5d6fa07528",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:4bc09ff8ecf56e5b",
+          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/plan.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-implementation-attempt/prompt_inputs/plan"
+          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/plan"
         },
         {
-          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:5e3aa826aca95414",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:04c619237b5f12c8",
+          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/execution_report_target.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-implementation-attempt/prompt_inputs/execution_report_target"
+          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/execution_report_target"
         },
         {
-          "allocation_id": "alloc:run-implementation-attempt:materialized_value_view:f2d8c209e111dd83",
-          "concrete_path_template": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+          "allocation_id": "alloc:neurips_implementation_attempt_run-implementation-attempt:materialized_value_view:e7c59e1a58942ce0",
+          "concrete_path_template": ".orchestrate/workflow_lisp/neurips_implementation_attempt::run-implementation-attempt/materialized/progress_report_target.txt",
           "generated_input_name": null,
           "path_safety_policy": "workspace_relative",
           "privacy": "compatibility_view",
           "resume_scope": "none",
           "semantic_role": "materialized_value_view",
-          "stable_identity": "run-implementation-attempt/prompt_inputs/progress_report_target"
+          "stable_identity": "neurips_implementation_attempt::run-implementation-attempt/prompt_inputs/progress_report_target"
         }
       ],
       "input_keys": [
@@ -455,19 +455,19 @@
         "call_boundaries": {},
         "for_each_nodes": {},
         "match_cases": {
-          "root.run_implementation_attempt__match_attempt": {
+          "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt": {
             "BLOCKED": {
-              "marker_presentation_key": "run-implementation-attempt__match_attempt.BLOCKED",
-              "marker_step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked",
+              "marker_presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED",
+              "marker_step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked",
               "step_presentation_keys": [
-                "run-implementation-attempt__match_attempt.BLOCKED.run-implementation-attempt__match_attempt__blocked__projection_anchor"
+                "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor"
               ]
             },
             "COMPLETED": {
-              "marker_presentation_key": "run-implementation-attempt__match_attempt.COMPLETED",
-              "marker_step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed",
+              "marker_presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED",
+              "marker_step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed",
               "step_presentation_keys": [
-                "run-implementation-attempt__match_attempt.COMPLETED.run-implementation-attempt__match_attempt__completed__projection_anchor"
+                "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor"
               ]
             }
           }
@@ -513,108 +513,108 @@
                 "policy": "latest_successful"
               }
             ],
-            "display_name": "run-implementation-attempt__attempt",
+            "display_name": "neurips_implementation_attempt::run-implementation-attempt__attempt",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_implementation_attempt__attempt",
-            "presentation_key": "run-implementation-attempt__attempt",
+            "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt",
+            "presentation_key": "neurips_implementation_attempt::run-implementation-attempt__attempt",
             "provider": "fake",
             "region": "body",
             "report_kind": "provider",
-            "step_id": "root.run_implementation_attempt__attempt"
+            "step_id": "root.neurips_implementation_attempt_run_implementation_attempt__attempt"
           },
           {
             "command": null,
             "compatibility_index": 2,
             "consumes": [],
-            "display_name": "run-implementation-attempt__match_attempt.COMPLETED",
+            "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed",
-            "presentation_key": "run-implementation-attempt__match_attempt.COMPLETED",
+            "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed",
+            "presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed"
+            "step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed"
           },
           {
             "command": null,
             "compatibility_index": 3,
             "consumes": [],
-            "display_name": "run-implementation-attempt__match_attempt.COMPLETED.run-implementation-attempt__match_attempt__completed__projection_anchor",
+            "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed.run_implementation_attempt__match_attempt__completed__projection_anchor",
-            "presentation_key": "run-implementation-attempt__match_attempt.COMPLETED.run-implementation-attempt__match_attempt__completed__projection_anchor",
+            "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed__projection_anchor",
+            "presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.COMPLETED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__completed__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed.run_implementation_attempt__match_attempt__completed__projection_anchor"
+            "step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 4,
             "consumes": [],
-            "display_name": "run-implementation-attempt__match_attempt.BLOCKED",
+            "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked",
-            "presentation_key": "run-implementation-attempt__match_attempt.BLOCKED",
+            "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked",
+            "presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_case",
-            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked"
+            "step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked"
           },
           {
             "command": null,
             "compatibility_index": 5,
             "consumes": [],
-            "display_name": "run-implementation-attempt__match_attempt.BLOCKED.run-implementation-attempt__match_attempt__blocked__projection_anchor",
+            "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked.run_implementation_attempt__match_attempt__blocked__projection_anchor",
-            "presentation_key": "run-implementation-attempt__match_attempt.BLOCKED.run-implementation-attempt__match_attempt__blocked__projection_anchor",
+            "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked__projection_anchor",
+            "presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt.BLOCKED.neurips_implementation_attempt::run-implementation-attempt__match_attempt__blocked__projection_anchor",
             "provider": null,
             "region": "body",
             "report_kind": "assert",
-            "step_id": "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked.run_implementation_attempt__match_attempt__blocked__projection_anchor"
+            "step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked__projection_anchor"
           },
           {
             "command": null,
             "compatibility_index": 6,
             "consumes": [],
-            "display_name": "run-implementation-attempt__match_attempt",
+            "display_name": "neurips_implementation_attempt::run-implementation-attempt__match_attempt",
             "expected_outputs": [],
             "finalization_index": null,
             "max_visits": null,
-            "node_id": "root.run_implementation_attempt__match_attempt",
-            "presentation_key": "run-implementation-attempt__match_attempt",
+            "node_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt",
+            "presentation_key": "neurips_implementation_attempt::run-implementation-attempt__match_attempt",
             "provider": null,
             "region": "body",
             "report_kind": "structured_match_join",
-            "step_id": "root.run_implementation_attempt__match_attempt"
+            "step_id": "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt"
           }
         ],
         "ordered_node_ids": [
           "root.MaterializeImplementationAttemptPromptInputs",
-          "root.run_implementation_attempt__attempt",
-          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed",
-          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__completed.run_implementation_attempt__match_attempt__completed__projection_anchor",
-          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked",
-          "root.run_implementation_attempt__match_attempt.run_implementation_attempt__match_attempt__blocked.run_implementation_attempt__match_attempt__blocked__projection_anchor",
-          "root.run_implementation_attempt__match_attempt"
+          "root.neurips_implementation_attempt_run_implementation_attempt__attempt",
+          "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed",
+          "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed.neurips_implementation_attempt_run_implementation_attempt__match_attempt__completed__projection_anchor",
+          "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked",
+          "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked.neurips_implementation_attempt_run_implementation_attempt__match_attempt__blocked__projection_anchor",
+          "root.neurips_implementation_attempt_run_implementation_attempt__match_attempt"
         ],
         "repeat_until_nodes": {}
       },
-      "workflow_name": "run-implementation-attempt"
+      "workflow_name": "neurips_implementation_attempt::run-implementation-attempt"
     }
   ],
   "workflow_names": [
-    "run-implementation-attempt"
+    "neurips_implementation_attempt::run-implementation-attempt"
   ]
 }

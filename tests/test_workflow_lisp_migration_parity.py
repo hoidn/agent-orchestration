@@ -2485,6 +2485,7 @@ def _write_design_delta_g0_build_manifest(
     boundary_unclassified: list[str] | None = None,
     boundary_public_leaks: list[str] | None = None,
     value_flow_workflow_surfaces: list[str] | None = None,
+    value_flow_declared_workflow_surfaces: list[str] | None = None,
     value_flow_missing_rows: list[dict[str, object]] | None = None,
     value_flow_stale_rows: list[dict[str, object]] | None = None,
     value_flow_invalid_rows: list[dict[str, object]] | None = None,
@@ -2492,6 +2493,9 @@ def _write_design_delta_g0_build_manifest(
 ) -> Path:
     build_root = tmp_path / "build"
     build_root.mkdir(parents=True, exist_ok=True)
+    reported_value_flow_workflow_surfaces = value_flow_workflow_surfaces or [
+        "lisp_frontend_design_delta/drain::drain"
+    ]
     _write_json(
         build_root / "core_workflow_ast.json",
         {
@@ -2610,6 +2614,10 @@ def _write_design_delta_g0_build_manifest(
                     "pointer_path",
                     "generated_path",
                 ],
+                "declared_workflow_surfaces": (
+                    value_flow_declared_workflow_surfaces
+                    or reported_value_flow_workflow_surfaces
+                ),
                 "workflow_rows": [
                     {
                         "workflow_surface": workflow_surface,
@@ -2620,10 +2628,7 @@ def _write_design_delta_g0_build_manifest(
                             }
                         ],
                     }
-                    for workflow_surface in (
-                        value_flow_workflow_surfaces
-                        or ["lisp_frontend_design_delta/drain::drain"]
-                    )
+                    for workflow_surface in reported_value_flow_workflow_surfaces
                 ],
                 "missing_rows": value_flow_missing_rows or [],
                 "stale_rows": value_flow_stale_rows or [],
@@ -3039,6 +3044,36 @@ def test_run_parity_target_fails_when_value_flow_census_report_omits_selected_wo
 
     assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "fail"
     assert "selected workflow surface" in report["compile_artifacts"]["required"]["value_flow_census_report"]["reason"]
+
+
+def test_run_parity_target_fails_when_value_flow_census_report_omits_non_entry_declared_surface(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        value_flow_declared_workflow_surfaces=[
+            "lisp_frontend_design_delta/drain::drain",
+            "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+            "lisp_frontend_design_delta/work_item::run-work-item",
+        ],
+        value_flow_workflow_surfaces=[
+            "lisp_frontend_design_delta/drain::drain",
+            "lisp_frontend_design_delta/work_item::run-work-item",
+        ],
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "fail"
+    assert "declared workflow surface" in report["compile_artifacts"]["required"]["value_flow_census_report"]["reason"]
 
 
 def test_run_parity_target_fails_when_value_flow_census_report_has_missing_or_stale_or_invalid_rows(

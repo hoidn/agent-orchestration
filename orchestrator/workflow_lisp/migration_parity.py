@@ -2554,6 +2554,17 @@ def _value_flow_census_artifact_status(
         }
         if target.entry_workflow not in workflow_surfaces:
             reasons.append("selected workflow surface is missing")
+        declared_workflow_surfaces = payload.get("declared_workflow_surfaces")
+        if not isinstance(declared_workflow_surfaces, list) or not all(
+            isinstance(item, str) and item for item in declared_workflow_surfaces
+        ):
+            reasons.append("declared_workflow_surfaces missing")
+        else:
+            for workflow_surface in declared_workflow_surfaces:
+                if workflow_surface not in workflow_surfaces:
+                    reasons.append(
+                        f"declared workflow surface is missing: {workflow_surface}"
+                    )
     for bucket_name in (
         "missing_rows",
         "stale_rows",

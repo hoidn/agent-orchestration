@@ -109,11 +109,8 @@
     },
     "wcc_m4_implementation_phase_full_fixture::run__match_attempt": {
       "artifacts": {
-        "return__blocker_class": "missing_resource",
         "return__findings__items_path": "artifacts/work/review_round_2_findings.json",
         "return__findings__schema_version": "ReviewFindings.v1",
-        "return__last_review_report": "artifacts/review/loop-placeholder.txt",
-        "return__reason": "",
         "return__review_report": "artifacts/review/review_round_2.md",
         "return__variant": "APPROVED"
       },
@@ -140,7 +137,7 @@
       "error": null,
       "status": "completed"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__loop": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__loop": {
       "artifacts": {
         "result__blocker_class": "missing_resource",
         "result__findings__items_path": "artifacts/work/review_round_2_findings.json",
@@ -161,7 +158,7 @@
       "error": null,
       "status": "completed"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result": {
       "artifacts": {
         "return__blocker_class": "missing_resource",
         "return__findings__items_path": "artifacts/work/review_round_2_findings.json",
@@ -174,37 +171,37 @@
       "error": null,
       "status": "completed"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.APPROVED": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result.APPROVED": {
       "artifacts": {},
       "error": null,
       "status": "completed"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.APPROVED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result__approved__projection_anchor": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result.APPROVED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result__approved__projection_anchor": {
       "artifacts": {},
       "error": null,
       "status": "completed"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.BLOCKED": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result.BLOCKED": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.BLOCKED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result__blocked__projection_anchor": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result.BLOCKED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result__blocked__projection_anchor": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.EXHAUSTED": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result.EXHAUSTED": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result.EXHAUSTED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__result__exhausted__projection_anchor": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result.EXHAUSTED.wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__result__exhausted__projection_anchor": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.82972466fe09.4bfd64c07dbb_1__seed": {
+    "wcc_m4_implementation_phase_full_fixture::run__match_attempt__completed__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.1d8d7b9ce033.d11b599fc528_1__seed": {
       "artifacts": {
         "state__completed__checks_report_path": "artifacts/work/checks_report.md",
         "state__completed__execution_report_path": "artifacts/work/completed_execution_report.md",

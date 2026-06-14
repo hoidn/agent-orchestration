@@ -51,8 +51,8 @@
           "phase-ctx__artifact-root": "artifacts",
           "inputs__design": "docs/design/workflow_lisp_frontend_specification.md",
           "inputs__plan": "docs/plans/implementation_plan.md",
-          "__phase_prompt__run-provider-phase-demo__attempt__execution_report_target": "artifacts/work/execution_report.md",
-          "__phase_prompt__run-provider-phase-demo__attempt__progress_report_target": "artifacts/work/progress_report.md"
+          "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__execution_report_target": "artifacts/work/execution_report.md",
+          "__phase_prompt__phase_stdlib_run_provider_phase::run-provider-phase-demo__attempt__progress_report_target": "artifacts/work/progress_report.md"
         },
         "workspace_seed_files": [
           {
@@ -212,7 +212,7 @@
       },
       "dual_compile_routes": [
         "legacy",
-        "wcc_m3"
+        "wcc_m4"
       ],
       "tags": [
         "match"

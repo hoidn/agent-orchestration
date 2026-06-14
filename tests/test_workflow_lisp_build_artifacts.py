@@ -1604,6 +1604,7 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
         adapter_census_payload=None,
         boundary_authority_report_payload=None,
         g8_deletion_evidence_payload=None,
+        value_flow_census_report_payload=None,
     )
     payload = json.loads(artifact_paths["diagnostics"].read_text(encoding="utf-8"))
 
@@ -2030,8 +2031,8 @@ def test_build_artifacts_preserve_statement_taxonomy_facet_lineage(tmp_path: Pat
     snapshot_module_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_module_path.write_text(
         snapshot_source.replace(
-            '  (defmodule phase_snapshot_effects)\n  (import std/phase :only (with-phase))\n',
-            '  (defmodule phase/snapshot)\n  (import std/phase :only (with-phase))\n  (export orchestrate)\n',
+            '  (defmodule phase_snapshot_effects)\n',
+            '  (defmodule phase/snapshot)\n',
             1,
         ),
         encoding="utf-8",
@@ -4404,6 +4405,25 @@ def test_design_delta_parent_drain_value_flow_census_report_covers_required_sour
         for row in workflow_row["rows"]
     }
     assert set(payload["required_source_kinds"]).issubset(covered_kinds)
+
+
+def test_design_delta_parent_drain_value_flow_census_report_covers_declared_workflow_surfaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["value_flow_census_report"].read_text(encoding="utf-8")
+    )
+    reported_surfaces = {
+        row["workflow_surface"] for row in payload["workflow_rows"]
+    }
+    assert set(payload["declared_workflow_surfaces"]) == reported_surfaces
 
 
 def test_design_delta_parent_drain_value_flow_census_rejects_missing_checked_row(

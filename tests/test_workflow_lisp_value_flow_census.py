@@ -124,6 +124,20 @@ def test_load_value_flow_census_rejects_unknown_boundary_authority_class(
         module.load_value_flow_census(path)
 
 
+def test_load_value_flow_census_rejects_declared_workflow_surface_without_rows(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    payload = _valid_payload()
+    payload["coverage"]["workflow_surfaces"].append(
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    )
+    path = _write_json(tmp_path / "missing-surface-rows.json", payload)
+
+    with pytest.raises(ValueError, match="workflow_surfaces.*no checked rows"):
+        module.load_value_flow_census(path)
+
+
 def test_load_value_flow_census_rejects_pointer_path_classified_as_semantic_authority(
     tmp_path: Path,
 ) -> None:
@@ -183,23 +197,27 @@ def test_load_value_flow_census_rejects_command_boundary_rows_without_command_ev
     tmp_path: Path,
 ) -> None:
     module = _module()
+    payload = _valid_payload(
+        rows=[
+            _valid_row(
+                row_id="work-item.adapter.review_findings",
+                workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                source_kind="command_adapter_input",
+                symbol_or_field="review_findings_target_path",
+                path_or_contract="ReviewFindingsPath",
+                plumbing_class="genuine_external_io",
+                boundary_authority_class="compatibility_bridge",
+                current_consumer="validate_review_findings_v1",
+                command_boundary=None,
+            )
+        ],
+    )
+    payload["coverage"]["workflow_surfaces"] = [
+        "lisp_frontend_design_delta/work_item::run-work-item"
+    ]
     path = _write_json(
         tmp_path / "command-without-boundary.json",
-        _valid_payload(
-            rows=[
-                _valid_row(
-                    row_id="work-item.adapter.review_findings",
-                    workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
-                    source_kind="command_adapter_input",
-                    symbol_or_field="review_findings_target_path",
-                    path_or_contract="ReviewFindingsPath",
-                    plumbing_class="genuine_external_io",
-                    boundary_authority_class="compatibility_bridge",
-                    current_consumer="validate_review_findings_v1",
-                    command_boundary=None,
-                )
-            ],
-        ),
+        payload,
     )
 
     with pytest.raises(ValueError, match="command-boundary evidence"):

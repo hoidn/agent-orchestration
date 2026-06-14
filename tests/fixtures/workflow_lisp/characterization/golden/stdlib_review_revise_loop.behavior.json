@@ -91,7 +91,7 @@
   "snapshot_candidate_keys": [],
   "status": "completed",
   "steps": {
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__loop": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__loop": {
       "artifacts": {
         "result__blocker_class": "missing_resource",
         "result__findings__items_path": "artifacts/work/review_round_2_findings.json",
@@ -111,7 +111,7 @@
       "error": null,
       "status": "completed"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result": {
       "artifacts": {
         "return__blocker_class": "missing_resource",
         "return__findings__items_path": "artifacts/work/review_round_2_findings.json",
@@ -124,37 +124,37 @@
       "error": null,
       "status": "completed"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result.APPROVED": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result.APPROVED": {
       "artifacts": {},
       "error": null,
       "status": "completed"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result.APPROVED.phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result__approved__projection_anchor": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result.APPROVED.phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result__approved__projection_anchor": {
       "artifacts": {},
       "error": null,
       "status": "completed"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result.BLOCKED": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result.BLOCKED": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result.BLOCKED.phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result__blocked__projection_anchor": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result.BLOCKED.phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result__blocked__projection_anchor": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result.EXHAUSTED": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result.EXHAUSTED": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result.EXHAUSTED.phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__result__exhausted__projection_anchor": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result.EXHAUSTED.phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__result__exhausted__projection_anchor": {
       "artifacts": {},
       "error": null,
       "status": "skipped"
     },
-    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.650291278706.0cda0d564f67_1__seed": {
+    "phase_stdlib_review_loop::review-revise-loop-demo__%proc-ref-call.%parametric_call.std.phase.review_revise_loop_proc.d60f4ca6bbbe.63ad0e2b67db_1__seed": {
       "artifacts": {
         "state__completed__execution_report_path": "artifacts/work/completed_execution_report.md",
         "state__inputs__design_review_prompt": "artifacts/work/design-review-prompt.md",
