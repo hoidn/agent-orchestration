@@ -9,6 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
+    AUDIT_STALE,
+    COMMITTED_RESULT_REUSED,
+    IDEMPOTENCY_MISMATCH,
+    NOT_TRANSITION_AWARE,
+    RESOURCE_CONFLICT,
+    evaluate_transition_resume,
+    validate_resource_observation,
+)
+
 
 RESTORE_PAYLOAD_SCHEMA_VERSION = "workflow_lisp_lexical_restore_payload.v1"
 RESTORE_DECISION_RESTORED = "RESTORED"
@@ -48,6 +58,7 @@ class RestoreDecision:
     restore_payload: Mapping[str, Any] | None = None
     policy_decision: str | None = None
     diagnostics: tuple[str, ...] = ()
+    transition_resume: Mapping[str, Any] | None = None
 
     @property
     def restored_bindings(self) -> int:
@@ -590,8 +601,14 @@ def validate_restore_payload(
     resource_observations = payload.get("resource_observations")
     if not isinstance(resource_observations, list):
         raise ValueError(DIAGNOSTIC_CODES.payload_schema_invalid)
-    if resource_observations:
-        raise ValueError(DIAGNOSTIC_CODES.resource_observation_mismatch)
+    for observation in resource_observations:
+        observation_map = _mapping(observation)
+        try:
+            validate_resource_observation(observation_map)
+        except ValueError as exc:
+            raise ValueError(DIAGNOSTIC_CODES.resource_observation_mismatch) from exc
+        if expected_origin_key is not None and observation_map.get("source_map_origin_key") != expected_origin_key:
+            raise ValueError(DIAGNOSTIC_CODES.resource_observation_mismatch)
 
 
 def _workflow_path_from_state(state_manager: Any, state: Mapping[str, Any]) -> Path | None:
@@ -600,6 +617,41 @@ def _workflow_path_from_state(state_manager: Any, state: Mapping[str, Any]) -> P
         return None
     candidate = (state_manager.workspace / workflow_file).resolve()
     return candidate if candidate.exists() else None
+
+
+def _resolve_authoritative_transition_resource(
+    *,
+    loaded_workflow: Any | None,
+    state_manager: Any,
+    state: Mapping[str, Any],
+    point: Any,
+) -> Mapping[str, Any] | None:
+    if loaded_workflow is None:
+        return None
+    try:
+        from orchestrator.workflow.executor import WorkflowExecutor
+        from orchestrator.workflow_lisp import lexical_checkpoints as checkpoints
+
+        executor = WorkflowExecutor(loaded_workflow, state_manager.workspace, state_manager)
+        point_payload = checkpoints._point_payload(point)
+        runtime_step = executor._runtime_step_for_node_id(
+            getattr(point, "node_id"),
+            presentation_name=point_payload.get("presentation_key"),
+            step_id=getattr(point, "step_id", None),
+        )
+        config = _mapping(runtime_step.get("resource_transition"))
+        resolved_resource, resource_error = executor._resolve_resource_transition_bindings(
+            config.get("resource"),
+            dict(state),
+        )
+        if resource_error is not None or not isinstance(resolved_resource, Mapping):
+            return None
+        normalized_resource = executor._normalize_resource_transition_paths(dict(resolved_resource))
+        if normalized_resource.pop("_path_error", None) is not None:
+            return None
+        return normalized_resource
+    except Exception:
+        return None
 
 
 def _loop_frame_matches_repeat_until_progress(
@@ -917,6 +969,7 @@ def select_restore_candidate(
     checkpoint_id: str | None = None,
     restart_node_id: str | None = None,
     executable_workflow: Any | None = None,
+    loaded_workflow: Any | None = None,
 ) -> RestoreDecision:
     from orchestrator.workflow_lisp import lexical_checkpoints as checkpoints
 
@@ -927,24 +980,24 @@ def select_restore_candidate(
     )
     all_points = tuple(getattr(runtime_plan, "lexical_checkpoint_points", ()))
 
-    def _r3_policy_decision(record: Mapping[str, Any], point: Any) -> tuple[str | None, tuple[str, ...]]:
+    def _r3_policy_decision(record: Mapping[str, Any], point: Any) -> tuple[str | None, tuple[str, ...], Mapping[str, Any] | None]:
         point_payload = checkpoints._point_payload(point)
         effect_boundary = _mapping(point_payload.get("effect_boundary"))
         policy = _mapping(effect_boundary.get("policy"))
         if not policy:
-            return None, ()
+            return None, (), None
         step_name = point_payload.get("presentation_key")
         step_state = _mapping(_mapping(state.get("steps")).get(step_name))
         step_completed = step_state.get("status") == "completed"
         policy_summary = checkpoints.describe_checkpoint_record_policy(record, expected_point=point_payload)
         if policy_summary.get("record_policy_status") == "historical_shadow_only":
-            return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,)
+            return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
         if policy_summary.get("diagnostic") is not None:
-            return "INVALID", (str(policy_summary["diagnostic"]),)
+            return "INVALID", (str(policy_summary["diagnostic"]),), None
         try:
             checkpoints._validate_completed_effect_refs(record, expected_point=point_payload)
         except ValueError as exc:
-            return "INVALID", (str(exc),)
+            return "INVALID", (str(exc),), None
         completed_effect_refs = record.get("completed_effect_refs")
         has_completed_effect_refs = isinstance(completed_effect_refs, list) and bool(completed_effect_refs)
         policy_kind = policy.get("policy_kind")
@@ -956,22 +1009,65 @@ def select_restore_candidate(
             if not has_completed_effect_refs:
                 unsafe_pending_behavior = policy.get("unsafe_pending_behavior")
                 if unsafe_pending_behavior == "audit_barrier":
-                    return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,)
-                return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,)
-            return "REUSABLE", ()
+                    return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
+                return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
+            return "REUSABLE", (), None
         if policy_kind == "preserve_durable_view":
             if has_completed_effect_refs:
-                return "REUSABLE", ()
+                return "REUSABLE", (), None
             if step_completed:
-                return "INVALID", (checkpoints._policy_ref_invalid_diagnostic(point_payload),)
-            return "REGENERATE", ()
+                return "INVALID", (checkpoints._policy_ref_invalid_diagnostic(point_payload),), None
+            return "REGENERATE", (), None
         if policy_kind in {"recompute_or_reuse_checkpoint", "regenerate_deterministic_view"}:
-            return "REGENERATE", ()
+            return "REGENERATE", (), None
         if policy_kind == "transition_idempotent_audit_required":
-            return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,)
+            if not has_completed_effect_refs:
+                return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
+            effect_ref = _mapping(completed_effect_refs[0])
+            authoritative_resource = _resolve_authoritative_transition_resource(
+                loaded_workflow=loaded_workflow,
+                state_manager=state_manager,
+                state=state,
+                point=point,
+            )
+            if authoritative_resource is None:
+                return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
+            observations = tuple(
+                _mapping(observation)
+                for observation in _sequence(_mapping(record.get("restore_payload")).get("resource_observations"))
+            )
+            evaluation = evaluate_transition_resume(
+                effect_ref,
+                workspace=state_manager.workspace,
+                authoritative_resource=authoritative_resource,
+                resource_observations=observations,
+            )
+            if evaluation.decision == COMMITTED_RESULT_REUSED:
+                return (
+                    "REUSABLE",
+                    (),
+                    {
+                        "decision": evaluation.decision,
+                        "transition_identity": evaluation.transition_identity,
+                        "resource_id": evaluation.resource_id,
+                        "resource_version": evaluation.resource_version,
+                        "audit_row_index": evaluation.audit_row_index,
+                        "audit_row_digest": evaluation.audit_row_digest,
+                        "result": dict(evaluation.result or {}),
+                        "version": evaluation.version,
+                        "step_id": point_payload.get("step_id"),
+                        "node_id": point_payload.get("node_id"),
+                        "presentation_key": point_payload.get("presentation_key"),
+                    },
+                )
+            if evaluation.decision == NOT_TRANSITION_AWARE:
+                return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
+            if evaluation.decision in {RESOURCE_CONFLICT, AUDIT_STALE, IDEMPOTENCY_MISMATCH}:
+                return "INVALID", evaluation.diagnostics, None
+            return "INVALID", (DIAGNOSTIC_CODES.effect_policy_barrier,), None
         if policy_kind == "fail_closed_non_idempotent":
-            return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,)
-        return "INVALID", (DIAGNOSTIC_CODES.pending_effect_unsafe,)
+            return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
+        return "INVALID", (DIAGNOSTIC_CODES.pending_effect_unsafe,), None
 
     def _select_for_points(points: Sequence[Any], *, selected_checkpoint_id: str | None = None) -> RestoreDecision:
         if not points:
@@ -1045,7 +1141,7 @@ def select_restore_candidate(
                         source_map_origin_key=origin_key,
                         diagnostics=(DIAGNOSTIC_CODES.binding_schema_mismatch,),
                     )
-                policy_decision, policy_diagnostics = _r3_policy_decision(record, point)
+                policy_decision, policy_diagnostics, transition_resume = _r3_policy_decision(record, point)
                 if policy_decision == "INVALID":
                     return RestoreDecision(
                         kind=RESTORE_DECISION_INVALID,
@@ -1054,6 +1150,7 @@ def select_restore_candidate(
                         source_map_origin_key=origin_key,
                         policy_decision=policy_decision,
                         diagnostics=policy_diagnostics,
+                        transition_resume=transition_resume,
                     )
                 if policy_decision == "BARRIER":
                     saw_non_restorable = True
@@ -1093,11 +1190,25 @@ def select_restore_candidate(
                     )
                 restore_payload = record.get("restore_payload")
                 if restore_payload is None:
+                    if isinstance(transition_resume, Mapping):
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_RESTORED,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=record_id,
+                            source_map_origin_key=origin_key,
+                            restore_payload={"transition_resume": dict(transition_resume)},
+                            policy_decision=policy_decision,
+                            diagnostics=(),
+                            transition_resume=transition_resume,
+                        )
                     saw_non_restorable = True
                     continue
+                restore_payload_value = dict(_mapping(restore_payload))
+                if isinstance(transition_resume, Mapping):
+                    restore_payload_value["transition_resume"] = dict(transition_resume)
                 try:
                     validate_restore_payload(
-                        _mapping(restore_payload),
+                        restore_payload_value,
                         expected_origin_key=point.origin_key,
                         state_manager=state_manager,
                     )
@@ -1109,9 +1220,10 @@ def select_restore_candidate(
                         source_map_origin_key=origin_key,
                         policy_decision=policy_decision,
                         diagnostics=(str(exc),),
+                        transition_resume=transition_resume,
                     )
                 restore_metadata = _mapping(getattr(point, "details", {}).get("restore"))
-                bindings = _sequence(_mapping(restore_payload).get("bindings"))
+                bindings = _sequence(restore_payload_value.get("bindings"))
                 binding_diagnostic = next(
                     (
                         diagnostic
@@ -1135,7 +1247,7 @@ def select_restore_candidate(
                         policy_decision=policy_decision,
                         diagnostics=(binding_diagnostic,),
                     )
-                proofs = _sequence(_mapping(restore_payload).get("active_variant_proofs"))
+                proofs = _sequence(restore_payload_value.get("active_variant_proofs"))
                 proof_diagnostic = next(
                     (
                         diagnostic
@@ -1192,7 +1304,7 @@ def select_restore_candidate(
                             policy_decision=policy_decision,
                             diagnostics=(DIAGNOSTIC_CODES.proof_mismatch,),
                         )
-                loop_frame = _mapping(_mapping(restore_payload).get("loop_frame"))
+                loop_frame = _mapping(restore_payload_value.get("loop_frame"))
                 if loop_frame and not _loop_frame_matches_repeat_until_progress(loop_frame, state):
                     return RestoreDecision(
                         kind=RESTORE_DECISION_INVALID,
@@ -1207,9 +1319,10 @@ def select_restore_candidate(
                     checkpoint_id=point.checkpoint_id,
                     record_id=record_id,
                     source_map_origin_key=origin_key,
-                    restore_payload=_mapping(restore_payload),
+                    restore_payload=restore_payload_value,
                     policy_decision=policy_decision,
                     diagnostics=(),
+                    transition_resume=transition_resume,
                 )
 
         if invalid_diagnostics:
@@ -1240,12 +1353,46 @@ def select_restore_candidate(
         return primary
 
     primary_payload = dict(_mapping(primary.restore_payload))
+    transition_points = tuple(
+        point
+        for point in all_points
+        if getattr(point, "point_kind", None) == "effect_boundary"
+        and _mapping(_mapping(getattr(point, "details", {})).get("effect_boundary")).get("effect_kind") == "resource_transition"
+    )
+    transition_companion = _select_for_points(transition_points)
+    if transition_companion.kind == RESTORE_DECISION_INVALID:
+        return transition_companion
+    transition_payload = _mapping(transition_companion.restore_payload)
+    if (
+        transition_companion.kind == RESTORE_DECISION_RESTORED
+        and isinstance(transition_payload.get("transition_resume"), Mapping)
+        and "transition_resume" not in primary_payload
+    ):
+        primary_payload["transition_resume"] = dict(_mapping(transition_payload.get("transition_resume")))
     if isinstance(primary_payload.get("loop_frame"), Mapping):
-        return primary
+        return RestoreDecision(
+            kind=RESTORE_DECISION_RESTORED,
+            checkpoint_id=primary.checkpoint_id,
+            record_id=primary.record_id,
+            source_map_origin_key=primary.source_map_origin_key,
+            restore_payload=primary_payload,
+            policy_decision=primary.policy_decision,
+            diagnostics=(),
+            transition_resume=_mapping(primary_payload.get("transition_resume")) or primary.transition_resume,
+        )
 
     repeat_until = state.get("repeat_until")
     if not isinstance(repeat_until, Mapping) or not repeat_until:
-        return primary
+        return RestoreDecision(
+            kind=RESTORE_DECISION_RESTORED,
+            checkpoint_id=primary.checkpoint_id,
+            record_id=primary.record_id,
+            source_map_origin_key=primary.source_map_origin_key,
+            restore_payload=primary_payload,
+            policy_decision=primary.policy_decision,
+            diagnostics=(),
+            transition_resume=_mapping(primary_payload.get("transition_resume")) or primary.transition_resume,
+        )
 
     loop_points = tuple(
         point
@@ -1258,7 +1405,16 @@ def select_restore_candidate(
         return companion
     companion_payload = _mapping(companion.restore_payload)
     if companion.kind != RESTORE_DECISION_RESTORED or not isinstance(companion_payload.get("loop_frame"), Mapping):
-        return primary
+        return RestoreDecision(
+            kind=RESTORE_DECISION_RESTORED,
+            checkpoint_id=primary.checkpoint_id,
+            record_id=primary.record_id,
+            source_map_origin_key=primary.source_map_origin_key,
+            restore_payload=primary_payload,
+            policy_decision=primary.policy_decision,
+            diagnostics=(),
+            transition_resume=_mapping(primary_payload.get("transition_resume")) or primary.transition_resume,
+        )
 
     merged_payload = dict(primary_payload)
     merged_payload["eligibility"] = list(
@@ -1276,4 +1432,5 @@ def select_restore_candidate(
         restore_payload=merged_payload,
         policy_decision=primary.policy_decision,
         diagnostics=(),
+        transition_resume=_mapping(merged_payload.get("transition_resume")) or primary.transition_resume,
     )

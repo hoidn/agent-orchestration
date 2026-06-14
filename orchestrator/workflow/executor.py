@@ -1378,6 +1378,11 @@ class WorkflowExecutor:
         presentation_key = self.projection.presentation_key_by_node_id.get(node_id)
         if not isinstance(presentation_key, str) or not presentation_key:
             return None
+        step_results = self._lexical_restore_overlay.get("step_results")
+        if isinstance(step_results, Mapping):
+            explicit_result = step_results.get(node_id) or step_results.get(presentation_key)
+            if isinstance(explicit_result, dict):
+                return explicit_result
 
         loop_artifacts: Dict[str, Any] = {}
         for member in ("return__count", "return__label"):
@@ -1755,6 +1760,7 @@ class WorkflowExecutor:
             runtime_plan=self.runtime_plan,
             state_manager=self.state_manager,
             executable_workflow=self.executable_ir,
+            loaded_workflow=self.loaded_bundle,
             projection=self.projection,
         )
 
@@ -1784,6 +1790,22 @@ class WorkflowExecutor:
             "restored_loop_frames": int(getattr(decision, "restored_loop_frames", 0) or 0),
             "diagnostics": list(getattr(decision, "diagnostics", ()) or ()),
         }
+        transition_resume = getattr(decision, "transition_resume", None)
+        if not isinstance(transition_resume, Mapping):
+            restore_payload = getattr(decision, "restore_payload", None)
+            if isinstance(restore_payload, Mapping):
+                transition_resume = restore_payload.get("transition_resume")
+        if isinstance(transition_resume, Mapping):
+            payload.update(
+                {
+                    "transition_identity": transition_resume.get("transition_identity"),
+                    "resource_id": transition_resume.get("resource_id"),
+                    "resource_version": transition_resume.get("resource_version"),
+                    "audit_row_index": transition_resume.get("audit_row_index"),
+                    "audit_row_digest": transition_resume.get("audit_row_digest"),
+                    "transition_decision": transition_resume.get("decision"),
+                }
+            )
         self.state_manager.write_runtime_sidecar_json(report_path, payload)
 
     def _activate_resume_restore_overlay(self, decision: Any) -> None:
@@ -1821,10 +1843,43 @@ class WorkflowExecutor:
             for proof in payload.get("active_variant_proofs", ())
             if isinstance(proof, Mapping)
         )
+        step_results: Dict[str, Dict[str, Any]] = {}
+        transition_resume = payload.get("transition_resume")
+        if isinstance(transition_resume, Mapping):
+            node_id = transition_resume.get("node_id")
+            presentation_key = transition_resume.get("presentation_key")
+            result = transition_resume.get("result")
+            version = transition_resume.get("version")
+            if isinstance(node_id, str) and node_id and isinstance(result, Mapping):
+                runtime_step = self._runtime_step_for_node_id(node_id)
+                transition_artifacts = self._resource_transition_artifacts(
+                    runtime_step,
+                    transition_result={
+                        "result": dict(result),
+                        "version": version,
+                        "replayed": True,
+                    },
+                )
+                synthetic_result = {
+                    "status": "completed",
+                    "artifacts": transition_artifacts,
+                    "debug": {
+                        "resource_transition": {
+                            "resource_id": transition_resume.get("resource_id"),
+                            "version": transition_resume.get("resource_version") or version,
+                            "replayed": True,
+                            "restore_overlay": True,
+                        }
+                    },
+                }
+                step_results[node_id] = synthetic_result
+                if isinstance(presentation_key, str) and presentation_key:
+                    step_results[presentation_key] = synthetic_result
         self._lexical_restore_overlay = {
             "bindings": bindings,
             "loop_frames": loop_frames,
             "proofs": proofs,
+            "step_results": step_results,
         }
 
     def _restore_overlay_match_case_for_presentation(
@@ -1954,6 +2009,12 @@ class WorkflowExecutor:
                 return _RESTORE_REF_MISSING
             step_name = target.step_name
             member = target.member
+        step_results = self._lexical_restore_overlay.get("step_results")
+        if isinstance(step_results, Mapping):
+            explicit_result = step_results.get(step_name)
+            artifacts = explicit_result.get("artifacts") if isinstance(explicit_result, Mapping) else None
+            if isinstance(artifacts, Mapping) and member in artifacts:
+                return artifacts[member]
         value = self._restore_overlay_binding_value(
             step_name,
             member,

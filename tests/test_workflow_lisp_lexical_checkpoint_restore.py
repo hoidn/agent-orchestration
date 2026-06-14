@@ -41,8 +41,69 @@ PLAIN_PURE_BINDING_FIXTURE_SOURCE = """(workflow-lisp
                :renderer-version 1
                :target summary_target
                :returns MaterializedSummaryPath)))
-      (record Output
+       (record Output
         :summary_path summary_path))))\n"""
+TRANSITION_RESUME_FIXTURE_SOURCE = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule lexical_checkpoint_transition_resume)
+  (export orchestrate)
+  (defpath StateFile
+    :kind relpath
+    :under "state"
+    :must-exist false)
+  (defpath MaterializedSummaryPath
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defrecord DrainRunState
+    (drain_status String))
+  (defrecord DrainStatusRequest
+    (status String))
+  (defrecord DrainStatusResult
+    (status String))
+  (defrecord DrainStatusAudit
+    (status String))
+  (defrecord Output
+    (summary_path MaterializedSummaryPath)
+    (transition_status String))
+  (defresource drain-run-state
+    :state-type DrainRunState
+    :backing (bridge run_state_path))
+  (deftransition write-drain-status
+    :resource drain-run-state
+    :request-type DrainStatusRequest
+    :result-type DrainStatusResult
+    :preconditions ((!= request.status ""))
+    :updates ((set-field drain_status request.status))
+    :write-set (drain_status)
+    :idempotency-fields (status)
+    :result (record DrainStatusResult
+      :status request.status)
+    :audit (record DrainStatusAudit
+      :status request.status)
+    :conflict-policy fail_closed
+    :backend runtime_native)
+  (defworkflow orchestrate
+    ((run_state_path StateFile)
+     (summary_target MaterializedSummaryPath))
+    -> Output
+    (let* ((transition
+             (resource-transition
+               :transition write-drain-status
+               :resource drain-run-state
+               :request (record DrainStatusRequest
+                 :status "BLOCKED")))
+           (summary_path
+             (materialize-view runtime-summary
+               :value transition
+               :renderer canonical-json
+               :renderer-version 1
+               :target summary_target
+               :returns MaterializedSummaryPath)))
+      (record Output
+        :summary_path summary_path
+        :transition_status transition.status))))\n"""
 
 
 def _checkpoints_module():
@@ -194,6 +255,19 @@ def _plain_binding_execution_inputs(tmp_path: Path) -> dict[str, object]:
     summary_path.write_text("{}\n", encoding="utf-8")
     return {
         "summary_target": "artifacts/work/plain-summary.json",
+    }
+
+
+def _transition_resume_execution_inputs(tmp_path: Path) -> dict[str, object]:
+    summary_path = tmp_path / "artifacts" / "work" / "transition-summary.json"
+    run_state_path = tmp_path / "state" / "transition-run-state.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text("{}\n", encoding="utf-8")
+    run_state_path.write_text('{"drain_status":"READY"}\n', encoding="utf-8")
+    return {
+        "run_state_path": "state/transition-run-state.json",
+        "summary_target": "artifacts/work/transition-summary.json",
     }
 
 
@@ -450,6 +524,22 @@ def _restore_payload(*, record_id: str, program_point_id: str, origin_key: str) 
     }
 
 
+def _resource_observation(*, checkpoint_id: str, program_point_id: str, origin_key: str) -> dict[str, object]:
+    helper = importlib.import_module("orchestrator.workflow_lisp.lexical_checkpoint_transition_resume")
+    return helper.build_resource_observation(
+        resource_id="drain-run-state",
+        resource_kind="DrainRunState",
+        observed_version="sha256:resource-version",
+        transition_identity="write-drain-status",
+        checkpoint_id=checkpoint_id,
+        program_point_id=program_point_id,
+        source_step_id="root.lexical_checkpoint_effect_policies_orchestrate__transition",
+        source_map_origin_key=origin_key,
+        audit_path="state/workflow_lisp/lexical-checkpoint-effect-policies--orchestrate/write-drain-status-audit.jsonl",
+        audit_digest="sha256:audit-digest",
+    )
+
+
 def _prepare_failed_run(tmp_path: Path, *, run_id: str):
     bundle = _compile_fixture(tmp_path)
     state_manager = StateManager(workspace=tmp_path, run_id=run_id)
@@ -494,6 +584,34 @@ def _prepare_failed_plain_binding_run(tmp_path: Path, *, run_id: str):
         if fail_once["armed"]:
             fail_once["armed"] = False
             raise RuntimeError("synthetic restore-boundary failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    return workflow_path, bundle, state_manager, first_run
+
+
+def _prepare_failed_transition_resume_run(tmp_path: Path, *, run_id: str):
+    workflow_path, bundle = _compile_source_fixture(
+        tmp_path,
+        filename="lexical_checkpoint_transition_resume.orc",
+        source=TRANSITION_RESUME_FIXTURE_SOURCE,
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_transition_resume_execution_inputs(tmp_path),
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic transition restore-boundary failure")
         return real_render_view(*args, **kwargs)
 
     with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
@@ -662,6 +780,21 @@ def _mutate_restore_binding_type_ref(
     binding["schema_digest"] = restore._binding_schema_digest(binding)
 
 
+def _force_transition_resume_state(state_manager: StateManager, bundle) -> None:
+    state = state_manager.load()
+    step_id = "root.lexical_checkpoint_transition_resume_orchestrate__materialize_view__runtime_summary"
+    execution_index = bundle.projection.execution_index_for_step_id(step_id)
+    state.current_step = {
+        "name": "lexical_checkpoint_transition_resume::orchestrate__materialize-view__runtime-summary",
+        "index": execution_index if isinstance(execution_index, int) else 1,
+        "step_id": step_id,
+        "status": "running",
+    }
+    state.steps.pop("lexical_checkpoint_transition_resume::orchestrate__transition", None)
+    state_manager.state = state
+    state_manager._write_state()
+
+
 def _private_artifact_ref_for_generated_bundle(
     tmp_path: Path,
     state_manager: StateManager,
@@ -716,6 +849,20 @@ def test_restore_payload_validation_requires_stable_schema_and_binding_metadata(
     missing_binding_digest["bindings"][0]["value_digest"] = ""
     with pytest.raises(ValueError, match="lexical_restore_value_digest_mismatch"):
         restore.validate_restore_payload(missing_binding_digest)
+
+
+def test_restore_payload_validation_accepts_r4_resource_observation_schema() -> None:
+    restore = _restore_module()
+    payload = _restore_payload(record_id="record:1", program_point_id="pp:1", origin_key="source:test")
+    payload["resource_observations"] = [
+        _resource_observation(
+            checkpoint_id="ckpt:test",
+            program_point_id="pp:1",
+            origin_key="source:test",
+        )
+    ]
+
+    restore.validate_restore_payload(payload)
 
 
 def test_restore_payload_validation_requires_existing_private_artifact_bundle(tmp_path: Path) -> None:
@@ -864,6 +1011,7 @@ def test_restore_selector_fails_closed_when_newest_record_is_invalid(tmp_path: P
         state=state_manager.load().to_dict(),
         checkpoint_id=point.checkpoint_id,
         executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
     )
 
     assert decision.kind == "INVALID"
@@ -918,6 +1066,7 @@ def test_restore_selector_rejects_self_consistent_binding_schema_drift(tmp_path:
         state=state_manager.load().to_dict(),
         checkpoint_id=point.checkpoint_id,
         executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
     )
 
     assert decision.kind == "INVALID"
@@ -947,6 +1096,7 @@ def test_restore_selector_rejects_self_consistent_proof_variant_drift(tmp_path: 
         state=state_manager.load().to_dict(),
         checkpoint_id=point.checkpoint_id,
         executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
     )
 
     assert decision.kind == "INVALID"
@@ -989,6 +1139,7 @@ def test_restore_selector_accepts_private_artifact_ref_binding_with_validated_bu
         state=state_manager.load().to_dict(),
         checkpoint_id=point.checkpoint_id,
         executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
     )
 
     assert decision.kind == "RESTORED"
@@ -1029,6 +1180,7 @@ def test_restore_selector_rejects_private_artifact_ref_without_validated_bundle(
         state=state_manager.load().to_dict(),
         checkpoint_id=point.checkpoint_id,
         executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
     )
 
     assert decision.kind == "INVALID"
@@ -1295,7 +1447,7 @@ def test_restore_selector_reuses_completed_certified_adapter_boundary_when_proto
     assert decision.policy_decision == "REUSABLE"
 
 
-def test_restore_selector_treats_completed_transition_policy_as_barrier(tmp_path: Path) -> None:
+def test_restore_selector_reuses_completed_transition_policy_when_audit_and_resource_match(tmp_path: Path) -> None:
     restore = _restore_module()
     bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-transition")
 
@@ -1314,10 +1466,219 @@ def test_restore_selector_treats_completed_transition_policy_as_barrier(tmp_path
         state=state_manager.load().to_dict(),
         checkpoint_id=point.checkpoint_id,
         executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
     )
 
-    assert decision.kind == "NOT_RESTORABLE"
-    assert "lexical_restore_effect_policy_barrier" in decision.diagnostics
+    assert decision.kind == "RESTORED"
+    assert decision.policy_decision == "REUSABLE"
+
+
+def test_restore_selector_ignores_checkpoint_bridge_path_when_live_resource_has_drifted(tmp_path: Path) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id="restore-transition-live-resource-authority",
+    )
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "resource_transition"
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    effect_ref = record["completed_effect_refs"][0]
+
+    live_bridge_path = tmp_path / effect_ref["bridge_path"]
+    backup_bridge_path = tmp_path / "state" / "drain-run-state-backup.json"
+    backup_bridge_path.parent.mkdir(parents=True, exist_ok=True)
+    backup_bridge_path.write_text(live_bridge_path.read_text(encoding="utf-8"), encoding="utf-8")
+    live_bridge_path.write_text('{"drain_status":"DRIFTED"}\n', encoding="utf-8")
+
+    effect_ref["bridge_path"] = str(backup_bridge_path.relative_to(tmp_path))
+    record["validity_envelope"]["completed_effect_refs_digest"] = checkpoints._completed_effect_refs_digest(
+        tuple(record["completed_effect_refs"])
+    )
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert "lexical_checkpoint_transition_used_as_semantic_authority" in decision.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_kind", "expected_diagnostic"),
+        (
+            ("audit_row_digest", "INVALID", "lexical_checkpoint_transition_audit_row_digest_mismatch"),
+            ("request_digest", "INVALID", "lexical_checkpoint_transition_request_digest_mismatch"),
+            ("idempotency_key", "INVALID", "lexical_checkpoint_transition_idempotency_mismatch"),
+            ("result_digest", "INVALID", "lexical_checkpoint_transition_result_digest_mismatch"),
+            ("legacy_record", "NOT_RESTORABLE", "lexical_restore_effect_policy_barrier"),
+            ("resource_observation_invalid", "INVALID", "lexical_checkpoint_transition_resource_observation_invalid"),
+    ),
+)
+def test_restore_selector_fails_closed_for_transition_evidence_drift(
+    tmp_path: Path,
+    mutation: str,
+    expected_kind: str,
+    expected_diagnostic: str,
+) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id=f"restore-transition-{mutation}")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "resource_transition"
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    effect_ref = record["completed_effect_refs"][0]
+
+    if mutation == "audit_row_digest":
+        effect_ref["audit_row_digest"] = "sha256:drifted"
+    elif mutation == "request_digest":
+        effect_ref["request_digest"] = "sha256:drifted"
+    elif mutation == "idempotency_key":
+        effect_ref["idempotency_key"] = "sha256:drifted"
+    elif mutation == "result_digest":
+        effect_ref["result_digest"] = "sha256:drifted"
+    elif mutation == "legacy_record":
+        for key in (
+            "evidence_schema_version",
+            "resource_kind",
+            "audit_row_index",
+            "audit_row_digest",
+            "audit_outcome_code",
+            "request_digest",
+            "result_digest",
+            "backend_kind",
+            "bridge_path",
+        ):
+            effect_ref.pop(key, None)
+    elif mutation == "resource_observation_invalid":
+        record["restore_payload"] = _restore_payload(
+            record_id="record:test",
+            program_point_id=point.program_point_id,
+            origin_key=point.origin_key,
+        )
+        observation = _resource_observation(
+            checkpoint_id=point.checkpoint_id,
+            program_point_id=point.program_point_id,
+            origin_key=point.origin_key,
+        )
+        observation["resource_id"] = "drifted-resource"
+        record["restore_payload"]["resource_observations"] = [observation]
+
+    if mutation != "resource_observation_invalid":
+        record["validity_envelope"]["completed_effect_refs_digest"] = checkpoints._completed_effect_refs_digest(
+            tuple(record["completed_effect_refs"])
+        )
+
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == expected_kind
+    assert expected_diagnostic in decision.diagnostics
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_diagnostic"),
+    (
+        ("resource_conflict", "lexical_checkpoint_transition_resource_version_conflict"),
+        ("pending_replay", "lexical_checkpoint_transition_pending_replay_unresolved"),
+        ("audit_row_missing", "lexical_checkpoint_transition_audit_row_missing"),
+    ),
+)
+def test_restore_selector_detects_authoritative_transition_conflicts(
+    tmp_path: Path,
+    mutation: str,
+    expected_diagnostic: str,
+) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    transition_executor = importlib.import_module("orchestrator.workflow.transition_executor")
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id=f"restore-transition-authority-{mutation}")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "resource_transition"
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    effect_ref = record["completed_effect_refs"][0]
+    audit_path = tmp_path / effect_ref["audit_path"]
+
+    if mutation == "resource_conflict":
+        bridge_path = tmp_path / effect_ref["bridge_path"]
+        bridge_path.write_text('{"drain_status":"DRIFTED"}\n', encoding="utf-8")
+    elif mutation == "pending_replay":
+        audit_rows = transition_executor.read_transition_audit_rows(audit_path)
+        transition_executor._write_pending_replay(audit_path, audit_rows[-1])
+    elif mutation == "audit_row_missing":
+        effect_ref["audit_row_index"] = 9
+        record["validity_envelope"]["completed_effect_refs_digest"] = checkpoints._completed_effect_refs_digest(
+            tuple(record["completed_effect_refs"])
+        )
+        record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+        loaded_workflow=bundle,
+    )
+
+    assert decision.kind == "INVALID"
+    assert expected_diagnostic in decision.diagnostics
 
 
 def test_restore_selector_rejects_r3_completed_effect_ref_drift(tmp_path: Path) -> None:
@@ -1604,6 +1965,42 @@ def test_runtime_resume_restores_plain_pure_binding_before_effect_boundary(tmp_p
     payload = json.loads(restore_report.read_text(encoding="utf-8"))
     assert payload["decision_kind"] == "RESTORED"
     assert payload["restored_bindings"] >= 1
+
+
+def test_runtime_resume_reuses_committed_transition_result_from_audit_evidence(tmp_path: Path) -> None:
+    _, bundle, state_manager, first_run = _prepare_failed_transition_resume_run(
+        tmp_path,
+        run_id="restore-transition-runtime",
+    )
+    assert first_run["status"] == "failed"
+    transition_point = _checkpoint_point_by_step_suffix(
+        bundle,
+        "lexical_checkpoint_transition_resume_orchestrate__transition",
+    )
+    checkpoint_record = _latest_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=transition_point,
+    )
+    assert checkpoint_record["completed_effect_refs"][0]["transition_identity"] == "write-drain-status"
+
+    transition_ref = checkpoint_record["completed_effect_refs"][0]
+    audit_path = tmp_path / transition_ref["audit_path"]
+    _force_transition_resume_state(state_manager, bundle)
+
+    resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed["status"] == "completed"
+    assert [row["outcome_code"] for row in json.loads("[" + ",".join(audit_path.read_text(encoding="utf-8").splitlines()) + "]")] == ["committed"]
+    summary_path = tmp_path / "artifacts" / "work" / "transition-summary.json"
+    summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary_payload["status"] == "BLOCKED"
+    restore_report = state_manager.workflow_lisp_checkpoint_restore_report_path()
+    payload = json.loads(restore_report.read_text(encoding="utf-8"))
+    assert payload["decision_kind"] == "RESTORED"
+    assert payload["policy_decision"] == "REGENERATE"
+    assert payload["transition_identity"] == "write-drain-status"
+    assert payload["transition_decision"] == "COMMITTED_RESULT_REUSED"
 
 
 def test_runtime_resume_restores_private_artifact_ref_binding_before_effect_boundary(tmp_path: Path) -> None:

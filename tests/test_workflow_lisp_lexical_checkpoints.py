@@ -758,6 +758,12 @@ def test_runtime_shadow_emission_records_completed_effect_refs_for_command_provi
     assert materialized_view_ref["durability_mode"] == "preserve"
     transition_ref = records_by_effect["resource_transition"]["completed_effect_refs"][0]
     assert transition_ref["audit_digest"].startswith("sha256:")
+    assert transition_ref["request_digest"].startswith("sha256:")
+    assert transition_ref["audit_row_index"] == 0
+    assert transition_ref["audit_row_digest"].startswith("sha256:")
+    assert transition_ref["audit_outcome_code"] == "committed"
+    assert transition_ref["result_digest"].startswith("sha256:")
+    assert transition_ref["backend_kind"] == "runtime_native"
     for effect_kind in ("command", "provider", "call", "materialize_view", "resource_transition"):
         record = records_by_effect[effect_kind]
         assert record["completed_effect_refs"]

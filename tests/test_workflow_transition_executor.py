@@ -652,3 +652,59 @@ def test_execute_transition_supports_certified_adapter_backend_with_bridge_equiv
     assert _read_audit_rows(adapter_audit_path)[-1]["outcome_code"] == "committed"
     assert _read_audit_rows(adapter_audit_path)[-1]["resource_kind"] == "drain_run_state"
     assert _read_audit_rows(adapter_audit_path)[-1]["version"] == _read_audit_rows(native_audit_path)[-1]["version"]
+
+
+def test_transition_committed_result_lookup_returns_committed_result_evidence(tmp_path: Path) -> None:
+    declaration = _validated_declaration("native")
+    executor = _import_transition_executor()
+    resource, _state_path, audit_path = _resource_runtime(tmp_path, backing_kind="native")
+
+    committed = executor.execute_transition(
+        declaration,
+        resource,
+        {"status": "BLOCKED", "reason": "waiting"},
+        expected_version=None,
+        backend="runtime_native",
+        runtime_env={},
+    )
+
+    lookup = executor.lookup_committed_transition_result(
+        declaration,
+        resource,
+        {"status": "BLOCKED", "reason": "waiting"},
+    )
+
+    assert lookup is not None
+    assert lookup["result"] == committed["result"]
+    assert lookup["version"] == committed["version"]
+    assert lookup["audit_path"] == audit_path
+    assert lookup["audit_digest"].startswith("sha256:")
+    assert lookup["audit_row_index"] == 0
+    assert lookup["audit_row_digest"].startswith("sha256:")
+    assert lookup["outcome_code"] == "committed"
+
+
+def test_transition_committed_result_lookup_reports_pending_replay_when_unresolved(tmp_path: Path) -> None:
+    declaration = _validated_declaration("native")
+    executor = _import_transition_executor()
+    resource, _state_path, audit_path = _resource_runtime(tmp_path, backing_kind="native")
+
+    with pytest.raises(executor.TransitionExecutionError, match="transition audit append failed after commit"):
+        executor.execute_transition(
+            declaration,
+            resource,
+            {"status": "BLOCKED", "reason": "waiting"},
+            expected_version=None,
+            backend="runtime_native",
+            runtime_env={"fault_injection": "audit_append"},
+        )
+
+    lookup = executor.lookup_committed_transition_result(
+        declaration,
+        resource,
+        {"status": "BLOCKED", "reason": "waiting"},
+    )
+
+    assert lookup is not None
+    assert lookup["pending_replay"] is True
+    assert lookup["audit_path"] == audit_path

@@ -118,6 +118,7 @@ class ResumePlanner:
         runtime_plan: Any,
         state_manager: Any,
         executable_workflow: Any | None = None,
+        loaded_workflow: Any | None = None,
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Any:
         """Return one additive lexical-restore decision for the current resume point."""
@@ -136,6 +137,7 @@ class ResumePlanner:
             state=state,
             restart_node_id=restart_node_id,
             executable_workflow=executable_workflow,
+            loaded_workflow=loaded_workflow,
         )
 
     def _projected_current_step(

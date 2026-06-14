@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,12 @@ from orchestrator.workflow_lisp.lexical_checkpoint_effect_policies import (
     derive_legacy_shadow_policy_digest,
     validate_effect_boundary_payload,
     validate_effect_resume_policy,
+)
+from orchestrator.workflow_lisp.lexical_checkpoint_transition_resume import (
+    build_resource_observation,
+    build_transition_checkpoint_evidence,
+    sha256_json as transition_resume_sha256_json,
+    transition_checkpoint_evidence_from_effect_ref,
 )
 from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
     capture_restore_payload,
@@ -127,6 +134,10 @@ def derive_record_id(
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _sequence(value: Any) -> Sequence[Any]:
+    return value if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)) else ()
 
 
 def _point_field(point: Any, name: str, default: Any = None) -> Any:
@@ -349,7 +360,63 @@ def _step_state_for_runtime_step(executor: Any, runtime_step: Any) -> Mapping[st
     state = _mapping(_state_snapshot(executor))
     step_name = runtime_step.get("name")
     steps = _mapping(state.get("steps"))
-    return _mapping(steps.get(step_name))
+    direct = _mapping(steps.get(step_name))
+    if direct.get("status") == "completed":
+        return direct
+    step_id = runtime_step.get("step_id")
+    matches = [
+        _mapping(result)
+        for result in steps.values()
+        if isinstance(result, Mapping) and result.get("step_id") == step_id
+    ]
+    if not matches:
+        return direct
+    matches.sort(key=lambda result: int(result.get("visit_count") or 0), reverse=True)
+    return matches[0]
+
+
+def _workflow_call_debug_payload(
+    executor: Any,
+    *,
+    point: Any,
+    step_state: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    call_debug = _mapping(_mapping(step_state.get("debug")).get("call"))
+    if isinstance(call_debug.get("call_frame_id"), str) and call_debug.get("call_frame_id"):
+        return call_debug
+
+    workflow_call = _mapping(_mapping(point_policy.get("evidence_requirements")).get("workflow_call"))
+    expected_callee = workflow_call.get("callee_workflow")
+    expected_outputs_digest = _sha256_json(_mapping(step_state.get("artifacts")))
+    point_name = str(_point_field(point, "presentation_key") or "")
+    steps = _mapping(_mapping(_state_snapshot(executor)).get("steps"))
+    candidates: list[tuple[int, int, Mapping[str, Any]]] = []
+
+    for name, result in steps.items():
+        if not isinstance(name, str):
+            continue
+        candidate_state = _mapping(result)
+        if candidate_state.get("status") != "completed":
+            continue
+        candidate_debug = _mapping(_mapping(candidate_state.get("debug")).get("call"))
+        candidate_frame_id = candidate_debug.get("call_frame_id")
+        if not isinstance(candidate_frame_id, str) or not candidate_frame_id:
+            continue
+        if isinstance(expected_callee, str) and expected_callee:
+            import_alias = candidate_debug.get("import_alias")
+            if not isinstance(import_alias, str) or import_alias != expected_callee:
+                continue
+        if _sha256_json(_mapping(candidate_debug.get("workflow_outputs"))) != expected_outputs_digest:
+            continue
+        prefix_score = len(os.path.commonprefix((point_name, name))) if point_name else 0
+        visit_count = int(candidate_state.get("visit_count") or 0)
+        candidates.append((prefix_score, visit_count, candidate_debug))
+
+    if not candidates:
+        return {}
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
 
 
 def _json_object_from_workspace(workspace: Path, relative_path: str) -> Mapping[str, Any]:
@@ -498,7 +565,12 @@ def _workflow_call_completed_effect_ref(
     step_state: Mapping[str, Any],
     point_policy: Mapping[str, Any],
 ) -> Mapping[str, Any]:
-    call_debug = _mapping(_mapping(step_state.get("debug")).get("call"))
+    call_debug = _workflow_call_debug_payload(
+        executor,
+        point=point,
+        step_state=step_state,
+        point_policy=point_policy,
+    )
     call_frame_id = call_debug.get("call_frame_id")
     if not isinstance(call_frame_id, str) or not call_frame_id:
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
@@ -565,7 +637,7 @@ def _resource_transition_completed_effect_ref(
     step_state: Mapping[str, Any],
     point_policy: Mapping[str, Any],
 ) -> Mapping[str, Any]:
-    from orchestrator.workflow.transition_contract import derive_idempotency_key
+    from orchestrator.workflow.transition_executor import lookup_committed_transition_result
 
     transition_debug = _mapping(_mapping(step_state.get("debug")).get("resource_transition"))
     config = _mapping(runtime_step.get("resource_transition"))
@@ -600,18 +672,99 @@ def _resource_transition_completed_effect_ref(
         audit_path = _relative_path(executor.state_manager, audit_path)
     if not isinstance(audit_path, str) or not audit_path:
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    transition_lookup = lookup_committed_transition_result(
+        declaration,
+        normalized_resource,
+        resolved_request,
+    )
+    if transition_lookup is None or transition_lookup.get("pending_replay"):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if transition_lookup.get("audit_path") != normalized_resource.get("audit_path"):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    audit_digest = transition_lookup.get("audit_digest")
+    audit_row_digest = transition_lookup.get("audit_row_digest")
+    request_digest = transition_lookup.get("request_digest")
+    outcome_code = transition_lookup.get("outcome_code")
+    version = transition_lookup.get("version")
+    if not all(isinstance(value, str) and value for value in (audit_digest, audit_row_digest, request_digest, outcome_code, version)):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    audit_row_index = transition_lookup.get("audit_row_index")
+    if not isinstance(audit_row_index, int):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    expected_version = config.get("expected_version")
+    if isinstance(expected_version, Mapping):
+        resolved_expected_version, version_error = executor._resolve_resource_transition_bindings(
+            expected_version,
+            _state_snapshot(executor),
+        )
+        if version_error is not None and resolved_expected_version is not None:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        expected_version = resolved_expected_version
+    elif expected_version is not None:
+        resolved_expected_version, version_error = executor._resolve_resource_transition_bindings(
+            expected_version,
+            _state_snapshot(executor),
+        )
+        if version_error is None:
+            expected_version = resolved_expected_version
+    evidence = build_transition_checkpoint_evidence(
+        transition_identity=transition_identity,
+        resource_id=resource_id,
+        resource_kind=str(declaration.resource.resource_kind),
+        resource_version=resource_version,
+        expected_version=expected_version if isinstance(expected_version, str) else None,
+        audit_path=audit_path,
+        audit_digest=audit_digest,
+        audit_row_index=audit_row_index,
+        audit_row_digest=audit_row_digest,
+        audit_outcome_code=outcome_code,
+        idempotency_key=str(transition_lookup["idempotency_key"]),
+        request_digest=request_digest,
+        result_digest=transition_resume_sha256_json(transition_lookup.get("result")),
+        backend_kind=str(declaration.transition.backend.get("kind") or ""),
+        source_map_origin_key=str(_point_field(point, "origin_key") or ""),
+    )
+    state_path = normalized_resource.get("state_path")
+    bridge_path = normalized_resource.get("bridge_path")
+    secondary_state_paths = normalized_resource.get("secondary_state_paths")
     return {
         **_completed_effect_ref_base(point, effect_kind="resource_transition"),
         "evidence_kind": "transition_audit",
-        "transition_identity": transition_identity,
-        "resource_id": resource_id,
-        "resource_version": resource_version,
-        "audit_path": audit_path,
-        "audit_digest": _file_digest_from_workspace(executor.workspace, audit_path),
-        "idempotency_key": derive_idempotency_key(
-            declaration,
-            resource_id=resource_id,
-            request_values=resolved_request,
+        "evidence_schema_version": evidence["schema_version"],
+        "transition_identity": evidence["transition_identity"],
+        "resource_id": evidence["resource_id"],
+        "resource_kind": evidence["resource_kind"],
+        "resource_version": evidence["resource_version"],
+        "expected_version": evidence["expected_version"],
+        "audit_path": evidence["audit_path"],
+        "audit_digest": evidence["audit_digest"],
+        "audit_row_index": evidence["audit_row_index"],
+        "audit_row_digest": evidence["audit_row_digest"],
+        "audit_outcome_code": evidence["audit_outcome_code"],
+        "idempotency_key": evidence["idempotency_key"],
+        "request_digest": evidence["request_digest"],
+        "result_digest": evidence["result_digest"],
+        "backend_kind": evidence["backend_kind"],
+        **(
+            {"state_path": _relative_path(executor.state_manager, state_path)}
+            if isinstance(state_path, Path)
+            else {}
+        ),
+        **(
+            {"bridge_path": _relative_path(executor.state_manager, bridge_path)}
+            if isinstance(bridge_path, Path)
+            else {}
+        ),
+        **(
+            {
+                "secondary_state_paths": [
+                    _relative_path(executor.state_manager, path)
+                    for path in secondary_state_paths
+                    if isinstance(path, Path)
+                ]
+            }
+            if isinstance(secondary_state_paths, list)
+            else {}
         ),
     }
 
@@ -644,14 +797,19 @@ def collect_completed_effect_refs(
             )
         ]
     if effect_kind == "call":
-        return [
-            _workflow_call_completed_effect_ref(
-                executor,
-                point=point,
-                step_state=step_state,
-                point_policy=point_policy,
-            )
-        ]
+        try:
+            return [
+                _workflow_call_completed_effect_ref(
+                    executor,
+                    point=point,
+                    step_state=step_state,
+                    point_policy=point_policy,
+                )
+            ]
+        except ValueError as exc:
+            if str(exc) == DIAGNOSTIC_CODES.completed_effect_invalid:
+                return []
+            raise
     if effect_kind == "materialize_view":
         return [
             _materialized_view_completed_effect_ref(
@@ -769,6 +927,12 @@ def _validate_completed_effect_refs(
             value = ref.get(key)
             if not isinstance(value, str) or not value:
                 raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
+        evidence = transition_checkpoint_evidence_from_effect_ref(ref)
+        if evidence is not None:
+            for key in ("resource_kind", "audit_outcome_code", "request_digest", "result_digest", "backend_kind"):
+                value = evidence.get(key)
+                if not isinstance(value, str) or not value:
+                    raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
         if ref.get("evidence_kind") != "transition_audit":
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
         return
@@ -799,10 +963,10 @@ def validate_completed_effect_refs_against_authoritative_state(
         raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
     runtime_step = RuntimeStep(node=node, name=str(expected_point.get("presentation_key") or ""), step_id=str(expected_point.get("step_id") or ""))
     step_state = _mapping(_mapping(state.get("steps")).get(runtime_step.name))
-    if step_state.get("status") != "completed":
-        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
 
     if effect_kind in {"command", "provider"}:
+        if step_state.get("status") != "completed":
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
         output_bundle = _mapping(runtime_step.get("output_bundle"))
         fields = output_bundle.get("fields")
         if not isinstance(fields, list):
@@ -828,8 +992,20 @@ def validate_completed_effect_refs_against_authoritative_state(
         return
 
     if effect_kind == "call":
-        call_debug = _mapping(_mapping(step_state.get("debug")).get("call"))
+        if step_state.get("status") != "completed":
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
         workflow_call = _mapping(_mapping(point_policy.get("evidence_requirements")).get("workflow_call"))
+        validation_executor = type(
+            "CheckpointValidationExecutor",
+            (),
+            {"state_manager": type("CheckpointValidationStateManager", (), {"state": state})()},
+        )()
+        call_debug = _workflow_call_debug_payload(
+            validation_executor,
+            point=expected_point,
+            step_state=step_state,
+            point_policy=point_policy,
+        )
         if ref.get("call_frame_id") != call_debug.get("call_frame_id"):
             raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
         if ref.get("callee_workflow") != (workflow_call.get("callee_workflow") or call_debug.get("import_alias")):
@@ -850,6 +1026,8 @@ def validate_completed_effect_refs_against_authoritative_state(
         return
 
     if effect_kind == "materialize_view":
+        if step_state.get("status") != "completed":
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
         evidence_record = _json_object_from_workspace(workspace, str(ref.get("evidence_path")))
         if ref.get("renderer_id") != evidence_record.get("renderer_id"):
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
@@ -875,6 +1053,8 @@ def validate_completed_effect_refs_against_authoritative_state(
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
         if ref.get("audit_digest") != _file_digest_from_workspace(workspace, str(ref.get("audit_path"))):
             raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
+        if transition_checkpoint_evidence_from_effect_ref(ref) is not None:
+            return
         return
 
 
@@ -1199,6 +1379,10 @@ def emit_runtime_shadow_record(
     workflow_name = str(_point_field(point, "workflow_name") or runtime_plan.workflow_name or "")
     point_count = len(getattr(runtime_plan, "lexical_checkpoint_points", ()))
     try:
+        if not isinstance(call_frame_id, str) or not call_frame_id:
+            candidate_frame_id = getattr(executor.state_manager, "frame_id", None)
+            if isinstance(candidate_frame_id, str) and candidate_frame_id:
+                call_frame_id = candidate_frame_id
         point_payload = _point_payload(point)
         validate_checkpoint_point_payload(point_payload)
         if workflow_name != getattr(runtime_plan, "workflow_name", ""):
@@ -1291,6 +1475,33 @@ def emit_runtime_shadow_record(
             record["restore_payload"] = dict(restore_payload)
         completed_effect_refs = collect_completed_effect_refs(executor, point=point)
         record["completed_effect_refs"] = [dict(ref) for ref in completed_effect_refs]
+        if (
+            restore_payload is not None
+            and isinstance(record.get("restore_payload"), Mapping)
+            and len(completed_effect_refs) == 1
+            and _mapping(completed_effect_refs[0]).get("effect_kind") == "resource_transition"
+        ):
+            transition_ref = _mapping(completed_effect_refs[0])
+            restore_payload_record = dict(_mapping(record["restore_payload"]))
+            bindings = _sequence(restore_payload_record.get("bindings"))
+            if any(
+                _mapping(binding).get("source_step_id") == point_payload.get("step_id")
+                for binding in bindings
+            ):
+                observation = build_resource_observation(
+                    resource_id=str(transition_ref.get("resource_id") or ""),
+                    resource_kind=str(transition_ref.get("resource_kind") or ""),
+                    observed_version=str(transition_ref.get("resource_version") or ""),
+                    transition_identity=str(transition_ref.get("transition_identity") or ""),
+                    checkpoint_id=checkpoint_id,
+                    program_point_id=program_point_id,
+                    source_step_id=str(point_payload.get("step_id") or ""),
+                    source_map_origin_key=str(point_payload.get("origin_key") or ""),
+                    audit_path=str(transition_ref.get("audit_path") or ""),
+                    audit_digest=str(transition_ref.get("audit_digest") or ""),
+                )
+                restore_payload_record["resource_observations"] = [observation]
+                record["restore_payload"] = restore_payload_record
         record["validity_envelope"]["completed_effect_refs_digest"] = _completed_effect_refs_digest(
             tuple(_mapping(ref) for ref in completed_effect_refs)
         )

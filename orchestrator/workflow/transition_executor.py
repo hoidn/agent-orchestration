@@ -45,6 +45,22 @@ class LoadedResourceState:
     bridge_backing: bool
 
 
+@dataclass(frozen=True)
+class TransitionCommittedResultLookup:
+    result: Mapping[str, Any] | None
+    version: str | None
+    replayed: bool
+    pending_replay: bool
+    audit_path: Path
+    audit_digest: str | None
+    audit_row_index: int | None
+    audit_row_digest: str | None
+    outcome_code: str | None
+    idempotency_key: str
+    request_digest: str
+    row: Mapping[str, Any] | None
+
+
 def execute_transition(
     declaration: ValidatedTransitionDeclaration,
     resource: Mapping[str, Any],
@@ -228,6 +244,176 @@ def execute_transition(
         "version": new_version,
         "replayed": False,
     }
+
+
+def load_transition_resource_state(
+    declaration: ValidatedTransitionDeclaration,
+    resource: Mapping[str, Any],
+) -> LoadedResourceState:
+    """Load current resource state for read-only transition reconciliation."""
+
+    return _load_resource_state(declaration, resource)
+
+
+def load_transition_resource_state_for_kind(
+    resource_kind: str,
+    resource: Mapping[str, Any],
+) -> LoadedResourceState:
+    """Load current resource state for one known resource kind."""
+
+    if resource.get("resource_kind") != resource_kind:
+        raise TransitionExecutionError("transition_backend_result_invalid", "resource kind does not match the transition evidence")
+    audit_path = Path(resource["audit_path"])
+    if resource.get("bridge_path") is not None:
+        state_path = Path(resource["bridge_path"])
+        raw = json.loads(state_path.read_text(encoding="utf-8"))
+        state_value = dict(raw)
+        version = _bridge_digest(state_path)
+        return LoadedResourceState(
+            state_value=state_value,
+            version=version,
+            raw_document=dict(raw),
+            state_path=state_path,
+            secondary_state_paths=(),
+            audit_path=audit_path,
+            bridge_backing=True,
+        )
+    state_path = Path(resource["state_path"])
+    raw = json.loads(state_path.read_text(encoding="utf-8"))
+    state_value = dict(raw["state"])
+    secondary_state_paths = tuple(Path(path) for path in resource.get("secondary_state_paths", []))
+    return LoadedResourceState(
+        state_value=state_value,
+        version=str(raw["state_version"]),
+        raw_document=dict(raw),
+        state_path=state_path,
+        secondary_state_paths=secondary_state_paths,
+        audit_path=audit_path,
+        bridge_backing=False,
+    )
+
+
+def transition_audit_row_digest(row: Mapping[str, Any]) -> str:
+    """Return the canonical digest for one persisted audit row."""
+
+    return canonical_transition_digest(dict(row))
+
+
+def transition_audit_file_digest(audit_path: Path) -> str | None:
+    """Return the current audit-file digest when the audit file exists."""
+
+    if not audit_path.exists():
+        return None
+    return f"sha256:{sha256(audit_path.read_bytes()).hexdigest()}"
+
+
+def read_transition_audit_rows(audit_path: Path) -> list[dict[str, Any]]:
+    """Return the parsed audit rows for one transition audit log."""
+
+    return _read_audit_rows(audit_path)
+
+
+def read_pending_transition_replay(audit_path: Path) -> dict[str, Any] | None:
+    """Return the pending replay sidecar for one transition audit log."""
+
+    return _read_pending_replay(audit_path)
+
+
+def lookup_transition_audit_record(
+    resource: Mapping[str, Any],
+    *,
+    transition_name: str,
+    resource_kind: str,
+    resource_id: str,
+    idempotency_key: str,
+    request_digest: str,
+) -> dict[str, Any] | None:
+    """Return committed-result evidence for one already-known transition tuple."""
+
+    audit_path = Path(resource["audit_path"])
+    audit_rows = _read_audit_rows(audit_path)
+    replay_row = _find_committed_replay(
+        audit_rows,
+        transition_name=transition_name,
+        idempotency_key=idempotency_key,
+        request_digest=request_digest,
+    )
+    pending_row = _read_pending_replay(audit_path)
+    pending_replay = False
+    row: Mapping[str, Any] | None = replay_row
+    row_index: int | None = None
+    replayed = False
+    if replay_row is not None:
+        replayed = any(
+            audit_row.get("transition_name") == transition_name
+            and audit_row.get("resource_id") == resource_id
+            and audit_row.get("idempotency_key") == idempotency_key
+            and audit_row.get("request_digest") == request_digest
+            and audit_row.get("outcome_code") == "replayed"
+            for audit_row in audit_rows
+        )
+        for index in range(len(audit_rows) - 1, -1, -1):
+            candidate = audit_rows[index]
+            if candidate == replay_row:
+                row_index = index
+                break
+    elif pending_row is not None and (
+        pending_row.get("transition_name") == transition_name
+        and pending_row.get("resource_kind") == resource_kind
+        and pending_row.get("resource_id") == resource_id
+        and pending_row.get("idempotency_key") == idempotency_key
+        and pending_row.get("request_digest") == request_digest
+    ):
+        pending_replay = True
+        row = dict(pending_row)
+    if row is None:
+        return None
+    return {
+        "result": row.get("result"),
+        "version": row.get("version"),
+        "replayed": replayed,
+        "pending_replay": pending_replay,
+        "audit_path": audit_path,
+        "audit_digest": transition_audit_file_digest(audit_path),
+        "audit_row_index": row_index,
+        "audit_row_digest": transition_audit_row_digest(row),
+        "outcome_code": row.get("outcome_code"),
+        "idempotency_key": idempotency_key,
+        "request_digest": request_digest,
+        "row": dict(row),
+    }
+
+
+def lookup_committed_transition_result(
+    declaration: ValidatedTransitionDeclaration,
+    resource: Mapping[str, Any],
+    request_values: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Return read-only committed-result evidence for one transition request."""
+
+    request = coerce_transition_value(
+        request_values,
+        declaration.transition.request_type,
+        context="request_values",
+    )
+    resource_state = _load_resource_state(declaration, resource)
+    resource_id = _resource_id(resource)
+    request_digest = canonical_transition_digest(request)
+    idempotency_key = derive_idempotency_key(
+        declaration,
+        resource_id=resource_id,
+        request_values=request,
+    )
+    resource_with_paths = dict(resource)
+    resource_with_paths["audit_path"] = resource_state.audit_path
+    return lookup_transition_audit_record(
+        resource_with_paths,
+        transition_name=declaration.transition.name,
+        resource_kind=declaration.resource.resource_kind,
+        resource_id=resource_id,
+        idempotency_key=idempotency_key,
+        request_digest=request_digest,
+    )
 
 
 def _apply_updates(
