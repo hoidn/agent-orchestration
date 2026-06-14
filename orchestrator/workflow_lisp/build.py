@@ -2366,6 +2366,8 @@ def _validate_lexical_checkpoint_artifacts(
     runtime_plan_payload: Mapping[str, Any],
     source_map_payload: Mapping[str, Any],
 ) -> None:
+    from orchestrator.workflow_lisp.lexical_checkpoint_effect_policies import validate_effect_boundary_payload
+
     if points_payload.get("schema_version") != CHECKPOINT_POINTS_SCHEMA_VERSION:
         raise ValueError("lexical checkpoint points schema mismatch")
     if points_payload.get("checkpoint_schema_version") != CHECKPOINT_RECORD_SCHEMA_VERSION:
@@ -2399,6 +2401,11 @@ def _validate_lexical_checkpoint_artifacts(
             raise ValueError("lexical checkpoint point missing executable node linkage")
         if point.get("source_lineage", {}).get("origin_key") not in origin_keys:
             raise ValueError("lexical checkpoint point missing source-map origin coverage")
+        if point.get("point_kind") == "effect_boundary":
+            validate_effect_boundary_payload(
+                dict(point.get("effect_boundary", {})),
+                expected_origin_key=str(point.get("source_lineage", {}).get("origin_key") or ""),
+            )
 
 
 def _serialize_lexical_checkpoint_shadow_report(

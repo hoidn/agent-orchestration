@@ -1779,6 +1779,7 @@ class WorkflowExecutor:
             "checkpoint_id": getattr(decision, "checkpoint_id", None) if decision is not None else None,
             "record_id": getattr(decision, "record_id", None) if decision is not None else None,
             "source_map_origin_key": getattr(decision, "source_map_origin_key", None) if decision is not None else None,
+            "policy_decision": getattr(decision, "policy_decision", None) if decision is not None else None,
             "restored_bindings": int(getattr(decision, "restored_bindings", 0) or 0),
             "restored_loop_frames": int(getattr(decision, "restored_loop_frames", 0) or 0),
             "diagnostics": list(getattr(decision, "diagnostics", ()) or ()),

@@ -21,6 +21,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PURE_EXPR_SELECTOR_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc")
 LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
+LEXICAL_POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_effect_policies.orc")
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 
 
@@ -1523,10 +1524,43 @@ def test_lexical_checkpoint_semantic_ir_surfaces_restore_metadata_additively_and
     assert any(layout.details.get("restore", {}).get("binding_descriptor_digests") for layout in point_layouts)
     assert any(layout.details.get("restore", {}).get("proof_descriptor_digests") for layout in point_layouts)
     assert any(layout.details.get("restore", {}).get("loop_frame_descriptor_digest") for layout in point_layouts)
-    assert all("binding_descriptors" not in layout.details.get("restore", {}) for layout in point_layouts)
-    assert all("proof_descriptors" not in layout.details.get("restore", {}) for layout in point_layouts)
-    assert all("loop_frame_descriptor" not in layout.details.get("restore", {}) for layout in point_layouts)
-    serialized = json.dumps([dict(layout.details) for layout in point_layouts], sort_keys=True)
+
+
+def test_lexical_checkpoint_semantic_ir_surfaces_r3_policy_summaries_additively(
+    tmp_path: Path,
+) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=LEXICAL_POLICY_FIXTURE,
+        entry_workflow="orchestrate",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="orchestrate")
+    point_layouts = {
+        layout.details.get("checkpoint_id"): layout
+        for layout in bundle.semantic_ir.state_layout.values()
+        if layout.layout_kind == "lexical_checkpoint_point"
+    }
+    effect_points = [
+        point
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.point_kind == "effect_boundary"
+    ]
+
+    assert effect_points
+    assert any(point.details.get("effect_boundary", {}).get("policy", {}) for point in effect_points)
+    assert {
+        point.details["effect_boundary"]["effect_kind"]
+        for point in effect_points
+    } >= {"pure_projection", "provider", "command", "call", "materialize_view", "resource_transition"}
+    assert all(
+        point_layouts[point.checkpoint_id].details.get("effect_boundary", {}).get("policy", {}).get("policy_kind")
+        == point.details.get("effect_boundary", {}).get("policy", {}).get("policy_kind")
+        for point in effect_points
+    )
+    assert all("binding_descriptors" not in layout.details.get("restore", {}) for layout in point_layouts.values())
+    assert all("proof_descriptors" not in layout.details.get("restore", {}) for layout in point_layouts.values())
+    assert all("loop_frame_descriptor" not in layout.details.get("restore", {}) for layout in point_layouts.values())
+    serialized = json.dumps([dict(layout.details) for layout in point_layouts.values()], sort_keys=True)
     assert "restore_payload" not in serialized
     assert "wcc-node:" not in serialized
     assert "runtime_sidecar" not in serialized

@@ -544,6 +544,8 @@ def derive_workflow_semantic_ir(
                     "program_point_id": checkpoint_point.program_point_id,
                     "point_kind": checkpoint_point.point_kind,
                     "origin_key": checkpoint_point.origin_key,
+                    "effect_boundary": checkpoint_point.details.get("effect_boundary"),
+                    "loop_back_edge": checkpoint_point.details.get("loop_back_edge"),
                     "restore": public_restore_metadata(checkpoint_point.details.get("restore", {})),
                 }
             ),

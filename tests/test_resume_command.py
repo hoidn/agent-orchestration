@@ -2223,6 +2223,7 @@ def test_workflow_lisp_lexical_checkpoint_resume_restores_private_checkpoint_reg
     restore_report = state_manager.workflow_lisp_checkpoint_restore_report_path()
     payload = json.loads(restore_report.read_text(encoding="utf-8"))
     assert payload["decision_kind"] == "RESTORED"
+    assert payload["policy_decision"] == "REGENERATE"
     assert payload["restored_bindings"] >= 3
     assert payload["restored_loop_frames"] >= 1
     loaded_state = state_manager.load()

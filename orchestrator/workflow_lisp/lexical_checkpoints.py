@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -16,6 +17,13 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathSemanticRole,
     StateLayout,
 )
+from orchestrator.workflow_lisp.lexical_checkpoint_effect_policies import (
+    DIAGNOSTIC_CODES as EFFECT_POLICY_DIAGNOSTIC_CODES,
+    LEGACY_PROVISIONAL_POLICIES,
+    derive_legacy_shadow_policy_digest,
+    validate_effect_boundary_payload,
+    validate_effect_resume_policy,
+)
 from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
     capture_restore_payload,
     validate_restore_payload,
@@ -26,9 +34,10 @@ from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
 CHECKPOINT_RECORD_SCHEMA_VERSION = "workflow_lisp_lexical_checkpoint.v1"
 CHECKPOINT_POINTS_SCHEMA_VERSION = "workflow_lisp_lexical_checkpoint_points.v1"
 CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION = "workflow_lisp_lexical_checkpoint_shadow_report.v1"
+COMPLETED_EFFECT_REF_SCHEMA_VERSION = "workflow_lisp_completed_effect_ref.v1"
 
 POINT_KINDS = frozenset({"effect_boundary", "loop_back_edge"})
-PROVISIONAL_POLICIES = frozenset({"shadow_record_only"})
+PROVISIONAL_POLICIES = LEGACY_PROVISIONAL_POLICIES
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,7 @@ class CheckpointDiagnosticCodes:
     storage_role_invalid: str = "lexical_checkpoint_storage_role_invalid"
     source_lineage_mismatch: str = "lexical_checkpoint_source_lineage_mismatch"
     effect_policy_unknown: str = "lexical_checkpoint_effect_policy_unknown"
+    completed_effect_invalid: str = "lexical_checkpoint_completed_effect_invalid"
     used_as_semantic_authority: str = "lexical_checkpoint_used_as_semantic_authority"
     record_collision: str = "lexical_checkpoint_record_collision"
 
@@ -196,8 +206,10 @@ def validate_checkpoint_point_payload(point: Mapping[str, Any]) -> None:
     effect_policy = _mapping(point.get("effect_boundary"))
     loop_back_edge = _mapping(point.get("loop_back_edge"))
     if point_kind == "effect_boundary":
-        if effect_policy.get("policy_status") not in PROVISIONAL_POLICIES:
-            raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
+        try:
+            validate_effect_boundary_payload(effect_policy, expected_origin_key=str(point.get("origin_key") or ""))
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
     if point_kind == "loop_back_edge" and not loop_back_edge:
         raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
     restore = _mapping(point.get("restore"))
@@ -214,22 +226,656 @@ def checkpoint_record_binding_schema_digest(point: Mapping[str, Any]) -> str:
 
 
 def checkpoint_record_effect_policy_digest(point: Mapping[str, Any]) -> str:
-    payload = _mapping(point.get("effect_boundary")) if point.get("point_kind") == "effect_boundary" else _mapping(
-        point.get("loop_back_edge")
+    point_kind = str(point.get("point_kind") or "")
+    if point_kind == "effect_boundary":
+        payload = _mapping(point.get("effect_boundary"))
+        policy = _mapping(payload.get("policy"))
+        if policy:
+            validate_effect_resume_policy(policy, expected_origin_key=str(point.get("origin_key") or ""))
+            return str(policy["policy_digest"])
+        if payload.get("policy_status") not in PROVISIONAL_POLICIES:
+            raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
+        return derive_legacy_shadow_policy_digest(
+            point_kind=point_kind,
+            step_kind=str(point.get("step_kind") or "") or None,
+            effect_kind=str(payload.get("effect_kind") or "") or None,
+            boundary_kind=str(payload.get("boundary_kind") or "") or None,
+            loop_name=str(payload.get("loop_name") or "") or None,
+        )
+    payload = _mapping(point.get("loop_back_edge"))
+    return derive_legacy_shadow_policy_digest(
+        point_kind=point_kind,
+        step_kind=str(point.get("step_kind") or "") or None,
+        effect_kind=str(payload.get("effect_kind") or "") or None,
+        boundary_kind=str(payload.get("boundary_kind") or "") or None,
+        loop_name=str(payload.get("loop_name") or "") or None,
     )
-    policy_status = payload.get("policy_status", "shadow_record_only")
-    if policy_status not in PROVISIONAL_POLICIES:
-        raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
+
+
+def describe_checkpoint_record_policy(
+    record: Mapping[str, Any],
+    *,
+    expected_point: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any]:
+    validity_envelope = _mapping(record.get("validity_envelope"))
+    observed_digest = validity_envelope.get("effect_policy_digest")
+    point_kind = str(
+        (expected_point or {}).get("point_kind")
+        or record.get("point_kind")
+        or ""
+    )
+    if not isinstance(observed_digest, str) or not observed_digest:
+        return {
+            "record_policy_status": "invalid",
+            "restore_authorized": False,
+            "diagnostic": EFFECT_POLICY_DIAGNOSTIC_CODES.missing,
+        }
+    if expected_point is None:
+        return {
+            "record_policy_status": "historical_shadow_only",
+            "restore_authorized": False,
+            "diagnostic": None,
+        }
+
+    expected_digest = checkpoint_record_effect_policy_digest(expected_point)
+    if point_kind != "effect_boundary":
+        return {
+            "record_policy_status": "non_effect_boundary",
+            "restore_authorized": False,
+            "diagnostic": None if observed_digest == expected_digest else EFFECT_POLICY_DIAGNOSTIC_CODES.digest_mismatch,
+        }
+
+    effect_boundary = _mapping(expected_point.get("effect_boundary"))
+    policy = _mapping(effect_boundary.get("policy"))
+    if policy:
+        legacy_digest = derive_legacy_shadow_policy_digest(
+            point_kind=point_kind,
+            step_kind=str(expected_point.get("step_kind") or "") or None,
+            effect_kind=str(effect_boundary.get("effect_kind") or "") or None,
+            boundary_kind=str(effect_boundary.get("boundary_kind") or "") or None,
+            loop_name=str(effect_boundary.get("loop_name") or "") or None,
+        )
+        if observed_digest == expected_digest:
+            return {
+                "record_policy_status": "policy_enforced",
+                "restore_authorized": True,
+                "diagnostic": None,
+            }
+        if observed_digest == legacy_digest and record.get("provisional_policy") in PROVISIONAL_POLICIES:
+            return {
+                "record_policy_status": "historical_shadow_only",
+                "restore_authorized": False,
+                "diagnostic": None,
+            }
+        return {
+            "record_policy_status": "invalid",
+            "restore_authorized": False,
+            "diagnostic": EFFECT_POLICY_DIAGNOSTIC_CODES.digest_mismatch,
+        }
+    return {
+        "record_policy_status": "historical_shadow_only",
+        "restore_authorized": False,
+        "diagnostic": None if observed_digest == expected_digest else EFFECT_POLICY_DIAGNOSTIC_CODES.digest_mismatch,
+    }
+
+
+def _completed_effect_refs_digest(completed_effect_refs: Sequence[Mapping[str, Any]]) -> str:
+    return _sha256_json(list(completed_effect_refs))
+
+
+def _runtime_step_for_point(executor: Any, point: Any) -> Any:
+    node_id = _point_field(point, "node_id")
+    if not isinstance(node_id, str) or not node_id:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return executor._runtime_step_for_node_id(
+        node_id,
+        presentation_name=_point_field(point, "presentation_key"),
+        step_id=_point_field(point, "step_id"),
+    )
+
+
+def _state_snapshot(executor: Any) -> Mapping[str, Any]:
+    current_state = getattr(executor.state_manager, "state", None)
+    if current_state is None:
+        return {}
+    if hasattr(current_state, "to_dict"):
+        return current_state.to_dict()
+    if isinstance(current_state, Mapping):
+        return current_state
+    return {}
+
+
+def _step_state_for_runtime_step(executor: Any, runtime_step: Any) -> Mapping[str, Any]:
+    state = _mapping(_state_snapshot(executor))
+    step_name = runtime_step.get("name")
+    steps = _mapping(state.get("steps"))
+    return _mapping(steps.get(step_name))
+
+
+def _json_object_from_workspace(workspace: Path, relative_path: str) -> Mapping[str, Any]:
+    path = (workspace / relative_path).resolve()
+    try:
+        path.relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    if not path.is_file():
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    if not isinstance(payload, Mapping):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return payload
+
+
+def _file_digest_from_workspace(workspace: Path, relative_path: str) -> str:
+    path = (workspace / relative_path).resolve()
+    try:
+        path.relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    if not path.is_file():
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _workflow_version_policy_from_workspace(workspace: Path, relative_path: str) -> str:
+    path = (workspace / relative_path).resolve()
+    try:
+        path.relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    if not path.is_file():
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid) from exc
+    if path.suffix == ".orc":
+        match = re.search(r'\(:target-dsl\s+"([^"]+)"\)', text)
+        if match is None:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return match.group(1)
+    for line in text.splitlines():
+        if line.strip().startswith("version:"):
+            _, _, value = line.partition(":")
+            version = value.strip()
+            if version:
+                return version
+    raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+
+
+def _provider_prompt_input_contract_digest(runtime_step: Any) -> str:
     return _sha256_json(
         {
-            "point_kind": point.get("point_kind"),
-            "policy_status": policy_status,
-            "step_kind": point.get("step_kind"),
-            "effect_kind": payload.get("effect_kind"),
-            "boundary_kind": payload.get("boundary_kind"),
-            "loop_name": payload.get("loop_name"),
+            "provider": runtime_step.get("provider"),
+            "input_file": runtime_step.get("input_file"),
+            "asset_file": runtime_step.get("asset_file"),
+            "prompt_consumes": runtime_step.get("prompt_consumes"),
+            "depends_on": runtime_step.get("depends_on"),
+            "asset_depends_on": runtime_step.get("asset_depends_on"),
+            "inject_output_contract": runtime_step.get("inject_output_contract"),
+            "inject_consumes": runtime_step.get("inject_consumes"),
+            "consumes_injection_position": runtime_step.get("consumes_injection_position"),
         }
     )
+
+
+def _completed_effect_ref_base(point: Any, *, effect_kind: str) -> dict[str, Any]:
+    return {
+        "effect_ref_schema_version": COMPLETED_EFFECT_REF_SCHEMA_VERSION,
+        "effect_kind": effect_kind,
+        "step_id": _point_field(point, "step_id"),
+        "status": "completed",
+        "source_map_origin_key": _point_field(point, "origin_key"),
+    }
+
+
+def _policy_ref_invalid_diagnostic(expected_point: Mapping[str, Any]) -> str:
+    effect_boundary = _mapping(expected_point.get("effect_boundary"))
+    effect_kind = effect_boundary.get("effect_kind")
+    policy = _mapping(effect_boundary.get("policy"))
+    policy_kind = policy.get("policy_kind")
+    if effect_kind in {"command", "provider"} or policy_kind in {
+        "reuse_validated_structured_output",
+        "certified_resume_protocol_required",
+    }:
+        return EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid
+    if effect_kind == "materialize_view":
+        return EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch
+    if effect_kind == "resource_transition":
+        return EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing
+    return DIAGNOSTIC_CODES.completed_effect_invalid
+
+
+def _materialized_view_durability_mode(point_policy: Mapping[str, Any]) -> str:
+    return "preserve" if point_policy.get("policy_kind") == "preserve_durable_view" else "regenerate"
+
+
+def _structured_output_completed_effect_ref(
+    executor: Any,
+    *,
+    point: Any,
+    runtime_step: Any,
+    step_state: Mapping[str, Any],
+    effect_kind: str,
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    _, resolved_output_bundle, path_error = executor._resolve_output_contract_paths(runtime_step, _state_snapshot(executor))
+    if path_error is not None or not isinstance(resolved_output_bundle, Mapping):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    bundle_path = resolved_output_bundle.get("path")
+    if not isinstance(bundle_path, str) or not bundle_path:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    bundle_payload = _json_object_from_workspace(executor.workspace, bundle_path)
+    structured_output = _mapping(_mapping(point_policy.get("evidence_requirements")).get("structured_output"))
+    return {
+        **_completed_effect_ref_base(point, effect_kind=effect_kind),
+        "evidence_kind": "structured_output_bundle",
+        "bundle_path": bundle_path,
+        "bundle_path_ref": structured_output.get("bundle_path_ref"),
+        "contract_digest": _sha256_json(
+            {
+                "path": bundle_path,
+                "fields": resolved_output_bundle.get("fields", []),
+            }
+        ),
+        "payload_digest": _sha256_json(bundle_payload),
+        "artifact_digest": _sha256_json(_mapping(step_state.get("artifacts"))),
+        **(
+            {"prompt_input_contract_digest": _provider_prompt_input_contract_digest(runtime_step)}
+            if effect_kind == "provider"
+            else {}
+        ),
+    }
+
+
+def _workflow_call_completed_effect_ref(
+    executor: Any,
+    *,
+    point: Any,
+    step_state: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    call_debug = _mapping(_mapping(step_state.get("debug")).get("call"))
+    call_frame_id = call_debug.get("call_frame_id")
+    if not isinstance(call_frame_id, str) or not call_frame_id:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    workflow_call = _mapping(_mapping(point_policy.get("evidence_requirements")).get("workflow_call"))
+    callee_workflow = workflow_call.get("callee_workflow") or call_debug.get("import_alias")
+    if not isinstance(callee_workflow, str) or not callee_workflow:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    workflow_file = call_debug.get("workflow_file")
+    if not isinstance(workflow_file, str) or not workflow_file:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return {
+        **_completed_effect_ref_base(point, effect_kind="call"),
+        "evidence_kind": "workflow_call_result",
+        "call_frame_id": call_frame_id,
+        "callee_workflow": callee_workflow,
+        "workflow_file": workflow_file,
+        "target_dsl_version": _workflow_version_policy_from_workspace(executor.workspace, workflow_file),
+        "callee_checksum": _file_digest_from_workspace(executor.workspace, workflow_file),
+        "input_digest": _sha256_json(_mapping(call_debug.get("bound_inputs"))),
+        "terminal_result_digest": _sha256_json(_mapping(call_debug.get("workflow_outputs"))),
+    }
+
+
+def _materialized_view_completed_effect_ref(
+    executor: Any,
+    *,
+    point: Any,
+    step_state: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    materialize_debug = _mapping(_mapping(step_state.get("debug")).get("materialize_view"))
+    required = {}
+    for key in ("target_path", "evidence_path", "view_digest", "evidence_key"):
+        value = materialize_debug.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        required[key] = value
+    evidence_record = _json_object_from_workspace(executor.workspace, required["evidence_path"])
+    renderer_id = evidence_record.get("renderer_id")
+    renderer_version = evidence_record.get("renderer_version")
+    value_digest = evidence_record.get("value_digest")
+    if not isinstance(renderer_id, str) or not renderer_id:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if not isinstance(renderer_version, int):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if not isinstance(value_digest, str) or not value_digest:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return {
+        **_completed_effect_ref_base(point, effect_kind="materialize_view"),
+        "evidence_kind": "materialized_view",
+        "renderer_id": renderer_id,
+        "renderer_version": renderer_version,
+        "value_digest": value_digest,
+        "durability_mode": _materialized_view_durability_mode(point_policy),
+        **required,
+    }
+
+
+def _resource_transition_completed_effect_ref(
+    executor: Any,
+    *,
+    point: Any,
+    runtime_step: Any,
+    step_state: Mapping[str, Any],
+    point_policy: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    from orchestrator.workflow.transition_contract import derive_idempotency_key
+
+    transition_debug = _mapping(_mapping(step_state.get("debug")).get("resource_transition"))
+    config = _mapping(runtime_step.get("resource_transition"))
+    declaration = config.get("declaration")
+    if declaration is None:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    resolved_resource, resource_error = executor._resolve_resource_transition_bindings(
+        config.get("resource"),
+        _state_snapshot(executor),
+    )
+    if resource_error is not None or not isinstance(resolved_resource, Mapping):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    normalized_resource = executor._normalize_resource_transition_paths(dict(resolved_resource))
+    resource_id = transition_debug.get("resource_id")
+    resource_version = transition_debug.get("version")
+    if not isinstance(resource_id, str) or not resource_id:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if not isinstance(resource_version, str) or not resource_version:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    transition_policy = _mapping(_mapping(point_policy.get("evidence_requirements")).get("transition"))
+    transition_identity = transition_policy.get("transition_identity")
+    if not isinstance(transition_identity, str) or not transition_identity:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    resolved_request, request_error = executor._resolve_resource_transition_bindings(
+        config.get("request_bindings"),
+        _state_snapshot(executor),
+    )
+    if request_error is not None or not isinstance(resolved_request, Mapping):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    audit_path = normalized_resource.get("audit_path")
+    if isinstance(audit_path, Path):
+        audit_path = _relative_path(executor.state_manager, audit_path)
+    if not isinstance(audit_path, str) or not audit_path:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    return {
+        **_completed_effect_ref_base(point, effect_kind="resource_transition"),
+        "evidence_kind": "transition_audit",
+        "transition_identity": transition_identity,
+        "resource_id": resource_id,
+        "resource_version": resource_version,
+        "audit_path": audit_path,
+        "audit_digest": _file_digest_from_workspace(executor.workspace, audit_path),
+        "idempotency_key": derive_idempotency_key(
+            declaration,
+            resource_id=resource_id,
+            request_values=resolved_request,
+        ),
+    }
+
+
+def collect_completed_effect_refs(
+    executor: Any,
+    *,
+    point: Any,
+) -> list[Mapping[str, Any]]:
+    effect_boundary = _mapping(_point_details(point).get("effect_boundary"))
+    effect_kind = effect_boundary.get("effect_kind")
+    if not isinstance(effect_kind, str) or not effect_kind:
+        return []
+    if effect_kind == "pure_projection":
+        return []
+    runtime_step = _runtime_step_for_point(executor, point)
+    step_state = _step_state_for_runtime_step(executor, runtime_step)
+    if step_state.get("status") != "completed":
+        return []
+    point_policy = _mapping(effect_boundary.get("policy"))
+    if effect_kind in {"command", "provider"}:
+        return [
+            _structured_output_completed_effect_ref(
+                executor,
+                point=point,
+                runtime_step=runtime_step,
+                step_state=step_state,
+                effect_kind=effect_kind,
+                point_policy=point_policy,
+            )
+        ]
+    if effect_kind == "call":
+        return [
+            _workflow_call_completed_effect_ref(
+                executor,
+                point=point,
+                step_state=step_state,
+                point_policy=point_policy,
+            )
+        ]
+    if effect_kind == "materialize_view":
+        return [
+            _materialized_view_completed_effect_ref(
+                executor,
+                point=point,
+                step_state=step_state,
+                point_policy=point_policy,
+            )
+        ]
+    if effect_kind == "resource_transition":
+        return [
+            _resource_transition_completed_effect_ref(
+                executor,
+                point=point,
+                runtime_step=runtime_step,
+                step_state=step_state,
+                point_policy=point_policy,
+            )
+        ]
+    return []
+
+
+def _validate_completed_effect_refs(
+    record: Mapping[str, Any],
+    *,
+    expected_point: Mapping[str, Any],
+) -> None:
+    completed_effect_refs = record.get("completed_effect_refs")
+    if not isinstance(completed_effect_refs, list):
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    effect_boundary = _mapping(expected_point.get("effect_boundary"))
+    if not _mapping(effect_boundary.get("policy")):
+        if not completed_effect_refs:
+            return
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    effect_kind = effect_boundary.get("effect_kind")
+    if effect_kind == "pure_projection":
+        if completed_effect_refs:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return
+
+    validity_envelope = _mapping(record.get("validity_envelope"))
+    observed_digest = validity_envelope.get("completed_effect_refs_digest")
+    if not completed_effect_refs:
+        if observed_digest is None:
+            return
+        if observed_digest != _completed_effect_refs_digest(()):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return
+
+    if not isinstance(observed_digest, str) or not observed_digest:
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+    if observed_digest != _completed_effect_refs_digest(tuple(_mapping(ref) for ref in completed_effect_refs)):
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+    if len(completed_effect_refs) != 1:
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+    ref = _mapping(completed_effect_refs[0])
+    for key in ("effect_ref_schema_version", "effect_kind", "step_id", "status", "source_map_origin_key"):
+        value = ref.get(key)
+        if key == "effect_ref_schema_version":
+            if value != COMPLETED_EFFECT_REF_SCHEMA_VERSION:
+                raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+            continue
+        if not isinstance(value, str) or not value:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    if ref.get("step_id") != expected_point.get("step_id"):
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+    if ref.get("effect_kind") != effect_kind:
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+    if ref.get("status") != "completed":
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+    if ref.get("source_map_origin_key") != expected_point.get("origin_key"):
+        raise ValueError(_policy_ref_invalid_diagnostic(expected_point))
+
+    if effect_kind in {"command", "provider"}:
+        for key in ("bundle_path", "bundle_path_ref", "contract_digest", "payload_digest", "artifact_digest"):
+            value = ref.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        if effect_kind == "provider":
+            prompt_input_contract_digest = ref.get("prompt_input_contract_digest")
+            if not isinstance(prompt_input_contract_digest, str) or not prompt_input_contract_digest:
+                raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        if ref.get("evidence_kind") != "structured_output_bundle":
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        return
+    if effect_kind == "call":
+        for key in (
+            "call_frame_id",
+            "callee_workflow",
+            "workflow_file",
+            "target_dsl_version",
+            "callee_checksum",
+            "input_digest",
+            "terminal_result_digest",
+        ):
+            value = ref.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("evidence_kind") != "workflow_call_result":
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return
+    if effect_kind == "materialize_view":
+        for key in ("target_path", "evidence_path", "view_digest", "evidence_key", "renderer_id", "value_digest", "durability_mode"):
+            value = ref.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if not isinstance(ref.get("renderer_version"), int):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("evidence_kind") != "materialized_view":
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        return
+    if effect_kind == "resource_transition":
+        for key in ("transition_identity", "resource_id", "resource_version", "audit_path", "audit_digest", "idempotency_key"):
+            value = ref.get(key)
+            if not isinstance(value, str) or not value:
+                raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
+        if ref.get("evidence_kind") != "transition_audit":
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
+        return
+
+
+def validate_completed_effect_refs_against_authoritative_state(
+    record: Mapping[str, Any],
+    *,
+    expected_point: Mapping[str, Any],
+    state: Mapping[str, Any],
+    workspace: Path,
+    executable_workflow: Any,
+) -> None:
+    from orchestrator.workflow.runtime_step import RuntimeStep
+
+    _validate_completed_effect_refs(record, expected_point=expected_point)
+    completed_effect_refs = record.get("completed_effect_refs")
+    if not isinstance(completed_effect_refs, list) or not completed_effect_refs:
+        return
+    ref = _mapping(completed_effect_refs[0])
+    effect_boundary = _mapping(expected_point.get("effect_boundary"))
+    effect_kind = effect_boundary.get("effect_kind")
+    point_policy = _mapping(effect_boundary.get("policy"))
+    node_id = expected_point.get("node_id")
+    nodes = getattr(executable_workflow, "nodes", {})
+    node = nodes.get(node_id) if isinstance(nodes, Mapping) else None
+    if node is None:
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+    runtime_step = RuntimeStep(node=node, name=str(expected_point.get("presentation_key") or ""), step_id=str(expected_point.get("step_id") or ""))
+    step_state = _mapping(_mapping(state.get("steps")).get(runtime_step.name))
+    if step_state.get("status") != "completed":
+        raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+
+    if effect_kind in {"command", "provider"}:
+        output_bundle = _mapping(runtime_step.get("output_bundle"))
+        fields = output_bundle.get("fields")
+        if not isinstance(fields, list):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        bundle_path = ref.get("bundle_path")
+        if not isinstance(bundle_path, str) or not bundle_path:
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        payload = _json_object_from_workspace(workspace, bundle_path)
+        structured_output = _mapping(_mapping(point_policy.get("evidence_requirements")).get("structured_output"))
+        if ref.get("bundle_path_ref") != structured_output.get("bundle_path_ref"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        if structured_output.get("declared_target_only"):
+            declared_path = output_bundle.get("path")
+            if isinstance(declared_path, str) and "${" not in declared_path and bundle_path != declared_path:
+                raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        if ref.get("contract_digest") != _sha256_json({"path": bundle_path, "fields": fields}):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        if ref.get("payload_digest") != _sha256_json(payload):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        if effect_kind == "provider":
+            if ref.get("prompt_input_contract_digest") != _provider_prompt_input_contract_digest(runtime_step):
+                raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.structured_output_invalid)
+        return
+
+    if effect_kind == "call":
+        call_debug = _mapping(_mapping(step_state.get("debug")).get("call"))
+        workflow_call = _mapping(_mapping(point_policy.get("evidence_requirements")).get("workflow_call"))
+        if ref.get("call_frame_id") != call_debug.get("call_frame_id"):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("callee_workflow") != (workflow_call.get("callee_workflow") or call_debug.get("import_alias")):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        workflow_file = call_debug.get("workflow_file")
+        if not isinstance(workflow_file, str) or not workflow_file:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("workflow_file") != workflow_file:
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("target_dsl_version") != _workflow_version_policy_from_workspace(workspace, workflow_file):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("callee_checksum") != _file_digest_from_workspace(workspace, workflow_file):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("input_digest") != _sha256_json(_mapping(call_debug.get("bound_inputs"))):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        if ref.get("terminal_result_digest") != _sha256_json(_mapping(call_debug.get("workflow_outputs"))):
+            raise ValueError(DIAGNOSTIC_CODES.completed_effect_invalid)
+        return
+
+    if effect_kind == "materialize_view":
+        evidence_record = _json_object_from_workspace(workspace, str(ref.get("evidence_path")))
+        if ref.get("renderer_id") != evidence_record.get("renderer_id"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("renderer_version") != evidence_record.get("renderer_version"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("value_digest") != evidence_record.get("value_digest"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("view_digest") != evidence_record.get("view_digest"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("evidence_key") != evidence_record.get("evidence_key"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("target_path") != evidence_record.get("target_path"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("view_digest") != _file_digest_from_workspace(workspace, str(ref.get("target_path"))):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        if ref.get("durability_mode") != _materialized_view_durability_mode(point_policy):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.materialized_view_mismatch)
+        return
+
+    if effect_kind == "resource_transition":
+        transition = _mapping(_mapping(point_policy.get("evidence_requirements")).get("transition"))
+        if ref.get("transition_identity") != transition.get("transition_identity"):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
+        if ref.get("audit_digest") != _file_digest_from_workspace(workspace, str(ref.get("audit_path"))):
+            raise ValueError(EFFECT_POLICY_DIAGNOSTIC_CODES.transition_audit_missing)
+        return
 
 
 def validate_checkpoint_record(
@@ -250,7 +896,8 @@ def validate_checkpoint_record(
         raise ValueError(DIAGNOSTIC_CODES.storage_role_invalid)
     if not origin_key:
         raise ValueError(DIAGNOSTIC_CODES.source_lineage_mismatch)
-    if record.get("provisional_policy") not in PROVISIONAL_POLICIES:
+    provisional_policy = record.get("provisional_policy")
+    if provisional_policy is not None and provisional_policy not in PROVISIONAL_POLICIES:
         raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
     if expected_program_identity is not None:
         if canonical_json_dumps(_mapping(record.get("program_identity"))) != canonical_json_dumps(expected_program_identity):
@@ -269,9 +916,11 @@ def validate_checkpoint_record(
             raise ValueError(DIAGNOSTIC_CODES.storage_role_invalid)
         if origin_key != expected_point.get("origin_key"):
             raise ValueError(DIAGNOSTIC_CODES.source_lineage_mismatch)
-        effect_policy_digest = validity_envelope.get("effect_policy_digest")
-        if effect_policy_digest != checkpoint_record_effect_policy_digest(expected_point):
-            raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
+        policy_summary = describe_checkpoint_record_policy(record, expected_point=expected_point)
+        if policy_summary.get("diagnostic") is not None:
+            raise ValueError(str(policy_summary["diagnostic"]))
+        if policy_summary.get("record_policy_status") == "policy_enforced":
+            _validate_completed_effect_refs(record, expected_point=expected_point)
     restore_payload = record.get("restore_payload")
     if restore_payload is not None:
         validate_restore_payload(_mapping(restore_payload), expected_origin_key=str(origin_key))
@@ -610,6 +1259,7 @@ def emit_runtime_shadow_record(
             "validity_envelope": {
                 "binding_schema_digest": _binding_schema_digest(point),
                 "effect_policy_digest": _effect_policy_digest(point),
+                "completed_effect_refs_digest": None,
                 "source_map_origin_key": _point_field(point, "origin_key"),
                 "storage_allocation_id": record_allocation.allocation_id,
             },
@@ -639,6 +1289,11 @@ def emit_runtime_shadow_record(
         )
         if restore_payload is not None:
             record["restore_payload"] = dict(restore_payload)
+        completed_effect_refs = collect_completed_effect_refs(executor, point=point)
+        record["completed_effect_refs"] = [dict(ref) for ref in completed_effect_refs]
+        record["validity_envelope"]["completed_effect_refs_digest"] = _completed_effect_refs_digest(
+            tuple(_mapping(ref) for ref in completed_effect_refs)
+        )
         validate_checkpoint_record(
             record,
             expected_point=point_payload,

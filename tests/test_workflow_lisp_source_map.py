@@ -34,6 +34,7 @@ IMPORTED_STDLIB_HELPER_MODULE = (
     IMPORTED_STDLIB_HELPER_ROOT / "imported_stdlib_macro_payload_helper_composition" / "std_payload_helpers.orc"
 )
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
+LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 
 
 def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
@@ -639,6 +640,23 @@ def test_source_map_records_branch_scoped_resume_identity_lineage(tmp_path: Path
 def test_source_map_keeps_lexical_checkpoint_lineage_route_neutral(tmp_path: Path) -> None:
     _, document, workflow_name = _build_entrypoint_source_map_document(
         LEXICAL_CHECKPOINT_FIXTURE,
+        tmp_path=tmp_path,
+        selected_name="orchestrate",
+        validate_shared=True,
+    )
+    payload = _source_map_payload(document)
+    workflow = payload["workflows"][workflow_name]
+    source_map_text = json.dumps(payload, sort_keys=True).replace(str(tmp_path), "")
+
+    assert workflow["generated_path_allocations"]
+    assert "wcc_m4" not in source_map_text
+    assert "lowering_route" not in source_map_text
+    assert "wcc-node" not in source_map_text
+
+
+def test_source_map_keeps_r3_lexical_checkpoint_policy_lineage_route_neutral(tmp_path: Path) -> None:
+    _, document, workflow_name = _build_entrypoint_source_map_document(
+        LEXICAL_POLICY_FIXTURE,
         tmp_path=tmp_path,
         selected_name="orchestrate",
         validate_shared=True,

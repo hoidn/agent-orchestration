@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -44,7 +45,9 @@ CHARACTERIZATION_SOURCES = FIXTURES / "characterization" / "sources"
 PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
 LEXICAL_CHECKPOINT_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_shadow_points.orc"
+LEXICAL_POLICY_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_restore_regions.orc"
+CERTIFIED_ADAPTER_FIXTURE = VALID_FIXTURES / "certified_adapter_call.orc"
 
 
 def _span() -> SourceSpan:
@@ -85,6 +88,46 @@ def _compile_review_loop_wcc_m4(path: Path, *, tmp_path: Path):
         lowering_route="wcc_m4",
         validate_shared=True,
         workspace_root=tmp_path,
+    )
+
+
+def _certified_adapter_command_boundaries():
+    return _parse_command_boundaries_manifest(
+        {
+            "normalize_result": {
+                "kind": "certified_adapter",
+                "stable_command": ["python", "scripts/normalize_result.py"],
+                "input_contract": {"type": "object"},
+                "output_type_name": "ImplementationSummary",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": ["normalize_result_ok"],
+                "negative_fixture_ids": ["normalize_result_bad"],
+                "behavior_class": "structured_result",
+                "input_signature": [
+                    {
+                        "name": "execution_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "execution_report",
+                    },
+                    {
+                        "name": "review_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "review_report",
+                    },
+                ],
+                "artifact_contracts": ["implementation_summary_report"],
+                "state_writes": [],
+                "error_codes": ["normalize_result_invalid_payload"],
+                "owner_module": "std/phase",
+                "replacement_path": "typed review findings validation bridge",
+                "invocation_protocol": "json_object_positional_arg",
+            }
+        },
+        manifest_path=None,
     )
 
 
@@ -877,3 +920,88 @@ def test_wcc_m4_lexical_checkpoint_extraction_exports_restore_eligibility_descri
     assert len(materialize_point["restore"]["proof_descriptor_digests"]) == 2
     assert all("wcc-node:" not in json.dumps(point.get("restore", {}), sort_keys=True) for point in checkpoint_points)
     assert all("wcc_m4" not in json.dumps(point.get("restore", {}), sort_keys=True) for point in checkpoint_points)
+
+
+def test_wcc_m4_lexical_checkpoint_extraction_emits_r3_policy_envelopes_for_boundary_families(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        LEXICAL_POLICY_FIXTURE,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    checkpoint_points = getattr(lowered, "lexical_checkpoint_points")
+    effect_policies = {
+        point["effect_boundary"]["effect_kind"]: point["effect_boundary"]["policy"]
+        for point in checkpoint_points
+        if point["point_kind"] == "effect_boundary"
+    }
+
+    assert set(effect_policies) >= {
+        "pure_projection",
+        "provider",
+        "command",
+        "call",
+        "materialize_view",
+        "resource_transition",
+    }
+    assert effect_policies["pure_projection"]["policy_kind"] == "recompute_or_reuse_checkpoint"
+    assert effect_policies["provider"]["policy_kind"] == "reuse_validated_structured_output"
+    assert effect_policies["command"]["policy_kind"] == "reuse_validated_structured_output"
+    assert effect_policies["call"]["policy_kind"] == "reuse_validated_workflow_call"
+    assert effect_policies["materialize_view"]["policy_kind"] == "preserve_durable_view"
+    assert effect_policies["resource_transition"]["policy_kind"] == "transition_idempotent_audit_required"
+    structured_output = effect_policies["provider"]["evidence_requirements"]["structured_output"]
+    assert structured_output["prompt_input_contract_digest"].startswith("sha256:")
+    workflow_call = effect_policies["call"]["evidence_requirements"]["workflow_call"]
+    assert workflow_call["target_dsl_version"] == "2.14"
+    assert workflow_call["callee_checksum"].startswith("sha256:")
+    assert all(policy["schema_version"] == "workflow_lisp_effect_resume_policy.v1" for policy in effect_policies.values())
+    assert all("wcc-node:" not in json.dumps(policy, sort_keys=True) for policy in effect_policies.values())
+
+
+def test_wcc_m4_certified_adapter_command_boundary_uses_adapter_specific_r3_policy(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        CERTIFIED_ADAPTER_FIXTURE,
+        command_boundaries=_certified_adapter_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "normalize-summary"
+    )
+    command_point = next(
+        point
+        for point in getattr(lowered, "lexical_checkpoint_points")
+        if point["point_kind"] == "effect_boundary"
+        and point["effect_boundary"]["effect_kind"] == "command"
+    )
+    policy = command_point["effect_boundary"]["policy"]
+
+    assert policy["policy_kind"] == "certified_resume_protocol_required"
+    assert policy["unsafe_pending_behavior"] == "requires_certified_resume_protocol"
+    assert policy["evidence_requirements"]["command_resume_protocol"] == {
+        "protocol_name": "normalize_result"
+    }
+    assert policy["evidence_requirements"]["structured_output"]["declared_target_only"] is True

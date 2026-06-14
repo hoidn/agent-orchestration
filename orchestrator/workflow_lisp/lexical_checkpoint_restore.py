@@ -31,6 +31,7 @@ class RestoreDiagnosticCodes:
     proof_mismatch: str = "lexical_restore_proof_mismatch"
     loop_frame_mismatch: str = "lexical_restore_loop_frame_mismatch"
     pending_effect_unsafe: str = "lexical_restore_pending_effect_unsafe"
+    effect_policy_barrier: str = "lexical_restore_effect_policy_barrier"
     resource_observation_mismatch: str = "lexical_restore_resource_observation_mismatch"
     used_as_semantic_authority: str = "lexical_restore_used_as_semantic_authority"
 
@@ -45,6 +46,7 @@ class RestoreDecision:
     record_id: str | None = None
     source_map_origin_key: str | None = None
     restore_payload: Mapping[str, Any] | None = None
+    policy_decision: str | None = None
     diagnostics: tuple[str, ...] = ()
 
     @property
@@ -925,6 +927,52 @@ def select_restore_candidate(
     )
     all_points = tuple(getattr(runtime_plan, "lexical_checkpoint_points", ()))
 
+    def _r3_policy_decision(record: Mapping[str, Any], point: Any) -> tuple[str | None, tuple[str, ...]]:
+        point_payload = checkpoints._point_payload(point)
+        effect_boundary = _mapping(point_payload.get("effect_boundary"))
+        policy = _mapping(effect_boundary.get("policy"))
+        if not policy:
+            return None, ()
+        step_name = point_payload.get("presentation_key")
+        step_state = _mapping(_mapping(state.get("steps")).get(step_name))
+        step_completed = step_state.get("status") == "completed"
+        policy_summary = checkpoints.describe_checkpoint_record_policy(record, expected_point=point_payload)
+        if policy_summary.get("record_policy_status") == "historical_shadow_only":
+            return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,)
+        if policy_summary.get("diagnostic") is not None:
+            return "INVALID", (str(policy_summary["diagnostic"]),)
+        try:
+            checkpoints._validate_completed_effect_refs(record, expected_point=point_payload)
+        except ValueError as exc:
+            return "INVALID", (str(exc),)
+        completed_effect_refs = record.get("completed_effect_refs")
+        has_completed_effect_refs = isinstance(completed_effect_refs, list) and bool(completed_effect_refs)
+        policy_kind = policy.get("policy_kind")
+        if policy_kind in {
+            "reuse_validated_structured_output",
+            "reuse_validated_workflow_call",
+            "certified_resume_protocol_required",
+        }:
+            if not has_completed_effect_refs:
+                unsafe_pending_behavior = policy.get("unsafe_pending_behavior")
+                if unsafe_pending_behavior == "audit_barrier":
+                    return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,)
+                return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,)
+            return "REUSABLE", ()
+        if policy_kind == "preserve_durable_view":
+            if has_completed_effect_refs:
+                return "REUSABLE", ()
+            if step_completed:
+                return "INVALID", (checkpoints._policy_ref_invalid_diagnostic(point_payload),)
+            return "REGENERATE", ()
+        if policy_kind in {"recompute_or_reuse_checkpoint", "regenerate_deterministic_view"}:
+            return "REGENERATE", ()
+        if policy_kind == "transition_idempotent_audit_required":
+            return "BARRIER", (DIAGNOSTIC_CODES.effect_policy_barrier,)
+        if policy_kind == "fail_closed_non_idempotent":
+            return "BARRIER", (DIAGNOSTIC_CODES.pending_effect_unsafe,)
+        return "INVALID", (DIAGNOSTIC_CODES.pending_effect_unsafe,)
+
     def _select_for_points(points: Sequence[Any], *, selected_checkpoint_id: str | None = None) -> RestoreDecision:
         if not points:
             return RestoreDecision(kind=RESTORE_DECISION_NOT_RESTORABLE, checkpoint_id=selected_checkpoint_id)
@@ -997,12 +1045,50 @@ def select_restore_candidate(
                         source_map_origin_key=origin_key,
                         diagnostics=(DIAGNOSTIC_CODES.binding_schema_mismatch,),
                     )
-                if _mapping(record.get("pending_effect_policy")).get("policy_status") != "shadow_record_only":
+                policy_decision, policy_diagnostics = _r3_policy_decision(record, point)
+                if policy_decision == "INVALID":
                     return RestoreDecision(
                         kind=RESTORE_DECISION_INVALID,
                         checkpoint_id=point.checkpoint_id,
                         record_id=record_id,
                         source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
+                        diagnostics=policy_diagnostics,
+                    )
+                if policy_decision == "BARRIER":
+                    saw_non_restorable = True
+                    invalid_diagnostics.extend(policy_diagnostics)
+                    continue
+                if policy_decision == "REUSABLE":
+                    if executable_workflow is None:
+                        saw_non_restorable = True
+                        continue
+                    try:
+                        checkpoints.validate_completed_effect_refs_against_authoritative_state(
+                            record,
+                            expected_point=checkpoints._point_payload(point),
+                            state=state,
+                            workspace=state_manager.workspace,
+                            executable_workflow=executable_workflow,
+                        )
+                    except ValueError as exc:
+                        return RestoreDecision(
+                            kind=RESTORE_DECISION_INVALID,
+                            checkpoint_id=point.checkpoint_id,
+                            record_id=record_id,
+                            source_map_origin_key=origin_key,
+                            policy_decision="INVALID",
+                            diagnostics=(str(exc),),
+                        )
+                pending_effect_policy = _mapping(record.get("pending_effect_policy"))
+                pending_policy_status = pending_effect_policy.get("policy_status")
+                if pending_policy_status is not None and pending_policy_status != "shadow_record_only":
+                    return RestoreDecision(
+                        kind=RESTORE_DECISION_INVALID,
+                        checkpoint_id=point.checkpoint_id,
+                        record_id=record_id,
+                        source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
                         diagnostics=(DIAGNOSTIC_CODES.pending_effect_unsafe,),
                     )
                 restore_payload = record.get("restore_payload")
@@ -1021,6 +1107,7 @@ def select_restore_candidate(
                         checkpoint_id=point.checkpoint_id,
                         record_id=record_id,
                         source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
                         diagnostics=(str(exc),),
                     )
                 restore_metadata = _mapping(getattr(point, "details", {}).get("restore"))
@@ -1045,6 +1132,7 @@ def select_restore_candidate(
                         checkpoint_id=point.checkpoint_id,
                         record_id=record_id,
                         source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
                         diagnostics=(binding_diagnostic,),
                     )
                 proofs = _sequence(_mapping(restore_payload).get("active_variant_proofs"))
@@ -1068,6 +1156,7 @@ def select_restore_candidate(
                         checkpoint_id=point.checkpoint_id,
                         record_id=record_id,
                         source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
                         diagnostics=(proof_diagnostic,),
                     )
                 if executable_workflow is not None:
@@ -1084,6 +1173,7 @@ def select_restore_candidate(
                             checkpoint_id=point.checkpoint_id,
                             record_id=record_id,
                             source_map_origin_key=origin_key,
+                            policy_decision=policy_decision,
                             diagnostics=(DIAGNOSTIC_CODES.binding_schema_mismatch,),
                         )
                     if any(
@@ -1099,6 +1189,7 @@ def select_restore_candidate(
                             checkpoint_id=point.checkpoint_id,
                             record_id=record_id,
                             source_map_origin_key=origin_key,
+                            policy_decision=policy_decision,
                             diagnostics=(DIAGNOSTIC_CODES.proof_mismatch,),
                         )
                 loop_frame = _mapping(_mapping(restore_payload).get("loop_frame"))
@@ -1108,6 +1199,7 @@ def select_restore_candidate(
                         checkpoint_id=point.checkpoint_id,
                         record_id=record_id,
                         source_map_origin_key=origin_key,
+                        policy_decision=policy_decision,
                         diagnostics=(DIAGNOSTIC_CODES.loop_frame_mismatch,),
                     )
                 return RestoreDecision(
@@ -1116,12 +1208,13 @@ def select_restore_candidate(
                     record_id=record_id,
                     source_map_origin_key=origin_key,
                     restore_payload=_mapping(restore_payload),
+                    policy_decision=policy_decision,
                     diagnostics=(),
                 )
 
         if invalid_diagnostics:
             return RestoreDecision(
-                kind=RESTORE_DECISION_INVALID,
+                kind=RESTORE_DECISION_NOT_RESTORABLE if saw_non_restorable else RESTORE_DECISION_INVALID,
                 checkpoint_id=selected_checkpoint_id,
                 source_map_origin_key=None,
                 diagnostics=tuple(invalid_diagnostics),
@@ -1181,5 +1274,6 @@ def select_restore_candidate(
         record_id=primary.record_id,
         source_map_origin_key=primary.source_map_origin_key,
         restore_payload=merged_payload,
+        policy_decision=primary.policy_decision,
         diagnostics=(),
     )

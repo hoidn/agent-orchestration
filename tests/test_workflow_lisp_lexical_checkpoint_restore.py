@@ -11,10 +11,14 @@ import pytest
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
+from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
+POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_effect_policies.orc")
+CERTIFIED_ADAPTER_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/certified_adapter_call.orc")
 PLAIN_PURE_BINDING_FIXTURE_SOURCE = """(workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
@@ -81,6 +85,97 @@ def _compile_source_fixture(tmp_path: Path, *, filename: str, source: str):
     )
 
 
+def _compile_policy_fixture(tmp_path: Path, *, prompt_binding_path: str = "prompts/implementation/execute.md"):
+    local_fixture = tmp_path / POLICY_FIXTURE.name
+    local_fixture.write_text(POLICY_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    prompt_path = tmp_path / prompt_binding_path
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_path.write_text("Execute the plan.\n", encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        local_fixture,
+        source_roots=(tmp_path,),
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": prompt_binding_path},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return local_fixture, next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+
+def _certified_adapter_command_boundaries():
+    return _parse_command_boundaries_manifest(
+        {
+            "normalize_result": {
+                "kind": "certified_adapter",
+                "stable_command": ["python", "scripts/normalize_result.py"],
+                "input_contract": {"type": "object"},
+                "output_type_name": "ImplementationSummary",
+                "effects": ["structured_result"],
+                "path_safety": {"kind": "workspace_relpath"},
+                "source_map_behavior": "step",
+                "fixture_ids": ["normalize_result_ok"],
+                "negative_fixture_ids": ["normalize_result_bad"],
+                "behavior_class": "structured_result",
+                "input_signature": [
+                    {
+                        "name": "execution_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "execution_report",
+                    },
+                    {
+                        "name": "review_report",
+                        "type_name": "WorkReport",
+                        "required": True,
+                        "transport_key": "review_report",
+                    },
+                ],
+                "artifact_contracts": ["implementation_summary_report"],
+                "state_writes": [],
+                "error_codes": ["normalize_result_invalid_payload"],
+                "owner_module": "std/phase",
+                "replacement_path": "typed review findings validation bridge",
+                "invocation_protocol": "json_object_positional_arg",
+            }
+        },
+        manifest_path=None,
+    )
+
+
+def _compile_certified_adapter_fixture(tmp_path: Path):
+    local_fixture = tmp_path / "certified_adapter_checkpoint_restore.orc"
+    source = CERTIFIED_ADAPTER_FIXTURE.read_text(encoding="utf-8")
+    if "(defmodule" not in source:
+        source = source.replace(
+            '(:target-dsl "2.14")\n',
+            '(:target-dsl "2.14")\n  (defmodule certified_adapter_checkpoint_restore)\n  (export normalize-summary)\n',
+            1,
+        )
+    local_fixture.write_text(source, encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        local_fixture,
+        source_roots=(tmp_path,),
+        command_boundaries=_certified_adapter_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return local_fixture, next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "normalize-summary" or name.endswith("::normalize-summary")
+    )
+
+
 def _execution_inputs(tmp_path: Path) -> dict[str, object]:
     report_path = tmp_path / "artifacts" / "work" / "report.md"
     summary_path = tmp_path / "artifacts" / "work" / "summary.json"
@@ -100,6 +195,183 @@ def _plain_binding_execution_inputs(tmp_path: Path) -> dict[str, object]:
     return {
         "summary_target": "artifacts/work/plain-summary.json",
     }
+
+
+def _policy_execution_inputs(tmp_path: Path) -> dict[str, object]:
+    report_path = tmp_path / "artifacts" / "work" / "report.md"
+    summary_path = tmp_path / "artifacts" / "work" / "summary.json"
+    run_state_path = tmp_path / "state" / "run_state.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+    run_state_path.write_text('{"drain_status":"READY"}\n', encoding="utf-8")
+    return {
+        "run_state_path": "state/run_state.json",
+        "report_path": "artifacts/work/report.md",
+        "summary_target": "artifacts/work/summary.json",
+        "run_checks_now": True,
+    }
+
+
+def _certified_adapter_execution_inputs(tmp_path: Path) -> dict[str, object]:
+    execution_report = tmp_path / "artifacts" / "work" / "execution.md"
+    review_report = tmp_path / "artifacts" / "work" / "review.md"
+    execution_report.parent.mkdir(parents=True, exist_ok=True)
+    execution_report.write_text("execution\n", encoding="utf-8")
+    review_report.write_text("review\n", encoding="utf-8")
+    return {
+        "completed": {"execution_report": "artifacts/work/execution.md"},
+        "approved": {"review_report": "artifacts/work/review.md"},
+    }
+
+
+def _materialize_policy_sidecars(tmp_path: Path, *, run_id: str):
+    from orchestrator.contracts.output_contract import validate_output_bundle
+
+    workflow_path, bundle = _compile_policy_fixture(tmp_path)
+    state_manager = StateManager(tmp_path, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_policy_execution_inputs(tmp_path),
+    )
+
+    def _write_bundle(path: Path, payload: dict[str, object]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def _fake_command(self, step, state):
+        _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(step, state)
+        assert path_error is None and resolved_output_bundle is not None
+        _write_bundle(self.workspace / resolved_output_bundle["path"], {"status": "READY", "report": "artifacts/work/report.md"})
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": validate_output_bundle(resolved_output_bundle, workspace=self.workspace),
+        }
+
+    def _fake_provider(self, step, state):
+        _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(step, state)
+        assert path_error is None and resolved_output_bundle is not None
+        _write_bundle(self.workspace / resolved_output_bundle["path"], {"status": "COMPLETED", "report": "artifacts/work/report.md"})
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": validate_output_bundle(resolved_output_bundle, workspace=self.workspace),
+        }
+
+    with patch.object(WorkflowExecutor, "_execute_command", _fake_command), patch.object(
+        WorkflowExecutor,
+        "_execute_provider",
+        _fake_provider,
+    ):
+        final_state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
+
+    return bundle, state_manager, final_state
+
+
+def _compile_imported_call_fixture(tmp_path: Path, *, helper_status: str = "ok"):
+    source_root = tmp_path / "imported_call"
+    entry_path = source_root / "demo" / "entry.orc"
+    helper_path = source_root / "demo" / "helper.orc"
+    entry_path.parent.mkdir(parents=True, exist_ok=True)
+    helper_path.parent.mkdir(parents=True, exist_ok=True)
+    helper_path.write_text(
+        "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    "  (defmodule demo/helper)",
+                "  (export CallSummary run)",
+                "  (defrecord CallSummary",
+                "    (status String))",
+                "  (defworkflow run",
+                "    ()",
+                "    -> CallSummary",
+                "    (record CallSummary",
+                f'      :status "{helper_status}")))',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/helper :only (CallSummary run))",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate",
+                "    ()",
+                "    -> CallSummary",
+                "    (call run)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(source_root,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    return entry_path, helper_path, bundle
+
+
+def _materialize_imported_call_sidecars(tmp_path: Path, *, run_id: str):
+    workflow_path, helper_path, bundle = _compile_imported_call_fixture(tmp_path)
+    state_manager = StateManager(tmp_path, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+    )
+    final_state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
+    return workflow_path, helper_path, bundle, state_manager, final_state
+
+
+def _materialize_certified_adapter_sidecars(tmp_path: Path, *, run_id: str):
+    from orchestrator.contracts.output_contract import validate_output_bundle
+
+    workflow_path, bundle = _compile_certified_adapter_fixture(tmp_path)
+    state_manager = StateManager(tmp_path, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs=_certified_adapter_execution_inputs(tmp_path),
+    )
+
+    def _write_bundle(path: Path, payload: dict[str, object]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def _fake_command(self, step, state):
+        _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(step, state)
+        assert path_error is None and resolved_output_bundle is not None
+        _write_bundle(self.workspace / resolved_output_bundle["path"], {"report": "artifacts/work/review.md"})
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": validate_output_bundle(resolved_output_bundle, workspace=self.workspace),
+        }
+
+    with patch.object(WorkflowExecutor, "_execute_command", _fake_command):
+        final_state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
+
+    return bundle, state_manager, final_state
 
 
 def _restore_payload(*, record_id: str, program_point_id: str, origin_key: str) -> dict[str, object]:
@@ -900,6 +1172,289 @@ def test_restore_selector_rejects_loop_frame_state_drift_with_stable_bookkeeping
 
     assert decision.kind == "INVALID"
     assert "lexical_restore_loop_frame_mismatch" in decision.diagnostics
+
+
+def test_restore_selector_records_private_r3_policy_decision_for_preserved_materialized_view(tmp_path: Path) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-view")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "materialize_view"
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "RESTORED"
+    assert decision.policy_decision == "REUSABLE"
+
+
+def test_restore_selector_rejects_preserved_materialized_view_without_completed_effect_evidence(tmp_path: Path) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(
+        tmp_path,
+        run_id="restore-policy-view-missing-evidence",
+    )
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("policy", {}).get("policy_kind")
+        == "preserve_durable_view"
+    )
+    _rewrite_checkpoint_record(
+        tmp_path=tmp_path,
+        state_manager=state_manager,
+        point=point,
+        mutate=lambda record: (
+            record.__setitem__("completed_effect_refs", []),
+            record["validity_envelope"].__setitem__(
+                "completed_effect_refs_digest",
+                checkpoints._completed_effect_refs_digest(()),
+            ),
+        ),
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.policy_decision == "INVALID"
+    assert "lexical_checkpoint_effect_policy_materialized_view_mismatch" in decision.diagnostics
+
+
+def test_restore_selector_reuses_completed_command_boundary_when_validated_bundle_matches(tmp_path: Path) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-command")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "command"
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "RESTORED"
+    assert decision.policy_decision == "REUSABLE"
+
+
+def test_restore_selector_reuses_completed_certified_adapter_boundary_when_protocol_matches(tmp_path: Path) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_certified_adapter_sidecars(
+        tmp_path,
+        run_id="restore-policy-certified-adapter",
+    )
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "command"
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "RESTORED"
+    assert decision.policy_decision == "REUSABLE"
+
+
+def test_restore_selector_treats_completed_transition_policy_as_barrier(tmp_path: Path) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-transition")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "resource_transition"
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "NOT_RESTORABLE"
+    assert "lexical_restore_effect_policy_barrier" in decision.diagnostics
+
+
+def test_restore_selector_rejects_r3_completed_effect_ref_drift(tmp_path: Path) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-drift")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "materialize_view"
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    record["completed_effect_refs"][0]["view_digest"] = "sha256:drifted"
+    record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.policy_decision == "INVALID"
+    assert "lexical_checkpoint_effect_policy_materialized_view_mismatch" in decision.diagnostics
+
+
+def test_restore_selector_rejects_r3_authoritative_bundle_drift_on_disk(tmp_path: Path) -> None:
+    checkpoints = _checkpoints_module()
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-provider-drift")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    index_path = checkpoints.resolve_checkpoint_index_path(
+        state_manager=state_manager,
+        workflow_name=point.workflow_name,
+        checkpoint_id=point.checkpoint_id,
+    )
+    index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+    record_path = tmp_path / index_payload["records"][-1]["record_path"]
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    bundle_path = tmp_path / record["completed_effect_refs"][0]["bundle_path"]
+    bundle_path.write_text(
+        json.dumps({"report": "artifacts/work/report.md", "status": "DRIFTED"}, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=bundle.ir,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.policy_decision == "INVALID"
+    assert "lexical_checkpoint_effect_policy_structured_output_invalid" in decision.diagnostics
+
+
+def test_restore_selector_rejects_r3_provider_prompt_drift_on_disk(tmp_path: Path) -> None:
+    restore = _restore_module()
+    bundle, state_manager, final_state = _materialize_policy_sidecars(tmp_path, run_id="restore-policy-provider-prompt-drift")
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "provider"
+    )
+    recompiled_bundle = _compile_policy_fixture(
+        tmp_path,
+        prompt_binding_path="prompts/implementation/execute_v2.md",
+    )[1]
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=recompiled_bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=recompiled_bundle.ir,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.policy_decision == "INVALID"
+    assert "lexical_checkpoint_effect_policy_structured_output_invalid" in decision.diagnostics
+
+
+def test_restore_selector_rejects_r3_imported_workflow_call_callee_drift(tmp_path: Path) -> None:
+    restore = _restore_module()
+    _, _, bundle, state_manager, final_state = _materialize_imported_call_sidecars(
+        tmp_path,
+        run_id="restore-policy-imported-call-drift",
+    )
+
+    assert final_state["status"] == "completed"
+
+    point = next(
+        checkpoint_point
+        for checkpoint_point in bundle.runtime_plan.lexical_checkpoint_points
+        if checkpoint_point.point_kind == "effect_boundary"
+        and checkpoint_point.details.get("effect_boundary", {}).get("effect_kind") == "call"
+    )
+    recompiled_bundle = _compile_imported_call_fixture(tmp_path, helper_status="changed")[2]
+
+    decision = restore.select_restore_candidate(
+        state_manager=state_manager,
+        runtime_plan=recompiled_bundle.runtime_plan,
+        state=state_manager.load().to_dict(),
+        checkpoint_id=point.checkpoint_id,
+        executable_workflow=recompiled_bundle.ir,
+    )
+
+    assert decision.kind == "INVALID"
+    assert decision.policy_decision == "INVALID"
+    assert "lexical_checkpoint_completed_effect_invalid" in decision.diagnostics
 
 
 def test_runtime_resume_restores_private_bindings_and_loop_frame_from_checkpoint_sidecars(tmp_path: Path) -> None:

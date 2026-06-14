@@ -55,6 +55,7 @@ from .route import LOWERING_SCHEMA_WCC
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from ..lowering import core as lowering_core
 from ..lexical_checkpoint_restore import build_restore_metadata
+from ..lexical_checkpoint_effect_policies import build_effect_resume_policy
 from ..lexical_checkpoints import allocate_checkpoint_storage, derive_checkpoint_id, derive_program_point_id
 from ..lowering.context import (
     _LoweringContext,
@@ -133,6 +134,72 @@ def _sha256_text(value: object) -> str:
 
 def _sha256_json(value: object) -> str:
     return _sha256_text(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return f"sha256:{hashlib.sha256(value).hexdigest()}"
+
+
+def _workflow_version_policy_from_path(path: Path | None) -> str:
+    if path is None or not path.exists():
+        return "unknown"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "unknown"
+    if path.suffix == ".orc":
+        match = re.search(r'\(:target-dsl\s+"([^"]+)"\)', text)
+        return match.group(1) if match is not None else "unknown"
+    for line in text.splitlines():
+        if line.strip().startswith("version:"):
+            _, _, value = line.partition(":")
+            version = value.strip()
+            if version:
+                return version
+    return "unknown"
+
+
+def _provider_prompt_input_contract_digest(
+    *,
+    context: _LoweringContext,
+    provider_result: LowerableProviderResult,
+) -> str:
+    prompt_binding = context.extern_environment.bindings_by_name.get(provider_result.prompt_name)
+    provider_binding = context.extern_environment.bindings_by_name.get(provider_result.provider_name)
+    prompt_payload = None
+    if prompt_binding is not None:
+        prompt_payload = {
+            "source_kind": getattr(prompt_binding, "source_kind", None),
+            "path": getattr(prompt_binding, "path", None),
+        }
+    provider_id = getattr(provider_binding, "provider_id", provider_result.provider_name)
+    return _sha256_json(
+        {
+            "provider": provider_id,
+            "prompt_binding": prompt_payload,
+            "input_count": len(provider_result.inputs),
+        }
+    )
+
+
+def _workflow_call_policy_metadata(
+    *,
+    context: _LoweringContext,
+    callee_workflow: str,
+) -> tuple[str, str]:
+    imported_bundle = context.imported_workflow_bundles.get(callee_workflow)
+    workflow_path = imported_bundle.provenance.workflow_path if imported_bundle is not None else context.workflow_path
+    target_dsl_version = (
+        imported_bundle.surface.version
+        if imported_bundle is not None
+        else _workflow_version_policy_from_path(workflow_path)
+    )
+    callee_checksum = (
+        _sha256_bytes(workflow_path.read_bytes())
+        if workflow_path is not None and workflow_path.exists()
+        else _sha256_text(callee_workflow)
+    )
+    return target_dsl_version, callee_checksum
 
 
 def lower_wcc_m2_workflow_definitions(
@@ -1050,6 +1117,162 @@ def _effect_boundary_step_kind(value: WccPerform | WccCall) -> str:
     }.get(value.perform_kind, value.perform_kind)
 
 
+def _build_effect_resume_policy_payload(
+    *,
+    context: _LoweringContext,
+    step_kind: str,
+    step_id: str,
+    origin_key: str,
+    binding_schema_digest: str,
+    value: WccPerform | WccCall | None,
+    terminal: _TerminalResult,
+) -> Mapping[str, Any]:
+    if step_kind == "pure_projection":
+        return build_effect_resume_policy(
+            policy_kind="recompute_or_reuse_checkpoint",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={},
+        )
+    if step_kind == "provider":
+        bundle_identity = dict(terminal.provider_bundle_identity or {})
+        prompt_input_contract_digest = _sha256_text(step_id)
+        payload = value.operation_payload if isinstance(value, WccPerform) else None
+        if isinstance(payload, LowerableProviderResult):
+            prompt_input_contract_digest = _provider_prompt_input_contract_digest(
+                context=context,
+                provider_result=payload,
+            )
+        return build_effect_resume_policy(
+            policy_kind="reuse_validated_structured_output",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "structured_output": {
+                    "bundle_path_ref": str(
+                        bundle_identity.get("bundle_path_ref") or f"generated:provider_result_bundle:{step_id}"
+                    ),
+                    "contract_digest": str(bundle_identity.get("allocation_id") or binding_schema_digest),
+                    "prompt_input_contract_digest": prompt_input_contract_digest,
+                    "payload_digest_required": True,
+                    "declared_target_only": True,
+                }
+            },
+        )
+    if step_kind == "command":
+        payload = value.operation_payload if isinstance(value, WccPerform) else None
+        adapter_name = None
+        if isinstance(payload, LowerableCommandResult):
+            adapter_name = payload.adapter_name
+        elif isinstance(payload, Mapping):
+            raw_adapter_name = payload.get("adapter_name")
+            if isinstance(raw_adapter_name, str) and raw_adapter_name:
+                adapter_name = raw_adapter_name
+        boundary_kind = step_kind
+        evidence_requirements: dict[str, Any] = {
+            "structured_output": {
+                "bundle_path_ref": f"generated:command_result_bundle:{step_id}",
+                "contract_digest": binding_schema_digest,
+                "payload_digest_required": True,
+                "declared_target_only": True,
+            }
+        }
+        unsafe_pending_behavior = "fail_closed"
+        policy_kind = "reuse_validated_structured_output"
+        if adapter_name:
+            boundary_kind = "certified_adapter"
+            evidence_requirements["command_resume_protocol"] = {
+                "protocol_name": adapter_name,
+            }
+            unsafe_pending_behavior = "requires_certified_resume_protocol"
+            policy_kind = "certified_resume_protocol_required"
+        return build_effect_resume_policy(
+            policy_kind=policy_kind,
+            effect_kind=step_kind,
+            boundary_kind=boundary_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements=evidence_requirements,
+            unsafe_pending_behavior=unsafe_pending_behavior,
+        )
+    if step_kind == "call":
+        callee_workflow = None
+        if isinstance(value, WccCall):
+            callee_workflow = value.specialized_callee_name or value.callee_name
+        target_dsl_version, callee_checksum = _workflow_call_policy_metadata(
+            context=context,
+            callee_workflow=callee_workflow or step_id,
+        )
+        return build_effect_resume_policy(
+            policy_kind="reuse_validated_workflow_call",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "workflow_call": {
+                    "callee_workflow": callee_workflow or step_id,
+                    "target_dsl_version": target_dsl_version,
+                    "callee_checksum": callee_checksum,
+                }
+            },
+        )
+    if step_kind == "materialize_view":
+        payload = value.operation_payload if isinstance(value, WccPerform) else None
+        renderer_id = payload.renderer_id if isinstance(payload, MaterializeViewExpr) else "renderer"
+        policy_kind = (
+            "preserve_durable_view"
+            if isinstance(payload, MaterializeViewExpr) and payload.target_expr is not None
+            else "regenerate_deterministic_view"
+        )
+        return build_effect_resume_policy(
+            policy_kind=policy_kind,
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "materialized_view": {
+                    "renderer_id": renderer_id,
+                }
+            },
+        )
+    if step_kind == "resource_transition":
+        payload = value.operation_payload if isinstance(value, WccPerform) else None
+        transition_identity = step_id
+        if isinstance(payload, ResourceTransitionExpr):
+            transition_identity = (
+                payload.spec.transition_name
+                or payload.spec.transition_ref_name
+                or step_id
+            )
+        return build_effect_resume_policy(
+            policy_kind="transition_idempotent_audit_required",
+            effect_kind=step_kind,
+            boundary_kind=step_kind,
+            step_id=step_id,
+            source_map_origin_key=origin_key,
+            evidence_requirements={
+                "transition": {
+                    "transition_identity": transition_identity,
+                }
+            },
+            unsafe_pending_behavior="audit_barrier",
+        )
+    return build_effect_resume_policy(
+        policy_kind="recompute_or_reuse_checkpoint",
+        effect_kind=step_kind,
+        boundary_kind=step_kind,
+        step_id=step_id,
+        source_map_origin_key=origin_key,
+        evidence_requirements={},
+    )
+
+
 def _effect_boundary_checkpoint_point_payload(
     *,
     workflow_name: str,
@@ -1058,27 +1281,8 @@ def _effect_boundary_checkpoint_point_payload(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> Mapping[str, object]:
-    payload = dict(
-        _base_checkpoint_point_payload(
-            workflow_name=workflow_name,
-            point_kind="effect_boundary",
-            step_id=terminal.step_id,
-            step_kind=_effect_boundary_step_kind(value),
-            origin_key=_sha256_text(value.metadata.source_span) if False else "",
-            route_schema_version=value.metadata.node_id.split(":", 2)[1],
-            wcc_node_id=value.metadata.node_id,
-            wcc_scope_id=value.metadata.scope_id,
-            binding_schema_digest=_binding_schema_digest_for_point(
-                workflow_name=workflow_name,
-                point_kind="effect_boundary",
-                step_id=terminal.step_id,
-                type_ref=value.metadata.type_ref,
-                form_path=value.metadata.form_path,
-            ),
-            storage_scope="step_visit",
-        )
-    )
-    payload["origin_key"] = _with_origin_key(
+    step_kind = _effect_boundary_step_kind(value)
+    origin_key = _with_origin_key(
         LoweringOrigin(
             span=value.metadata.source_span,
             form_path=value.metadata.form_path,
@@ -1088,10 +1292,106 @@ def _effect_boundary_checkpoint_point_payload(
         entity_kind="step_id",
         subject_name=terminal.step_id,
     ).origin_key
+    binding_schema_digest = _binding_schema_digest_for_point(
+        workflow_name=workflow_name,
+        point_kind="effect_boundary",
+        step_id=terminal.step_id,
+        type_ref=value.metadata.type_ref,
+        form_path=value.metadata.form_path,
+    )
+    payload = dict(
+        _base_checkpoint_point_payload(
+            workflow_name=workflow_name,
+            point_kind="effect_boundary",
+            step_id=terminal.step_id,
+            step_kind=step_kind,
+            origin_key=_sha256_text(value.metadata.source_span) if False else "",
+            route_schema_version=value.metadata.node_id.split(":", 2)[1],
+            wcc_node_id=value.metadata.node_id,
+            wcc_scope_id=value.metadata.scope_id,
+            binding_schema_digest=binding_schema_digest,
+            storage_scope="step_visit",
+        )
+    )
+    payload["origin_key"] = origin_key
+    effect_policy = _build_effect_resume_policy_payload(
+        context=context,
+        step_kind=step_kind,
+        step_id=terminal.step_id,
+        origin_key=origin_key,
+        binding_schema_digest=binding_schema_digest,
+        value=value,
+        terminal=terminal,
+    )
     payload["effect_boundary"] = {
-        "effect_kind": _effect_boundary_step_kind(value),
-        "boundary_kind": _effect_boundary_step_kind(value),
-        "policy_status": "shadow_record_only",
+        "effect_kind": step_kind,
+        "boundary_kind": effect_policy.get("boundary_kind", step_kind),
+        "policy": effect_policy,
+    }
+    payload["loop_back_edge"] = None
+    binding_descriptors, proof_descriptors = _collect_restore_match_descriptors(
+        context=context,
+        local_values=local_values,
+    )
+    payload["restore"] = build_restore_metadata(
+        binding_descriptors=binding_descriptors,
+        proof_descriptors=proof_descriptors,
+    )
+    return MappingProxyType(payload)
+
+
+def _pure_projection_checkpoint_point_payload(
+    *,
+    workflow_name: str,
+    let_binding: WccLet,
+    terminal: _TerminalResult,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> Mapping[str, object]:
+    origin_key = _with_origin_key(
+        LoweringOrigin(
+            span=let_binding.metadata.source_span,
+            form_path=let_binding.metadata.form_path,
+            expansion_stack=let_binding.metadata.expansion_stack,
+        ),
+        workflow_name=workflow_name,
+        entity_kind="step_id",
+        subject_name=terminal.step_id,
+    ).origin_key
+    binding_schema_digest = _binding_schema_digest_for_point(
+        workflow_name=workflow_name,
+        point_kind="effect_boundary",
+        step_id=terminal.step_id,
+        type_ref=let_binding.bound_type_ref,
+        form_path=let_binding.metadata.form_path,
+    )
+    payload = dict(
+        _base_checkpoint_point_payload(
+            workflow_name=workflow_name,
+            point_kind="effect_boundary",
+            step_id=terminal.step_id,
+            step_kind="pure_projection",
+            origin_key=_sha256_text(let_binding.metadata.source_span) if False else "",
+            route_schema_version=let_binding.metadata.node_id.split(":", 2)[1],
+            wcc_node_id=let_binding.metadata.node_id,
+            wcc_scope_id=let_binding.metadata.scope_id,
+            binding_schema_digest=binding_schema_digest,
+            storage_scope="step_visit",
+        )
+    )
+    payload["origin_key"] = origin_key
+    payload["effect_boundary"] = {
+        "effect_kind": "pure_projection",
+        "boundary_kind": "pure_projection",
+        "policy": _build_effect_resume_policy_payload(
+            context=context,
+            step_kind="pure_projection",
+            step_id=terminal.step_id,
+            origin_key=origin_key,
+            binding_schema_digest=binding_schema_digest,
+            value=None,
+            terminal=terminal,
+        ),
     }
     payload["loop_back_edge"] = None
     binding_descriptors, proof_descriptors = _collect_restore_match_descriptors(
@@ -1257,6 +1557,16 @@ def _defunctionalize_body(
                     output_kind="projection",
                     hidden_inputs={},
                 )
+                if lexical_checkpoint_points is not None:
+                    lexical_checkpoint_points.append(
+                        _pure_projection_checkpoint_point_payload(
+                            workflow_name=context.workflow_name,
+                            let_binding=body,
+                            terminal=binding_terminal,
+                            context=context,
+                            local_values=updated_locals,
+                        )
+                    )
                 binding_hidden_inputs.update(binding_terminal.hidden_inputs)
                 updated_locals[body.bound_name] = _binding_local_value_from_terminal(
                     binding_expr,

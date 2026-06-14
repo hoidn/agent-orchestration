@@ -48,6 +48,7 @@ IMPORTED_STDLIB_HELPER_ENTRY = (
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
+LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
 RUNTIME_CLOSURE_MARKERS = (
     "workflow_lisp_runtime_closure",
@@ -161,6 +162,24 @@ def _build_lexical_checkpoint_fixture(tmp_path: Path):
             entry_workflow="orchestrate",
             provider_externs_path=None,
             prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
+def _build_lexical_policy_fixture(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=LEXICAL_POLICY_FIXTURE,
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.json",
             imported_workflow_bundles_path=None,
             command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
@@ -4784,6 +4803,45 @@ def test_checkpoint_points_artifact_rejects_program_identity_drift(tmp_path: Pat
     result = _build_lexical_checkpoint_fixture(tmp_path)
     payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
     payload["program_identity"]["executable_ir_digest"] = "sha256:drifted"
+
+    build = _build_module()
+    with pytest.raises(Exception):
+        build._validate_lexical_checkpoint_artifacts(
+            payload,
+            semantic_ir_payload=json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")),
+            runtime_plan_payload=json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")),
+            source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
+        )
+
+
+def test_build_emits_r3_policy_summaries_for_lexical_checkpoint_effect_boundaries(tmp_path: Path) -> None:
+    result = _build_lexical_policy_fixture(tmp_path)
+    payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+
+    effect_policies = {
+        point["effect_boundary"]["effect_kind"]: point["effect_boundary"]["policy"]
+        for point in payload["points"]
+        if point["point_kind"] == "effect_boundary"
+    }
+
+    assert set(effect_policies) >= {
+        "pure_projection",
+        "provider",
+        "command",
+        "call",
+        "materialize_view",
+        "resource_transition",
+    }
+    assert all(policy["schema_version"] == "workflow_lisp_effect_resume_policy.v1" for policy in effect_policies.values())
+    assert all("runtime_program_identity" not in json.dumps(policy, sort_keys=True) for policy in effect_policies.values())
+    assert all("wcc-node:" not in json.dumps(policy, sort_keys=True) for policy in effect_policies.values())
+
+
+def test_lexical_checkpoint_points_artifact_rejects_missing_r3_policy_envelope(tmp_path: Path) -> None:
+    result = _build_lexical_policy_fixture(tmp_path)
+    payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    effect_boundary_point = next(point for point in payload["points"] if point["point_kind"] == "effect_boundary")
+    effect_boundary_point["effect_boundary"].pop("policy", None)
 
     build = _build_module()
     with pytest.raises(Exception):
