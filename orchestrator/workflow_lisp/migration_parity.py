@@ -364,6 +364,12 @@ def run_parity_target(
         build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
         repo_root=repo_root,
     )
+    value_flow_census_report = _load_compile_artifact_json(
+        artifact_name="value_flow_census_report",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
     g8_deletion_evidence = _load_compile_artifact_json(
         artifact_name="g8_deletion_evidence",
         build_manifest=build_manifest,
@@ -376,6 +382,8 @@ def run_parity_target(
         report["adapter_census"] = dict(adapter_census)
     if isinstance(boundary_authority_report, Mapping):
         report["boundary_authority_report"] = dict(boundary_authority_report)
+    if isinstance(value_flow_census_report, Mapping):
+        report["value_flow_census_report"] = dict(value_flow_census_report)
     if isinstance(g8_deletion_evidence, Mapping):
         report["g8_deletion_evidence"] = dict(g8_deletion_evidence)
     if target.required_family_evidence_roles:
@@ -2046,6 +2054,7 @@ def _boundary_artifact_justification_evidence(
             in {
                 "adapter_census",
                 "boundary_authority_report",
+                "value_flow_census_report",
                 "g8_deletion_evidence",
                 "core_workflow_ast",
                 "semantic_ir",
@@ -2471,6 +2480,15 @@ def _compile_artifact_report(
 
     for artifact_name in target.compile_artifacts["required"]:
         path = _report_artifact_path(artifact_paths.get(artifact_name), build_root=build_root, repo_root=repo_root)
+        if artifact_name == "value_flow_census_report":
+            required[artifact_name] = _value_flow_census_artifact_status(
+                target=target,
+                path=path,
+                build_root=build_root,
+                build_manifest=build_manifest,
+                repo_root=repo_root,
+            )
+            continue
         raw_status = _artifact_raw_status(
             artifact_name,
             path=path,
@@ -2496,6 +2514,63 @@ def _compile_artifact_report(
         }
 
     return {"required": required, "optional": optional}
+
+
+def _value_flow_census_artifact_status(
+    *,
+    target: ParityTarget,
+    path: str | None,
+    build_root: Path | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    if path is None:
+        return {"status": "missing", "path": None}
+    payload = _load_compile_artifact_json(
+        artifact_name="value_flow_census_report",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if payload is None:
+        return {
+            "status": "missing",
+            "path": path,
+            "reason": "value_flow_census_report is unreadable or absent",
+        }
+    reasons: list[str] = []
+    if payload.get("workflow_family") != target.workflow_family:
+        reasons.append("workflow_family mismatch")
+    if payload.get("status") != "pass":
+        reasons.append("status is not pass")
+    workflow_rows = payload.get("workflow_rows")
+    if not isinstance(workflow_rows, list):
+        reasons.append("workflow_rows missing")
+    else:
+        workflow_surfaces = {
+            row.get("workflow_surface")
+            for row in workflow_rows
+            if isinstance(row, Mapping)
+        }
+        if target.entry_workflow not in workflow_surfaces:
+            reasons.append("selected workflow surface is missing")
+    for bucket_name in (
+        "missing_rows",
+        "stale_rows",
+        "invalid_rows",
+        "extra_compiled_rows",
+    ):
+        bucket = payload.get(bucket_name)
+        if isinstance(bucket, list) and bucket:
+            reasons.append(f"{bucket_name} present")
+    for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
+        if forbidden_key in payload:
+            reasons.append(f"forbidden track completion field `{forbidden_key}` present")
+    return {
+        "status": "fail" if reasons else "pass",
+        "path": path,
+        **({"reason": "; ".join(reasons)} if reasons else {}),
+    }
 
 
 def _report_artifact_path(

@@ -32,6 +32,9 @@ DESIGN_DELTA_MIGRATION_INPUTS = (
 DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.boundary_authority.json"
 )
+DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH = (
+    DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.value_flow_census.json"
+)
 # This checked-in candidate remains the authoritative proof source for the
 # imported-child prerequisite until the shipping library module lands its
 # separate parent-callable `run-work-item` export.
@@ -151,6 +154,7 @@ def _build_design_delta_parent_drain(
     monkeypatch: pytest.MonkeyPatch,
     *,
     registry_payload: dict[str, object] | None = None,
+    value_flow_census_payload: dict[str, object] | None = None,
     command_boundaries_path: Path | None = None,
 ):
     build = _build_module()
@@ -166,6 +170,19 @@ def _build_design_delta_parent_drain(
             registry_path,
             raising=False,
         )
+    if value_flow_census_payload is not None:
+        census_path = tmp_path / "design_delta_parent_drain.value_flow_census.json"
+        census_path.parent.mkdir(parents=True, exist_ok=True)
+        census_path.write_text(
+            json.dumps(value_flow_census_payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            build,
+            "DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH",
+            census_path,
+            raising=False,
+        )
     return build_frontend_bundle(
         _design_delta_parent_drain_request(
             tmp_path,
@@ -176,6 +193,10 @@ def _build_design_delta_parent_drain(
 
 def _load_design_delta_boundary_authority_registry() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH.read_text(encoding="utf-8"))
+
+
+def _load_design_delta_value_flow_census() -> dict[str, object]:
+    return json.loads(DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH.read_text(encoding="utf-8"))
 
 
 def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[str, object]:
@@ -4339,3 +4360,193 @@ def test_design_delta_parent_drain_manifest_records_boundary_registry_provenance
     assert provenance["workflow_family"] == "design_delta_parent_drain"
     assert provenance["path"].endswith("design_delta_parent_drain.boundary_authority.json")
     assert provenance["sha256"].startswith("sha256:")
+
+
+def test_design_delta_parent_drain_build_emits_value_flow_census_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "value_flow_census_report" in result.artifact_paths
+    assert result.manifest.artifact_status["value_flow_census_report"] == "emitted"
+    payload = json.loads(
+        result.artifact_paths["value_flow_census_report"].read_text(encoding="utf-8")
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+    assert payload["missing_rows"] == []
+    assert payload["stale_rows"] == []
+    assert payload["invalid_rows"] == []
+    assert payload["extra_compiled_rows"] == []
+
+
+def test_design_delta_parent_drain_value_flow_census_report_covers_required_source_kinds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["value_flow_census_report"].read_text(encoding="utf-8")
+    )
+    covered_kinds = {
+        row["source_kind"]
+        for workflow_row in payload["workflow_rows"]
+        for row in workflow_row["rows"]
+    }
+    assert set(payload["required_source_kinds"]).issubset(covered_kinds)
+
+
+def test_design_delta_parent_drain_value_flow_census_rejects_missing_checked_row(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_value_flow_census()
+    payload["rows"] = [
+        row
+        for row in payload["rows"]
+        if row["row_id"] != "drain.input.baseline_design_path"
+    ]
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            value_flow_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "value_flow_census_invalid"
+    assert "missing checked row" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_value_flow_census_rejects_stale_compiled_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_value_flow_census()
+    payload["rows"].append(
+        {
+            "row_id": "stale.extra.row",
+            "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+            "source_kind": "generated_path",
+            "symbol_or_field": "__missing_generated_path__",
+            "path_or_contract": "GeneratedPath.missing",
+            "plumbing_class": "generated_internal",
+            "boundary_authority_class": "generated_internal",
+            "track_owner": "shared",
+            "current_consumer": "runtime",
+            "semantic_owner": "runtime",
+            "source_evidence": [
+                {
+                    "kind": "compiled_boundary_projection",
+                    "path": ".orchestrate/build/example/workflow_boundary_projection.json",
+                }
+            ],
+            "replacement_target": None,
+            "command_boundary": None,
+            "bridge": None,
+            "notes": "intentional stale row",
+        }
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            value_flow_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "value_flow_census_invalid"
+    assert "stale" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_value_flow_census_rejects_unclassified_path_like_plumbing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_value_flow_census()
+    for row in payload["rows"]:
+        if row["row_id"] == "drain.generated.state_root":
+            row["plumbing_class"] = "public_authored"
+            break
+    else:
+        raise AssertionError("expected generated state-root row in checked census fixture")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            value_flow_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "value_flow_census_invalid"
+    assert "unclassified" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_value_flow_census_rejects_pointer_path_as_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _load_design_delta_value_flow_census()
+    for row in payload["rows"]:
+        if row["row_id"] == "work_item.pointer.selection_bundle_path":
+            row["boundary_authority_class"] = "public_authored"
+            break
+    else:
+        raise AssertionError("expected pointer-path row in checked census fixture")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            value_flow_census_payload=payload,
+        )
+    assert excinfo.value.diagnostics[0].code == "value_flow_census_invalid"
+    assert "pointer_path" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_value_flow_census_manifest_records_input_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    provenance = result.manifest.value_flow_census
+    assert provenance["workflow_family"] == "design_delta_parent_drain"
+    assert provenance["path"].endswith("design_delta_parent_drain.value_flow_census.json")
+    assert provenance["sha256"].startswith("sha256:")
+
+
+def test_design_delta_parent_drain_value_flow_census_changes_build_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = _build_design_delta_parent_drain(
+        tmp_path / "first",
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path / "first"),
+    )
+    payload = _load_design_delta_value_flow_census()
+    payload["rows"][0]["notes"] = str(payload["rows"][0].get("notes", "")) + " mutated"
+    second = _build_design_delta_parent_drain(
+        tmp_path / "second",
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path / "second"),
+        value_flow_census_payload=payload,
+    )
+
+    assert first.manifest.fingerprint != second.manifest.fingerprint

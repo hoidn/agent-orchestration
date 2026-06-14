@@ -1,0 +1,387 @@
+{
+  "schema_version": "workflow_lisp_private_runtime_value_flow_census.v1",
+  "target_family": "lisp_frontend_design_delta_parent_drain",
+  "source_design": "docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md",
+  "coverage": {
+    "workflow_surfaces": [
+      "lisp_frontend_design_delta/drain::drain",
+      "lisp_frontend_design_delta/selector::select-next-work",
+      "lisp_frontend_design_delta/work_item::run-work-item",
+      "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+      "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
+    ],
+    "required_source_kinds": [
+      "public_input",
+      "public_output",
+      "loop_state_field",
+      "record_field",
+      "materialized_output",
+      "prompt_input_file",
+      "summary_report_target",
+      "pointer_path",
+      "provider_target",
+      "command_adapter_input",
+      "bridge_file",
+      "generated_path"
+    ]
+  },
+  "rows": [
+    {
+      "row_id": "drain.input.baseline_design_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "public_input",
+      "symbol_or_field": "baseline_design_path",
+      "path_or_contract": "BaselineDesignPath",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_entry",
+      "semantic_owner": "caller",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Typed public authored input retained as part of the shared census baseline."
+    },
+    {
+      "row_id": "drain.input.target_design_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "public_input",
+      "symbol_or_field": "target_design_path",
+      "path_or_contract": "TargetDesignPath",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_entry",
+      "semantic_owner": "caller",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Typed public authored input retained as part of the shared census baseline."
+    },
+    {
+      "row_id": "drain.record.architecture_targets_check_commands_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "record_field",
+      "symbol_or_field": "architecture_targets__check_commands_path",
+      "path_or_contract": "ArchitectureTargets.check_commands_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "design_gap_architect",
+      "semantic_owner": "architecture_targets_record",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Flattened record field kept explicit so later track work can distinguish record carriage from file-only bridge surfaces."
+    },
+    {
+      "row_id": "drain.loop.run_state_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "loop_state_field",
+      "symbol_or_field": "run_state_path",
+      "path_or_contract": "RunStatePath",
+      "plumbing_class": "resume_only",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "R",
+      "current_consumer": "runtime_resume",
+      "semantic_owner": "runtime_resume",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track R private lexical checkpoints",
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/drain",
+        "consumer": "runtime_resume",
+        "file_shape": "json_state_pointer",
+        "retirement_condition": "remove after private checkpoint restore replaces authored run-state loop carriage"
+      },
+      "notes": "Resume-only loop carriage for the parent drain."
+    },
+    {
+      "row_id": "drain.bridge.manifest_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "bridge_file",
+      "symbol_or_field": "manifest_path",
+      "path_or_contract": "StateFileExisting",
+      "plumbing_class": "compatibility_bridge",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "shared",
+      "current_consumer": "work_item_bootstrap",
+      "semantic_owner": "compatibility_bridge",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track R/C private bootstrap revision",
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/drain",
+        "consumer": "work_item_bootstrap",
+        "file_shape": "json_manifest_bundle",
+        "retirement_condition": "remove when private bootstrap and typed value transport retire manifest-path threading"
+      },
+      "notes": "Checked compatibility bridge for current work-item bootstrap."
+    },
+    {
+      "row_id": "work_item.pointer.selection_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "pointer_path",
+      "symbol_or_field": "selection_bundle_path",
+      "path_or_contract": "SelectionBundlePath",
+      "plumbing_class": "compatibility_bridge",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "shared",
+      "current_consumer": "materialize_lisp_frontend_work_item_inputs",
+      "semantic_owner": "compatibility_bridge",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track C typed value transport",
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "materialize_lisp_frontend_work_item_inputs",
+        "file_shape": "pointer_file",
+        "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
+      },
+      "notes": "Pointer file must remain representation-only and never become semantic authority."
+    },
+    {
+      "row_id": "work_item.command.selection_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "command_adapter_input",
+      "symbol_or_field": "selection_bundle_path",
+      "path_or_contract": "SelectionBundlePath",
+      "plumbing_class": "compatibility_bridge",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "shared",
+      "current_consumer": "materialize_lisp_frontend_work_item_inputs",
+      "semantic_owner": "compatibility_bridge",
+      "source_evidence": [
+        {
+          "kind": "command_boundary_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        },
+        {
+          "kind": "source_map",
+          "path": "source_map.json"
+        }
+      ],
+      "replacement_target": "Track C typed bootstrap inputs",
+      "command_boundary": {
+        "manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
+        "command_name": "materialize_lisp_frontend_work_item_inputs",
+        "behavior_class": "structured_result",
+        "stable_command": [
+          "python",
+          "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"
+        ],
+        "boundary_role": "typed_input",
+        "input_signature_ref": "selection_bundle_path"
+      },
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "materialize_lisp_frontend_work_item_inputs",
+        "file_shape": "pointer_file",
+        "retirement_condition": "remove when typed work-item bootstrap replaces command-bound selection-bundle path transport"
+      },
+      "notes": "Adapter boundary row for the checked selection-bundle path crossing."
+    },
+    {
+      "row_id": "implementation_phase.external.backlog_checks",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "command_adapter_input",
+      "symbol_or_field": "run_neurips_backlog_checks",
+      "path_or_contract": "external_tool",
+      "plumbing_class": "genuine_external_io",
+      "boundary_authority_class": "generated_internal",
+      "track_owner": "shared",
+      "current_consumer": "run_neurips_backlog_checks",
+      "semantic_owner": "external_system",
+      "source_evidence": [
+        {
+          "kind": "command_boundary_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        },
+        {
+          "kind": "source_map",
+          "path": "source_map.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": {
+        "manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
+        "command_name": "run_neurips_backlog_checks",
+        "behavior_class": "external_tool",
+        "stable_command": [
+          "python",
+          "workflows/library/scripts/run_neurips_backlog_checks.py"
+        ],
+        "boundary_role": "external_system_requirement"
+      },
+      "bridge": null,
+      "notes": "Genuine external validation step retained outside Track R/C retirement claims."
+    },
+    {
+      "row_id": "design_gap_architect_validate.output.work_item_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_kind": "public_output",
+      "symbol_or_field": "return__work_item_bundle_path",
+      "path_or_contract": "WorkItemBundlePath",
+      "plumbing_class": "entry_publication",
+      "boundary_authority_class": "public_artifact",
+      "track_owner": "C",
+      "current_consumer": "downstream_work_item",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track C entry publication policy",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Validated work-item bundle path is still a published artifact boundary."
+    },
+    {
+      "row_id": "drain.materialized.drain_summary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "materialized_output",
+      "symbol_or_field": "return__drain-summary",
+      "path_or_contract": "DrainSummaryMaterializedView",
+      "plumbing_class": "human_rendering",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "C",
+      "current_consumer": "observability",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track C consumer-side rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Materialized view output remains a representation for human consumption."
+    },
+    {
+      "row_id": "work_item.summary.summary_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "summary_report_target",
+      "symbol_or_field": "return__summary",
+      "path_or_contract": "WorkItemSummaryPath",
+      "plumbing_class": "human_rendering",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "C",
+      "current_consumer": "entry_report",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track C consumer-side rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Summary path is retained as a rendering seam rather than semantic authority."
+    },
+    {
+      "row_id": "selector.prompt.select_next_work",
+      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.selector.select-next-work",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Prompt file stays explicit until provider prompt composition can consume typed values directly."
+    },
+    {
+      "row_id": "design_gap_architect.provider.architect_draft",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+      "source_kind": "provider_target",
+      "symbol_or_field": "providers.architect.draft",
+      "path_or_contract": "codex",
+      "plumbing_class": "generated_internal",
+      "boundary_authority_class": "generated_internal",
+      "track_owner": "shared",
+      "current_consumer": "provider_runtime",
+      "semantic_owner": "provider_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Provider extern selection is recorded so the shared census proves provider-target routing was inspected."
+    },
+    {
+      "row_id": "drain.generated.state_root",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "generated_path",
+      "symbol_or_field": "run__state-root",
+      "path_or_contract": "RunCtx.state_root",
+      "plumbing_class": "resume_only",
+      "boundary_authority_class": "runtime_derived",
+      "track_owner": "R",
+      "current_consumer": "runtime_resume",
+      "semantic_owner": "runtime_resume",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        }
+      ],
+      "replacement_target": "Track R private lexical checkpoints",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Runtime-derived state root remains private execution plumbing rather than public semantic data."
+    }
+  ]
+}

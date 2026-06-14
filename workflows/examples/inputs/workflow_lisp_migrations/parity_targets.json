@@ -375,6 +375,7 @@
           "workflow_boundary_projection",
           "adapter_census",
           "boundary_authority_report",
+          "value_flow_census_report",
           "g8_deletion_evidence"
         ],
         "optional": [

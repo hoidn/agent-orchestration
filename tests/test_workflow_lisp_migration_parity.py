@@ -385,6 +385,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "workflow_boundary_projection",
                     "adapter_census",
                     "boundary_authority_report",
+                    "value_flow_census_report",
                     "g8_deletion_evidence",
                 ],
                 "optional": ["expanded_debug_yaml"],
@@ -2478,10 +2479,16 @@ def _write_design_delta_g0_build_manifest(
     *,
     include_adapter_census: bool = True,
     include_boundary_authority_report: bool = True,
+    include_value_flow_census_report: bool = True,
     include_g8_deletion_evidence: bool = True,
     g8_removed_manifest_rows: list[str] | None = None,
     boundary_unclassified: list[str] | None = None,
     boundary_public_leaks: list[str] | None = None,
+    value_flow_workflow_surfaces: list[str] | None = None,
+    value_flow_missing_rows: list[dict[str, object]] | None = None,
+    value_flow_stale_rows: list[dict[str, object]] | None = None,
+    value_flow_invalid_rows: list[dict[str, object]] | None = None,
+    value_flow_status: str = "pass",
 ) -> Path:
     build_root = tmp_path / "build"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -2586,6 +2593,53 @@ def _write_design_delta_g0_build_manifest(
                 ],
             },
         )
+    if include_value_flow_census_report:
+        _write_json(
+            build_root / "value_flow_census_report.json",
+            {
+                "schema_version": "workflow_lisp_private_runtime_value_flow_census_report.v1",
+                "workflow_family": "design_delta_parent_drain",
+                "checked_census_path": (
+                    "workflows/examples/inputs/workflow_lisp_migrations/"
+                    "design_delta_parent_drain.value_flow_census.json"
+                ),
+                "checked_census_fingerprint": "sha256:value-flow-census",
+                "required_source_kinds": [
+                    "public_input",
+                    "command_adapter_input",
+                    "pointer_path",
+                    "generated_path",
+                ],
+                "workflow_rows": [
+                    {
+                        "workflow_surface": workflow_surface,
+                        "rows": [
+                            {
+                                "row_id": f"{workflow_surface}.baseline_design_path",
+                                "source_kind": "public_input",
+                            }
+                        ],
+                    }
+                    for workflow_surface in (
+                        value_flow_workflow_surfaces
+                        or ["lisp_frontend_design_delta/drain::drain"]
+                    )
+                ],
+                "missing_rows": value_flow_missing_rows or [],
+                "stale_rows": value_flow_stale_rows or [],
+                "invalid_rows": value_flow_invalid_rows or [],
+                "extra_compiled_rows": [],
+                "compiled_evidence": {
+                    "workflow_boundary_projection": "workflow_boundary_projection.json",
+                    "source_map": "source_map.json",
+                    "command_boundaries": (
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "design_delta_parent_drain.commands.json"
+                    ),
+                },
+                "status": value_flow_status,
+            },
+        )
     if include_g8_deletion_evidence:
         _write_json(
             build_root / "g8_deletion_evidence.json",
@@ -2613,6 +2667,11 @@ def _write_design_delta_g0_build_manifest(
             build_root / "boundary_authority_report.json"
         )
         artifact_status["boundary_authority_report"] = "emitted"
+    if include_value_flow_census_report:
+        artifact_paths["value_flow_census_report"] = str(
+            build_root / "value_flow_census_report.json"
+        )
+        artifact_status["value_flow_census_report"] = "emitted"
     if include_g8_deletion_evidence:
         artifact_paths["g8_deletion_evidence"] = str(build_root / "g8_deletion_evidence.json")
         artifact_status["g8_deletion_evidence"] = "emitted"
@@ -2678,9 +2737,11 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
 
     assert report["adapter_census"]["workflow_family"] == "design_delta_parent_drain"
     assert report["boundary_authority_report"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["value_flow_census_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["g8_deletion_evidence"]["workflow_family"] == "design_delta_parent_drain"
     assert report["compile_artifacts"]["required"]["adapter_census"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "pass"
+    assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["g8_deletion_evidence"]["status"] == "pass"
 
 
@@ -2937,6 +2998,76 @@ def test_run_parity_target_fails_cleanly_when_boundary_authority_report_artifact
     assert "boundary_authority_report" in report["evidence"]["public_private_boundary_parity"]["reason"]
 
 
+def test_run_parity_target_fails_cleanly_when_value_flow_census_report_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_value_flow_census_report=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "missing"
+
+
+def test_run_parity_target_fails_when_value_flow_census_report_omits_selected_workflow_surface(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        value_flow_workflow_surfaces=["lisp_frontend_design_delta/work_item::run-work-item"],
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "fail"
+    assert "selected workflow surface" in report["compile_artifacts"]["required"]["value_flow_census_report"]["reason"]
+
+
+def test_run_parity_target_fails_when_value_flow_census_report_has_missing_or_stale_or_invalid_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        value_flow_missing_rows=[{"row_id": "drain.bridge.manifest_path"}],
+        value_flow_stale_rows=[{"row_id": "drain.generated.stale_path"}],
+        value_flow_invalid_rows=[{"row_id": "drain.pointer.selection_bundle_path"}],
+        value_flow_status="fail",
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["value_flow_census_report"]["status"] == "fail"
+    assert "missing_rows" in report["compile_artifacts"]["required"]["value_flow_census_report"]["reason"]
+    assert "stale_rows" in report["compile_artifacts"]["required"]["value_flow_census_report"]["reason"]
+    assert "invalid_rows" in report["compile_artifacts"]["required"]["value_flow_census_report"]["reason"]
+
+
 def test_run_parity_target_fails_cleanly_when_g8_deletion_evidence_artifact_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2983,6 +3114,7 @@ def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> Non
 
     assert "adapter_census" in target["compile_artifacts"]["required"]
     assert "boundary_authority_report" in target["compile_artifacts"]["required"]
+    assert "value_flow_census_report" in target["compile_artifacts"]["required"]
     assert "g8_deletion_evidence" in target["compile_artifacts"]["required"]
 
 
@@ -3009,5 +3141,7 @@ def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_arti
     assert artifact_reasons["adapter_census"]["parity_constrained"] is True
     assert artifact_reasons["boundary_authority_report"]["reason"] == "parity_comparison"
     assert artifact_reasons["boundary_authority_report"]["parity_constrained"] is True
+    assert artifact_reasons["value_flow_census_report"]["reason"] == "parity_comparison"
+    assert artifact_reasons["value_flow_census_report"]["parity_constrained"] is True
     assert artifact_reasons["g8_deletion_evidence"]["reason"] == "parity_comparison"
     assert artifact_reasons["g8_deletion_evidence"]["parity_constrained"] is True

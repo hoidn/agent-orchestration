@@ -41,6 +41,10 @@ from .phase_family_boundary import (
 )
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
+from .value_flow_census import (
+    load_value_flow_census,
+    reconcile_value_flow_census,
+)
 from .workflows import (
     normalize_public_prompt_extern_binding,
     prompt_extern_source_bindings_payload,
@@ -65,6 +69,14 @@ DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.boundary_authority.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.value_flow_census.json"
 )
 DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS = (
     "classify_lisp_frontend_work_item_terminal",
@@ -205,6 +217,7 @@ class FrontendBuildManifest:
     source_map_coverage: Mapping[str, str] | None = None
     lowering_schema_version: int = 1
     boundary_authority_registry: Mapping[str, object] | None = None
+    value_flow_census: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -308,6 +321,9 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     boundary_authority_registry = _maybe_load_design_delta_boundary_authority_registry(
         entry_workflow=entry_selection.canonical_name,
     )
+    value_flow_census = _maybe_load_design_delta_value_flow_census(
+        entry_workflow=entry_selection.canonical_name,
+    )
     selected_bundle = compile_result.entry_result.validated_bundles[entry_selection.canonical_name]
     source_map_payload = _serialize_source_map(
         compile_result,
@@ -334,6 +350,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
         boundary_authority_registry=boundary_authority_registry,
+        value_flow_census=value_flow_census,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
@@ -375,6 +392,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     )
     adapter_census_payload = None
     boundary_authority_report_payload = None
+    value_flow_census_report_payload = None
     g8_deletion_evidence_payload = None
     if boundary_authority_registry is not None:
         adapter_census_payload = _serialize_design_delta_adapter_census(
@@ -387,6 +405,52 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             boundary_authority_registry=boundary_authority_registry,
             source_map_payload=source_map_payload,
         )
+        if value_flow_census is not None:
+            value_flow_census_report_payload = reconcile_value_flow_census(
+                census=value_flow_census,
+                checked_census_path=Path(str(value_flow_census.get("__census_path__", ""))),
+                checked_census_sha256=str(value_flow_census.get("__census_sha256__", "")),
+                boundary_authority_report=boundary_authority_report_payload,
+                source_map_payload=source_map_payload,
+                prompt_externs=prompt_externs,
+                provider_externs=provider_externs,
+                command_boundary_manifest=command_boundary_manifest,
+            )
+            failure_reasons: list[str] = []
+            for bucket_name in (
+                "missing_rows",
+                "stale_rows",
+                "invalid_rows",
+                "extra_compiled_rows",
+            ):
+                bucket = value_flow_census_report_payload.get(bucket_name)
+                if isinstance(bucket, list) and bucket:
+                    first = bucket[0]
+                    if isinstance(first, Mapping) and isinstance(first.get("row_id"), str):
+                        reason_label = {
+                            "missing_rows": "missing checked row",
+                            "stale_rows": "stale checked row",
+                            "invalid_rows": "invalid row",
+                            "extra_compiled_rows": "unclassified compiled row",
+                        }.get(bucket_name, bucket_name)
+                        failure_reasons.append(
+                            f"{reason_label}: {first['row_id']}"
+                        )
+                    else:
+                        failure_reasons.append(bucket_name)
+            if failure_reasons:
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="value_flow_census_invalid",
+                            message=(
+                                "design-delta value-flow census does not match compiled evidence: "
+                                + "; ".join(failure_reasons)
+                            ),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                )
         if boundary_authority_registry.get("workflow_family") == "design_delta_parent_drain":
             g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
                 command_boundary_manifest=command_boundary_manifest,
@@ -402,6 +466,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         adapter_census_payload=adapter_census_payload,
         boundary_authority_report_payload=boundary_authority_report_payload,
+        value_flow_census_report_payload=value_flow_census_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
     )
     manifest = _build_manifest(
@@ -415,6 +480,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         build_root=build_root,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
         boundary_authority_registry=boundary_authority_registry,
+        value_flow_census=value_flow_census,
     )
     manifest_path = build_root / "manifest.json"
     manifest_path.write_text(
@@ -1384,6 +1450,31 @@ def _maybe_load_design_delta_boundary_authority_registry(
     }
 
 
+def _maybe_load_design_delta_value_flow_census(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        payload = load_value_flow_census(DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH)
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="value_flow_census_invalid",
+                    message=f"design-delta value-flow census is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH,
+                ),
+            )
+        ) from exc
+    return {
+        **payload,
+        "__census_path__": str(DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH),
+        "__census_sha256__": _sha256_path(DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH),
+    }
+
+
 def _boundary_authority_registry_provenance(
     boundary_authority_registry: Mapping[str, object] | None,
 ) -> Mapping[str, object] | None:
@@ -1394,6 +1485,19 @@ def _boundary_authority_registry_provenance(
         "path": str(boundary_authority_registry.get("__registry_path__", "")),
         "sha256": f"sha256:{boundary_authority_registry.get('__registry_sha256__', '')}",
         "schema_version": str(boundary_authority_registry.get("schema_version", "")),
+    }
+
+
+def _value_flow_census_provenance(
+    value_flow_census: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if value_flow_census is None:
+        return None
+    return {
+        "workflow_family": "design_delta_parent_drain",
+        "path": str(value_flow_census.get("__census_path__", "")),
+        "sha256": f"sha256:{value_flow_census.get('__census_sha256__', '')}",
+        "schema_version": str(value_flow_census.get("schema_version", "")),
     }
 
 
@@ -1939,6 +2043,7 @@ def _fingerprint_build(
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
     boundary_authority_registry: Mapping[str, object] | None,
+    value_flow_census: Mapping[str, object] | None,
 ) -> str:
     source_payload = {
         "schema_version": BUILD_SCHEMA_VERSION,
@@ -1965,6 +2070,9 @@ def _fingerprint_build(
         "boundary_authority_registry": _json_data(boundary_authority_registry)
         if boundary_authority_registry is not None
         else None,
+        "value_flow_census": _json_data(value_flow_census)
+        if value_flow_census is not None
+        else None,
     }
     encoded = json.dumps(source_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
@@ -1982,6 +2090,7 @@ def _write_build_artifacts(
     workflow_boundary_projection_payload: Mapping[str, object],
     adapter_census_payload: Mapping[str, object] | None,
     boundary_authority_report_payload: Mapping[str, object] | None,
+    value_flow_census_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
@@ -2002,6 +2111,8 @@ def _write_build_artifacts(
         artifact_paths["adapter_census"] = build_root / "adapter_census.json"
     if boundary_authority_report_payload is not None:
         artifact_paths["boundary_authority_report"] = build_root / "boundary_authority_report.json"
+    if value_flow_census_report_payload is not None:
+        artifact_paths["value_flow_census_report"] = build_root / "value_flow_census_report.json"
     if g8_deletion_evidence_payload is not None:
         artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
     payloads = {
@@ -2021,6 +2132,8 @@ def _write_build_artifacts(
         payloads["adapter_census"] = _json_data(adapter_census_payload)
     if boundary_authority_report_payload is not None:
         payloads["boundary_authority_report"] = _json_data(boundary_authority_report_payload)
+    if value_flow_census_report_payload is not None:
+        payloads["value_flow_census_report"] = _json_data(value_flow_census_report_payload)
     if g8_deletion_evidence_payload is not None:
         payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence_payload)
     for name, path in artifact_paths.items():
@@ -2051,6 +2164,7 @@ def _build_manifest(
     build_root: Path,
     emit_debug_yaml: bool,
     boundary_authority_registry: Mapping[str, object] | None,
+    value_flow_census: Mapping[str, object] | None,
 ) -> FrontendBuildManifest:
     return FrontendBuildManifest(
         schema_version=BUILD_SCHEMA_VERSION,
@@ -2098,6 +2212,7 @@ def _build_manifest(
         boundary_authority_registry=_boundary_authority_registry_provenance(
             boundary_authority_registry
         ),
+        value_flow_census=_value_flow_census_provenance(value_flow_census),
     )
 
 
