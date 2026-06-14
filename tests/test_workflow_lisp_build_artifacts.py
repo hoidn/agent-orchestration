@@ -5048,6 +5048,138 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_build_passes_check
     )
 
 
+def test_design_delta_parent_drain_build_emits_lexical_checkpoint_default_resume_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "lexical_checkpoint_default_resume_report" in result.artifact_paths
+    assert (
+        result.manifest.artifact_status["lexical_checkpoint_default_resume_report"]
+        == "emitted"
+    )
+    payload = json.loads(
+        result.artifact_paths["lexical_checkpoint_default_resume_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
+    assert payload["route"]["default_mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert payload["checked_workflows"][0]["route"]["default_mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert payload["default_modes"][0]["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+
+
+def test_design_delta_parent_drain_default_resume_report_records_r1_to_r5_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["lexical_checkpoint_default_resume_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert payload["evidence"]["checkpoint_points"]["schema_version"] == "workflow_lisp_lexical_checkpoint_points.v1"
+    assert payload["evidence"]["checkpoint_shadow_report"]["schema_version"] == "workflow_lisp_lexical_checkpoint_shadow_report.v1"
+    assert payload["evidence"]["retirement_report"]["schema_version"] == "workflow_lisp_resume_plumbing_retirement_report.v1"
+    assert payload["evidence"]["restore_metadata"]["status"] == "pass"
+    assert payload["evidence"]["effect_policies"]["status"] == "pass"
+    assert payload["evidence"]["transition_evidence"]["status"] == "pass"
+    assert payload["route"]["lowering_schema_version"] == 2
+    assert payload["status"] == "pass"
+
+
+def test_design_delta_parent_drain_default_resume_report_rejects_step_granular_bypass_for_eligible_route(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    original = build._serialize_lexical_checkpoint_points_for_retirement
+
+    def _mutated(*args, **kwargs):
+        payload = original(*args, **kwargs)
+        payload["points"] = []
+        return payload
+
+    monkeypatch.setattr(
+        build,
+        "_serialize_lexical_checkpoint_points_for_retirement",
+        _mutated,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "lexical_default_resume_invalid"
+    assert "lexical_default_resume_step_granular_bypass" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_default_resume_report_marks_live_run_state_bridges_blocked_or_historical_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["lexical_checkpoint_default_resume_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    cleanup_candidates = {
+        row["row_id"]: row for row in payload["cleanup_candidates"]
+    }
+
+    assert cleanup_candidates["work_item.loop.run_state_path"]["cleanup_action"] in {
+        "BLOCKED",
+        "KEEP_HISTORICAL_ONLY",
+    }
+    assert cleanup_candidates["transitions.resource.drain_run_state"]["cleanup_action"] in {
+        "BLOCKED",
+        "KEEP_HISTORICAL_ONLY",
+    }
+
+
+def test_design_delta_parent_drain_default_resume_report_keeps_track_c_rows_out_of_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["lexical_checkpoint_default_resume_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert all(
+        row["row_id"] != "drain.output.return_run_state"
+        for row in payload["cleanup_candidates"]
+    )
+
+
 def test_build_emits_lexical_checkpoint_points_artifact(tmp_path: Path) -> None:
     result = _build_lexical_checkpoint_fixture(tmp_path)
 

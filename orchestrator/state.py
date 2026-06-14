@@ -382,6 +382,10 @@ class StateManager:
         """Return the canonical runtime restore-report path for Workflow Lisp sidecars."""
         return self.run_root / "workflow_lisp" / "checkpoints" / "restore_report.json"
 
+    def workflow_lisp_checkpoint_default_resume_report_path(self) -> Path:
+        """Return the canonical runtime default-resume report path for Workflow Lisp sidecars."""
+        return self.run_root / "workflow_lisp" / "checkpoints" / "default_resume_report.json"
+
     def provider_session_paths(self, step_id: str, visit_count: int) -> tuple[Path, Path]:
         """Return the canonical metadata and transport-spool paths for one session visit."""
         safe_step_id = step_id.replace("/", "_")

@@ -280,6 +280,18 @@ def build_resume_plumbing_retirement_report(
                 "row_id": row_id,
                 "workflow_surface": str(row.get("workflow_surface", "")),
                 "symbol_or_field": str(row.get("symbol_or_field", "")),
+                "source_kind": row.get("source_kind"),
+                "plumbing_class": row.get("plumbing_class"),
+                "track_owner": row.get("track_owner"),
+                "boundary_authority_class": row.get("boundary_authority_class"),
+                "semantic_owner": row.get("semantic_owner"),
+                "current_consumer": (
+                    manifest_decision.get("remaining_consumer")
+                    if isinstance(manifest_decision, Mapping)
+                    and _non_empty_string(manifest_decision.get("remaining_consumer"))
+                    else row.get("current_consumer")
+                ),
+                "command_boundary": row.get("command_boundary"),
                 "replacement_target": row.get("replacement_target"),
                 "decision": decision,
                 "observed_locations": list(compiled_row.get("observed_locations", []))
@@ -378,6 +390,20 @@ def _required_compatibility_bridge_decisions(
             "row_id": DRAIN_RUN_STATE_BRIDGE_ROW_ID,
             "workflow_surface": DRAIN_RUN_STATE_BRIDGE_WORKFLOW_SURFACE,
             "symbol_or_field": DRAIN_RUN_STATE_BRIDGE_SYMBOL,
+            "source_kind": "bridge_file",
+            "plumbing_class": "resume_only",
+            "track_owner": "R",
+            "boundary_authority_class": "compatibility_bridge",
+            "semantic_owner": "runtime_resume",
+            "current_consumer": (
+                manifest_decision.get("remaining_consumer")
+                if isinstance(manifest_decision, Mapping)
+                and _non_empty_string(manifest_decision.get("remaining_consumer"))
+                else "runtime_transition_bridge"
+                if compiled_row is not None
+                else None
+            ),
+            "command_boundary": None,
             "replacement_target": DRAIN_RUN_STATE_BRIDGE_REPLACEMENT_TARGET,
             "decision": decision,
             "observed_locations": observed_locations,

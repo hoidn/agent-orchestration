@@ -34,7 +34,11 @@ from orchestrator.workflow_lisp.command_boundaries import (
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
     TransitionBindingMetadata,
 )
-from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
+from orchestrator.workflow_lisp.build import (
+    FrontendBuildRequest,
+    _parse_command_boundaries_manifest,
+    build_frontend_bundle,
+)
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
@@ -1920,6 +1924,8 @@ def _execute_design_delta_work_item_bundle(
     implementation_state_override: str | None = None,
     blocked_recovery_route_override: str | None = None,
     blocked_recovery_reason_override: str | None = None,
+    provider_failure: tuple[str, int] | None = None,
+    run_id: str | None = None,
 ):
 
     _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
@@ -1936,6 +1942,7 @@ def _execute_design_delta_work_item_bundle(
     )
 
     provider_calls: list[str] = []
+    provider_invocation_counts: dict[str, int] = {}
     review_index = 0
     selector_index = 0
 
@@ -1961,6 +1968,17 @@ def _execute_design_delta_work_item_bundle(
     def _execute_provider(_self, invocation, **_kwargs):
         nonlocal review_index, selector_index
         provider_calls.append(invocation.provider_name)
+        provider_invocation_counts[invocation.provider_name] = (
+            provider_invocation_counts.get(invocation.provider_name, 0) + 1
+        )
+        if (
+            provider_failure is not None
+            and invocation.provider_name == provider_failure[0]
+            and provider_invocation_counts[invocation.provider_name] == provider_failure[1]
+        ):
+            raise RuntimeError(
+                f"synthetic provider failure: {invocation.provider_name}:{provider_failure[1]}"
+            )
         bundle_path = tmp_path / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2223,7 +2241,10 @@ def _execute_design_delta_work_item_bundle(
             )
         return rebound_inputs, None
 
-    state_manager = StateManager(workspace=tmp_path, run_id=f"work-item-{plan_variant.lower()}")
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id=run_id or f"work-item-{plan_variant.lower()}",
+    )
     state_manager.initialize(
         workflow_path.as_posix(),
         context=bundle_context_dict(bundle),
@@ -2236,9 +2257,17 @@ def _execute_design_delta_work_item_bundle(
         with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
             ProviderExecutor, "execute", _execute_provider
         ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
-            state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
-                on_error="stop"
-            )
+            try:
+                state = WorkflowExecutor(
+                    bundle,
+                    tmp_path,
+                    state_manager,
+                    retry_delay_ms=0,
+                ).execute(on_error="stop")
+            except RuntimeError:
+                if provider_failure is None:
+                    raise
+                state = state_manager.load().to_dict()
     finally:
         os.chdir(previous_cwd)
 
@@ -2288,6 +2317,8 @@ def _execute_design_delta_parent_drain_route(
     recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
     recovery_reason: str = "implementation_architecture_under_scoped",
     review_sequence: tuple[str, ...] = ("APPROVE",),
+    provider_failure: tuple[str, int] | None = None,
+    run_id: str | None = None,
 ):
     result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
     bundle = result.entry_result.validated_bundles[
@@ -2311,6 +2342,8 @@ def _execute_design_delta_parent_drain_route(
         recovery_route=recovery_route,
         recovery_reason=recovery_reason,
         review_sequence=review_sequence,
+        provider_failure=provider_failure,
+        run_id=run_id,
     )
 
 
@@ -3304,6 +3337,147 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
         for step in _walk_lowered_steps(lowered["steps"])
     ]
     assert any("repeat_until" in step for step in parent_family_steps)
+
+
+def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume_artifact(
+    tmp_path: Path,
+) -> None:
+    build_workspace = tmp_path / "build"
+    build_result = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc",
+            source_roots=(REPO_ROOT / "workflows" / "library",),
+            entry_workflow="lisp_frontend_design_delta/drain::drain",
+            provider_externs_path=(
+                REPO_ROOT
+                / "workflows"
+                / "examples"
+                / "inputs"
+                / "workflow_lisp_migrations"
+                / "design_delta_parent_drain.providers.json"
+            ),
+            prompt_externs_path=(
+                REPO_ROOT
+                / "workflows"
+                / "examples"
+                / "inputs"
+                / "workflow_lisp_migrations"
+                / "design_delta_parent_drain.prompts.json"
+            ),
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
+            emit_debug_yaml=False,
+            workspace_root=build_workspace,
+        )
+    )
+
+    report_payload = json.loads(
+        build_result.artifact_paths["lexical_checkpoint_default_resume_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert report_payload["route"]["default_mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert report_payload["checked_workflows"][0]["route"]["default_mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+
+    runtime_workspace = tmp_path / "runtime"
+    run_id = "design-delta-parent-drain-r6-resume"
+    _workspace, state, provider_calls = _execute_design_delta_parent_drain_route(
+        runtime_workspace,
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+        selector_status=("SELECT_BACKLOG_ITEM", "DONE"),
+        provider_failure=("fake-selector", 2),
+        run_id=run_id,
+    )
+    assert state["status"] == "failed"
+    assert provider_calls == [
+        "fake-selector",
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+        "fake-selector",
+    ]
+
+    compile_result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(
+        runtime_workspace
+    )
+    bundle = compile_result.entry_result.validated_bundles[
+        "lisp_frontend_design_delta/drain::drain"
+    ]
+    state_manager = StateManager(workspace=runtime_workspace, run_id=run_id)
+
+    def _prepare_resume_invocation(
+        _self,
+        provider_name=None,
+        params=None,
+        context=None,
+        prompt_content=None,
+        env=None,
+        **_kwargs,
+    ):
+        _ = (params, context)
+        return (
+            SimpleNamespace(
+                input_mode="stdin",
+                prompt=prompt_content or "",
+                env=env or {},
+                provider_name=provider_name,
+            ),
+            None,
+        )
+
+    def _execute_resume_provider(_self, invocation, **_kwargs):
+        assert invocation.provider_name == "fake-selector"
+        bundle_path = runtime_workspace / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "selection_status": "DONE",
+                    "selection_bundle_path": "state/selection.json",
+                    "is_selected": False,
+                    "is_design_gap": False,
+                    "is_done": True,
+                    "is_blocked": False,
+                    "blocked_reason": "",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return _success_provider_result()
+
+    previous_cwd = Path.cwd()
+    os.chdir(runtime_workspace)
+    try:
+        with patch.object(
+            ProviderExecutor,
+            "prepare_invocation",
+            _prepare_resume_invocation,
+        ), patch.object(ProviderExecutor, "execute", _execute_resume_provider):
+            resumed = WorkflowExecutor(
+                bundle,
+                runtime_workspace,
+                state_manager,
+                retry_delay_ms=0,
+            ).execute(on_error="stop", resume=True)
+    finally:
+        os.chdir(previous_cwd)
+
+    assert resumed["status"] in {"completed", "failed"}
+    runtime_report = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert runtime_report["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
+    assert runtime_report["default_modes"][0]["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert runtime_report["default_modes"][0]["restore_decision"] == "RESTORED"
+    assert runtime_report["checked_workflows"][0]["route"]["default_mode"] == (
+        "LEXICAL_CHECKPOINT_DEFAULT"
+    )
 
 
 def test_design_delta_runtime_transition_fixture_exposes_public_wrapper_input(

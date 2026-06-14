@@ -1220,6 +1220,157 @@ def test_frontend_generated_loop_recur_runtime_plan_preserves_repeat_until_resum
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.loop_recur_minimal__loop"]
 
 
+def test_resume_planner_uses_lexical_checkpoint_default_for_eligible_wcc_route(
+    tmp_path: Path,
+) -> None:
+    local_fixture = tmp_path / LEXICAL_RESTORE_FIXTURE.name
+    local_fixture.write_text(
+        LEXICAL_RESTORE_FIXTURE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    compile_result = compile_stage3_entrypoint(
+        local_fixture,
+        source_roots=(tmp_path,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in compile_result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    planner = ResumePlanner()
+    state_manager = StateManager(workspace=tmp_path, run_id="planner-eligible-default")
+    state_manager.initialize(
+        str(local_fixture),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+    called = {"count": 0}
+
+    def _select_restore_candidate(**_kwargs):
+        called["count"] += 1
+        return SimpleNamespace(
+            kind="RESTORED",
+            checkpoint_id="ckpt:loop",
+            record_id="record:loop",
+            source_map_origin_key="source:loop",
+            diagnostics=(),
+        )
+
+    with patch(
+        "orchestrator.workflow_lisp.lexical_checkpoint_restore.select_restore_candidate",
+        side_effect=_select_restore_candidate,
+    ):
+        decision = planner.determine_default_resume_decision(
+            {
+                "context": bundle_context_dict(bundle),
+                "steps": {},
+            },
+            runtime_plan=bundle.runtime_plan,
+            state_manager=state_manager,
+            executable_workflow=bundle.ir,
+            loaded_workflow=bundle,
+            projection=bundle.projection,
+        )
+
+    assert decision["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert decision["restore_decision"] == "RESTORED"
+    assert called["count"] == 1
+
+
+def test_resume_planner_marks_legacy_orc_route_historical_compatible_without_lexical_restore(
+    tmp_path: Path,
+) -> None:
+    local_fixture = tmp_path / LEXICAL_RESTORE_FIXTURE.name
+    local_fixture.write_text(
+        LEXICAL_RESTORE_FIXTURE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        local_fixture,
+        source_roots=(tmp_path,),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = next(
+        candidate
+        for name, candidate in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+    planner = ResumePlanner()
+    state_manager = StateManager(workspace=tmp_path, run_id="planner-historical-default")
+    state_manager.initialize(
+        str(local_fixture),
+        context=workflow_lisp_context_with_lowering_schema(
+            bundle_context_dict(bundle),
+            1,
+        ),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    with patch(
+        "orchestrator.workflow_lisp.lexical_checkpoint_restore.select_restore_candidate",
+        side_effect=AssertionError("historical route should not evaluate lexical restore"),
+    ):
+        decision = planner.determine_default_resume_decision(
+            {
+                "context": workflow_lisp_context_with_lowering_schema(
+                    bundle_context_dict(bundle),
+                    1,
+                ),
+                "steps": {},
+            },
+            runtime_plan=bundle.runtime_plan,
+            state_manager=state_manager,
+            executable_workflow=bundle.ir,
+            loaded_workflow=bundle,
+            projection=bundle.projection,
+        )
+
+    assert decision["mode"] == "HISTORICAL_STEP_GRANULAR_COMPATIBILITY"
+    assert decision["restore_decision"] is None
+
+
+def test_resume_planner_marks_yaml_route_ineligible_without_lexical_restore(
+    tmp_path: Path,
+) -> None:
+    workflow_path = tmp_path / "resume_ineligible.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_structured_if_else_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    state_manager = StateManager(workspace=tmp_path, run_id="planner-ineligible-default")
+    state_manager.initialize(str(workflow_path), context=bundle_context_dict(bundle))
+
+    with patch(
+        "orchestrator.workflow_lisp.lexical_checkpoint_restore.select_restore_candidate",
+        side_effect=AssertionError("ineligible route should not evaluate lexical restore"),
+    ):
+        decision = planner.determine_default_resume_decision(
+            {
+                "context": bundle_context_dict(bundle),
+                "steps": {},
+            },
+            runtime_plan=bundle.runtime_plan,
+            state_manager=state_manager,
+            executable_workflow=bundle.ir,
+            loaded_workflow=bundle,
+            projection=bundle.projection,
+        )
+
+    assert decision["mode"] == "INELIGIBLE_STEP_GRANULAR"
+    assert decision["restore_decision"] is None
+
+
 def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     library_path = workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
     library_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2229,6 +2380,307 @@ def test_workflow_lisp_lexical_checkpoint_resume_restores_private_checkpoint_reg
     loaded_state = state_manager.load()
     summary_step = loaded_state.steps["lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary"]
     assert summary_step["status"] == "completed"
+
+
+def test_resume_command_writes_default_resume_report_for_eligible_workflow_lisp_route(
+    temp_workspace,
+) -> None:
+    workflow_path = temp_workspace / LEXICAL_RESTORE_FIXTURE.name
+    workflow_path.write_text(LEXICAL_RESTORE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    bundle = next(
+        validated
+        for name, validated in compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(temp_workspace,),
+            validate_shared=True,
+            workspace_root=temp_workspace,
+        ).validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+    report_path = temp_workspace / "artifacts" / "work" / "report.md"
+    summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    run_id = "workflow-lisp-default-resume-eligible"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic restore-boundary failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, temp_workspace, state_manager).execute()
+
+    assert first_run["status"] == "failed"
+    state = state_manager.load()
+    step_id = "root.lexical_checkpoint_restore_regions_orchestrate__materialize_view__runtime_summary"
+    execution_index = bundle.projection.execution_index_for_step_id(step_id)
+    state.current_step = {
+        "name": "lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary",
+        "index": execution_index if isinstance(execution_index, int) else 14,
+        "step_id": step_id,
+        "status": "running",
+    }
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__summary_status", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_label__match_decision", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_report__match_decision", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__result", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__loop", None)
+    state_manager.state = state
+    state_manager._write_state()
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
+        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
+
+    assert result == 0
+    payload = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
+    assert payload["default_modes"][0]["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert payload["default_modes"][0]["restore_decision"] == "RESTORED"
+    assert payload["checked_workflows"][0]["decision"]["restore_decision"] == "RESTORED"
+
+
+def test_resume_command_reuses_planner_restore_decision_for_eligible_workflow_lisp_route(
+    temp_workspace,
+) -> None:
+    workflow_path = temp_workspace / LEXICAL_RESTORE_FIXTURE.name
+    workflow_path.write_text(LEXICAL_RESTORE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    bundle = next(
+        validated
+        for name, validated in compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(temp_workspace,),
+            validate_shared=True,
+            workspace_root=temp_workspace,
+        ).validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+    report_path = temp_workspace / "artifacts" / "work" / "report.md"
+    summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    run_id = "workflow-lisp-default-resume-single-restore-decision"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic restore-boundary failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, temp_workspace, state_manager).execute()
+
+    assert first_run["status"] == "failed"
+    state = state_manager.load()
+    step_id = "root.lexical_checkpoint_restore_regions_orchestrate__materialize_view__runtime_summary"
+    execution_index = bundle.projection.execution_index_for_step_id(step_id)
+    state.current_step = {
+        "name": "lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary",
+        "index": execution_index if isinstance(execution_index, int) else 14,
+        "step_id": step_id,
+        "status": "running",
+    }
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__summary_status", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_label__match_decision", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_report__match_decision", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__result", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__loop", None)
+    state_manager.state = state
+    state_manager._write_state()
+
+    call_count = {"value": 0}
+    from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
+        select_restore_candidate as real_select_restore_candidate,
+    )
+
+    def _select_restore_candidate(**_kwargs):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            return real_select_restore_candidate(**_kwargs)
+        return SimpleNamespace(
+            kind="INVALID",
+            checkpoint_id="ckpt:loop",
+            record_id="record:loop",
+            source_map_origin_key="source:loop",
+            diagnostics=("lexical_restore_value_digest_mismatch",),
+        )
+
+    with patch("os.getcwd", return_value=str(temp_workspace)), patch(
+        "orchestrator.cli.commands.resume._load_resume_workflow_bundle",
+        return_value=bundle,
+    ), patch(
+        "orchestrator.workflow_lisp.lexical_checkpoint_restore.select_restore_candidate",
+        side_effect=_select_restore_candidate,
+    ):
+        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
+
+    assert result == 0
+    assert call_count["value"] == 1
+    default_resume_payload = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    restore_payload = json.loads(
+        state_manager.workflow_lisp_checkpoint_restore_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert default_resume_payload["default_modes"][0]["restore_decision"] == "RESTORED"
+    assert restore_payload["decision_kind"] == "RESTORED"
+
+
+def test_resume_command_writes_default_resume_report_for_historical_legacy_route(
+    temp_workspace,
+) -> None:
+    workflow_path = temp_workspace / LEXICAL_RESTORE_FIXTURE.name
+    workflow_path.write_text(LEXICAL_RESTORE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    compile_result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = next(
+        validated
+        for name, validated in compile_result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+    report_path = temp_workspace / "artifacts" / "work" / "report.md"
+    summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    run_id = "workflow-lisp-default-resume-historical"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=workflow_lisp_context_with_lowering_schema(
+            bundle_context_dict(bundle),
+            1,
+        ),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic historical failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, temp_workspace, state_manager).execute()
+
+    assert first_run["status"] == "failed"
+    state = state_manager.load()
+    step_id = "root.lexical_checkpoint_restore_regions_orchestrate__materialize_view__runtime_summary"
+    execution_index = bundle.projection.execution_index_for_step_id(step_id)
+    state.current_step = {
+        "name": "lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary",
+        "index": execution_index if isinstance(execution_index, int) else 14,
+        "step_id": step_id,
+        "status": "running",
+    }
+    state_manager.state = state
+    state_manager._write_state()
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
+        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
+
+    assert result == 0
+    payload = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
+    assert payload["default_modes"][0]["mode"] == "HISTORICAL_STEP_GRANULAR_COMPATIBILITY"
+    assert payload["historical_compatibility"][0]["mode"] == "HISTORICAL_STEP_GRANULAR_COMPATIBILITY"
+    assert payload["checked_workflows"][0]["decision"]["restore_decision"] is None
+
+
+def test_resume_command_writes_default_resume_report_for_ineligible_yaml_route(
+    temp_workspace,
+) -> None:
+    run_id = "workflow-default-resume-ineligible"
+    workflow_path = temp_workspace / "resume_ineligible.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_structured_if_else_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    loader = WorkflowLoader(temp_workspace)
+    loaded = loader.load(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
+
+    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
+    assert first_run["status"] == "failed"
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(run_id=run_id, repair=False, force_restart=False)
+
+    assert result == 0
+    payload = json.loads(
+        state_manager.workflow_lisp_checkpoint_default_resume_report_path().read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
+    assert payload["default_modes"][0]["mode"] == "INELIGIBLE_STEP_GRANULAR"
+    assert payload["checked_workflows"][0]["decision"]["restore_decision"] is None
 
 
 def test_resume_retries_since_last_consume_step_after_failed_attempt(temp_workspace):

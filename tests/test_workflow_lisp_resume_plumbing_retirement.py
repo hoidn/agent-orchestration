@@ -464,3 +464,46 @@ def test_resume_plumbing_retirement_report_requires_checked_compatibility_for_dr
             checkpoint_points_payload=_checkpoint_points_payload(),
             checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(),
         )
+
+
+def test_r6_default_resume_cleanup_candidates_consume_checked_r5_report() -> None:
+    default_resume = importlib.import_module(
+        "orchestrator.workflow_lisp.lexical_checkpoint_default_resume"
+    )
+
+    report = default_resume.build_default_resume_report(
+        workflow_family="design_delta_parent_drain",
+        workflow_name="lisp_frontend_design_delta/drain::drain",
+        lowering_schema_version=2,
+        checkpoint_points_payload=_checkpoint_points_payload(),
+        checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(),
+        resume_plumbing_retirement_report_payload={
+            "schema_version": "workflow_lisp_resume_plumbing_retirement_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "decisions": [
+                {
+                    "row_id": "work_item.loop.run_state_path",
+                    "decision": "KEPT_COMPATIBILITY",
+                    "track_owner": "R",
+                    "current_consumer": "runtime_transition_bridge",
+                    "observed_locations": ["call_signature"],
+                },
+                {
+                    "row_id": "transitions.resource.drain_run_state",
+                    "decision": "KEPT_COMPATIBILITY",
+                    "track_owner": "R",
+                    "current_consumer": "runtime_transition_bridge",
+                    "observed_locations": ["resource_bridge_backing"],
+                },
+            ],
+        },
+    )
+
+    cleanup = {row["row_id"]: row for row in report["cleanup_candidates"]}
+    assert cleanup["work_item.loop.run_state_path"]["r5_decision"] == "KEPT_COMPATIBILITY"
+    assert cleanup["work_item.loop.run_state_path"]["cleanup_action"] in {
+        "BLOCKED",
+        "KEEP_HISTORICAL_ONLY",
+    }
+    assert cleanup["transitions.resource.drain_run_state"]["r5_decision"] == "KEPT_COMPATIBILITY"

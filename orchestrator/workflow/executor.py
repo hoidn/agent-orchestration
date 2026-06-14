@@ -1764,12 +1764,28 @@ class WorkflowExecutor:
             projection=self.projection,
         )
 
+    def _determine_resume_default_resume_decision(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Determine the R6 default-resume mode for one resumed run."""
+        return self.resume_planner.determine_default_resume_decision(
+            state,
+            runtime_plan=self.runtime_plan,
+            state_manager=self.state_manager,
+            executable_workflow=self.executable_ir,
+            loaded_workflow=self.loaded_bundle,
+            projection=self.projection,
+        )
+
     def _write_restore_report(
         self,
         *,
         restart_node_id: str | None,
         decision: Any,
     ) -> None:
+        def _field(name: str, default: Any = None) -> Any:
+            if isinstance(decision, Mapping):
+                return decision.get(name, default)
+            return getattr(decision, name, default) if decision is not None else default
+
         report_path_factory = getattr(
             self.state_manager,
             "workflow_lisp_checkpoint_restore_report_path",
@@ -1778,21 +1794,33 @@ class WorkflowExecutor:
         if not callable(report_path_factory):
             return
         report_path = report_path_factory()
+        restore_payload = _field("restore_payload")
+        restored_bindings = _field("restored_bindings")
+        if not isinstance(restored_bindings, int):
+            bindings = restore_payload.get("bindings") if isinstance(restore_payload, Mapping) else None
+            restored_bindings = len(bindings) if isinstance(bindings, list) else 0
+        restored_loop_frames = _field("restored_loop_frames")
+        if not isinstance(restored_loop_frames, int):
+            restored_loop_frames = (
+                1
+                if isinstance(restore_payload, Mapping)
+                and isinstance(restore_payload.get("loop_frame"), Mapping)
+                else 0
+            )
         payload = {
             "schema_version": RESTORE_REPORT_SCHEMA_VERSION,
             "restart_node_id": restart_node_id,
-            "decision_kind": getattr(decision, "kind", "NOT_RESTORABLE") if decision is not None else "NOT_RESTORABLE",
-            "checkpoint_id": getattr(decision, "checkpoint_id", None) if decision is not None else None,
-            "record_id": getattr(decision, "record_id", None) if decision is not None else None,
-            "source_map_origin_key": getattr(decision, "source_map_origin_key", None) if decision is not None else None,
-            "policy_decision": getattr(decision, "policy_decision", None) if decision is not None else None,
-            "restored_bindings": int(getattr(decision, "restored_bindings", 0) or 0),
-            "restored_loop_frames": int(getattr(decision, "restored_loop_frames", 0) or 0),
-            "diagnostics": list(getattr(decision, "diagnostics", ()) or ()),
+            "decision_kind": _field("kind", "NOT_RESTORABLE"),
+            "checkpoint_id": _field("checkpoint_id"),
+            "record_id": _field("record_id"),
+            "source_map_origin_key": _field("source_map_origin_key"),
+            "policy_decision": _field("policy_decision"),
+            "restored_bindings": int(restored_bindings or 0),
+            "restored_loop_frames": int(restored_loop_frames or 0),
+            "diagnostics": list(_field("diagnostics", ()) or ()),
         }
-        transition_resume = getattr(decision, "transition_resume", None)
+        transition_resume = _field("transition_resume")
         if not isinstance(transition_resume, Mapping):
-            restore_payload = getattr(decision, "restore_payload", None)
             if isinstance(restore_payload, Mapping):
                 transition_resume = restore_payload.get("transition_resume")
         if isinstance(transition_resume, Mapping):
@@ -1808,10 +1836,34 @@ class WorkflowExecutor:
             )
         self.state_manager.write_runtime_sidecar_json(report_path, payload)
 
+    def _write_default_resume_report(self, decision: Mapping[str, Any]) -> None:
+        report_path_factory = getattr(
+            self.state_manager,
+            "workflow_lisp_checkpoint_default_resume_report_path",
+            None,
+        )
+        if not callable(report_path_factory):
+            return
+        from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
+            build_runtime_default_resume_report,
+        )
+
+        self.state_manager.write_runtime_sidecar_json(
+            report_path_factory(),
+            build_runtime_default_resume_report(
+                workflow_name=self.workflow_name,
+                workflow_family=self.workflow_name,
+                decision=decision,
+            ),
+        )
+
     def _activate_resume_restore_overlay(self, decision: Any) -> None:
         from orchestrator.workflow_lisp.lexical_checkpoint_restore import resolve_binding_restore_value
 
-        payload = getattr(decision, "restore_payload", None)
+        if isinstance(decision, Mapping):
+            payload = decision.get("restore_payload")
+        else:
+            payload = getattr(decision, "restore_payload", None)
         if not isinstance(payload, Mapping):
             self._lexical_restore_overlay = None
             return
@@ -2839,23 +2891,45 @@ class WorkflowExecutor:
                     dict(exc.context),
                 )
             if resume:
-                restore_decision = self._determine_resume_lexical_restore_decision(state)
-                self._write_restore_report(
-                    restart_node_id=resume_restart_node_id,
-                    decision=restore_decision,
-                )
-                if getattr(restore_decision, "kind", None) == "INVALID":
+                default_resume_decision = self._determine_resume_default_resume_decision(state)
+                self._write_default_resume_report(default_resume_decision)
+                restore_decision = None
+                restore_kind = None
+                if default_resume_decision.get("restore_decision") is not None:
+                    restore_decision = default_resume_decision.get("restore_candidate")
+                    restore_kind = (
+                        restore_decision.get("kind")
+                        if isinstance(restore_decision, Mapping)
+                        else getattr(restore_decision, "kind", None)
+                    )
+                    self._write_restore_report(
+                        restart_node_id=resume_restart_node_id,
+                        decision=restore_decision,
+                    )
+                if default_resume_decision.get("mode") == "FAIL_CLOSED":
+                    error_type = "lexical_default_resume_invalid"
+                    error_message = "Workflow Lisp default resume policy rejected this resume path."
+                    if restore_kind == "INVALID":
+                        error_type = "lexical_restore_invalid"
+                        error_message = "Lexical checkpoint restore candidate is invalid."
                     return self._fail_resume_state_integrity(
-                        "lexical_restore_invalid",
-                        "Lexical checkpoint restore candidate is invalid.",
+                        error_type,
+                        error_message,
                         {
                             "restart_node_id": resume_restart_node_id,
-                            "checkpoint_id": getattr(restore_decision, "checkpoint_id", None),
-                            "record_id": getattr(restore_decision, "record_id", None),
-                            "diagnostics": list(getattr(restore_decision, "diagnostics", ()) or ()),
+                            "checkpoint_id": default_resume_decision.get("checkpoint_id"),
+                            "record_id": default_resume_decision.get("record_id"),
+                            "diagnostics": list(default_resume_decision.get("diagnostics", ()) or ()),
+                            "mode": default_resume_decision.get("mode"),
                         },
                     )
-                self._activate_resume_restore_overlay(restore_decision)
+                if (
+                    default_resume_decision.get("mode") == "LEXICAL_CHECKPOINT_DEFAULT"
+                    and restore_kind == "RESTORED"
+                ):
+                    self._activate_resume_restore_overlay(restore_decision)
+                else:
+                    self._lexical_restore_overlay = None
             else:
                 self._lexical_restore_overlay = None
             step_index = 0

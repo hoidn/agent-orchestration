@@ -45,6 +45,7 @@ from .phase_family_boundary import (
     is_design_delta_parent_drain_target_workflow,
     load_design_delta_boundary_authority_registry,
 )
+from . import lexical_checkpoint_default_resume
 from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
@@ -149,6 +150,7 @@ FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "source_map": "source_map.json",
     "lexical_checkpoint_points": "lexical_checkpoint_points.json",
     "lexical_checkpoint_shadow_report": "lexical_checkpoint_shadow_report.json",
+    "lexical_checkpoint_default_resume_report": "lexical_checkpoint_default_resume_report.json",
     "expanded_debug_yaml": "expanded.debug.yaml",
 }
 
@@ -419,6 +421,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     boundary_authority_report_payload = None
     value_flow_census_report_payload = None
     resume_plumbing_retirement_report_payload = None
+    default_resume_report_payload = None
     checkpoint_points_payload = None
     checkpoint_shadow_report_payload = None
     g8_deletion_evidence_payload = None
@@ -526,6 +529,16 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                         checkpoint_shadow_report_payload=checkpoint_shadow_report_payload,
                     )
                 )
+                default_resume_report_payload = (
+                    lexical_checkpoint_default_resume.build_default_resume_report(
+                        workflow_family="design_delta_parent_drain",
+                        workflow_name=entry_selection.canonical_name,
+                        lowering_schema_version=compile_result.entry_result.lowering_schema_version,
+                        checkpoint_points_payload=checkpoint_points_payload,
+                        checkpoint_shadow_report_payload=checkpoint_shadow_report_payload,
+                        resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
+                    )
+                )
             except ValueError as exc:
                 raise LispFrontendCompileError(
                     (
@@ -536,6 +549,49 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                         ),
                     )
                 ) from exc
+            default_resume_diagnostics = default_resume_report_payload.get(
+                "diagnostics", []
+            )
+            if default_resume_report_payload.get("status") == "fail":
+                first = {}
+                if isinstance(default_resume_diagnostics, list) and default_resume_diagnostics:
+                    prioritized = next(
+                        (
+                            item
+                            for item in default_resume_diagnostics
+                            if isinstance(item, Mapping)
+                            and item.get("code")
+                            == "lexical_default_resume_step_granular_bypass"
+                        ),
+                        None,
+                    )
+                    first = (
+                        prioritized
+                        if prioritized is not None
+                        else default_resume_diagnostics[0]
+                    )
+                first_code = (
+                    str(first.get("code"))
+                    if isinstance(first, Mapping) and first.get("code")
+                    else "lexical_default_resume_invalid"
+                )
+                first_row_id = (
+                    str(first.get("row_id"))
+                    if isinstance(first, Mapping) and first.get("row_id")
+                    else "unknown_row"
+                )
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="lexical_default_resume_invalid",
+                            message=(
+                                "design-delta default resume report failed: "
+                                f"{first_code}: {first_row_id}"
+                            ),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                )
             diagnostics_bucket = resume_plumbing_retirement_report_payload.get(
                 "diagnostics", []
             )
@@ -580,6 +636,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         boundary_authority_report_payload=boundary_authority_report_payload,
         value_flow_census_report_payload=value_flow_census_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
+        default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
     )
     manifest = _build_manifest(
@@ -2293,6 +2350,7 @@ def _write_build_artifacts(
     boundary_authority_report_payload: Mapping[str, object] | None,
     value_flow_census_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
+    default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
@@ -2323,6 +2381,10 @@ def _write_build_artifacts(
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
             build_root / "resume_plumbing_retirement_report.json"
+        )
+    if default_resume_report_payload is not None:
+        artifact_paths["lexical_checkpoint_default_resume_report"] = (
+            build_root / "lexical_checkpoint_default_resume_report.json"
         )
     if g8_deletion_evidence_payload is not None:
         artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
@@ -2359,6 +2421,10 @@ def _write_build_artifacts(
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(
             resume_plumbing_retirement_report_payload
+        )
+    if default_resume_report_payload is not None:
+        payloads["lexical_checkpoint_default_resume_report"] = _json_data(
+            default_resume_report_payload
         )
     if g8_deletion_evidence_payload is not None:
         payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence_payload)
