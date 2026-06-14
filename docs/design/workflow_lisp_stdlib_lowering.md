@@ -35,20 +35,19 @@ actually produces that artifact. Route and final projection steps carry evidence
 refs from loop inputs/state, and negative validation should catch a lowering
 where provider output can replace consumed evidence identity.
 
-Current checkout status: `review-revise-loop` already compiles through the
-ordinary imported stdlib route in `orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`.
-That route uses compile-time `ProcRef` review/fix hooks, generic
-`loop/recur` exhaustion projection, and explicit `command-result`
-validation through the certified `validate_review_findings_v1` adapter
-boundary. Promotion is still gated by workflow-family parity evidence rather
-than by a separate review-loop-specific compiler branch.
+`review-revise-loop` compiles through the ordinary imported stdlib route in
+`orchestrator/workflow_lisp/stdlib_modules/std/phase.orc`. That route uses
+compile-time `ProcRef` review/fix hooks, generic `loop/recur` exhaustion
+projection, and explicit `command-result` validation through the certified
+`validate_review_findings_v1` adapter boundary. Promotion is still gated by
+workflow-family parity evidence rather than by a separate review-loop-specific
+compiler branch.
 
-Current G6 bridge status: `phase-scope`, `finalize-selected-item`, and
-`backlog-drain` now lower through ordinary imported stdlib composition on the
-accepted route. `std/resource` and `std/drain` are landed builtin modules,
-their counted evidence is recorded in
-`docs/workflow_lisp_g6_verification_gate.json`, and legacy per-form lowerers
-remain compatibility-only bridge routes until G7/G8 cleanup evidence lands.
+Current stdlib status: `phase-scope`, `finalize-selected-item`, and
+`backlog-drain` lower through ordinary imported stdlib composition on the
+accepted route. `std/resource` and `std/drain` are builtin modules. Legacy
+per-form lowerers, where retained, are compatibility-only routes and are not
+the authoring contract.
 The dedicated executable-boundary proof for imported `std/drain` remains the
 `validation_profile="DEDICATED_RUNTIME_PROOF"` lane exercised by
 `tests/test_workflow_lisp_stdlib_runtime_proof_boundary.py`; frontend-only
@@ -67,7 +66,7 @@ owner seam for ordinary stdlib composition.
 | `command-result` | implemented authoring surface | pending union/proof and bundle-path parity | `output_bundle` for fixed records; union results require a variant-proof surface or validator/projection |
 | `review-revise-loop` | implemented authoring surface for current fixtures/examples | pending parity evidence per workflow family | ordinary imported stdlib composition over compile-time `ProcRef` review/fix hooks, generic `loop/recur`, and the explicit `validate_review_findings_v1` command boundary; no review-loop-specific compiler branch |
 | `resume-or-start` | library/adapter-backed or pending by usage | pending | requires canonical reusable-state validation |
-| `resource-transition` | library/adapter-backed by usage | pending promotion evidence where used | certified adapter or runtime-native effect |
+| `resource-transition` | implemented declared transition surface | pending parity evidence where used | runtime-native effect, with certified adapters only as explicit compatibility backends |
 
 ## Required Forms
 
@@ -189,9 +188,12 @@ specified before the form can claim runtime-integrated semantics.
 - Provider decisions become structured state, with reports as views.
 - If no faithful lowering exists, the form is not implementation-ready.
 
-## Open Questions
+## Remaining Open Questions
 
-- Whether `resource-transition` starts as a certified command adapter or waits
-  for runtime-native support.
-- The exact authoring syntax for generic `loop/recur` exhaustion projection.
+- The exact authoring syntax for additional generic `loop/recur` exhaustion
+  projection conveniences.
 - Whether `resume-or-start` needs a new canonical-state validation primitive.
+
+`resource-transition` itself is not open: durable mutation is a runtime-owned
+declared transition effect, while certified adapters remain compatibility
+backends for the same typed contract.

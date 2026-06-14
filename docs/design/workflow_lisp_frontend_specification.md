@@ -718,11 +718,11 @@ path.execution-report
 
 The compiler must reject ambiguous unqualified names.
 
-Current rule: imported bindings are the counted and documented route for
-`with-phase` / `phase-scope`, `finalize-selected-item`, and `backlog-drain`.
-Promoted owner-lane evidence must compile through the imported stdlib
-definition. Any retained bare-form compatibility lane is characterization-only
-and does not count as current G6/G8 proof.
+Imported bindings are the primary route for stdlib forms such as `with-phase` /
+`phase-scope`, `finalize-selected-item`, and `backlog-drain`. Promoted
+owner-lane evidence must compile through the imported stdlib definition. Any
+retained bare-form compatibility lane is characterization-only and is not part
+of the current authoring contract.
 
 Compiler-known list heads are classified through the form registry before
 elaboration. The registry distinguishes core special forms, core effect bridges,
@@ -939,7 +939,7 @@ concrete type, checks any declared constraints, emits or reuses a deterministic
 specialization, and then typechecks/lowers the concrete helper through the
 ordinary WCC path.
 
-The current checkout implements this as an instantiate-then-typecheck contract:
+The implemented contract is instantiate-then-typecheck:
 definition-time generic-body checking is provisional for capabilities granted by
 declared structural constraints, while the authoritative body typecheck and
 effect summary are recomputed on the instantiated helper before lowering.
@@ -1227,13 +1227,13 @@ Defines exported runtime-callable workflow.
 
 A `defworkflow` maps to a callable workflow in core AST.
 
-Current implemented parameter forms are:
+Implemented parameter forms:
 
 - `(name Type)`
 - `(name Type :default <literal>)`
 
 The bounded `:default` surface is part of the workflow boundary contract, not a
-body-level expression feature. In the current implementation, authored
+body-level expression feature. Authored
 `defworkflow` defaults are supported only for boundary parameters that flatten
 to exactly one public workflow input contract and whose type is one of:
 
@@ -1696,46 +1696,123 @@ They must be:
 - confined to legacy modules
 - forbidden in new standard-library procedures
 
+### 18.1 Materialized Value Views
+
+`materialize-view` renders a typed value to a deterministic file
+representation for a consumer that cannot consume the typed value directly.
+The typed value remains semantic authority. The rendered file is a view,
+prompt input, report, public artifact, or compatibility bridge only according
+to its declared authority class.
+
+```lisp
+(materialize-view terminal-result
+  :renderer canonical-json
+  :role drain-summary)
+```
+
+Lowering:
+
+- the frontend emits a generated `materialize_view` runtime step on the
+  WCC/schema-2 route;
+- the renderer id and renderer version are part of the executable contract;
+- the rendered path is allocated through `StateLayout` with generated-path role
+  `materialized_value_view`;
+- Semantic IR records a `materialize_view` effect with source-map provenance;
+- resume may reuse a valid deterministic view, but schema, renderer, or input
+  mismatch fails closed; and
+- shared validation rejects materialized views as typed semantic inputs unless a
+  separate compatibility contract explicitly classifies the value as a bridge.
+
+Materialized views replace deterministic report, pointer, and summary writer
+scripts when those scripts merely render typed state. They do not replace
+providers, commands, or resource transitions that perform external work or
+durable mutation.
+
 ## Part IV. State, Contexts, And Derived Paths
 
 ## 19. Context Types
 
-The language should use typed contexts to avoid manual state management.
+The language uses typed contexts, generic resources, and runtime-owned
+allocation to avoid manual state management. The runtime's durable workflow
+ontology is intentionally small:
 
 ```lisp
 (defrecord RunCtx
   (run-id RunId)
   (state-root Path.state-root)
-  (artifact-root Path.artifact-root))
+  (artifact-root Path.artifact-root)
+  (temp-root Path.state-root))
 
+(defrecord Resource[TState]
+  (resource-id String)
+  (resource-kind Symbol)
+  (state-type Symbol)
+  (version Int))
+
+(defrecord AllocationScope
+  (owner String)
+  (semantic-role Symbol))
+```
+
+`RunCtx` is the only runtime-bootstrapped context. `Resource[TState]`
+represents durable workflow-managed state by identity, type, version, and
+provenance; the concrete backing store is a runtime detail. Domain contexts are
+ordinary stdlib or workflow-family records over that generic core:
+
+```lisp
 (defrecord PhaseCtx
   (run RunCtx)
   (phase-name Symbol)
-  (state-root Path.state-root)
-  (artifact-root Path.artifact-root))
+  (phase Resource[PhaseState])
+  (allocation AllocationScope))
 
 (defrecord ItemCtx
   (run RunCtx)
-  (item-id String)
-  (state-root Path.state-root)
-  (artifact-root Path.artifact-root)
-  (ledger Path.state-existing))
+  (item Resource[WorkItemState])
+  (allocation AllocationScope))
 
 (defrecord DrainCtx
   (run RunCtx)
-  (state-root Path.state-root)
-  (manifest Path.state-existing)
-  (ledger Path.state-existing))
+  (drain Resource[DrainState])
+  (backlog Resource[BacklogState])
+  (allocation AllocationScope))
 ```
 
 ### 19.1 Context Construction
 
 ```lisp
-(phase-ctx item-ctx 'implementation)
+(phase-ctx run 'implementation)
 (item-ctx drain-ctx selected-item)
+(drain-ctx run steering target-design baseline-design)
 ```
 
-### 19.2 Derived State
+Context constructors are ordinary stdlib or workflow-family helpers. They lower
+to pure projection, resource-open/reference, and `StateLayout` allocation
+effects. The compiler/runtime recognizes private executable context values by
+their structural anchors, not by a closed table of domain names: a context is
+private when its type transitively contains `RunCtx`, `Resource`, or a
+runtime-derived allocation.
+
+### 19.2 Boundary Authority Classes
+
+Every path-like boundary value, generated binding, view, artifact target,
+resource handle, and context binding has an authority class:
+
+| Class | Meaning | Treatment |
+| --- | --- | --- |
+| `public_authored` | The caller genuinely chooses the value | Public workflow input or output |
+| `compatibility_bridge` | Legacy or external surface retained for compatibility | Explicitly labeled bridge, not hidden semantic authority |
+| `runtime_derived` | Derived from `RunCtx`, resource identity, or `StateLayout` | Hidden internal binding |
+| `generated_internal` | Compiler/runtime-owned bundle, write root, temp path, sidecar, checkpoint, or helper binding | Private generated value |
+| `materialized_view` | Deterministic rendering of a typed value | View; never semantic authority by itself |
+| `public_artifact` | Intentionally published user-facing artifact | Public output with declared contract |
+
+Promoted `.orc` entrypoints expose only `public_authored` values and explicitly
+accepted compatibility bridges. `RunCtx`, `Resource` internals, generated
+write roots, bundle targets, view targets, and private runtime paths stay off
+the public authored boundary.
+
+### 19.3 Derived State
 
 The compiler/runtime derives:
 
@@ -2033,11 +2110,13 @@ flowchart TB
 
     subgraph CoreSemantics["Lowered core semantics"]
         ProviderResult["provider-result / command-result"]
+        PureProjection["pure_projection"]
+        MaterializeView["materialize_view"]
         Repeat["repeat_until / loop"]
         Match["match + variant proof"]
         Call["workflow call"]
-        Adapter["certified command adapter"]
-        RuntimeEffect["runtime-native effect"]
+        Adapter["certified command adapter compatibility"]
+        ResourceEffect["runtime-native resource_transition"]
         Bundle["output_bundle / variant_output"]
     end
 
@@ -2047,13 +2126,16 @@ flowchart TB
     ReviewLoop --> Match
     ResumeStart --> Match
     ResumeStart --> Call
-    ResourceTransition --> Adapter
-    ResourceTransition --> RuntimeEffect
+    ResourceTransition --> ResourceEffect
+    ResourceTransition -. compatibility .-> Adapter
     Finalize --> Match
-    Finalize --> Bundle
+    Finalize --> ResourceEffect
+    Finalize --> MaterializeView
     Drain --> Repeat
     Drain --> Call
     Drain --> Match
+    Drain --> PureProjection
+    Drain --> MaterializeView
 ```
 
 ## 26. `run-provider-phase`
@@ -2257,7 +2339,7 @@ The runtime owns:
 The legacy queue-move/resource-routing shape remains available as a
 compatibility/library route. It keeps the old `:from` / `:to` / `:ledger` /
 `:event` shape and lowers through the certified `apply_resource_transition`
-adapter until the family using it is migrated.
+adapter only when an explicit compatibility contract selects that backend.
 
 ### 29.1 Lowering Options
 
@@ -2282,9 +2364,10 @@ Repeated semantically critical transitions target the runtime-native backend on
 the WCC/schema-2 route. Certified adapters are migration backends, not the
 long-term target, for those transitions.
 
-If the design needs true atomic file move + ledger update and the runtime lacks
-it, this form must stay on the compatibility route until a runtime-native
-transition contract exists; the authored surface must not overclaim atomicity.
+If a transition needs stronger atomic file move, ledger, or multi-resource
+transactionality than the runtime-native backend provides, the authored surface
+must select a backend that actually provides those guarantees. It must not
+overclaim atomicity.
 
 ## 30. `finalize-selected-item`
 
@@ -2299,19 +2382,19 @@ transition contract exists; the authored surface must not overclaim atomicity.
 Meaning:
 
 - match typed phase results
-- record completed or blocked item result
-- move resources if needed
+- record completed or blocked item result through a declared transition
+- update workflow-managed resources if needed
 - write structured selected-item outcome
-- publish summary artifact
+- materialize summary views from typed terminal state
 - return `SelectedItemResult`
 
 This replaces fan-in through multiple handwritten blocked/completed scripts.
 
-Current checkout status: the accepted imported stdlib route is landed in
-`std/resource`. The promoted path uses a runtime-native declared transition
-plus `materialize-view` summary rendering. Current owner-lane evidence uses the
-imported stdlib fixture; legacy bare-form characterization no longer counts as
-shared-surface proof.
+The authoring route is the imported `std/resource` definition. The semantic
+route is typed `match` plus runtime-native declared transition plus
+`materialize-view` summary rendering. Bare-form lowerers and command adapters
+for the same behavior are compatibility surfaces and are not part of the
+current stdlib contract.
 
 ## 31. `backlog-drain`
 
@@ -2328,17 +2411,16 @@ Return type:
 
 ```lisp
 (defunion DrainResult
-  (EMPTY
-    (run-state Path.state-existing))
+  (EMPTY)
 
   (BLOCKED
     (stage FailedStage)
     (reason String)
-    (summary Path.work-report))
+    (summary MaterializedView[DrainSummary]))
 
   (COMPLETED
     (items-processed Int)
-    (run-state Path.state-existing)))
+    (summary MaterializedView[DrainSummary])))
 ```
 
 Lowering:
@@ -2347,18 +2429,19 @@ Lowering:
 - selector workflow call
 - selected item workflow call
 - gap drafter workflow call
-- typed state accumulator
-
-Current checkout status: the accepted imported stdlib route is landed in
-`std/drain`, with dedicated executable-boundary proof on
-`validation_profile="DEDICATED_RUNTIME_PROOF"` and separate frontend-only
-compile proof on `validate_shared=False`. Current owner-lane evidence uses the
-imported stdlib fixture on those lanes; legacy bare-form characterization no
-longer counts as bridge-surface proof after G8 deletion.
+- typed loop state accumulator
+- pure projections for routing and terminal values
+- runtime-native resource transitions for durable state changes
+- materialized views for reports and compatibility outputs
 - terminal typed result
 
 This is the high-level construct that should materially shrink top-level
 backlog-drain authoring.
+
+The authoring route is the imported `std/drain` definition. Lowering must expose
+the generated calls, transitions, projections, views, source maps, and Semantic
+IR effects; it must not hide selection, terminal routing, or resource mutation
+inside command scripts.
 
 ## Part VII. Macro System
 
@@ -2659,6 +2742,8 @@ Core statements:
 - `CoreProviderStep`
 - `CoreCommandStep`
 - `CoreCallStep`
+- `CorePureProjectionStep`
+- `CoreMaterializeViewStep`
 - `CoreOutputBundle`
 - `CoreVariantOutput`
 - `CorePreSnapshot`
@@ -2667,11 +2752,12 @@ Core statements:
 - `CoreRepeatUntil`
 - `CorePublish`
 - `CoreAssert`
-- `CoreResourceTransitionCandidate` if runtime supports it
+- `CoreResourceTransitionStep`
 
-If runtime does not support `CoreResourceTransitionCandidate`, the frontend must
-lower `resource-transition` to existing core constructs plus a certified command
-adapter.
+Generated pure projections, materialized views, and resource transitions are
+first-class Core statement families on the WCC/schema-2 route. Certified
+command-adapter lowering remains available only when an explicit compatibility
+contract declares the adapter backend for the same typed effect.
 
 ## 46. Validated Core Workflow AST
 
@@ -3592,6 +3678,9 @@ Json
 Optional[T]
 List[T]
 Map[K,V]
+Resource[TState]
+Transition[TRequest,TResult]
+MaterializedView[T]
 ```
 
 ## 82. `std/paths`
@@ -3609,8 +3698,8 @@ Map[K,V]
 
 ## 83. `std/context`
 
-The current checkout ships `orchestrator/workflow_lisp/stdlib_modules/std/context.orc`
-as an ordinary stdlib type module exporting these records:
+`orchestrator/workflow_lisp/stdlib_modules/std/context.orc` is an ordinary
+stdlib type module exporting these records:
 
 - `RunCtx`
 - `PhaseCtx`
@@ -3619,10 +3708,10 @@ as an ordinary stdlib type module exporting these records:
 - `SelectionCtx`
 - `RecoveryCtx`
 
-These remain Workflow Lisp library records, not runtime-owned domain nouns.
-Private executable-context recognition is structural and `RunCtx`-anchored:
-legacy family names remain as compatibility labels, while hidden promoted-entry
-bindings record schema-versioned per-input role metadata in
+These are Workflow Lisp library records, not runtime-owned domain nouns.
+Private executable-context recognition is structural and `RunCtx`-anchored.
+Hidden promoted-entry bindings record schema-versioned per-input role metadata
+in
 `PrivateExecContextBinding.projection_hints`:
 
 - `context_binding_schema_version = 1`
@@ -3631,9 +3720,7 @@ bindings record schema-versioned per-input role metadata in
 The runtime bootstrap lane derives only `RunCtx` anchor values directly at
 execution time. Any additional generated context input must already carry a
 compile-time default or the compile fails closed. Author-facing workflow
-boundaries still expose only public authored inputs.
-
-Author-facing workflow boundaries expose only public authored inputs. Generated
+boundaries expose only public authored inputs. Generated
 private executable-context bindings, managed write roots, and compatibility
 bridge values are runtime-owned boundary classes and must stay off the public
 input surface even when they appear as generated internal inputs in lowered
@@ -3664,8 +3751,9 @@ artifacts.
 - `resource-location`
 - `queue`
 - `ledger-event`
-- landed builtin module on the G6 bridge route
-- owns the imported `finalize-selected-item` surface used by counted G6 suites
+- imported stdlib module for declared transitions and selected-item finalization
+- owns `finalize-selected-item` as typed match/projection plus transition/view
+  composition
 
 ## 87. `std/drain`
 
@@ -3673,9 +3761,10 @@ artifacts.
 - `SelectionResult`
 - `DrainResult`
 - `GapResult`
-- landed builtin module on the G6 bridge route
-- owns the imported `backlog-drain` surface; dedicated executable proof stays
-  on the runtime-proof lane rather than on shared parent-callable validation
+- imported stdlib module for drain/backlog orchestration
+- owns `backlog-drain` as ordinary imported `.orc` composition over typed
+  selector results, loop state, workflow calls, transitions, projections, and
+  materialized views
 
 ## Part XV. Example End-To-End Design
 
@@ -3973,8 +4062,8 @@ an effect-free projection workflow requires both evidence lanes:
 
 This rule allows a shared authored projection module such as
 `workflows/library/lisp_frontend_design_delta/projections.orc` to own routing
-decisions directly while keeping remaining non-routing bridges live until their
-later retirement tranche.
+decisions directly. Non-routing bridge values remain explicit compatibility
+surfaces when a legacy consumer still requires them.
 
 ## Part XVII. Testing Strategy
 
@@ -4063,10 +4152,10 @@ the current compiler-lane roadmap where they conflict with WCC. The current
 compiler substrate is WCC/schema 2 for the migrated M0-M5 route subset, with
 legacy schema 1 retained for compatibility and historical-run resume.
 
-Current post-WCC work is tracked by the post-foundation composition design:
-private executable context, typed projection, certified adapters/resource
-transitions, parent-callable family parity, promotion evidence, and
-post-promotion simplification.
+Post-WCC compiler-lane work is governed by this baseline plus the component
+contracts it routes to: private executable context, typed projection,
+certified adapters/resource transitions, parent-callable family parity,
+promotion evidence, and post-promotion simplification.
 
 ## 99. Stage 1: Frontend Core Without Workflow Execution
 
@@ -4137,7 +4226,7 @@ Implement:
 - `review-revise-loop`
 - `resume-or-start`
 
-Current review/revise implementation note:
+Review/revise route:
 
 - promoted `review-revise-loop` is implemented as a stdlib-owned macro/generic
   procedure route that lowers through ordinary typed forms;
@@ -4159,12 +4248,9 @@ Implement:
 - workflow refs
 - `loop/recur`
 
-At this stage, decide whether `resource-transition` can safely lower to
-certified command adapters or needs runtime-native core support.
-
-This decision is now resolved for repeated semantically critical transitions:
-the target backend is runtime-native, while certified adapters remain the
-compatibility/migration backend.
+Semantically critical `resource-transition` behavior lowers to the
+runtime-native declared transition backend. Certified adapters remain explicit
+compatibility backends when they implement the same typed transition contract.
 
 ## 105. Stage 7: NeurIPS Migration Experiment
 
@@ -4185,10 +4271,10 @@ Measure:
 
 Reject the frontend design if translations remain YAML-shaped.
 
-Current baseline note: the WCC M0-M5 route supersedes the direct Core-AST
-compiler-substrate interpretation of these stages. For migrated-route evidence,
-new fixtures should identify the lowering route and schema version, and
-promoted work should treat `wcc_default`/schema 2 as current guidance.
+Baseline note: the WCC M0-M5 route supersedes the direct Core-AST
+compiler-substrate interpretation of these stages. Migrated-route evidence
+identifies the lowering route and schema version; promoted work uses
+`wcc_default`/schema 2 as the current compiler guidance.
 
 Promotion of YAML primaries remains separate from implementation of frontend
 capability. A `.orc` candidate must have machine-computed non-regressive parity
@@ -4254,16 +4340,16 @@ auto
 
 ## 107. Resource Transition Backend
 
-Need decide whether to add a runtime-native resource transition effect.
+Resolved: repeated semantically critical `resource-transition` behavior lowers
+to a runtime-native declared transition effect on the WCC/schema-2 route.
+Certified adapters remain valid compatibility backends only when they implement
+the same typed transition contract with declared inputs, outputs, effects,
+fixtures, path-safety rules, and source-map provenance.
 
-A macro/proc cannot honestly guarantee atomic queue move + ledger update unless
-the backend supports it.
-
-Recommended:
-
-- start with certified command adapter
-- measure pain
-- promote to runtime-native effect only if repeated and semantically critical
+A transition must not claim stronger atomicity than its backend provides. The
+runtime-native file-backed backend may provide single-resource atomic commit and
+fail-closed multi-resource sequencing with audit evidence; stronger
+transactionality requires a backend that actually supports it.
 
 ## 108. Workflow Refs
 

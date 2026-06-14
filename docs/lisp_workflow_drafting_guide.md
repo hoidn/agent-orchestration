@@ -314,7 +314,8 @@ The currently implemented authoring surface includes:
   primary-migration parity evidence for each workflow family remains governed
   by
   `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- `resource-transition` through the current library/certified-adapter path
+- `resource-transition` through declared runtime-native transitions, with
+  certified adapters only as explicit compatibility backends
 - `finalize-selected-item`
 - `backlog-drain`
 - debug YAML renderer
@@ -349,7 +350,8 @@ Deferred or future:
   provider results, command results, state, ledgers, or loop-carried runtime
   state
 - dynamic runtime procedure dispatch
-- runtime-native atomic resource transitions beyond current certified adapters
+- stronger multi-resource transactional backends beyond the current
+  runtime-native transition contract
 - generic `defworkflow` headers or type-parameterized workflow entrypoints
 
 Runtime closures remain future runtime-owned callable values. Current work only
