@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -51,6 +53,7 @@ from ..workflow_refs import ResolvedWorkflowRef
 from .route import LOWERING_SCHEMA_WCC
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from ..lowering import core as lowering_core
+from ..lexical_checkpoints import allocate_checkpoint_storage, derive_checkpoint_id, derive_program_point_id
 from ..lowering.context import (
     _LoweringContext,
     _TerminalResult,
@@ -120,6 +123,14 @@ from ..lowering.control_match import (
     _match_arm_local_values,
     _normalize_union_match_case_terminal,
 )
+
+
+def _sha256_text(value: object) -> str:
+    return f"sha256:{hashlib.sha256(str(value).encode('utf-8')).hexdigest()}"
+
+
+def _sha256_json(value: object) -> str:
+    return _sha256_text(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
 
 
 def lower_wcc_m2_workflow_definitions(
@@ -478,11 +489,13 @@ def _lower_one_wcc_workflow(
     )
     scope_analysis = analyze_wcc_body(wcc_body)
     local_values = _signature_local_values(typed_workflow)
+    lexical_checkpoint_points: list[Mapping[str, object]] = []
     steps, terminal = _defunctionalize_body(
         wcc_body,
         context=context,
         local_values=local_values,
         scope_analysis=scope_analysis,
+        lexical_checkpoint_points=lexical_checkpoint_points,
     )
     steps, terminal = lowering_core._normalize_top_level_terminal(
         typed_workflow=typed_workflow,
@@ -599,11 +612,47 @@ def _lower_one_wcc_workflow(
         step_origins=context.step_spans,
         is_generated_private_workflow=is_generated_private_workflow,
     )
-
-    return lowering_core.LoweredWorkflow(
-        typed_workflow=typed_workflow,
-        authored_mapping=authored_mapping,
-        origin_map=LoweringOriginMap(
+    origin_map = LoweringOriginMap(
+        workflow_name=typed_workflow.definition.name,
+        workflow_origin=_with_origin_key(
+            LoweringOrigin(
+                span=workflow_origin.span,
+                form_path=workflow_origin.form_path,
+                expansion_stack=workflow_origin.expansion_stack,
+                notes=context.origin_notes or workflow_origin.notes,
+            ),
+            workflow_name=typed_workflow.definition.name,
+            entity_kind="workflow",
+            subject_name=typed_workflow.definition.name,
+        ),
+        step_spans=MappingProxyType(
+            _origins_with_keys(context.step_spans, workflow_name=typed_workflow.definition.name, entity_kind="step_id")
+        ),
+        authored_input_spans=MappingProxyType(
+            _origins_with_keys(authored_input_spans, workflow_name=typed_workflow.definition.name, entity_kind="generated_input")
+        ),
+        internal_input_spans=MappingProxyType(
+            _origins_with_keys(
+                internal_input_spans,
+                workflow_name=typed_workflow.definition.name,
+                entity_kind="generated_internal_input",
+            )
+        ),
+        generated_output_spans=MappingProxyType(
+            _origins_with_keys(
+                context.generated_output_spans,
+                workflow_name=typed_workflow.definition.name,
+                entity_kind="generated_output",
+            )
+        ),
+        generated_path_spans=MappingProxyType(
+            _origins_with_keys(
+                context.generated_path_spans,
+                workflow_name=typed_workflow.definition.name,
+                entity_kind="generated_path",
+            )
+        ),
+        validation_subject_bindings=_build_validation_subject_bindings(
             workflow_name=typed_workflow.definition.name,
             workflow_origin=_with_origin_key(
                 LoweringOrigin(
@@ -616,76 +665,51 @@ def _lower_one_wcc_workflow(
                 entity_kind="workflow",
                 subject_name=typed_workflow.definition.name,
             ),
-            step_spans=MappingProxyType(
-                _origins_with_keys(context.step_spans, workflow_name=typed_workflow.definition.name, entity_kind="step_id")
+            step_spans=_origins_with_keys(
+                context.step_spans,
+                workflow_name=typed_workflow.definition.name,
+                entity_kind="step_id",
             ),
-            authored_input_spans=MappingProxyType(
-                _origins_with_keys(authored_input_spans, workflow_name=typed_workflow.definition.name, entity_kind="generated_input")
-            ),
-            internal_input_spans=MappingProxyType(
-                _origins_with_keys(
+            generated_inputs={
+                **_origins_with_keys(
+                    authored_input_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_input",
+                ),
+                **_origins_with_keys(
                     internal_input_spans,
                     workflow_name=typed_workflow.definition.name,
                     entity_kind="generated_internal_input",
-                )
-            ),
-            generated_output_spans=MappingProxyType(
-                _origins_with_keys(
-                    context.generated_output_spans,
-                    workflow_name=typed_workflow.definition.name,
-                    entity_kind="generated_output",
-                )
-            ),
-            generated_path_spans=MappingProxyType(
-                _origins_with_keys(
-                    context.generated_path_spans,
-                    workflow_name=typed_workflow.definition.name,
-                    entity_kind="generated_path",
-                )
-            ),
-            validation_subject_bindings=_build_validation_subject_bindings(
+                ),
+            },
+            generated_outputs=_origins_with_keys(
+                context.generated_output_spans,
                 workflow_name=typed_workflow.definition.name,
-                workflow_origin=_with_origin_key(
-                    LoweringOrigin(
-                        span=workflow_origin.span,
-                        form_path=workflow_origin.form_path,
-                        expansion_stack=workflow_origin.expansion_stack,
-                        notes=context.origin_notes or workflow_origin.notes,
-                    ),
-                    workflow_name=typed_workflow.definition.name,
-                    entity_kind="workflow",
-                    subject_name=typed_workflow.definition.name,
-                ),
-                step_spans=_origins_with_keys(
-                    context.step_spans,
-                    workflow_name=typed_workflow.definition.name,
-                    entity_kind="step_id",
-                ),
-                generated_inputs={
-                    **_origins_with_keys(
-                        authored_input_spans,
-                        workflow_name=typed_workflow.definition.name,
-                        entity_kind="generated_input",
-                    ),
-                    **_origins_with_keys(
-                        internal_input_spans,
-                        workflow_name=typed_workflow.definition.name,
-                        entity_kind="generated_internal_input",
-                    ),
-                },
-                generated_outputs=_origins_with_keys(
-                    context.generated_output_spans,
-                    workflow_name=typed_workflow.definition.name,
-                    entity_kind="generated_output",
-                ),
-                generated_paths=_origins_with_keys(
-                    context.generated_path_spans,
-                    workflow_name=typed_workflow.definition.name,
-                    entity_kind="generated_path",
-                ),
+                entity_kind="generated_output",
             ),
-            generated_semantic_effects=generated_semantic_effects,
+            generated_paths=_origins_with_keys(
+                context.generated_path_spans,
+                workflow_name=typed_workflow.definition.name,
+                entity_kind="generated_path",
+            ),
         ),
+        generated_semantic_effects=generated_semantic_effects,
+    )
+    emitted_step_ids = {
+        step_id
+        for step in _walk_authored_steps(authored_mapping.get("steps"))
+        for step_id in (step.get("id"),)
+        if isinstance(step_id, str)
+    }
+    lexical_checkpoint_points = [
+        point
+        for point in lexical_checkpoint_points
+        if isinstance(point.get("step_id"), str) and point.get("step_id") in emitted_step_ids
+    ]
+    return lowering_core.LoweredWorkflow(
+        typed_workflow=typed_workflow,
+        authored_mapping=authored_mapping,
+        origin_map=origin_map,
         boundary_projection=finalized_projection,
         is_generated_private_workflow=is_generated_private_workflow,
         private_exec_context_bindings=tuple(context.private_exec_context_bindings),
@@ -694,6 +718,7 @@ def _lower_one_wcc_workflow(
             for name, reason in sorted(context.internal_generated_input_reasons.items())
             if reason == "compatibility_bridge"
         ),
+        lexical_checkpoint_points=tuple(lexical_checkpoint_points),
         generated_path_allocations=tuple(context.generated_path_allocations),
         private_artifact_ids=tuple(
             name
@@ -709,12 +734,239 @@ def _lower_one_wcc_workflow(
     )
 
 
+def _binding_schema_digest_for_point(
+    *,
+    workflow_name: str,
+    point_kind: str,
+    step_id: str,
+    type_ref: TypeRef,
+    form_path: tuple[str, ...],
+) -> str:
+    return _sha256_json(
+        {
+            "workflow_name": workflow_name,
+            "point_kind": point_kind,
+            "step_id": step_id,
+            "type_ref": repr(type_ref),
+            "form_path": form_path,
+        }
+    )
+
+
+def _base_checkpoint_point_payload(
+    *,
+    workflow_name: str,
+    point_kind: str,
+    step_id: str,
+    step_kind: str,
+    origin_key: str,
+    route_schema_version: str,
+    wcc_node_id: str,
+    wcc_scope_id: str,
+    binding_schema_digest: str,
+    storage_scope: str,
+) -> Mapping[str, object]:
+    program_point_id = derive_program_point_id(
+        workflow_name=workflow_name,
+        point_kind=point_kind,
+        origin_key=origin_key,
+        identity_digest=_sha256_json(
+            {
+                "wcc_node_id": wcc_node_id,
+                "wcc_scope_id": wcc_scope_id,
+                "step_id": step_id,
+                "storage_scope": storage_scope,
+            }
+        ),
+    )
+    checkpoint_id = derive_checkpoint_id(
+        workflow_name=workflow_name,
+        program_point_id=program_point_id,
+        executable_identity=f"{wcc_node_id}:{step_id}" if point_kind == "effect_boundary" else f"{wcc_scope_id}:{step_id}",
+        lowering_schema_version=route_schema_version,
+        storage_scope=storage_scope,
+    )
+    record_allocation = allocate_checkpoint_storage(
+        workflow_name=workflow_name,
+        checkpoint_id=checkpoint_id,
+        semantic_role=GeneratedPathSemanticRole.LEXICAL_CHECKPOINT_RECORD.value,
+        storage_scope=storage_scope,
+    )
+    return MappingProxyType(
+        {
+            "checkpoint_id": checkpoint_id,
+            "program_point_id": program_point_id,
+            "point_kind": point_kind,
+            "workflow_name": workflow_name,
+            "step_id": step_id,
+            "origin_key": origin_key,
+            "step_kind": step_kind,
+            "wcc_identity": {
+                "node_id_digest": _sha256_text(wcc_node_id),
+                "scope_id_digest": _sha256_text(wcc_scope_id),
+            },
+            "runtime_program_identity": {
+                "lowering_schema_version": route_schema_version,
+                "wcc_node_id": wcc_node_id,
+                "wcc_scope_id": wcc_scope_id,
+            },
+            "executable_identity": {
+                "step_id": step_id,
+            },
+            "binding_schema": {
+                "schema_digest": binding_schema_digest,
+                "bindings": [],
+            },
+            "storage": {
+                "allocation_id": record_allocation.allocation_id,
+                "semantic_role": "lexical_checkpoint_record",
+                "privacy": "runtime_sidecar",
+                "resume_scope": storage_scope,
+            },
+        }
+    )
+
+
+def _walk_authored_steps(raw_steps: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(raw_steps, list):
+        return ()
+    steps: list[Mapping[str, object]] = []
+    for step in raw_steps:
+        if not isinstance(step, Mapping):
+            continue
+        steps.append(step)
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, Mapping):
+            steps.extend(_walk_authored_steps(repeat_until.get("steps")))
+        then_block = step.get("then")
+        else_block = step.get("else")
+        if isinstance(then_block, Mapping):
+            steps.extend(_walk_authored_steps(then_block.get("steps")))
+        if isinstance(else_block, Mapping):
+            steps.extend(_walk_authored_steps(else_block.get("steps")))
+        match_block = step.get("match")
+        if isinstance(match_block, Mapping):
+            cases = match_block.get("cases")
+            if isinstance(cases, Mapping):
+                for case in cases.values():
+                    if isinstance(case, Mapping):
+                        steps.extend(_walk_authored_steps(case.get("steps")))
+    return tuple(steps)
+
+
+def _effect_boundary_step_kind(value: WccPerform | WccCall) -> str:
+    if isinstance(value, WccCall):
+        return "call"
+    return {
+        "command_result": "command",
+        "provider_result": "provider",
+        "workflow_call": "call",
+        "materialize_view": "materialize_view",
+        "resource_transition": "resource_transition",
+        "resume_or_start": "resume_or_start",
+        "run_provider_phase": "provider",
+        "produce_one_of": "provider",
+        "finalize_selected_item": "finalize_selected_item",
+    }.get(value.perform_kind, value.perform_kind)
+
+
+def _effect_boundary_checkpoint_point_payload(
+    *,
+    workflow_name: str,
+    value: WccPerform | WccCall,
+    terminal: _TerminalResult,
+) -> Mapping[str, object]:
+    payload = dict(
+        _base_checkpoint_point_payload(
+            workflow_name=workflow_name,
+            point_kind="effect_boundary",
+            step_id=terminal.step_id,
+            step_kind=_effect_boundary_step_kind(value),
+            origin_key=_sha256_text(value.metadata.source_span) if False else "",
+            route_schema_version=value.metadata.node_id.split(":", 2)[1],
+            wcc_node_id=value.metadata.node_id,
+            wcc_scope_id=value.metadata.scope_id,
+            binding_schema_digest=_binding_schema_digest_for_point(
+                workflow_name=workflow_name,
+                point_kind="effect_boundary",
+                step_id=terminal.step_id,
+                type_ref=value.metadata.type_ref,
+                form_path=value.metadata.form_path,
+            ),
+            storage_scope="step_visit",
+        )
+    )
+    payload["origin_key"] = _with_origin_key(
+        LoweringOrigin(
+            span=value.metadata.source_span,
+            form_path=value.metadata.form_path,
+            expansion_stack=value.metadata.expansion_stack,
+        ),
+        workflow_name=workflow_name,
+        entity_kind="step_id",
+        subject_name=terminal.step_id,
+    ).origin_key
+    payload["effect_boundary"] = {
+        "effect_kind": _effect_boundary_step_kind(value),
+        "boundary_kind": _effect_boundary_step_kind(value),
+        "policy_status": "shadow_record_only",
+    }
+    payload["loop_back_edge"] = None
+    return MappingProxyType(payload)
+
+
+def _loop_back_edge_checkpoint_point_payload(
+    *,
+    workflow_name: str,
+    body: WccRecJoin,
+    repeat_step_id: str,
+) -> Mapping[str, object]:
+    payload = dict(
+        _base_checkpoint_point_payload(
+            workflow_name=workflow_name,
+            point_kind="loop_back_edge",
+            step_id=repeat_step_id,
+            step_kind="repeat_until",
+            origin_key="",
+            route_schema_version=body.metadata.node_id.split(":", 2)[1],
+            wcc_node_id=body.metadata.node_id,
+            wcc_scope_id=body.metadata.scope_id,
+            binding_schema_digest=_binding_schema_digest_for_point(
+                workflow_name=workflow_name,
+                point_kind="loop_back_edge",
+                step_id=repeat_step_id,
+                type_ref=body.metadata.type_ref,
+                form_path=body.metadata.form_path,
+            ),
+            storage_scope="loop_frame",
+        )
+    )
+    payload["origin_key"] = _with_origin_key(
+        LoweringOrigin(
+            span=body.metadata.source_span,
+            form_path=body.metadata.form_path,
+            expansion_stack=body.metadata.expansion_stack,
+        ),
+        workflow_name=workflow_name,
+        entity_kind="step_id",
+        subject_name=repeat_step_id,
+    ).origin_key
+    payload["effect_boundary"] = None
+    payload["loop_back_edge"] = {
+        "loop_name": body.loop_name,
+        "state_param_schema_digest": _sha256_json([param.name for param in body.params]),
+        "policy_status": "shadow_record_only",
+    }
+    return MappingProxyType(payload)
+
+
 def _defunctionalize_body(
     body: WccBody,
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    lexical_checkpoint_points: list[Mapping[str, object]] | None = None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     if isinstance(body, WccLet):
@@ -737,7 +989,16 @@ def _defunctionalize_body(
                 binding_type=binding_type,
                 context=step_context,
                 local_values=updated_locals,
+                lexical_checkpoint_points=lexical_checkpoint_points,
             )
+            if lexical_checkpoint_points is not None:
+                lexical_checkpoint_points.append(
+                    _effect_boundary_checkpoint_point_payload(
+                        workflow_name=context.workflow_name,
+                        value=body.bound_value,
+                        terminal=binding_terminal,
+                    )
+                )
             binding_hidden_inputs.update(binding_terminal.hidden_inputs)
             local_value = _binding_local_value_from_terminal(
                 body.bound_value,
@@ -804,6 +1065,7 @@ def _defunctionalize_body(
             ),
             local_values=updated_locals,
             scope_analysis=scope_analysis,
+            lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
         return [*binding_steps, *nested_steps], replace(
@@ -817,6 +1079,7 @@ def _defunctionalize_body(
             context=context,
             local_values=local_values,
             scope_analysis=scope_analysis,
+            lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
 
@@ -826,6 +1089,7 @@ def _defunctionalize_body(
             context=context,
             local_values=local_values,
             scope_analysis=scope_analysis,
+            lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
 
@@ -834,6 +1098,7 @@ def _defunctionalize_body(
             body,
             context=context,
             local_values=local_values,
+            lexical_checkpoint_points=lexical_checkpoint_points,
         )
 
     if isinstance(body, WccJoin):
@@ -842,6 +1107,7 @@ def _defunctionalize_body(
             context=context,
             local_values=local_values,
             scope_analysis=scope_analysis,
+            lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
 
@@ -870,6 +1136,7 @@ def _defunctionalize_rec_join(
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
+    lexical_checkpoint_points: list[Mapping[str, object]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     if len(body.params) != 1:
         raise LispFrontendCompileError(
@@ -897,7 +1164,7 @@ def _defunctionalize_rec_join(
             )
         )
     loop_local_values = _materialize_wcc_record_locals(local_values)
-    return _emit_repeat_until_from_emitter_input(
+    steps, terminal = _emit_repeat_until_from_emitter_input(
         RepeatUntilEmitterInput(
             max_iterations_expr=_frontend_expr_from_wcc_value(body.budget),
             initial_state_expr=_frontend_expr_from_wcc_value(body.initial_state),
@@ -915,6 +1182,27 @@ def _defunctionalize_rec_join(
         context=context,
         local_values=loop_local_values,
     )
+    if lexical_checkpoint_points is not None:
+        repeat_step = next(
+            (
+                step
+                for step in steps
+                if isinstance(step, Mapping)
+                and isinstance(step.get("id"), str)
+                and "repeat_until" in step
+            ),
+            None,
+        )
+        repeat_step_id = repeat_step.get("id") if isinstance(repeat_step, Mapping) else None
+        if isinstance(repeat_step_id, str) and repeat_step_id:
+            lexical_checkpoint_points.append(
+                _loop_back_edge_checkpoint_point_payload(
+                    workflow_name=context.workflow_name,
+                    body=body,
+                    repeat_step_id=repeat_step_id,
+                )
+            )
+    return steps, terminal
 
 
 def _binding_step_prefix(context: _LoweringContext, binding_name: str) -> str:
@@ -1067,6 +1355,7 @@ def _defunctionalize_case(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    lexical_checkpoint_points: list[Mapping[str, object]] | None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     subject_expr = _frontend_expr_from_wcc_value(body.subject)
@@ -1152,6 +1441,7 @@ def _defunctionalize_case(
                 binding_type=arm_binding_type,
             ),
             scope_analysis=scope_analysis,
+            lexical_checkpoint_points=lexical_checkpoint_points,
             jump_target=jump_target,
         )
         if isinstance(body.metadata.type_ref, UnionTypeRef) and shared_union_bundle_allocation is not None:
@@ -1248,6 +1538,7 @@ def _defunctionalize_if(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    lexical_checkpoint_points: list[Mapping[str, object]] | None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     step_name = context.step_name_prefix
@@ -1327,6 +1618,7 @@ def _defunctionalize_if(
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=then_step_name),
         local_values=local_values,
         scope_analysis=scope_analysis,
+        lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
     )
     then_steps = [
@@ -1338,6 +1630,7 @@ def _defunctionalize_if(
         context=lowering_core._copy_context_with_step_prefix(context, step_name_prefix=else_step_name),
         local_values=local_values,
         scope_analysis=scope_analysis,
+        lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
     )
     else_steps = [
@@ -1477,6 +1770,7 @@ def _defunctionalize_join(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     scope_analysis: WccScopeAnalysis,
+    lexical_checkpoint_points: list[Mapping[str, object]] | None,
     jump_target: tuple[str, tuple[WccJoinParam, ...]] | None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     if len(body.params) != 1:
@@ -1500,6 +1794,7 @@ def _defunctionalize_join(
         ),
         local_values=local_values,
         scope_analysis=scope_analysis,
+        lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=_join_target_from_analysis(body.join_name, body.params, scope_analysis=scope_analysis),
     )
     joined_local_values = dict(local_values)
@@ -1524,6 +1819,7 @@ def _defunctionalize_join(
         ),
         local_values=joined_local_values,
         scope_analysis=scope_analysis,
+        lexical_checkpoint_points=lexical_checkpoint_points,
         jump_target=jump_target,
     )
     return [*join_steps, *continuation_steps], replace(
@@ -1948,6 +2244,7 @@ def _lower_effectful_binding(
     binding_type: TypeRef,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
+    lexical_checkpoint_points: list[Mapping[str, object]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     if isinstance(value, WccPerform):
         if value.perform_kind == "command_result":
@@ -2021,6 +2318,7 @@ def _lower_effectful_binding(
         binding_type=binding_type,
         context=context,
         local_values=local_values,
+        lexical_checkpoint_points=lexical_checkpoint_points,
     )
 
 
@@ -2232,6 +2530,7 @@ def _lower_wcc_procedure_call(
     binding_type: TypeRef,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
+    lexical_checkpoint_points: list[Mapping[str, object]] | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     procedure = context.typed_procedures.get(value.specialized_callee_name) or context.typed_procedures.get(
         value.callee_name
@@ -2332,6 +2631,7 @@ def _lower_wcc_procedure_call(
         context=child_context,
         local_values=child_locals,
         scope_analysis=analyze_wcc_body(wcc_body),
+        lexical_checkpoint_points=lexical_checkpoint_points,
     )
     if isinstance(binding_type, UnionTypeRef) and "return__variant" not in terminal.output_refs and terminal.step_name:
         terminal = replace(

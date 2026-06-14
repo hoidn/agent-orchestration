@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ MODULE_FIXTURES = FIXTURES / "modules" / "valid"
 CHARACTERIZATION_SOURCES = FIXTURES / "characterization" / "sources"
 PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
+LEXICAL_CHECKPOINT_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_shadow_points.orc"
 
 
 def _span() -> SourceSpan:
@@ -784,3 +786,44 @@ def test_wcc_m4_full_fixture_exports_terminal_review_decision(tmp_path: Path) ->
     assert any(step.get("command", [])[:2] == ["python", "scripts/run_checks.py"] for step in all_steps)
     assert any("repeat_until" in step for step in all_steps)
     assert set(lowered["outputs"]) >= {"return__variant", "return__review_report", "return__findings__items_path"}
+
+
+def test_wcc_m4_lexical_checkpoint_extraction_exports_effect_boundary_and_loop_back_edge_points(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        LEXICAL_CHECKPOINT_FIXTURE,
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    checkpoint_points = getattr(lowered, "lexical_checkpoint_points")
+
+    assert any(point["point_kind"] == "effect_boundary" for point in checkpoint_points)
+    assert any(point["point_kind"] == "loop_back_edge" for point in checkpoint_points)
+    assert all(
+        point["wcc_identity"]["node_id_digest"].startswith("sha256:")
+        and point["wcc_identity"]["scope_id_digest"].startswith("sha256:")
+        for point in checkpoint_points
+    )
+    assert all(
+        isinstance(point["executable_identity"]["step_id"], str) and point["executable_identity"]["step_id"]
+        for point in checkpoint_points
+    )
+
+    assert all("wcc-node:" not in point["program_point_id"] for point in checkpoint_points)
+    assert all("wcc_m4" not in point["program_point_id"] for point in checkpoint_points)

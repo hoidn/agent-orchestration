@@ -18,11 +18,13 @@ class OutcomeRecorder:
         step_id_resolver: Callable[[Dict[str, Any]], str],
         step_type_resolver: Callable[[Dict[str, Any]], str],
         summary_emitter: Callable[[str, Dict[str, Any], Dict[str, Any]], None],
+        post_persist_hook: Optional[Callable[[Dict[str, Any], str, Dict[str, Any], Dict[str, Any]], None]] = None,
     ) -> None:
         self.state_manager = state_manager
         self.step_id_resolver = step_id_resolver
         self.step_type_resolver = step_type_resolver
         self.summary_emitter = summary_emitter
+        self.post_persist_hook = post_persist_hook
 
     def persist_step_result(
         self,
@@ -48,6 +50,8 @@ class OutcomeRecorder:
         state["steps"][step_name] = finalized
 
         self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
+        if self.post_persist_hook is not None:
+            self.post_persist_hook(state, step_name, step, finalized)
         self.summary_emitter(step_name, step, finalized)
         return finalized
 

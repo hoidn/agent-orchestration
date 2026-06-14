@@ -422,6 +422,7 @@ class LoopExecutor:
     def persist_repeat_until_progress(
         self,
         state: Dict[str, Any],
+        step: Dict[str, Any],
         loop_name: str,
         progress: Dict[str, Any],
         frame_result: Dict[str, Any],
@@ -432,6 +433,7 @@ class LoopExecutor:
         state["steps"][loop_name] = frame_result
         state["repeat_until"][loop_name] = progress
         self.executor.state_manager.update_repeat_until_state(loop_name, progress, frame_result)
+        self.executor._emit_lexical_checkpoint_shadow_after_repeat_until_commit(step, progress)
 
     def repeat_until_iteration_resume_state(
         self,
@@ -784,7 +786,7 @@ class LoopExecutor:
                             progress=progress,
                         ),
                     )
-                    self.persist_repeat_until_progress(state, frame_key, progress, final_result)
+                    self.persist_repeat_until_progress(state, step, frame_key, progress, final_result)
                     return state
                 if body_complete:
                     completed_iterations = sorted(set(completed_iterations + [current_iteration]))
@@ -806,7 +808,7 @@ class LoopExecutor:
                 artifacts=frame_artifacts,
                 progress=progress,
             )
-            self.persist_repeat_until_progress(state, frame_key, progress, running_frame)
+            self.persist_repeat_until_progress(state, step, frame_key, progress, running_frame)
 
             if typed_body_context is not None:
                 _loop_node_id, body_node_ids, loop_projection = typed_body_context
@@ -1057,7 +1059,7 @@ class LoopExecutor:
                         class_hint=class_hint,
                         retryable_hint=retryable_hint,
                     )
-                    self.persist_repeat_until_progress(state, frame_key, failure_progress, failure)
+                    self.persist_repeat_until_progress(state, step, frame_key, failure_progress, failure)
                     return state
 
             artifacts = self.executor._resolve_structured_output_artifacts(
@@ -1093,7 +1095,7 @@ class LoopExecutor:
                     class_hint="contract_violation",
                     retryable_hint=False,
                 )
-                self.persist_repeat_until_progress(state, frame_key, failure_progress, failure)
+                self.persist_repeat_until_progress(state, step, frame_key, failure_progress, failure)
                 return state
 
             frame_artifacts = artifacts
@@ -1105,6 +1107,7 @@ class LoopExecutor:
             }
             self.persist_repeat_until_progress(
                 state,
+                step,
                 frame_key,
                 progress,
                 self.build_repeat_until_frame_result(
@@ -1153,7 +1156,7 @@ class LoopExecutor:
                         class_hint="contract_violation",
                         retryable_hint=False,
                     )
-                    self.persist_repeat_until_progress(state, frame_key, failure_progress, failure)
+                    self.persist_repeat_until_progress(state, step, frame_key, failure_progress, failure)
                     return state
                 condition_evaluated_for_iteration = current_iteration
                 last_condition_result = should_stop
@@ -1165,6 +1168,7 @@ class LoopExecutor:
                 }
                 self.persist_repeat_until_progress(
                     state,
+                    step,
                     frame_key,
                     progress,
                     self.build_repeat_until_frame_result(
@@ -1196,7 +1200,7 @@ class LoopExecutor:
                         progress=progress,
                     ),
                 )
-                self.persist_repeat_until_progress(state, frame_key, progress, completed)
+                self.persist_repeat_until_progress(state, step, frame_key, progress, completed)
                 return state
 
             if current_iteration + 1 >= max_iterations:
@@ -1219,7 +1223,7 @@ class LoopExecutor:
                             progress=progress,
                         ),
                     )
-                    self.persist_repeat_until_progress(state, frame_key, progress, completed)
+                    self.persist_repeat_until_progress(state, step, frame_key, progress, completed)
                     return state
 
                 exhausted = self.executor._attach_outcome(
@@ -1243,7 +1247,7 @@ class LoopExecutor:
                     class_hint="assert_failed",
                     retryable_hint=False,
                 )
-                self.persist_repeat_until_progress(state, frame_key, progress, exhausted)
+                self.persist_repeat_until_progress(state, step, frame_key, progress, exhausted)
                 return state
 
             current_iteration += 1

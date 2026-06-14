@@ -45,6 +45,8 @@ class GeneratedPathSemanticRole(str, Enum):
     ENTRYPOINT_MANAGED_WRITE_ROOT = "entrypoint_managed_write_root"
     GENERATED_INTERNAL_INPUT_BINDING = "generated_internal_input_binding"
     COMPATIBILITY_POINTER_VIEW = "compatibility_pointer_view"
+    LEXICAL_CHECKPOINT_RECORD = "lexical_checkpoint_record"
+    LEXICAL_CHECKPOINT_INDEX = "lexical_checkpoint_index"
 
 
 class GeneratedPathPrivacy(str, Enum):

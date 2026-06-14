@@ -20,6 +20,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PURE_EXPR_SELECTOR_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/pure_expr_selector_action_projection.orc")
+LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
 
 
 def _g0_retirement_metadata(
@@ -1419,3 +1420,78 @@ def test_semantic_ir_records_branch_scoped_resume_identity_lineage(tmp_path: Pat
     bundle = _entrypoint_validated_bundle(result, entry_workflow="entry")
     workflow = bundle.semantic_ir.workflows[bundle.surface.name]
     assert workflow.executable_bridge.resume_checkpoint_ids
+
+
+def test_lexical_checkpoint_runtime_plan_and_semantic_ir_bridges_are_additive(tmp_path: Path) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=LEXICAL_CHECKPOINT_FIXTURE,
+        entry_workflow="orchestrate",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="orchestrate")
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+
+    checkpoint_points = bundle.runtime_plan.lexical_checkpoint_points
+
+    assert checkpoint_points
+    assert any(point.point_kind == "effect_boundary" for point in checkpoint_points)
+    assert any(point.point_kind == "loop_back_edge" for point in checkpoint_points)
+    assert all(
+        point.details.get("wcc_identity", {}).get("node_id_digest", "").startswith("sha256:")
+        and point.details.get("storage", {}).get("semantic_role") == "lexical_checkpoint_record"
+        for point in checkpoint_points
+    )
+    assert workflow.executable_bridge.resume_checkpoint_ids
+    assert bundle.runtime_plan.resume_checkpoints
+
+
+def test_yaml_bundle_runtime_plan_remains_without_lexical_checkpoint_metadata(tmp_path: Path) -> None:
+    yaml_bundle = WorkflowLoader(tmp_path).load_bundle(_write_semantic_ir_workflow(tmp_path))
+
+    assert getattr(yaml_bundle.runtime_plan, "lexical_checkpoint_points", ()) == ()
+    assert not any(
+        layout.layout_kind.startswith("lexical_checkpoint")
+        for layout in yaml_bundle.semantic_ir.state_layout.values()
+    )
+
+
+def test_lexical_checkpoint_semantic_ir_state_layout_entries_are_additive(tmp_path: Path) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=LEXICAL_CHECKPOINT_FIXTURE,
+        entry_workflow="orchestrate",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="orchestrate")
+    checkpoint_layouts = [
+        layout
+        for layout in bundle.semantic_ir.state_layout.values()
+        if layout.layout_kind.startswith("lexical_checkpoint")
+    ]
+
+    assert any(layout.layout_kind == "lexical_checkpoint_point" for layout in checkpoint_layouts)
+    assert any(layout.layout_kind == "lexical_checkpoint_record" for layout in checkpoint_layouts)
+    assert any(layout.layout_kind == "lexical_checkpoint_index" for layout in checkpoint_layouts)
+
+
+def test_lexical_checkpoint_record_layout_scope_matches_point_storage_scope(tmp_path: Path) -> None:
+    result = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=LEXICAL_CHECKPOINT_FIXTURE,
+        entry_workflow="orchestrate",
+    )
+    bundle = _entrypoint_validated_bundle(result, entry_workflow="orchestrate")
+    record_layouts_by_checkpoint_id = {
+        layout.details.get("stable_identity"): layout
+        for layout in bundle.semantic_ir.state_layout.values()
+        if layout.layout_kind == "lexical_checkpoint_record"
+    }
+    loop_back_edge_points = [
+        point for point in bundle.runtime_plan.lexical_checkpoint_points if point.point_kind == "loop_back_edge"
+    ]
+
+    assert loop_back_edge_points
+    assert all(
+        record_layouts_by_checkpoint_id[point.checkpoint_id].details.get("resume_scope")
+        == point.details.get("storage", {}).get("resume_scope")
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+    )

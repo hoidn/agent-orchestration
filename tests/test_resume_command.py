@@ -33,6 +33,9 @@ from orchestrator.workflow_lisp.wcc.route import LoweringRoute, workflow_lisp_co
 from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
 
 
+LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
+
+
 def _workflow_runtime_context_inputs(bundle):
     helper = getattr(
         loaded_bundle_helpers,
@@ -1438,7 +1441,10 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
         },
     }, indent=2))
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -1464,7 +1470,10 @@ def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps
 
     (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -1502,7 +1511,10 @@ def test_resume_fails_closed_on_projection_current_step_integrity_mismatch(temp_
     }
     state_manager._write_state()
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -1541,7 +1553,10 @@ def test_repeat_until_smoke_resume_restarts_unfinished_iteration_without_replayi
 
     (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -1648,7 +1663,10 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
     }
     state_manager._write_state()
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -1688,7 +1706,10 @@ def test_repeat_until_resume_preserves_nested_call_frames_and_lowered_match_prog
 
     (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
 
-    with patch('os.getcwd', return_value=str(temp_workspace)):
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
         result = resume_workflow(
             run_id=run_id,
             repair=False,
@@ -1993,6 +2014,136 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
     assert frame["state"]["steps"]["ResumeGate"]["status"] == "failed"
     assert "SetApproved" not in frame["state"]["steps"]
+
+
+def test_workflow_lisp_resume_ignores_shadow_checkpoint_sidecars(temp_workspace):
+    workflow_path = temp_workspace / "lexical_checkpoint_resume_sidecars.orc"
+    workflow_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule lexical_checkpoint_resume_sidecars)",
+                "  (export orchestrate)",
+                "  (defpath WorkReport",
+                '    :kind relpath',
+                '    :under "artifacts/work"',
+                '    :must-exist true)',
+                "  (defpath SummaryTarget",
+                '    :kind relpath',
+                '    :under "artifacts/work"',
+                '    :must-exist true)',
+                "  (defrecord ChecksResult",
+                "    (report WorkReport))",
+                "  (defrecord HelperResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord SummaryValue",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord Output",
+                "    (summary_path SummaryTarget))",
+                "  (defworkflow pure-helper",
+                "    ((checks ChecksResult))",
+                "    -> HelperResult",
+                "    (record HelperResult",
+                '      :status "ready"',
+                "      :report checks.report))",
+                "  (defworkflow orchestrate",
+                "    ((report_path WorkReport)",
+                "     (summary_target SummaryTarget))",
+                "    -> Output",
+                "    (let* ((helper",
+                "             (call pure-helper",
+                "               :checks (record ChecksResult",
+                "                         :report report_path)))",
+                "           (summary_path",
+                "             (materialize-view runtime-summary",
+                "               :value (record SummaryValue",
+                "                        :status helper.status",
+                "                        :report helper.report)",
+                "               :renderer canonical-json",
+                "               :renderer-version 1",
+                "               :target summary_target",
+                "               :returns SummaryTarget)))",
+                "      (record Output",
+                "        :summary_path summary_path)))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    compile_result = compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(temp_workspace,),
+        validate_shared=True,
+        workspace_root=temp_workspace,
+    )
+    bundle = next(
+        validated
+        for name, validated in compile_result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+    report_path = temp_workspace / "artifacts" / "work" / "report.md"
+    summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    run_id = "workflow-lisp-shadow-sidecar-resume"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic materialize-view failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, temp_workspace, state_manager).execute()
+
+    assert first_run["status"] == "failed"
+    shadow_root = temp_workspace / ".orchestrate" / "runs" / run_id / "workflow_lisp" / "checkpoints"
+    call_checkpoint_id = next(
+        point.checkpoint_id
+        for point in bundle.runtime_plan.lexical_checkpoint_points
+        if point.details.get("step_kind") == "call"
+    )
+    sidecars = list((shadow_root / "records" / call_checkpoint_id).rglob("*.json"))
+    sidecars.append(shadow_root / "index" / f"{call_checkpoint_id}.json")
+    assert sidecars
+    for sidecar_path in sidecars:
+        sidecar_path.write_text("{not-json}\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["lexical_checkpoint_resume_sidecars::orchestrate__materialize-view__runtime-summary"]["status"] == "completed"
 
 
 def test_resume_retries_since_last_consume_step_after_failed_attempt(temp_workspace):

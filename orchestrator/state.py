@@ -357,6 +357,27 @@ class StateManager:
             json.dump(payload, f, indent=2)
         temp_file.replace(path)
 
+    def read_runtime_sidecar_json(self, path: Path | str) -> Optional[Dict[str, Any]]:
+        """Read one runtime-sidecar JSON object when it exists."""
+        with self._lock:
+            resolved = Path(path)
+            if not resolved.exists():
+                return None
+            with open(resolved, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                raise ValueError(f"Runtime sidecar JSON must decode to an object: {resolved}")
+            return payload
+
+    def write_runtime_sidecar_json(self, path: Path | str, payload: Dict[str, Any]) -> None:
+        """Atomically persist one runtime-sidecar JSON object."""
+        with self._lock:
+            self._write_json_atomic(Path(path), payload)
+
+    def workflow_lisp_checkpoint_shadow_report_path(self) -> Path:
+        """Return the canonical runtime shadow-report path for Workflow Lisp sidecars."""
+        return self.run_root / "workflow_lisp" / "checkpoints" / "shadow_report.json"
+
     def provider_session_paths(self, step_id: str, visit_count: int) -> tuple[Path, Path]:
         """Return the canonical metadata and transport-spool paths for one session visit."""
         safe_step_id = step_id.replace("/", "_")

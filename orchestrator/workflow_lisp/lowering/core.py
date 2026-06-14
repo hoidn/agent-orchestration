@@ -337,6 +337,7 @@ class LoweredWorkflow:
     is_generated_private_workflow: bool = False
     private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
     compatibility_bridge_inputs: tuple[str, ...] = ()
+    lexical_checkpoint_points: tuple[Mapping[str, Any], ...] = ()
     generated_path_allocations: tuple[GeneratedPathAllocation, ...] = ()
     private_artifact_ids: tuple[str, ...] = ()
     runtime_proof_nested_structured_step_names: tuple[str, ...] = ()
@@ -2376,6 +2377,7 @@ def _validate_one_lowered_workflow(
         workflow_path=loader._current_workflow_path,
         imported_bundles=imported_bundles,
         generated_path_allocations=lowered_workflow.generated_path_allocations,
+        lexical_checkpoint_points=lowered_workflow.lexical_checkpoint_points,
         managed_write_root_inputs=tuple(
             item.generated_name
             for item in lowered_workflow.boundary_projection.generated_internal_inputs

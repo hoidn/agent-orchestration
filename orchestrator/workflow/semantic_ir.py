@@ -523,6 +523,52 @@ def derive_workflow_semantic_ir(
             presentation_key=checkpoint.presentation_key,
             details=MappingProxyType({"checkpoint_kind": checkpoint.checkpoint_kind}),
         )
+    for checkpoint_point in runtime_plan.lexical_checkpoint_points:
+        from orchestrator.workflow_lisp.lexical_checkpoints import allocate_checkpoint_storage
+
+        point_layout_id = _state_layout_id(
+            workflow_name,
+            "lexical_checkpoint_point",
+            checkpoint_point.checkpoint_id,
+        )
+        state_layout[point_layout_id] = SemanticStateLayoutEntry(
+            layout_id=point_layout_id,
+            workflow_name=workflow_name,
+            layout_kind="lexical_checkpoint_point",
+            node_id=checkpoint_point.node_id,
+            presentation_key=checkpoint_point.presentation_key,
+            details=MappingProxyType(
+                {
+                    "checkpoint_id": checkpoint_point.checkpoint_id,
+                    "program_point_id": checkpoint_point.program_point_id,
+                    "point_kind": checkpoint_point.point_kind,
+                    "origin_key": checkpoint_point.origin_key,
+                }
+            ),
+        )
+        for semantic_role in ("lexical_checkpoint_record", "lexical_checkpoint_index"):
+            allocation = allocate_checkpoint_storage(
+                workflow_name=workflow_name,
+                checkpoint_id=checkpoint_point.checkpoint_id,
+                semantic_role=semantic_role,
+                storage_scope=checkpoint_point.details.get("storage", {}).get("resume_scope"),
+            )
+            layout_id = _state_layout_id(workflow_name, semantic_role, allocation.allocation_id)
+            state_layout[layout_id] = SemanticStateLayoutEntry(
+                layout_id=layout_id,
+                workflow_name=workflow_name,
+                layout_kind=semantic_role,
+                details=MappingProxyType(
+                    {
+                        "allocation_id": allocation.allocation_id,
+                        "privacy": allocation.privacy.value,
+                        "resume_scope": allocation.resume_scope.value,
+                        "stable_identity": allocation.stable_identity,
+                        "concrete_path_template": allocation.concrete_path_template,
+                        "path_safety_policy": allocation.path_safety_policy,
+                    }
+                ),
+            )
     for allocation in provenance.generated_path_allocations:
         layout_id = _state_layout_id(workflow_name, allocation.semantic_role.value, allocation.allocation_id)
         state_layout[layout_id] = SemanticStateLayoutEntry(

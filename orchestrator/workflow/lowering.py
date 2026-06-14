@@ -1433,7 +1433,7 @@ def build_loaded_workflow_bundle(
         runtime_proof_parent_ref_allowances=runtime_proof_parent_ref_allowances,
     ).build()
     validate_executable_workflow(ir)
-    runtime_plan = derive_workflow_runtime_plan(ir, projection)
+    runtime_plan = derive_workflow_runtime_plan(ir, projection, surface.provenance)
     semantic_ir = derive_workflow_semantic_ir(
         core_workflow_ast=core_workflow_ast,
         surface=surface,

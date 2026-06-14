@@ -19,7 +19,7 @@ from .executable_ir import (
     WorkflowRegion,
 )
 from .state_projection import WorkflowStateProjection
-from .surface_ast import empty_frozen_mapping
+from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 
 
 WORKFLOW_RUNTIME_PLAN_SCHEMA_VERSION = "workflow_runtime_plan.v1"
@@ -81,6 +81,21 @@ class RuntimeResumeCheckpoint:
 
 
 @dataclass(frozen=True)
+class RuntimeLexicalCheckpointPoint:
+    """Future-restore checkpoint metadata derived from frontend lowering."""
+
+    checkpoint_id: str
+    program_point_id: str
+    point_kind: str
+    workflow_name: str
+    step_id: str
+    node_id: str
+    presentation_key: str
+    origin_key: str
+    details: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class RuntimeObservabilityNode:
     """Compact per-node observability metadata."""
 
@@ -125,11 +140,13 @@ class WorkflowRuntimePlan:
     snapshots: tuple[RuntimeSnapshotPlan, ...]
     resume_checkpoints: tuple[RuntimeResumeCheckpoint, ...]
     observability: RuntimeObservabilityPlan
+    lexical_checkpoint_points: tuple[RuntimeLexicalCheckpointPoint, ...] = ()
 
 
 def derive_workflow_runtime_plan(
     ir: ExecutableWorkflow,
     projection: WorkflowStateProjection,
+    provenance: WorkflowProvenance | None = None,
 ) -> WorkflowRuntimePlan:
     """Build one deterministic runtime-facing summary from validated runtime surfaces."""
 
@@ -158,6 +175,7 @@ def derive_workflow_runtime_plan(
             ordered_node_ids=ordered_node_ids,
             nodes=nodes,
         ),
+        lexical_checkpoint_points=_derive_lexical_checkpoint_points(ir, provenance=provenance),
     )
     validate_workflow_runtime_plan(plan, ir, projection)
     return plan
@@ -287,6 +305,25 @@ def validate_workflow_runtime_plan(
         if key in seen_checkpoints:
             raise ValueError(f"Duplicate checkpoint tuple detected for '{checkpoint.node_id}'")
         seen_checkpoints.add(key)
+
+    seen_lexical_checkpoint_ids: set[str] = set()
+    seen_program_point_ids: set[str] = set()
+    step_ids_by_node_id = {node.node_id: node.step_id for node in plan.nodes.values()}
+    for checkpoint_point in plan.lexical_checkpoint_points:
+        if checkpoint_point.node_id not in node_ids:
+            raise ValueError(
+                f"Lexical checkpoint point '{checkpoint_point.checkpoint_id}' references unknown node"
+            )
+        if step_ids_by_node_id[checkpoint_point.node_id] != checkpoint_point.step_id:
+            raise ValueError(
+                f"Lexical checkpoint point '{checkpoint_point.checkpoint_id}' does not match node step id"
+            )
+        if checkpoint_point.checkpoint_id in seen_lexical_checkpoint_ids:
+            raise ValueError(f"Duplicate lexical checkpoint id '{checkpoint_point.checkpoint_id}'")
+        if checkpoint_point.program_point_id in seen_program_point_ids:
+            raise ValueError(f"Duplicate lexical program point id '{checkpoint_point.program_point_id}'")
+        seen_lexical_checkpoint_ids.add(checkpoint_point.checkpoint_id)
+        seen_program_point_ids.add(checkpoint_point.program_point_id)
 
 
 def _runtime_plan_node(
@@ -563,6 +600,69 @@ def _derive_resume_checkpoints(
             )
         )
     return tuple(checkpoints)
+
+
+def _derive_lexical_checkpoint_points(
+    ir: ExecutableWorkflow,
+    *,
+    provenance: WorkflowProvenance | None,
+) -> tuple[RuntimeLexicalCheckpointPoint, ...]:
+    if provenance is None or not provenance.lexical_checkpoint_points:
+        return ()
+
+    nodes_by_step_id = {node.step_id: node for node in ir.nodes.values()}
+    points: list[RuntimeLexicalCheckpointPoint] = []
+    for payload in provenance.lexical_checkpoint_points:
+        step_id = payload.get("step_id")
+        checkpoint_id = payload.get("checkpoint_id")
+        program_point_id = payload.get("program_point_id")
+        point_kind = payload.get("point_kind")
+        origin_key = payload.get("origin_key")
+        if not all(
+            isinstance(value, str) and value
+            for value in (step_id, checkpoint_id, program_point_id, point_kind, origin_key)
+        ):
+            raise ValueError("Lexical checkpoint metadata requires non-empty string identifiers")
+        node = nodes_by_step_id.get(step_id)
+        if node is None:
+            node = next(
+                (
+                    candidate
+                    for candidate in ir.nodes.values()
+                    if candidate.step_id == step_id or candidate.step_id.endswith(f".{step_id}")
+                ),
+                None,
+            )
+        if node is None:
+            raise ValueError(f"Lexical checkpoint metadata references unknown step_id '{step_id}'")
+        points.append(
+            RuntimeLexicalCheckpointPoint(
+                checkpoint_id=checkpoint_id,
+                program_point_id=program_point_id,
+                point_kind=point_kind,
+                workflow_name=ir.name or "",
+                step_id=node.step_id,
+                node_id=node.node_id,
+                presentation_key=getattr(node, "presentation_key", node.presentation_name),
+                origin_key=origin_key,
+                details=MappingProxyType(
+                    {
+                        key: value
+                        for key, value in payload.items()
+                        if key
+                        not in {
+                            "checkpoint_id",
+                            "program_point_id",
+                            "point_kind",
+                            "workflow_name",
+                            "step_id",
+                            "origin_key",
+                        }
+                    }
+                ),
+            )
+        )
+    return tuple(points)
 
 
 def _derive_observability_plan(

@@ -47,6 +47,7 @@ IMPORTED_STDLIB_HELPER_ENTRY = (
 )
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
+LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 RUNTIME_CLOSURE_MARKERS = (
     "workflow_lisp_runtime_closure",
     "closure_families",
@@ -143,6 +144,24 @@ def _build_materialize_view_allocated_target(tmp_path: Path):
             prompt_externs_path=None,
             imported_workflow_bundles_path=None,
             command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
+def _build_lexical_checkpoint_fixture(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=LEXICAL_CHECKPOINT_FIXTURE,
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="orchestrate",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
         )
@@ -4622,3 +4641,116 @@ def test_design_delta_parent_drain_value_flow_census_changes_build_fingerprint(
     )
 
     assert first.manifest.fingerprint != second.manifest.fingerprint
+
+
+def test_build_emits_lexical_checkpoint_points_artifact(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+
+    points_path = result.artifact_paths["lexical_checkpoint_points"]
+    payload = json.loads(points_path.read_text(encoding="utf-8"))
+
+    assert points_path.name == "lexical_checkpoint_points.json"
+    assert payload["schema_version"] == "workflow_lisp_lexical_checkpoint_points.v1"
+    assert payload["checkpoint_schema_version"] == "workflow_lisp_lexical_checkpoint.v1"
+    assert payload["program_identity"]["source_module_digest"].startswith("sha256:")
+    assert payload["program_identity"]["executable_ir_digest"].startswith("sha256:")
+    assert payload["program_identity"]["semantic_ir_digest"].startswith("sha256:")
+    assert payload["points"]
+    assert all(
+        point["wcc_identity"]["node_id_digest"].startswith("sha256:")
+        and point["wcc_identity"]["scope_id_digest"].startswith("sha256:")
+        and point["binding_schema"]["schema_digest"].startswith("sha256:")
+        and point["storage"]["semantic_role"] == "lexical_checkpoint_record"
+        for point in payload["points"]
+    )
+
+
+def test_build_emits_compile_time_lexical_checkpoint_shadow_report(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+
+    report_path = result.artifact_paths["lexical_checkpoint_shadow_report"]
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    points_payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+
+    assert report_path.name == "lexical_checkpoint_shadow_report.json"
+    assert payload["schema_version"] == "workflow_lisp_lexical_checkpoint_shadow_report.v1"
+    assert payload["status"] == "pass"
+    assert payload["checked_points"] == len(points_payload["points"])
+    assert payload["checked_records"] == 0
+    assert payload["diagnostics"] == []
+
+
+def test_build_manifest_records_checkpoint_artifact_paths(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+
+    assert result.manifest.artifact_paths["lexical_checkpoint_points"].endswith("/lexical_checkpoint_points.json")
+    assert result.manifest.artifact_paths["lexical_checkpoint_shadow_report"].endswith(
+        "/lexical_checkpoint_shadow_report.json"
+    )
+
+
+def test_checkpoint_points_artifact_is_route_neutral_in_public_fields(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+
+    payload = result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8")
+    assert "wcc_m4" not in payload
+    assert "lowering_route" not in payload
+    assert "wcc-node:" not in payload
+
+
+def test_runtime_plan_artifact_keeps_lexical_checkpoint_details_route_neutral(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+
+    payload = result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")
+    assert "runtime_program_identity" not in payload
+    assert "wcc_m4" not in payload
+    assert "wcc-node:" not in payload
+
+
+def test_checkpoint_points_artifact_rejects_missing_executable_node_linkage(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+    payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    payload["points"][0]["executable_identity"]["node_id"] = "missing.node"
+    result.artifact_paths["lexical_checkpoint_points"].write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    build = _build_module()
+    with pytest.raises(Exception):
+        build._validate_lexical_checkpoint_artifacts(
+            payload,
+            semantic_ir_payload=json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")),
+            runtime_plan_payload=json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")),
+            source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
+        )
+
+
+def test_checkpoint_points_artifact_rejects_missing_source_map_origin(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+    payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    payload["points"][0]["source_lineage"]["origin_key"] = "source:missing"
+
+    build = _build_module()
+    with pytest.raises(Exception):
+        build._validate_lexical_checkpoint_artifacts(
+            payload,
+            semantic_ir_payload=json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")),
+            runtime_plan_payload=json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")),
+            source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
+        )
+
+
+def test_checkpoint_points_artifact_rejects_program_identity_drift(tmp_path: Path) -> None:
+    result = _build_lexical_checkpoint_fixture(tmp_path)
+    payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    payload["program_identity"]["executable_ir_digest"] = "sha256:drifted"
+
+    build = _build_module()
+    with pytest.raises(Exception):
+        build._validate_lexical_checkpoint_artifacts(
+            payload,
+            semantic_ir_payload=json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")),
+            runtime_plan_payload=json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")),
+            source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
+        )

@@ -312,6 +312,15 @@ class _CallFrameStateManager:
         """Delegate checksum calculation so nested call frames can nest again."""
         return self.parent_manager.calculate_checksum(workflow_path)
 
+    def read_runtime_sidecar_json(self, path: Path | str) -> Optional[Dict[str, Any]]:
+        return self.parent_manager.read_runtime_sidecar_json(path)
+
+    def write_runtime_sidecar_json(self, path: Path | str, payload: Dict[str, Any]) -> None:
+        self.parent_manager.write_runtime_sidecar_json(path, payload)
+
+    def workflow_lisp_checkpoint_shadow_report_path(self) -> Path:
+        return self.parent_manager.workflow_lisp_checkpoint_shadow_report_path()
+
     def backup_state(self, step_name: str) -> None:
         del step_name
 
@@ -393,6 +402,33 @@ class _CallFrameStateManager:
 
     def update_status(self, status: str) -> None:
         self.state.status = status
+        self._persist()
+
+    def fail_run(
+        self,
+        error: Dict[str, Any],
+        *,
+        clear_current_step: bool = False,
+        expected_step_id: Optional[str] = None,
+        expected_visit_count: Optional[int] = None,
+    ) -> None:
+        self.state.status = "failed"
+        self.state.error = error
+        if clear_current_step and isinstance(self.state.current_step, dict):
+            current_step = self.state.current_step
+            if expected_step_id is not None and current_step.get("step_id") != expected_step_id:
+                self._persist()
+                return
+            if (
+                expected_visit_count is not None
+                and current_step.get("visit_count") != expected_visit_count
+            ):
+                self._persist()
+                return
+            self.state.current_step = None
+        elif isinstance(self.state.current_step, dict):
+            self.state.current_step["status"] = "failed"
+            self.state.current_step["failed_at"] = datetime.now(timezone.utc).isoformat()
         self._persist()
 
     def start_step(
@@ -618,6 +654,7 @@ class WorkflowExecutor:
             step_id_resolver=lambda step: self._step_id(step),
             step_type_resolver=self._resolve_step_type,
             summary_emitter=self._emit_step_summary,
+            post_persist_hook=self._emit_lexical_checkpoint_shadow_after_step_commit,
         )
 
         # Retry configuration
@@ -3464,12 +3501,13 @@ class WorkflowExecutor:
     def _persist_repeat_until_progress(
         self,
         state: Dict[str, Any],
+        step: Dict[str, Any],
         loop_name: str,
         progress: Dict[str, Any],
         frame_result: Dict[str, Any],
     ) -> None:
         """Persist repeat_until bookkeeping plus the current loop-frame snapshot."""
-        self.loop_executor.persist_repeat_until_progress(state, loop_name, progress, frame_result)
+        self.loop_executor.persist_repeat_until_progress(state, step, loop_name, progress, frame_result)
 
     def _repeat_until_iteration_resume_state(
         self,
@@ -9843,6 +9881,77 @@ class WorkflowExecutor:
             phase_hint=phase_hint,
             class_hint=class_hint,
             retryable_hint=retryable_hint,
+        )
+
+    def _emit_lexical_checkpoint_shadow_after_step_commit(
+        self,
+        state: Dict[str, Any],
+        step_name: str,
+        step: Dict[str, Any],
+        finalized: Dict[str, Any],
+    ) -> None:
+        del state
+        step_id = finalized.get("step_id")
+        if not isinstance(step_id, str) or not step_id:
+            step_id = self._step_id(step)
+        execution_index = self._execution_index_for_node_id(step_id)
+        if not isinstance(execution_index, int):
+            return
+        step_visits = self.state_manager.state.step_visits if self.state_manager.state is not None else {}
+        visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
+        if not isinstance(visit_count, int):
+            visit_count = finalized.get("visit_count")
+        if not isinstance(visit_count, int):
+            return
+        call_frame_id = None
+        debug_payload = finalized.get("debug")
+        if isinstance(debug_payload, dict):
+            call_debug = debug_payload.get("call")
+            if isinstance(call_debug, dict):
+                candidate_frame_id = call_debug.get("call_frame_id")
+                if isinstance(candidate_frame_id, str) and candidate_frame_id:
+                    call_frame_id = candidate_frame_id
+        from orchestrator.workflow_lisp.lexical_checkpoints import emit_runtime_shadow_record
+
+        emit_runtime_shadow_record(
+            executor=self,
+            step_id=step_id,
+            execution_index=execution_index,
+            visit_count=visit_count,
+            call_frame_id=call_frame_id,
+        )
+
+    def _emit_lexical_checkpoint_shadow_after_repeat_until_commit(
+        self,
+        step: Dict[str, Any],
+        progress: Dict[str, Any],
+    ) -> None:
+        if not isinstance(progress, dict):
+            return
+        current_iteration = progress.get("current_iteration")
+        if not isinstance(current_iteration, int):
+            return
+        if progress.get("condition_evaluated_for_iteration") != current_iteration:
+            return
+        if progress.get("last_condition_result") is not False:
+            return
+        step_name = step.get("name", f"step_{self.current_step}")
+        step_visits = self.state_manager.state.step_visits if self.state_manager.state is not None else {}
+        visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
+        if not isinstance(visit_count, int):
+            return
+        step_id = self._step_id(step)
+        execution_index = self._execution_index_for_node_id(step_id)
+        if not isinstance(execution_index, int):
+            return
+        from orchestrator.workflow_lisp.lexical_checkpoints import emit_runtime_shadow_record
+
+        emit_runtime_shadow_record(
+            executor=self,
+            step_id=step_id,
+            execution_index=execution_index,
+            visit_count=visit_count,
+            loop_iteration=current_iteration,
         )
 
     def _attach_outcome(

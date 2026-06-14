@@ -33,6 +33,12 @@ from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
 from .form_registry import get_form_spec
 from .lints import LINT_PROFILE_DEFAULT
+from .lexical_checkpoints import (
+    CHECKPOINT_POINTS_SCHEMA_VERSION,
+    CHECKPOINT_RECORD_SCHEMA_VERSION,
+    CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION,
+    canonical_json_dumps,
+)
 from .phase_family_boundary import (
     build_design_delta_boundary_authority_expected_rows,
     is_structural_pure_projection_effect_summary,
@@ -132,6 +138,8 @@ FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
     "runtime_plan": "runtime_plan.json",
     "semantic_ir": "semantic_ir.json",
     "source_map": "source_map.json",
+    "lexical_checkpoint_points": "lexical_checkpoint_points.json",
+    "lexical_checkpoint_shadow_report": "lexical_checkpoint_shadow_report.json",
     "expanded_debug_yaml": "expanded.debug.yaml",
 }
 
@@ -2117,9 +2125,14 @@ def _write_build_artifacts(
         "semantic_ir": build_root / "semantic_ir.json",
         "runtime_plan": build_root / "runtime_plan.json",
         "source_map": build_root / "source_map.json",
+        "lexical_checkpoint_points": build_root / "lexical_checkpoint_points.json",
+        "lexical_checkpoint_shadow_report": build_root / "lexical_checkpoint_shadow_report.json",
         "workflow_boundary_projection": build_root / "workflow_boundary_projection.json",
         "diagnostics": build_root / "diagnostics.json",
     }
+    runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
+    semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
+    source_map_json = _json_data(source_map_payload)
     if adapter_census_payload is not None:
         artifact_paths["adapter_census"] = build_root / "adapter_census.json"
     if boundary_authority_report_payload is not None:
@@ -2135,9 +2148,20 @@ def _write_build_artifacts(
         "lowered_workflows": _serialize_lowered_workflows(compile_result),
         "executable_ir": workflow_executable_ir_to_json(validated_bundle.ir),
         "core_workflow_ast": workflow_core_ast_to_json(validated_bundle.core_workflow_ast),
-        "semantic_ir": workflow_semantic_ir_to_json(validated_bundle.semantic_ir),
-        "runtime_plan": _json_data(validated_bundle.runtime_plan),
-        "source_map": _json_data(source_map_payload),
+        "semantic_ir": semantic_ir_payload,
+        "runtime_plan": runtime_plan_payload,
+        "source_map": source_map_json,
+        "lexical_checkpoint_points": _serialize_lexical_checkpoint_points(
+            validated_bundle,
+            runtime_plan_payload=runtime_plan_payload,
+            semantic_ir_payload=semantic_ir_payload,
+        ),
+        "lexical_checkpoint_shadow_report": _serialize_lexical_checkpoint_shadow_report(
+            validated_bundle,
+            semantic_ir_payload=semantic_ir_payload,
+            runtime_plan_payload=runtime_plan_payload,
+            source_map_payload=source_map_json,
+        ),
         "workflow_boundary_projection": _json_data(workflow_boundary_projection_payload),
         "diagnostics": serialize_diagnostics(diagnostics),
     }
@@ -2163,6 +2187,39 @@ def _write_build_artifacts(
     elif debug_yaml_path.exists():
         debug_yaml_path.unlink()
     return artifact_paths
+
+
+def _public_runtime_plan_payload(runtime_plan: Any) -> Mapping[str, Any]:
+    """Serialize runtime-plan build output without private checkpoint identity."""
+
+    payload = _json_data(runtime_plan)
+    lexical_points = payload.get("lexical_checkpoint_points")
+    if not isinstance(lexical_points, list):
+        return payload
+
+    sanitized_points: list[Any] = []
+    for point in lexical_points:
+        if not isinstance(point, Mapping):
+            sanitized_points.append(point)
+            continue
+        details = point.get("details")
+        if not isinstance(details, Mapping):
+            sanitized_points.append(point)
+            continue
+        sanitized_points.append(
+            {
+                **point,
+                "details": {
+                    str(key): value
+                    for key, value in details.items()
+                    if key != "runtime_program_identity"
+                },
+            }
+        )
+    return {
+        **payload,
+        "lexical_checkpoint_points": sanitized_points,
+    }
 
 
 def _build_manifest(
@@ -2227,6 +2284,150 @@ def _build_manifest(
         ),
         value_flow_census=_value_flow_census_provenance(value_flow_census),
     )
+
+
+def _collect_origin_keys(value: Any) -> set[str]:
+    keys: set[str] = set()
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key == "origin_key" and isinstance(item, str):
+                keys.add(item)
+            keys.update(_collect_origin_keys(item))
+    elif isinstance(value, list):
+        for item in value:
+            keys.update(_collect_origin_keys(item))
+    return keys
+
+
+def _checkpoint_program_identity(
+    validated_bundle: LoadedWorkflowBundle,
+    *,
+    runtime_plan_payload: Mapping[str, Any],
+    semantic_ir_payload: Mapping[str, Any],
+) -> dict[str, str]:
+    workflow_path = validated_bundle.provenance.workflow_path
+    source_module_digest = f"sha256:{hashlib.sha256(workflow_path.read_bytes()).hexdigest()}"
+    return {
+        "source_module_digest": source_module_digest,
+        "executable_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(runtime_plan_payload).encode('utf-8')).hexdigest()}",
+        "semantic_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(semantic_ir_payload).encode('utf-8')).hexdigest()}",
+    }
+
+
+def _serialize_lexical_checkpoint_points(
+    validated_bundle: LoadedWorkflowBundle,
+    *,
+    runtime_plan_payload: Mapping[str, Any],
+    semantic_ir_payload: Mapping[str, Any],
+) -> dict[str, object]:
+    points = [
+        {
+            "checkpoint_id": point.checkpoint_id,
+            "program_point_id": point.program_point_id,
+            "point_kind": point.point_kind,
+            "workflow_name": point.workflow_name,
+            "wcc_identity": point.details.get("wcc_identity"),
+            "executable_identity": {
+                "node_id": point.node_id,
+                "step_id": point.step_id,
+                "presentation_key": point.presentation_key,
+            },
+            "source_lineage": {
+                "origin_key": point.origin_key,
+            },
+            "binding_schema": point.details.get("binding_schema"),
+            "storage": point.details.get("storage"),
+            "effect_boundary": point.details.get("effect_boundary"),
+            "loop_back_edge": point.details.get("loop_back_edge"),
+        }
+        for point in validated_bundle.runtime_plan.lexical_checkpoint_points
+    ]
+    return {
+        "schema_version": CHECKPOINT_POINTS_SCHEMA_VERSION,
+        "workflow_name": validated_bundle.surface.name,
+        "checkpoint_schema_version": CHECKPOINT_RECORD_SCHEMA_VERSION,
+        "program_identity": _checkpoint_program_identity(
+            validated_bundle,
+            runtime_plan_payload=runtime_plan_payload,
+            semantic_ir_payload=semantic_ir_payload,
+        ),
+        "points": points,
+    }
+
+
+def _validate_lexical_checkpoint_artifacts(
+    points_payload: Mapping[str, Any],
+    *,
+    validated_bundle: LoadedWorkflowBundle | None = None,
+    semantic_ir_payload: Mapping[str, Any],
+    runtime_plan_payload: Mapping[str, Any],
+    source_map_payload: Mapping[str, Any],
+) -> None:
+    if points_payload.get("schema_version") != CHECKPOINT_POINTS_SCHEMA_VERSION:
+        raise ValueError("lexical checkpoint points schema mismatch")
+    if points_payload.get("checkpoint_schema_version") != CHECKPOINT_RECORD_SCHEMA_VERSION:
+        raise ValueError("lexical checkpoint points checkpoint schema mismatch")
+    runtime_node_ids = set(runtime_plan_payload.get("nodes", {}))
+    origin_keys = _collect_origin_keys(source_map_payload) | _collect_origin_keys(semantic_ir_payload)
+    program_identity = dict(points_payload.get("program_identity", {}))
+    expected_runtime_program_identity = {
+        "executable_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(runtime_plan_payload).encode('utf-8')).hexdigest()}",
+        "semantic_ir_digest": f"sha256:{hashlib.sha256(canonical_json_dumps(semantic_ir_payload).encode('utf-8')).hexdigest()}",
+    }
+    for key, expected_value in expected_runtime_program_identity.items():
+        if program_identity.get(key) != expected_value:
+            raise ValueError("lexical checkpoint program identity drift")
+    if validated_bundle is not None:
+        expected_program_identity = _checkpoint_program_identity(
+            validated_bundle,
+            runtime_plan_payload=runtime_plan_payload,
+            semantic_ir_payload=semantic_ir_payload,
+        )
+        if program_identity.get("source_module_digest") != expected_program_identity["source_module_digest"]:
+            raise ValueError("lexical checkpoint program identity drift")
+    for point in points_payload.get("points", []):
+        if not isinstance(point.get("wcc_identity", {}), Mapping):
+            raise ValueError("lexical checkpoint point missing WCC identity")
+        if not point.get("binding_schema", {}).get("schema_digest"):
+            raise ValueError("lexical checkpoint point missing binding schema digest")
+        if not point.get("storage", {}).get("allocation_id"):
+            raise ValueError("lexical checkpoint point missing storage allocation")
+        if point.get("executable_identity", {}).get("node_id") not in runtime_node_ids:
+            raise ValueError("lexical checkpoint point missing executable node linkage")
+        if point.get("source_lineage", {}).get("origin_key") not in origin_keys:
+            raise ValueError("lexical checkpoint point missing source-map origin coverage")
+
+
+def _serialize_lexical_checkpoint_shadow_report(
+    validated_bundle: LoadedWorkflowBundle,
+    *,
+    semantic_ir_payload: Mapping[str, Any],
+    runtime_plan_payload: Mapping[str, Any],
+    source_map_payload: Mapping[str, Any],
+) -> dict[str, object]:
+    points_payload = _serialize_lexical_checkpoint_points(
+        validated_bundle,
+        runtime_plan_payload=runtime_plan_payload,
+        semantic_ir_payload=semantic_ir_payload,
+    )
+    _validate_lexical_checkpoint_artifacts(
+        points_payload,
+        validated_bundle=validated_bundle,
+        semantic_ir_payload=semantic_ir_payload,
+        runtime_plan_payload=runtime_plan_payload,
+        source_map_payload=source_map_payload,
+    )
+    return {
+        "schema_version": CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION,
+        "workflow_name": validated_bundle.surface.name,
+        "status": "pass",
+        "checked_points": len(points_payload["points"]),
+        "checked_records": 0,
+        "missing_points": [],
+        "invalid_records": [],
+        "stale_records": [],
+        "diagnostics": [],
+    }
 
 
 def _serialize_frontend_ast(compile_result: LinkedStage3CompileResult) -> dict[str, object]:
