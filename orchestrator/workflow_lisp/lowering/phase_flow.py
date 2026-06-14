@@ -66,6 +66,7 @@ from .generated_paths import allocate_generated_result_bundle
 from .origins import LoweringOrigin, _rekey_origin_map
 from .phase_scope import (
     _build_phase_stdlib_prompt_input_prelude,
+    _build_typed_prompt_inputs_for_prompt_specs,
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
     _phase_prompt_artifact_name_for_target,
@@ -332,15 +333,36 @@ def _phase_stdlib_lower_run_provider_phase_impl(
         local_values=local_values,
         source_expr=expr,
     )
+    typed_prompt_inputs, typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
+        (
+            ("inputs", expr.inputs_expr),
+            (
+                "execution_report_target",
+                PhaseTargetExpr("execution-report", expr.span, expr.form_path, expr.expansion_stack),
+            ),
+            (
+                "progress_report_target",
+                PhaseTargetExpr("progress-report", expr.span, expr.form_path, expr.expansion_stack),
+            ),
+        ),
+        context=context,
+        local_values=local_values,
+        source_expr=expr,
+    )
     step = {
         "name": step_name,
         "id": step_id,
         "provider": provider_binding.provider_id,
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
-        "consumes": consumes,
-        "prompt_consumes": prompt_consumes,
     }
+    if typed_prompt_inputs:
+        hidden_inputs.update(typed_hidden_inputs)
+        step["typed_prompt_inputs"] = typed_prompt_inputs
+        generated_steps = []
+    else:
+        step["consumes"] = consumes
+        step["prompt_consumes"] = prompt_consumes
     step.update(lowering_core._prompt_source_step_fields(prompt_binding))
     generated_steps.append(step)
     _record_missing_step_origins(context, generated_steps, source=expr)

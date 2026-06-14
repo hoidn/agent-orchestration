@@ -387,6 +387,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "boundary_authority_report",
                     "value_flow_census_report",
                     "consumer_rendering_census_report",
+                    "typed_prompt_input_report",
                     "g8_deletion_evidence",
                 ],
                 "optional": ["expanded_debug_yaml"],
@@ -2482,6 +2483,7 @@ def _write_design_delta_g0_build_manifest(
     include_boundary_authority_report: bool = True,
     include_value_flow_census_report: bool = True,
     include_consumer_rendering_census_report: bool = True,
+    include_typed_prompt_input_report: bool = True,
     include_g8_deletion_evidence: bool = True,
     g8_removed_manifest_rows: list[str] | None = None,
     boundary_unclassified: list[str] | None = None,
@@ -2493,6 +2495,7 @@ def _write_design_delta_g0_build_manifest(
     value_flow_invalid_rows: list[dict[str, object]] | None = None,
     value_flow_status: str = "pass",
     consumer_rendering_status: str = "pass",
+    typed_prompt_input_status: str = "pass",
 ) -> Path:
     build_root = tmp_path / "build"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -2680,6 +2683,57 @@ def _write_design_delta_g0_build_manifest(
                 "status": consumer_rendering_status,
             },
         )
+    if include_typed_prompt_input_report:
+        _write_json(
+            build_root / "typed_prompt_input_report.json",
+            {
+                "schema_version": "workflow_lisp_typed_prompt_input_report.v1",
+                "workflow_family": "design_delta_parent_drain",
+                "checked_manifest": {
+                    "path": (
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "design_delta_parent_drain.consumer_rendering_census.json"
+                    ),
+                    "sha256": "sha256:consumer-rendering-census",
+                },
+                "selected_rows": [
+                    {
+                        "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+                        "provider_step_id": "root.plan_phase__draft",
+                        "c0_row_id": "c0.plan_phase_prompt_draft",
+                        "u0_row_id": "plan_phase.prompt.draft",
+                        "binding_names": ["steering", "target_design"],
+                        "renderer": {
+                            "renderer_id": "canonical-json",
+                            "renderer_version": 1,
+                            "accepted_shape": "any_pure_value",
+                        },
+                        "source_map_origin_keys": [
+                            "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+                        ],
+                    },
+                    {
+                        "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+                        "provider_step_id": "root.selector__decision",
+                        "c0_row_id": "c0.selector_prompt_select_next_work",
+                        "u0_row_id": "selector.prompt.select_next_work",
+                        "binding_names": ["terminal_states"],
+                        "renderer": {
+                            "renderer_id": "canonical-json",
+                            "renderer_version": 1,
+                            "accepted_shape": "any_pure_value",
+                        },
+                        "source_map_origin_keys": [
+                            "lisp_frontend_design_delta/selector::select-next-work"
+                        ],
+                    },
+                ],
+                "missing_rows": [],
+                "stale_rows": [],
+                "invalid_rows": [],
+                "status": typed_prompt_input_status,
+            },
+        )
     if include_g8_deletion_evidence:
         _write_json(
             build_root / "g8_deletion_evidence.json",
@@ -2717,6 +2771,11 @@ def _write_design_delta_g0_build_manifest(
             build_root / "consumer_rendering_census_report.json"
         )
         artifact_status["consumer_rendering_census_report"] = "emitted"
+    if include_typed_prompt_input_report:
+        artifact_paths["typed_prompt_input_report"] = str(
+            build_root / "typed_prompt_input_report.json"
+        )
+        artifact_status["typed_prompt_input_report"] = "emitted"
     if include_g8_deletion_evidence:
         artifact_paths["g8_deletion_evidence"] = str(build_root / "g8_deletion_evidence.json")
         artifact_status["g8_deletion_evidence"] = "emitted"
@@ -2844,6 +2903,66 @@ def test_run_parity_target_fails_when_consumer_rendering_census_report_is_non_pa
     assert "prerequisite" in report["compile_artifacts"]["required"][
         "consumer_rendering_census_report"
     ]["reason"]
+
+
+def test_run_parity_target_fails_cleanly_when_typed_prompt_input_report_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_typed_prompt_input_report=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["typed_prompt_input_report"]["status"] == "missing"
+
+
+def test_run_parity_target_fails_when_typed_prompt_input_report_is_non_passing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        typed_prompt_input_status="fail",
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["typed_prompt_input_report"]["status"] == "fail"
+
+
+def test_design_delta_parent_drain_target_requires_typed_prompt_input_compile_artifact() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert "typed_prompt_input_report" in target["compile_artifacts"]["required"]
 
 
 def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
@@ -3277,5 +3396,7 @@ def test_design_delta_parent_drain_boundary_artifact_justifications_mark_g0_arti
     assert artifact_reasons["value_flow_census_report"]["parity_constrained"] is True
     assert artifact_reasons["consumer_rendering_census_report"]["reason"] == "prerequisite_compile_evidence"
     assert artifact_reasons["consumer_rendering_census_report"]["parity_constrained"] is True
+    assert artifact_reasons["typed_prompt_input_report"]["reason"] == "prerequisite_compile_evidence"
+    assert artifact_reasons["typed_prompt_input_report"]["parity_constrained"] is True
     assert artifact_reasons["g8_deletion_evidence"]["reason"] == "parity_comparison"
     assert artifact_reasons["g8_deletion_evidence"]["parity_constrained"] is True

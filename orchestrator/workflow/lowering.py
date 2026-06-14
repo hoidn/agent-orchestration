@@ -1007,6 +1007,7 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             inject_output_contract=step.inject_output_contract,
             inject_consumes=step.inject_consumes,
             prompt_consumes=step.prompt_consumes,
+            typed_prompt_inputs=step.typed_prompt_inputs,
             consumes_injection_position=step.consumes_injection_position,
             managed_jobs=_managed_jobs_config(step.managed_jobs),
         )

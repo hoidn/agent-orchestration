@@ -71,6 +71,7 @@ PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
+TYPED_PROMPT_INPUT_FIXTURE = FIXTURES / "valid" / "typed_prompt_input_phase.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 LOOP_RECUR_UNION_RESULT_FIXTURE = FIXTURES / "valid" / "loop_recur_union_result.orc"
 LOOP_RECUR_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
@@ -1722,6 +1723,76 @@ def test_variant_projection_bundle_allocation_uses_state_layout(tmp_path: Path) 
     assert _allocation_field(allocation, "concrete_path_template").startswith(
         "${inputs.phase-ctx__state-root}/phases/implementation/"
     )
+
+
+def test_typed_prompt_input_fixture_lowers_provider_step_with_private_typed_prompt_inputs(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        TYPED_PROMPT_INPUT_FIXTURE,
+        provider_externs={"providers.execute": "fake-execute"},
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = _validated_bundle_by_local_name(result, "run-typed-prompt-phase-demo")
+    provider_step = next(step for step in bundle.surface.steps if step.kind.name == "PROVIDER")
+
+    assert getattr(provider_step, "typed_prompt_inputs")
+    assert not any(
+        step.kind.name == "MATERIALIZE_ARTIFACTS" and "prompt_inputs" in step.step_id
+        for step in bundle.surface.steps
+    )
+
+
+def test_phase_stdlib_fixture_retains_legacy_prompt_input_prelude_for_non_c1_rows(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        PHASE_STDLIB_FIXTURE,
+        provider_externs={
+            "providers.execute": "fake-execute",
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md",
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = _validated_bundle_by_local_name(result, "run-provider-phase-demo")
+    provider_step = next(step for step in bundle.surface.steps if step.kind.name == "PROVIDER")
+
+    assert any(
+        step.kind.name == "MATERIALIZE_ARTIFACTS" and "prompt_inputs" in step.step_id
+        for step in bundle.surface.steps
+    )
+    assert not getattr(provider_step, "typed_prompt_inputs", ())
 
 
 def test_compile_stage3_module_returns_lowered_workflows_and_optional_bundles(tmp_path: Path) -> None:

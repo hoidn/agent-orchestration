@@ -151,6 +151,7 @@ class SemanticPromptSurface:
     input_file: Any = None
     asset_file: Any = None
     prompt_consumes: tuple[Any, ...] = ()
+    typed_prompt_inputs: tuple[Any, ...] = ()
     inject_output_contract: bool | None = None
     inject_consumes: bool | None = None
 
@@ -352,6 +353,7 @@ def derive_workflow_semantic_ir(
                 input_file=step.input_file,
                 asset_file=step.asset_file,
                 prompt_consumes=step.prompt_consumes or (),
+                typed_prompt_inputs=step.typed_prompt_inputs or (),
                 inject_output_contract=step.inject_output_contract,
                 inject_consumes=step.inject_consumes,
             )

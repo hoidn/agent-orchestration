@@ -15,6 +15,7 @@ from ..type_env import TypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
+from .phase_scope import _build_typed_prompt_inputs_for_prompt_specs
 
 
 _PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES = (
@@ -379,6 +380,26 @@ def _lower_provider_result_operation(
                 provider_step["consumes"] = consumes
             if prompt_consumes:
                 provider_step["prompt_consumes"] = prompt_consumes
+        typed_prompt_inputs, typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
+            (("inputs", provider_result.inputs),),
+            context=context,
+            local_values=local_values,
+            source_expr=provider_result,
+        )
+        if typed_prompt_inputs:
+            hidden_inputs.update(typed_hidden_inputs)
+            provider_step.pop("consumes", None)
+            provider_step.pop("prompt_consumes", None)
+            generated_steps = [
+                step
+                for step in generated_steps
+                if not (
+                    isinstance(step, dict)
+                    and "materialize_artifacts" in step
+                    and "prompt_inputs" in str(step.get("id", ""))
+                )
+            ]
+            provider_step["typed_prompt_inputs"] = typed_prompt_inputs
     else:
         allocation = allocate_generated_result_bundle(
             context=context,
@@ -388,6 +409,14 @@ def _lower_provider_result_operation(
             semantic_role=GeneratedPathSemanticRole.PROVIDER_RESULT_BUNDLE,
         )
         authored_contract["path"] = allocation.concrete_path_template
+        typed_prompt_inputs, _typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
+            (("inputs", provider_result.inputs),),
+            context=context,
+            local_values=local_values,
+            source_expr=provider_result,
+        )
+        if typed_prompt_inputs:
+            provider_step["typed_prompt_inputs"] = typed_prompt_inputs
         hidden_inputs[allocation.generated_input_name] = lowering_core._origin_from_context_source(context, provider_result)
     lowering_core._record_step_origin(
         context,

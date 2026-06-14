@@ -5276,6 +5276,58 @@ class WorkflowExecutor:
                     debug_info['injection'] = injection_result.truncation_details
 
         # Inject resolved consumes into provider prompt when requested.
+        typed_prompt_input_evidence: list[dict[str, Any]] = []
+        typed_prompt_inputs = step.get("typed_prompt_inputs")
+        if isinstance(typed_prompt_inputs, list) and typed_prompt_inputs:
+            resolved_typed_values: dict[str, Any] = {}
+            for typed_prompt_input in typed_prompt_inputs:
+                if not isinstance(typed_prompt_input, dict):
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {"reason": "typed_prompt_input_invalid"},
+                    )
+                value_source = typed_prompt_input.get("value_source")
+                if not isinstance(value_source, dict):
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {"reason": "typed_prompt_input_invalid"},
+                    )
+                binding_value = value_source.get("binding")
+                if binding_value is None and isinstance(value_source.get("ref"), str):
+                    binding_value = {"ref": value_source["ref"]}
+                if binding_value is None and isinstance(value_source.get("binding_ref"), str):
+                    binding_value = {"ref": value_source["binding_ref"]}
+                if binding_value is None:
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {"reason": "typed_prompt_input_invalid"},
+                    )
+                resolved_value, resolve_error = self._resolve_typed_prompt_input_value(
+                    binding_value,
+                    state,
+                )
+                if resolve_error is not None:
+                    return resolve_error
+                binding_name = typed_prompt_input.get("binding_name")
+                if not isinstance(binding_name, str) or not binding_name:
+                    return self._contract_violation_result(
+                        "Provider prompt composition failed",
+                        {"reason": "typed_prompt_input_invalid"},
+                    )
+                resolved_typed_values[binding_name] = resolved_value
+            prompt, typed_prompt_input_evidence = self.prompt_composer.apply_typed_prompt_input_injection(
+                step,
+                prompt,
+                typed_prompt_inputs=typed_prompt_inputs,
+                resolved_typed_values=resolved_typed_values,
+                workflow_name=self.workflow_name or "",
+                step_id=runtime_step_id or self._step_id(step),
+            )
+            self._write_typed_prompt_input_evidence(
+                step_id=runtime_step_id or self._step_id(step),
+                evidence=typed_prompt_input_evidence,
+            )
+
         resolved_consumes = state.get('_resolved_consumes', {})
         prompt = self.prompt_composer.apply_consumes_prompt_injection(
             step,
@@ -9687,6 +9739,33 @@ class WorkflowExecutor:
         if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
             return self._resolve_ref_value(value["ref"], state, scope=scope)
         return self._resolve_materialize_view_value(value, state, scope=scope)
+
+    def _resolve_typed_prompt_input_value(
+        self,
+        value: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
+            return self._resolve_ref_value(value["ref"], state, scope=scope)
+        return self._resolve_materialize_view_value(value, state, scope=scope)
+
+    def _write_typed_prompt_input_evidence(
+        self,
+        *,
+        step_id: str,
+        evidence: list[dict[str, Any]],
+    ) -> None:
+        if not evidence:
+            return
+        safe_step_id = re.sub(r"[^A-Za-z0-9._-]+", "_", step_id).strip("._-") or "typed_prompt_input"
+        evidence_root = self.state_manager.run_root / "workflow_lisp" / "typed_prompt_inputs"
+        evidence_root.mkdir(parents=True, exist_ok=True)
+        (evidence_root / f"{safe_step_id}.json").write_text(
+            json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     def _materialize_view_evidence_path(self, target_path: Path) -> Path:
         return target_path.parent / f".{target_path.name}.materialize-view-evidence.json"

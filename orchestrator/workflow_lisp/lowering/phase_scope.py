@@ -12,6 +12,7 @@ from typing import Any
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.references import StructuredStepReference
 from orchestrator.workflow.surface_ast import SurfaceStep
+from orchestrator.workflow_lisp.typed_prompt_inputs import normalize_typed_prompt_input_entry
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -62,7 +63,6 @@ from .context import (
     _LoweringContext,
     _TerminalResult,
 )
-from .effects import _lower_provider_result
 from .generated_paths import allocate_materialized_value_view
 from .origins import LoweringOrigin, _rekey_origin_map
 from .values import _assign_nested_local_value, _flatten_boundary_leaf_paths, _render_existing_output_ref, _resolve_inline_expr_value
@@ -412,6 +412,8 @@ def _lower_composed_with_phase(
     if step_name_prefix is not None:
         # emitter: with-phase composition reuses the provider-result owner emitter.
         if isinstance(expr.body, ProviderResultExpr):
+            from .effects import _lower_provider_result
+
             return _lower_provider_result(
                 expr.body,
                 result_type=result_type,
@@ -1286,6 +1288,155 @@ def _phase_prompt_inputs_are_direct(
                 continue
             return False
     return True
+
+
+_C1_TYPED_PROMPT_INPUT_ROWS = {
+    "typed_prompt_input_phase::run-typed-prompt-phase-demo": {
+        "c0_row_id": "c0.fixture.prompt_context",
+        "u0_row_id": "u0.fixture.prompt_context",
+    },
+    "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
+        "c0_row_id": "c0.plan_phase_prompt_draft",
+        "u0_row_id": "plan_phase.prompt.draft",
+    },
+    "lisp_frontend_design_delta/selector::select-next-work": {
+        "c0_row_id": "c0.selector_prompt_select_next_work",
+        "u0_row_id": "selector.prompt.select_next_work",
+    },
+}
+
+
+def _typed_prompt_input_row_metadata(
+    workflow_name: str,
+) -> dict[str, str] | None:
+    return _C1_TYPED_PROMPT_INPUT_ROWS.get(workflow_name)
+
+
+def _value_type_name_for_prompt_input(expr: Any, *, context: _LoweringContext) -> str:
+    if isinstance(expr, NameExpr):
+        type_ref = context.local_type_bindings.get(expr.name)
+        if type_ref is not None:
+            return getattr(type_ref.definition, "name", type_ref.__class__.__name__)
+    if isinstance(expr, FieldAccessExpr):
+        type_ref = context.local_type_bindings.get(expr.base.name)
+        current = type_ref
+        for field_name in expr.fields:
+            if isinstance(current, RecordTypeRef):
+                current = current.field_types.get(field_name)
+            else:
+                current = None
+                break
+        if current is not None:
+            return getattr(current.definition, "name", current.__class__.__name__)
+    return expr.__class__.__name__
+
+
+def _typed_prompt_input_source_from_inline_value(
+    value: Any,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> Any:
+    if isinstance(value, LiteralExpr):
+        return value.value
+    if isinstance(value, Mapping):
+        if "ref" in value and len(value) == 1 and isinstance(value.get("ref"), str):
+            return {"ref": value["ref"]}
+        return {
+            str(key): _typed_prompt_input_source_from_inline_value(
+                item,
+                span=span,
+                form_path=form_path,
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, str):
+        if value.startswith("inputs.") or value.startswith("root.steps."):
+            return {"ref": value}
+        return value
+    if isinstance(value, (bool, int, float)) or value is None:
+        return value
+    raise _compile_error(
+        code="phase_translation_body_invalid",
+        message="typed prompt inputs must lower from resolvable workflow refs or pure literal values",
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _build_typed_prompt_inputs_for_prompt_specs(
+    prompt_input_specs: tuple[tuple[str, Any], ...],
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    source_expr: Any,
+) -> tuple[list[dict[str, Any]], dict[str, LoweringOrigin]]:
+    row_metadata = _typed_prompt_input_row_metadata(context.workflow_name)
+    if row_metadata is None:
+        return [], {}
+
+    flattened_inputs: list[tuple[str, Any]] = []
+    for base_name, prompt_input in prompt_input_specs:
+        flattened_inputs.extend(
+            _flatten_phase_stdlib_prompt_inputs(
+                prompt_input,
+                base_name=base_name,
+                local_values=local_values,
+            )
+        )
+
+    typed_prompt_inputs: list[dict[str, Any]] = []
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    for injection_order, (binding_name, input_expr) in enumerate(flattened_inputs):
+        raw_source_node, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+            input_expr,
+            artifact_name=binding_name,
+            context=context,
+            local_values=local_values,
+        )
+        hidden_inputs.update(extra_hidden_inputs)
+        for hidden_input_name in extra_hidden_inputs:
+            context.internal_generated_input_reasons.setdefault(hidden_input_name, "phase_prompt_transport")
+        if isinstance(raw_source_node.get("input"), str):
+            value_source = {"ref": f"inputs.{raw_source_node['input']}"}
+        elif isinstance(raw_source_node.get("ref"), str):
+            value_source = {"ref": str(raw_source_node["ref"])}
+        elif "literal" in raw_source_node:
+            value_source = raw_source_node["literal"]
+        else:
+            inline_value = _resolve_inline_expr_value(input_expr, local_values=local_values)
+            value_source = _typed_prompt_input_source_from_inline_value(
+                inline_value,
+                span=input_expr.span,
+                form_path=input_expr.form_path,
+            )
+        typed_prompt_inputs.append(
+            normalize_typed_prompt_input_entry(
+                {
+                    "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                    "binding_name": binding_name,
+                    "renderer": {
+                        "renderer_id": "canonical-json"
+                        if not isinstance(value_source, str)
+                        else "posix-path-line",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value"
+                        if not isinstance(value_source, str)
+                        else "path_value",
+                    },
+                    "value_source": {"kind": "typed_binding_ref", "binding": value_source},
+                    "value_type_name": _value_type_name_for_prompt_input(
+                        input_expr,
+                        context=context,
+                    ),
+                    "source_map_origin_key": context.workflow_name,
+                    "u0_row_id": row_metadata["u0_row_id"],
+                    "c0_row_id": row_metadata["c0_row_id"],
+                    "injection_order": injection_order,
+                }
+            )
+        )
+    return typed_prompt_inputs, hidden_inputs
 
 
 def _build_phase_stdlib_prompt_input_prelude(

@@ -204,6 +204,10 @@ class RuntimeStep(Mapping[str, Any]):
             if key == "prompt_consumes":
                 if config.prompt_consumes is not None:
                     return thaw_runtime_value(config.prompt_consumes)
+            if key == "typed_prompt_inputs":
+                value = thaw_runtime_value(config.typed_prompt_inputs)
+                if _include_value(value):
+                    return value
             if key == "consumes_injection_position" and config.consumes_injection_position is not None:
                 return config.consumes_injection_position
             if key == "managed_jobs" and config.managed_jobs is not None:
@@ -350,6 +354,7 @@ class RuntimeStep(Mapping[str, Any]):
                 "inject_output_contract",
                 "inject_consumes",
                 "prompt_consumes",
+                "typed_prompt_inputs",
                 "consumes_injection_position",
                 "managed_jobs",
             ):

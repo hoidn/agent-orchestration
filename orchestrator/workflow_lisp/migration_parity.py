@@ -2059,7 +2059,10 @@ def _boundary_artifact_justification_evidence(
             if artifact_name in required_artifacts:
                 reasons.append(f"required artifact `{artifact_name}` lacks passing justification target")
             continue
-        if artifact_name == "consumer_rendering_census_report":
+        if artifact_name in {
+            "consumer_rendering_census_report",
+            "typed_prompt_input_report",
+        }:
             reason = "prerequisite_compile_evidence"
         else:
             reason = (
@@ -2516,6 +2519,15 @@ def _compile_artifact_report(
                 repo_root=repo_root,
             )
             continue
+        if artifact_name == "typed_prompt_input_report":
+            required[artifact_name] = _typed_prompt_input_artifact_status(
+                target=target,
+                path=path,
+                build_root=build_root,
+                build_manifest=build_manifest,
+                repo_root=repo_root,
+            )
+            continue
         raw_status = _artifact_raw_status(
             artifact_name,
             path=path,
@@ -2644,6 +2656,50 @@ def _consumer_rendering_census_artifact_status(
     source_census = payload.get("source_census")
     if not isinstance(source_census, Mapping):
         reasons.append("source_census missing")
+    for bucket_name in ("missing_rows", "stale_rows", "invalid_rows"):
+        bucket = payload.get(bucket_name)
+        if isinstance(bucket, list) and bucket:
+            reasons.append(f"{bucket_name} present")
+    for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
+        if forbidden_key in payload:
+            reasons.append(f"forbidden track completion field `{forbidden_key}` present")
+    return {
+        "status": "fail" if reasons else "pass",
+        "path": path,
+        **({"reason": "; ".join(reasons)} if reasons else {}),
+    }
+
+
+def _typed_prompt_input_artifact_status(
+    *,
+    target: ParityTarget,
+    path: str | None,
+    build_root: Path | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    if path is None:
+        return {"status": "missing", "path": None}
+    payload = _load_compile_artifact_json(
+        artifact_name="typed_prompt_input_report",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if payload is None:
+        return {
+            "status": "missing",
+            "path": path,
+            "reason": "typed_prompt_input_report is unreadable or absent",
+        }
+    reasons: list[str] = []
+    if payload.get("workflow_family") != target.workflow_family:
+        reasons.append("workflow_family mismatch")
+    if payload.get("status") != "pass":
+        reasons.append("prerequisite compile evidence status is not pass")
+    selected_rows = payload.get("selected_rows")
+    if not isinstance(selected_rows, list) or not selected_rows:
+        reasons.append("selected_rows missing")
     for bucket_name in ("missing_rows", "stale_rows", "invalid_rows"):
         bucket = payload.get(bucket_name)
         if isinstance(bucket, list) and bucket:

@@ -54,6 +54,7 @@ from . import lexical_checkpoint_default_resume
 from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
+from .typed_prompt_inputs import build_typed_prompt_input_report
 from .value_flow_census import (
     load_value_flow_census,
     reconcile_value_flow_census,
@@ -456,6 +457,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     boundary_authority_report_payload = None
     value_flow_census_report_payload = None
     consumer_rendering_census_report_payload = None
+    typed_prompt_input_report_payload = None
     resume_plumbing_retirement_report_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
@@ -591,6 +593,54 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                                 code="consumer_rendering_census_invalid",
                                 message=(
                                     "design-delta consumer rendering census report failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
+                typed_prompt_input_report_payload = build_typed_prompt_input_report(
+                    workflow_family="design_delta_parent_drain",
+                    checked_manifest=consumer_rendering_census,
+                    checked_manifest_path=str(
+                        consumer_rendering_census.get("__manifest_path__", "")
+                    ),
+                    checked_manifest_sha256=str(
+                        consumer_rendering_census.get("__manifest_sha256__", "")
+                    ),
+                    validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                )
+                if typed_prompt_input_report_payload.get("status") != "pass":
+                    diagnostics_bucket: list[dict[str, Any]] = []
+                    for bucket_name in ("missing_rows", "stale_rows", "invalid_rows"):
+                        bucket = typed_prompt_input_report_payload.get(bucket_name)
+                        if isinstance(bucket, list):
+                            diagnostics_bucket.extend(
+                                item for item in bucket if isinstance(item, Mapping)
+                            )
+                    first = diagnostics_bucket[0] if diagnostics_bucket else {}
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "typed_prompt_input_row_missing"
+                    )
+                    first_row_id = (
+                        str(first.get("c0_row_id"))
+                        if isinstance(first, Mapping) and first.get("c0_row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code="typed_prompt_input_invalid",
+                                message=(
+                                    "design-delta typed prompt-input report failed: "
                                     f"{first_code}: {first_row_id}"
                                 ),
                                 path=Path(
@@ -755,6 +805,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         boundary_authority_report_payload=boundary_authority_report_payload,
         value_flow_census_report_payload=value_flow_census_report_payload,
         consumer_rendering_census_report_payload=consumer_rendering_census_report_payload,
+        typed_prompt_input_report_payload=typed_prompt_input_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
@@ -2581,6 +2632,7 @@ def _write_build_artifacts(
     boundary_authority_report_payload: Mapping[str, object] | None,
     value_flow_census_report_payload: Mapping[str, object] | None,
     consumer_rendering_census_report_payload: Mapping[str, object] | None,
+    typed_prompt_input_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
@@ -2613,6 +2665,10 @@ def _write_build_artifacts(
     if consumer_rendering_census_report_payload is not None:
         artifact_paths["consumer_rendering_census_report"] = (
             build_root / "consumer_rendering_census_report.json"
+        )
+    if typed_prompt_input_report_payload is not None:
+        artifact_paths["typed_prompt_input_report"] = (
+            build_root / "typed_prompt_input_report.json"
         )
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
@@ -2657,6 +2713,10 @@ def _write_build_artifacts(
     if consumer_rendering_census_report_payload is not None:
         payloads["consumer_rendering_census_report"] = _json_data(
             consumer_rendering_census_report_payload
+        )
+    if typed_prompt_input_report_payload is not None:
+        payloads["typed_prompt_input_report"] = _json_data(
+            typed_prompt_input_report_payload
         )
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(

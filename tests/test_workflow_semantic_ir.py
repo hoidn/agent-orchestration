@@ -23,6 +23,7 @@ PURE_EXPR_SELECTOR_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/pure_expr_
 LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
 LEXICAL_POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_effect_policies.orc")
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
+TYPED_PROMPT_INPUT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/typed_prompt_input_phase.orc")
 
 
 def _g0_retirement_metadata(
@@ -545,6 +546,27 @@ def test_semantic_ir_projects_statement_taxonomy_facets(tmp_path: Path) -> None:
         layout.layout_kind == "resume_checkpoint"
         for layout in yaml_bundle.semantic_ir.state_layout.values()
     )
+
+
+def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=TYPED_PROMPT_INPUT_FIXTURE,
+        entry_workflow="run-typed-prompt-phase-demo",
+        extra_source_roots=(TYPED_PROMPT_INPUT_FIXTURE.parent,),
+    ).validated_bundles_by_name["typed_prompt_input_phase::run-typed-prompt-phase-demo"]
+
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+    prompt_surface = bundle.semantic_ir.prompt_surfaces[workflow.prompt_surface_ids[0]]
+
+    assert getattr(prompt_surface, "typed_prompt_inputs")
+    typed_prompt_input = prompt_surface.typed_prompt_inputs[0]
+    assert typed_prompt_input["renderer"]["renderer_id"] == "canonical-json"
+    assert typed_prompt_input["value_type_name"]
+    assert typed_prompt_input["c0_row_id"]
+    assert "rendered_bytes" not in str(typed_prompt_input)
 
     pointer_result = _build_frontend_bundle_from_fixture(
         tmp_path,

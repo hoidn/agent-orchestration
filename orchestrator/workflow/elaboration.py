@@ -505,6 +505,11 @@ def _elaborate_step(
             and "prompt_consumes" in step
             else None
         ),
+        typed_prompt_inputs=(
+            _frozen_sequence(step.get("typed_prompt_inputs"))
+            if kind is SurfaceStepKind.PROVIDER and "typed_prompt_inputs" in step
+            else ()
+        ),
         consumes_injection_position=(
             step.get("consumes_injection_position")
             if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}

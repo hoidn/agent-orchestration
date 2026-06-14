@@ -222,3 +222,33 @@ class PromptComposer:
         if prompt.startswith("\n"):
             return f"{consumes_block}{prompt}"
         return f"{consumes_block}\n{prompt}"
+
+    def apply_typed_prompt_input_injection(
+        self,
+        step: Dict[str, Any],
+        prompt: str,
+        *,
+        typed_prompt_inputs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+        resolved_typed_values: Dict[str, Any],
+        workflow_name: str,
+        step_id: str,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        """Inject rendered typed prompt inputs into one provider prompt."""
+
+        if not typed_prompt_inputs:
+            return prompt, []
+        from ..workflow_lisp.typed_prompt_inputs import render_typed_prompt_inputs
+
+        rendered_block, evidence = render_typed_prompt_inputs(
+            typed_prompt_inputs,
+            resolved_typed_values=resolved_typed_values,
+            workflow_name=workflow_name,
+            step_id=step_id,
+        )
+        if not rendered_block:
+            return prompt, evidence
+        if not prompt:
+            return rendered_block, evidence
+        if prompt.endswith("\n"):
+            return f"{prompt}\n{rendered_block}", evidence
+        return f"{prompt}\n\n{rendered_block}", evidence

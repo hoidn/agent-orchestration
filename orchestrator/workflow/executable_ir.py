@@ -194,6 +194,7 @@ class ProviderStepConfig:
     inject_output_contract: Optional[bool] = None
     inject_consumes: Optional[bool] = None
     prompt_consumes: Optional[tuple[Any, ...]] = None
+    typed_prompt_inputs: tuple[Any, ...] = ()
     consumes_injection_position: Optional[str] = None
     managed_jobs: Optional[ManagedJobsConfig] = None
 

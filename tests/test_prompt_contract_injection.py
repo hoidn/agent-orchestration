@@ -155,6 +155,97 @@ def test_adjudication_consumed_artifacts_for_prompt_keeps_private_collection_val
     assert consumed_relpath_targets == {}
 
 
+def test_typed_prompt_input_injection_renders_deterministic_block_before_consumes(
+    tmp_path: Path,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    prompt, evidence = composer.apply_typed_prompt_input_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [{"artifact": "context_docs"}],
+        },
+        "## Workspace Dependencies\n- docs/index.md\n\nReview the design docs.\n",
+        typed_prompt_inputs=[
+            {
+                "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                "binding_name": "prompt_context",
+                "renderer": {
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "accepted_shape": "any_pure_value",
+                },
+                "value_source": {"kind": "typed_binding_ref", "ref": "inputs.prompt_context"},
+                "value_type_name": "PromptContext",
+                "source_map_origin_key": "typed_prompt_input_phase::run-typed-prompt-phase-demo",
+                "u0_row_id": "u0.fixture.prompt_context",
+                "c0_row_id": "c0.fixture.prompt_context",
+                "injection_order": 0,
+            }
+        ],
+        resolved_typed_values={
+            "prompt_context": {
+                "design": "docs/design/runtime-foundation.md",
+                "focus": "prefer typed values",
+            }
+        },
+        workflow_name="typed_prompt_input_phase::run-typed-prompt-phase-demo",
+        step_id="root.run-typed-prompt-phase-demo__attempt",
+    )
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [{"artifact": "context_docs"}],
+        },
+        prompt,
+        resolved_consumes={"root.review": {"context_docs": ["docs/index.md"]}},
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+    prompt = composer.apply_output_contract_prompt_suffix(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "output_bundle": {
+                "path": "state/review_bundle.json",
+                "fields": [
+                    {
+                        "name": "status",
+                        "json_pointer": "/status",
+                        "type": "string",
+                    }
+                ],
+            },
+        },
+        prompt,
+    )
+
+    assert "## Workspace Dependencies" in prompt
+    assert '"focus":"prefer typed values"' in prompt
+    assert prompt.index("## Consumed Artifacts") < prompt.index('"focus":"prefer typed values"')
+    assert prompt.index('"focus":"prefer typed values"') < prompt.index("Output Contract")
+    assert evidence[0]["rendered_bytes_digest"].startswith("sha256:")
+
+
+def test_typed_prompt_input_injection_omits_evidence_when_no_typed_rows(
+    tmp_path: Path,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    prompt, evidence = composer.apply_typed_prompt_input_injection(
+        {"name": "Review", "provider": "mock-provider"},
+        "Review the design docs.\n",
+        typed_prompt_inputs=[],
+        resolved_typed_values={},
+        workflow_name="typed_prompt_input_phase::run-typed-prompt-phase-demo",
+        step_id="root.run-typed-prompt-phase-demo__attempt",
+    )
+
+    assert prompt == "Review the design docs.\n"
+    assert evidence == []
+
+
 def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Path):
     """Provider steps append a deterministic output contract block by default."""
     (tmp_path / "prompts").mkdir()

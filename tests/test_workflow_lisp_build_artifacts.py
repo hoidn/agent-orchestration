@@ -4803,6 +4803,29 @@ def test_design_delta_parent_drain_build_emits_consumer_rendering_census_report_
     assert payload["invalid_rows"] == []
 
 
+def test_design_delta_parent_drain_build_emits_typed_prompt_input_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "typed_prompt_input_report" in result.artifact_paths
+    assert result.manifest.artifact_status["typed_prompt_input_report"] == "emitted"
+    payload = json.loads(
+        result.artifact_paths["typed_prompt_input_report"].read_text(encoding="utf-8")
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+    assert {row["c0_row_id"] for row in payload["selected_rows"]} == {
+        "c0.plan_phase_prompt_draft",
+        "c0.selector_prompt_select_next_work",
+    }
+
+
 def test_design_delta_parent_drain_consumer_rendering_report_records_manifest_and_u0_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -106,6 +106,7 @@ class CoreProviderStep:
     inject_output_contract: bool | None = None
     inject_consumes: bool | None = None
     prompt_consumes: tuple[Any, ...] | None = None
+    typed_prompt_inputs: tuple[Any, ...] = ()
     consumes_injection_position: str | None = None
     _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
 
@@ -508,6 +509,7 @@ def _build_statement(
             inject_output_contract=step.inject_output_contract,
             inject_consumes=step.inject_consumes,
             prompt_consumes=step.prompt_consumes,
+            typed_prompt_inputs=step.typed_prompt_inputs,
             consumes_injection_position=step.consumes_injection_position,
             _surface_step=step,
         )
@@ -892,6 +894,7 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
             inject_output_contract=statement.inject_output_contract,
             inject_consumes=statement.inject_consumes,
             prompt_consumes=statement.prompt_consumes,
+            typed_prompt_inputs=statement.typed_prompt_inputs,
             consumes_injection_position=statement.consumes_injection_position,
         )
     elif isinstance(statement, CoreAdjudicatedProviderStep):
@@ -1081,6 +1084,7 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
                 "inject_output_contract": statement.inject_output_contract,
                 "inject_consumes": statement.inject_consumes,
                 "prompt_consumes": _json_data(statement.prompt_consumes),
+                "typed_prompt_inputs": _json_data(statement.typed_prompt_inputs),
                 "consumes_injection_position": statement.consumes_injection_position,
             }
         )
