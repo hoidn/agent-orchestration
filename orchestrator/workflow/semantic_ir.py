@@ -525,6 +525,7 @@ def derive_workflow_semantic_ir(
         )
     for checkpoint_point in runtime_plan.lexical_checkpoint_points:
         from orchestrator.workflow_lisp.lexical_checkpoints import allocate_checkpoint_storage
+        from orchestrator.workflow_lisp.lexical_checkpoint_restore import public_restore_metadata
 
         point_layout_id = _state_layout_id(
             workflow_name,
@@ -543,6 +544,7 @@ def derive_workflow_semantic_ir(
                     "program_point_id": checkpoint_point.program_point_id,
                     "point_kind": checkpoint_point.point_kind,
                     "origin_key": checkpoint_point.origin_key,
+                    "restore": public_restore_metadata(checkpoint_point.details.get("restore", {})),
                 }
             ),
         )

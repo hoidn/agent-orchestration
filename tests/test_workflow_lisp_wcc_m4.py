@@ -44,6 +44,7 @@ CHARACTERIZATION_SOURCES = FIXTURES / "characterization" / "sources"
 PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
 LEXICAL_CHECKPOINT_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_shadow_points.orc"
+LEXICAL_RESTORE_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_restore_regions.orc"
 
 
 def _span() -> SourceSpan:
@@ -827,3 +828,52 @@ def test_wcc_m4_lexical_checkpoint_extraction_exports_effect_boundary_and_loop_b
 
     assert all("wcc-node:" not in point["program_point_id"] for point in checkpoint_points)
     assert all("wcc_m4" not in point["program_point_id"] for point in checkpoint_points)
+
+
+def test_wcc_m4_lexical_checkpoint_extraction_exports_restore_eligibility_descriptors(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        LEXICAL_RESTORE_FIXTURE,
+        provider_externs={},
+        prompt_externs={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+        lowering_route="wcc_m4",
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    checkpoint_points = getattr(lowered, "lexical_checkpoint_points")
+    restore_labels = {
+        label
+        for point in checkpoint_points
+        for label in point.get("restore", {}).get("eligibility", ())
+    }
+    points_by_step_id = {
+        point["step_id"]: point
+        for point in checkpoint_points
+    }
+    call_point = points_by_step_id["orchestrate__decision__call_choose_branch"]
+    loop_point = points_by_step_id["orchestrate__loop_result__loop"]
+    materialize_point = points_by_step_id["orchestrate__materialize_view__runtime_summary"]
+    materialize_binding_names = {
+        descriptor["binding_name"]
+        for descriptor in materialize_point["restore"]["binding_descriptors"]
+    }
+
+    assert {"pure_binding", "let_continuation", "match_branch", "loop_frame"} <= restore_labels
+    assert any(point.get("restore", {}).get("binding_descriptor_digests") for point in checkpoint_points)
+    assert any(point.get("restore", {}).get("proof_descriptor_digests") for point in checkpoint_points)
+    assert any(point.get("restore", {}).get("loop_frame_descriptor_digest") for point in checkpoint_points)
+    assert call_point["restore"]["binding_descriptor_digests"] == []
+    assert call_point["restore"]["proof_descriptor_digests"] == []
+    assert len(loop_point["restore"]["binding_descriptor_digests"]) == 2
+    assert {"selected_label", "selected_report", "summary_status"} <= materialize_binding_names
+    assert len(loop_point["restore"]["proof_descriptor_digests"]) == 2
+    assert len(materialize_point["restore"]["proof_descriptor_digests"]) == 2
+    assert all("wcc-node:" not in json.dumps(point.get("restore", {}), sort_keys=True) for point in checkpoint_points)
+    assert all("wcc_m4" not in json.dumps(point.get("restore", {}), sort_keys=True) for point in checkpoint_points)

@@ -15,6 +15,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
+RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 
 
 def _module():
@@ -35,6 +36,24 @@ def _compile_fixture(tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return next(
+        bundle
+        for name, bundle in result.validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+
+def _compile_restore_fixture(tmp_path: Path):
+    local_fixture = tmp_path / RESTORE_FIXTURE.name
+    local_fixture.write_text(RESTORE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    result = compile_stage3_entrypoint(
+        local_fixture,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -258,6 +277,56 @@ def test_runtime_shadow_emission_call_frame_record_ids_include_durable_call_fram
         loop_iteration=record["frame_identity"]["loop_iteration"],
         call_frame_id=record["frame_identity"]["call_frame_id"],
     )
+
+
+def test_runtime_shadow_emission_may_attach_restore_payload_while_preserving_r1_validation(tmp_path: Path) -> None:
+    checkpoints = _module()
+    bundle = _compile_restore_fixture(tmp_path)
+    state_manager = StateManager(tmp_path, run_id="lexical-checkpoint-restore-payload")
+    state_manager.initialize(
+        str(tmp_path / RESTORE_FIXTURE.name),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+    report_path = tmp_path / "artifacts" / "work" / "report.md"
+    summary_path = tmp_path / "artifacts" / "work" / "summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic restore payload failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        result = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    assert result["status"] == "failed"
+
+    observed_restore_payloads = []
+    for point in bundle.runtime_plan.lexical_checkpoint_points:
+        index_path = checkpoints.resolve_checkpoint_index_path(
+            state_manager=state_manager,
+            workflow_name=point.workflow_name,
+            checkpoint_id=point.checkpoint_id,
+        )
+        if not index_path.is_file():
+            continue
+        index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+        for entry in index_payload.get("records", []):
+            record_path = tmp_path / entry["record_path"]
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            checkpoints.validate_checkpoint_record(record, expected_point=checkpoints._point_payload(point))
+            observed_restore_payloads.append(record.get("restore_payload"))
+
+    assert any(isinstance(payload, dict) for payload in observed_restore_payloads)
 
 
 def test_runtime_shadow_emission_fail_closed_for_invalid_point_metadata(tmp_path: Path) -> None:

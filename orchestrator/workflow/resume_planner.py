@@ -111,6 +111,33 @@ class ResumePlanner:
 
         return None
 
+    def determine_lexical_restore_decision(
+        self,
+        state: Dict[str, Any],
+        *,
+        runtime_plan: Any,
+        state_manager: Any,
+        executable_workflow: Any | None = None,
+        projection: Optional[WorkflowStateProjection] = None,
+    ) -> Any:
+        """Return one additive lexical-restore decision for the current resume point."""
+        if not isinstance(projection, WorkflowStateProjection):
+            raise TypeError("ResumePlanner requires a WorkflowStateProjection")
+
+        restart_node_id = self.determine_restart_node_id(state, projection=projection)
+        if not isinstance(restart_node_id, str):
+            return None
+
+        from orchestrator.workflow_lisp.lexical_checkpoint_restore import select_restore_candidate
+
+        return select_restore_candidate(
+            state_manager=state_manager,
+            runtime_plan=runtime_plan,
+            state=state,
+            restart_node_id=restart_node_id,
+            executable_workflow=executable_workflow,
+        )
+
     def _projected_current_step(
         self,
         current_step: Dict[str, Any],

@@ -16,6 +16,11 @@ from orchestrator.workflow.state_layout import (
     GeneratedPathSemanticRole,
     StateLayout,
 )
+from orchestrator.workflow_lisp.lexical_checkpoint_restore import (
+    capture_restore_payload,
+    validate_restore_payload,
+    validate_restore_point_metadata,
+)
 
 
 CHECKPOINT_RECORD_SCHEMA_VERSION = "workflow_lisp_lexical_checkpoint.v1"
@@ -195,6 +200,9 @@ def validate_checkpoint_point_payload(point: Mapping[str, Any]) -> None:
             raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
     if point_kind == "loop_back_edge" and not loop_back_edge:
         raise ValueError(DIAGNOSTIC_CODES.program_identity_mismatch)
+    restore = _mapping(point.get("restore"))
+    if restore:
+        validate_restore_point_metadata(restore)
 
 
 def checkpoint_record_binding_schema_digest(point: Mapping[str, Any]) -> str:
@@ -264,6 +272,9 @@ def validate_checkpoint_record(
         effect_policy_digest = validity_envelope.get("effect_policy_digest")
         if effect_policy_digest != checkpoint_record_effect_policy_digest(expected_point):
             raise ValueError(DIAGNOSTIC_CODES.effect_policy_unknown)
+    restore_payload = record.get("restore_payload")
+    if restore_payload is not None:
+        validate_restore_payload(_mapping(restore_payload), expected_origin_key=str(origin_key))
 
 
 def validate_checkpoint_index_update(
@@ -339,45 +350,64 @@ def _runtime_plan_points_by_step_id(runtime_plan: Any) -> dict[str, Any]:
 def _program_identity(executor: Any, point: Any) -> Mapping[str, Any]:
     provenance = getattr(getattr(executor, "loaded_bundle", None), "provenance", None)
     workflow_path = getattr(provenance, "workflow_path", None)
-    workflow_name = str(_point_field(point, "workflow_name") or getattr(executor.runtime_plan, "workflow_name", ""))
+    return checkpoint_runtime_program_identity(
+        state_manager=executor.state_manager,
+        runtime_plan=executor.runtime_plan,
+        workflow_path=workflow_path if isinstance(workflow_path, Path) else None,
+    )
+
+
+def checkpoint_runtime_program_identity(
+    *,
+    state_manager: Any,
+    runtime_plan: Any,
+    workflow_path: Path | None = None,
+) -> Mapping[str, Any]:
+    workflow_name = str(getattr(runtime_plan, "workflow_name", "") or "")
     source_module_digest = (
-        executor.state_manager.calculate_checksum(workflow_path)
+        state_manager.calculate_checksum(workflow_path)
         if isinstance(workflow_path, Path) and workflow_path.exists()
         else _digest("source", workflow_name)
     )
-    executable_ir_digest = _digest(
-        "ir",
-        workflow_name,
-        canonical_json_dumps(
-            {
-                "ordered_node_ids": list(getattr(executor.runtime_plan, "ordered_node_ids", ())),
-                "lexical_checkpoint_points": [
-                    {
-                        "checkpoint_id": _point_field(runtime_point, "checkpoint_id"),
-                        "program_point_id": _point_field(runtime_point, "program_point_id"),
-                        "point_kind": _point_field(runtime_point, "point_kind"),
-                        "step_id": _point_field(runtime_point, "step_id"),
-                    }
-                    for runtime_point in getattr(executor.runtime_plan, "lexical_checkpoint_points", ())
-                ],
-            }
-        ),
+    lexical_points = [
+        {
+            "checkpoint_id": _point_field(point, "checkpoint_id"),
+            "program_point_id": _point_field(point, "program_point_id"),
+            "point_kind": _point_field(point, "point_kind"),
+            "step_id": _point_field(point, "step_id"),
+        }
+        for point in getattr(runtime_plan, "lexical_checkpoint_points", ())
+    ]
+    executable_ir_digest = _sha256_json(
+        {
+            "ordered_node_ids": list(getattr(runtime_plan, "ordered_node_ids", ())),
+            "lexical_checkpoint_points": lexical_points,
+        }
     )
-    semantic_ir = getattr(getattr(executor, "loaded_bundle", None), "semantic_ir", None)
-    semantic_ir_digest = _digest(
-        "semantic",
-        workflow_name,
-        canonical_json_dumps(
-            {
-                "schema_version": getattr(semantic_ir, "schema_version", None),
-                "state_layout_ids": sorted(getattr(getattr(semantic_ir, "state_layout", {}), "keys", lambda: ())()),
-            }
-        ),
+    semantic_ir_digest = _sha256_json(
+        {
+            "workflow_name": workflow_name,
+            "resume_checkpoints": [
+                {
+                    "checkpoint_kind": checkpoint.checkpoint_kind,
+                    "node_id": checkpoint.node_id,
+                    "step_id": checkpoint.step_id,
+                }
+                for checkpoint in getattr(runtime_plan, "resume_checkpoints", ())
+            ],
+            "lexical_checkpoint_points": lexical_points,
+        }
     )
-    runtime_program_identity = _mapping(_point_payload(point).get("runtime_program_identity"))
+    lowering_schema_version = "wcc_m4"
+    lexical_checkpoint_points = getattr(runtime_plan, "lexical_checkpoint_points", ())
+    if lexical_checkpoint_points:
+        first_point = lexical_checkpoint_points[0]
+        lowering_schema_version = str(
+            _mapping(_point_details(first_point).get("runtime_program_identity")).get("lowering_schema_version", "wcc_m4")
+        )
     return {
         "workflow_name": workflow_name,
-        "lowering_schema_version": str(runtime_program_identity.get("lowering_schema_version", "wcc_m4")),
+        "lowering_schema_version": lowering_schema_version,
         "source_module_digest": source_module_digest,
         "executable_ir_digest": executable_ir_digest,
         "semantic_ir_digest": semantic_ir_digest,
@@ -601,6 +631,14 @@ def emit_runtime_shadow_record(
                 "diagnostics": [],
             },
         }
+        restore_payload = capture_restore_payload(
+            executor=executor,
+            point=point,
+            execution_index=execution_index,
+            loop_iteration=loop_iteration,
+        )
+        if restore_payload is not None:
+            record["restore_payload"] = dict(restore_payload)
         validate_checkpoint_record(
             record,
             expected_point=point_payload,

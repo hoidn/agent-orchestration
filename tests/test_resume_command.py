@@ -34,6 +34,7 @@ from tests.workflow_bundle_helpers import bundle_context_dict, materialize_proje
 
 
 LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_shadow_points.orc")
+LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 
 
 def _workflow_runtime_context_inputs(bundle):
@@ -2144,6 +2145,89 @@ def test_workflow_lisp_resume_ignores_shadow_checkpoint_sidecars(temp_workspace)
     loaded_state = StateManager(temp_workspace, run_id=run_id).load()
     assert loaded_state.status == "completed"
     assert loaded_state.steps["lexical_checkpoint_resume_sidecars::orchestrate__materialize-view__runtime-summary"]["status"] == "completed"
+
+
+def test_workflow_lisp_lexical_checkpoint_resume_restores_private_checkpoint_regions(temp_workspace):
+    workflow_path = temp_workspace / LEXICAL_RESTORE_FIXTURE.name
+    workflow_path.write_text(LEXICAL_RESTORE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    bundle = next(
+        validated
+        for name, validated in compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(temp_workspace,),
+            validate_shared=True,
+            workspace_root=temp_workspace,
+        ).validated_bundles_by_name.items()
+        if name == "orchestrate" or name.endswith("::orchestrate")
+    )
+
+    report_path = temp_workspace / "artifacts" / "work" / "report.md"
+    summary_path = temp_workspace / "artifacts" / "work" / "summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    run_id = "workflow-lisp-restore-sidecar-resume"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(
+        str(workflow_path),
+        context=bundle_context_dict(bundle),
+        bound_inputs={
+            "report_path": "artifacts/work/report.md",
+            "summary_target": "artifacts/work/summary.json",
+        },
+    )
+
+    real_render_view = WorkflowExecutor._execute_materialize_view.__globals__["render_view"]
+    fail_once = {"armed": True}
+
+    def _fail_render_once(*args, **kwargs):
+        if fail_once["armed"]:
+            fail_once["armed"] = False
+            raise RuntimeError("synthetic restore-boundary failure")
+        return real_render_view(*args, **kwargs)
+
+    with patch("orchestrator.workflow.executor.render_view", side_effect=_fail_render_once):
+        first_run = WorkflowExecutor(bundle, temp_workspace, state_manager).execute()
+
+    assert first_run["status"] == "failed"
+    state = state_manager.load()
+    step_id = "root.lexical_checkpoint_restore_regions_orchestrate__materialize_view__runtime_summary"
+    execution_index = bundle.projection.execution_index_for_step_id(step_id)
+    state.current_step = {
+        "name": "lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary",
+        "index": execution_index if isinstance(execution_index, int) else 14,
+        "step_id": step_id,
+        "status": "running",
+    }
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__summary_status", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_label__match_decision", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__selected_report__match_decision", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__result", None)
+    state.steps.pop("lexical_checkpoint_restore_regions::orchestrate__loop_result__loop", None)
+    state_manager.state = state
+    state_manager._write_state()
+
+    with patch('os.getcwd', return_value=str(temp_workspace)), patch(
+        'orchestrator.cli.commands.resume._load_resume_workflow_bundle',
+        return_value=bundle,
+    ):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    restore_report = state_manager.workflow_lisp_checkpoint_restore_report_path()
+    payload = json.loads(restore_report.read_text(encoding="utf-8"))
+    assert payload["decision_kind"] == "RESTORED"
+    assert payload["restored_bindings"] >= 3
+    assert payload["restored_loop_frames"] >= 1
+    loaded_state = state_manager.load()
+    summary_step = loaded_state.steps["lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary"]
+    assert summary_step["status"] == "completed"
 
 
 def test_resume_retries_since_last_consume_step_after_failed_attempt(temp_workspace):

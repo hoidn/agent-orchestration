@@ -6,6 +6,7 @@ Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 import json
 import logging
 import os
+import re
 import threading
 import time
 import traceback
@@ -152,6 +153,8 @@ from .adjudication import (
 )
 
 logger = logging.getLogger(__name__)
+RESTORE_REPORT_SCHEMA_VERSION = "workflow_lisp_lexical_restore_report.v1"
+_RESTORE_REF_MISSING = object()
 
 
 def _path_safe_frame_scope_token(frame_id: str) -> str:
@@ -662,6 +665,7 @@ class WorkflowExecutor:
         self.retry_delay_ms = retry_delay_ms
         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
         self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
+        self._lexical_restore_overlay: Optional[Dict[str, Any]] = None
 
     def _load_compiled_frontend_source_trace_payload(
         self,
@@ -1318,7 +1322,103 @@ class WorkflowExecutor:
                 if isinstance(candidate, dict):
                     return candidate
 
+        overlay_result = self._restore_overlay_result_for_node_id(node_id, state)
+        if isinstance(overlay_result, dict):
+            return overlay_result
+
         raise ReferenceResolutionError(f"Bound address target step '{node_id}' is unavailable")
+
+    def _restore_overlay_match_case_for_node_id(
+        self,
+        node_id: str,
+        state: Dict[str, Any],
+    ) -> Optional[str]:
+        if not isinstance(self._lexical_restore_overlay, dict) or self.executable_ir is None:
+            return None
+        node = self.executable_ir.nodes.get(node_id)
+        if not isinstance(node, MatchJoinNode):
+            return None
+
+        proofs = self._lexical_restore_overlay.get("proofs")
+        if not isinstance(proofs, tuple):
+            return None
+        candidate_cases = {
+            proof.get("variant") or proof.get("variant_name")
+            for proof in proofs
+            if isinstance(proof, Mapping)
+            and proof.get("proof_kind") == "match_branch"
+            and isinstance(proof.get("proof_source"), str)
+            and (
+                proof.get("proof_source") == node.step_id
+                or node.step_id.endswith(f".{proof.get('proof_source')}")
+                or node.step_id.endswith(proof.get("proof_source"))
+            )
+            and isinstance(proof.get("variant") or proof.get("variant_name"), str)
+            and (proof.get("variant") or proof.get("variant_name")) in node.case_outputs
+        }
+        if len(candidate_cases) != 1:
+            return None
+        selected_case = next(iter(candidate_cases))
+
+        try:
+            selector_value = self._resolve_bound_address(node.selector_address, state)
+        except ReferenceResolutionError:
+            return None
+        if selector_value != selected_case:
+            return None
+        return selected_case
+
+    def _restore_overlay_result_for_node_id(
+        self,
+        node_id: str,
+        state: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not isinstance(self._lexical_restore_overlay, dict) or self.projection is None:
+            return None
+        presentation_key = self.projection.presentation_key_by_node_id.get(node_id)
+        if not isinstance(presentation_key, str) or not presentation_key:
+            return None
+
+        loop_artifacts: Dict[str, Any] = {}
+        for member in ("return__count", "return__label"):
+            value = self._restore_overlay_loop_value(presentation_key, member)
+            if value is not _RESTORE_REF_MISSING:
+                loop_artifacts[member] = value
+
+        binding_value = self._restore_overlay_binding_value(
+            presentation_key,
+            "return",
+            state=state,
+        )
+        if binding_value is not _RESTORE_REF_MISSING:
+            selected_case = self._restore_overlay_match_case_for_node_id(node_id, state)
+            node = self.executable_ir.nodes.get(node_id) if self.executable_ir is not None else None
+            if selected_case is None and isinstance(node, MatchJoinNode):
+                return None
+            artifacts = dict(loop_artifacts)
+            artifacts["return"] = binding_value
+            if selected_case is None:
+                return {
+                    "status": "completed",
+                    "artifacts": artifacts,
+                }
+            return {
+                "status": "completed",
+                "artifacts": artifacts,
+                "debug": {
+                    "structured_match": {
+                        "selected_case": selected_case,
+                        "restore_overlay": True,
+                    }
+                },
+            }
+
+        if loop_artifacts:
+            return {
+                "status": "completed",
+                "artifacts": loop_artifacts,
+            }
+        return None
 
     def _resolve_bound_address(
         self,
@@ -1647,6 +1747,220 @@ class WorkflowExecutor:
     def _determine_resume_restart_node_id(self, state: Dict[str, Any]) -> Optional[str]:
         """Determine the top-level executable node id where resumed execution should restart."""
         return self.resume_planner.determine_restart_node_id(state, projection=self.projection)
+
+    def _determine_resume_lexical_restore_decision(self, state: Dict[str, Any]) -> Any:
+        """Determine the additive lexical-restore decision for resume metadata."""
+        return self.resume_planner.determine_lexical_restore_decision(
+            state,
+            runtime_plan=self.runtime_plan,
+            state_manager=self.state_manager,
+            executable_workflow=self.executable_ir,
+            projection=self.projection,
+        )
+
+    def _write_restore_report(
+        self,
+        *,
+        restart_node_id: str | None,
+        decision: Any,
+    ) -> None:
+        report_path_factory = getattr(
+            self.state_manager,
+            "workflow_lisp_checkpoint_restore_report_path",
+            None,
+        )
+        if not callable(report_path_factory):
+            return
+        report_path = report_path_factory()
+        payload = {
+            "schema_version": RESTORE_REPORT_SCHEMA_VERSION,
+            "restart_node_id": restart_node_id,
+            "decision_kind": getattr(decision, "kind", "NOT_RESTORABLE") if decision is not None else "NOT_RESTORABLE",
+            "checkpoint_id": getattr(decision, "checkpoint_id", None) if decision is not None else None,
+            "record_id": getattr(decision, "record_id", None) if decision is not None else None,
+            "source_map_origin_key": getattr(decision, "source_map_origin_key", None) if decision is not None else None,
+            "restored_bindings": int(getattr(decision, "restored_bindings", 0) or 0),
+            "restored_loop_frames": int(getattr(decision, "restored_loop_frames", 0) or 0),
+            "diagnostics": list(getattr(decision, "diagnostics", ()) or ()),
+        }
+        self.state_manager.write_runtime_sidecar_json(report_path, payload)
+
+    def _activate_resume_restore_overlay(self, decision: Any) -> None:
+        from orchestrator.workflow_lisp.lexical_checkpoint_restore import resolve_binding_restore_value
+
+        payload = getattr(decision, "restore_payload", None)
+        if not isinstance(payload, Mapping):
+            self._lexical_restore_overlay = None
+            return
+
+        bindings: Dict[str, Any] = {}
+        for binding in payload.get("bindings", ()):
+            if not isinstance(binding, Mapping):
+                continue
+            name = binding.get("binding_name")
+            if not isinstance(name, str) or not name:
+                continue
+            try:
+                bindings[name] = resolve_binding_restore_value(
+                    binding,
+                    state_manager=self.state_manager,
+                )
+            except ValueError:
+                continue
+
+        loop_frames: Dict[str, Dict[str, Any]] = {}
+        loop_frame = payload.get("loop_frame")
+        if isinstance(loop_frame, Mapping):
+            loop_id = loop_frame.get("loop_id")
+            if isinstance(loop_id, str) and loop_id:
+                loop_frames[loop_id] = dict(loop_frame)
+
+        proofs = tuple(
+            proof
+            for proof in payload.get("active_variant_proofs", ())
+            if isinstance(proof, Mapping)
+        )
+        self._lexical_restore_overlay = {
+            "bindings": bindings,
+            "loop_frames": loop_frames,
+            "proofs": proofs,
+        }
+
+    def _restore_overlay_match_case_for_presentation(
+        self,
+        step_name: str,
+        state: Dict[str, Any],
+    ) -> Optional[str]:
+        if self.projection is None:
+            return None
+        node_id = None
+        index = self._projection_index_by_presentation_name.get(step_name)
+        if isinstance(index, int) and 0 <= index < len(self._step_node_ids):
+            node_id = self._step_node_ids[index]
+        if not isinstance(node_id, str):
+            for candidate_node_id, presentation_key in self.projection.presentation_key_by_node_id.items():
+                if presentation_key == step_name:
+                    node_id = candidate_node_id
+                    break
+        if not isinstance(node_id, str):
+            return None
+        return self._restore_overlay_match_case_for_node_id(node_id, state)
+
+    def _restore_overlay_binding_value(
+        self,
+        step_name: str,
+        member: str,
+        *,
+        state: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        if member != "return" or not isinstance(self._lexical_restore_overlay, dict):
+            return _RESTORE_REF_MISSING
+        bindings = self._lexical_restore_overlay.get("bindings")
+        if not isinstance(bindings, Mapping):
+            return _RESTORE_REF_MISSING
+        for binding_name, value in bindings.items():
+            if isinstance(binding_name, str) and (
+                f"__{binding_name}__" in step_name
+                or step_name.endswith(f"__{binding_name}")
+            ):
+                if "__match_decision" in step_name:
+                    if not isinstance(state, dict):
+                        return _RESTORE_REF_MISSING
+                    selected_case = self._restore_overlay_match_case_for_presentation(step_name, state)
+                    if selected_case is None:
+                        return _RESTORE_REF_MISSING
+                return value
+        return _RESTORE_REF_MISSING
+
+    def _restore_overlay_loop_value(self, step_name: str, member: str) -> Any:
+        if not isinstance(self._lexical_restore_overlay, dict):
+            return _RESTORE_REF_MISSING
+        loop_frames = self._lexical_restore_overlay.get("loop_frames")
+        if not isinstance(loop_frames, Mapping):
+            return _RESTORE_REF_MISSING
+        for loop_name, loop_frame in loop_frames.items():
+            if not isinstance(loop_name, str) or not isinstance(loop_frame, Mapping):
+                continue
+            state_value = loop_frame.get("state_value")
+            if not isinstance(state_value, Mapping):
+                continue
+            if step_name == loop_name and member.startswith("state__"):
+                field_name = member[len("state__"):]
+                if field_name in state_value:
+                    return state_value[field_name]
+            result_step = (
+                f"{loop_name[:-len('__loop')]}__result"
+                if loop_name.endswith("__loop")
+                else None
+            )
+            if result_step == step_name and member.startswith("return__"):
+                field_name = member[len("return__"):]
+                if field_name in state_value:
+                    return state_value[field_name]
+        return _RESTORE_REF_MISSING
+
+    def _restore_overlay_loop_frame(self, loop_name: str) -> Optional[Dict[str, Any]]:
+        if not isinstance(self._lexical_restore_overlay, dict):
+            return None
+        loop_frames = self._lexical_restore_overlay.get("loop_frames")
+        if not isinstance(loop_frames, Mapping):
+            return None
+        loop_frame = loop_frames.get(loop_name)
+        if not isinstance(loop_frame, Mapping):
+            return None
+        return dict(loop_frame)
+
+    def _resolve_restore_overlay_ref(
+        self,
+        ref: str,
+        state: Dict[str, Any],
+    ) -> Any:
+        if not isinstance(self._lexical_restore_overlay, dict):
+            return _RESTORE_REF_MISSING
+        loop_result_step_names = {
+            candidate
+            for loop_name in (
+                self._lexical_restore_overlay.get("loop_frames", {}).keys()
+                if isinstance(self._lexical_restore_overlay.get("loop_frames"), Mapping)
+                else ()
+            )
+            if isinstance(loop_name, str) and loop_name.endswith("__loop")
+            for candidate in (loop_name, f"{loop_name[:-len('__loop')]}__result")
+        }
+        step_names = tuple(
+            name
+            for name in {
+                *self._projection_index_by_presentation_name.keys(),
+                *(
+                    state.get("steps", {}).keys()
+                    if isinstance(state.get("steps"), dict)
+                    else ()
+                ),
+                *loop_result_step_names,
+            }
+            if isinstance(name, str)
+        )
+        try:
+            target = parse_structured_ref(ref, step_names)
+        except ReferenceResolutionError:
+            match = re.match(r"^(?:root|self|parent)\.steps\.(?P<step_name>.+?)\.artifacts\.(?P<member>.+)$", ref)
+            if match is None:
+                return _RESTORE_REF_MISSING
+            step_name = match.group("step_name")
+            member = match.group("member")
+        else:
+            if target.field != "artifacts" or not isinstance(target.member, str):
+                return _RESTORE_REF_MISSING
+            step_name = target.step_name
+            member = target.member
+        value = self._restore_overlay_binding_value(
+            step_name,
+            member,
+            state=state,
+        )
+        if value is not _RESTORE_REF_MISSING:
+            return value
+        return self._restore_overlay_loop_value(step_name, member)
 
     def _fail_resume_state_integrity(
         self,
@@ -2452,6 +2766,7 @@ class WorkflowExecutor:
         terminal_status = 'completed'
 
         try:
+            active_step_context: Dict[str, Any] = {}
             # Execute steps with control flow support
             try:
                 resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
@@ -2461,9 +2776,28 @@ class WorkflowExecutor:
                     str(exc),
                     dict(exc.context),
                 )
+            if resume:
+                restore_decision = self._determine_resume_lexical_restore_decision(state)
+                self._write_restore_report(
+                    restart_node_id=resume_restart_node_id,
+                    decision=restore_decision,
+                )
+                if getattr(restore_decision, "kind", None) == "INVALID":
+                    return self._fail_resume_state_integrity(
+                        "lexical_restore_invalid",
+                        "Lexical checkpoint restore candidate is invalid.",
+                        {
+                            "restart_node_id": resume_restart_node_id,
+                            "checkpoint_id": getattr(restore_decision, "checkpoint_id", None),
+                            "record_id": getattr(restore_decision, "record_id", None),
+                            "diagnostics": list(getattr(restore_decision, "diagnostics", ()) or ()),
+                        },
+                    )
+                self._activate_resume_restore_overlay(restore_decision)
+            else:
+                self._lexical_restore_overlay = None
             step_index = 0
             current_node_id = resume_restart_node_id
-            active_step_context: Dict[str, Any] = {}
             if current_node_id is None:
                 current_node_id = self._first_execution_node_id()
             while True:
@@ -7617,6 +7951,9 @@ class WorkflowExecutor:
                             return self.reference_resolver.resolve(rewritten_ref, state, scope=retry_scope).value, None
                         except ReferenceResolutionError:
                             continue
+                overlay_value = self._resolve_restore_overlay_ref(candidate_ref, state)
+                if overlay_value is not _RESTORE_REF_MISSING:
+                    return overlay_value, None
                 return None, self._v214_failure_result(
                     "materialize_ref_unresolved",
                     "Structured ref could not be resolved",

@@ -48,6 +48,7 @@ IMPORTED_STDLIB_HELPER_ENTRY = (
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
+LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
 RUNTIME_CLOSURE_MARKERS = (
     "workflow_lisp_runtime_closure",
     "closure_families",
@@ -162,6 +163,24 @@ def _build_lexical_checkpoint_fixture(tmp_path: Path):
             prompt_externs_path=None,
             imported_workflow_bundles_path=None,
             command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
+def _build_lexical_restore_fixture(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=LEXICAL_RESTORE_FIXTURE,
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="orchestrate",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
             emit_debug_yaml=False,
             workspace_root=tmp_path,
         )
@@ -4705,6 +4724,26 @@ def test_runtime_plan_artifact_keeps_lexical_checkpoint_details_route_neutral(tm
     assert "runtime_program_identity" not in payload
     assert "wcc_m4" not in payload
     assert "wcc-node:" not in payload
+
+
+def test_build_emits_restore_eligibility_details_in_lexical_checkpoint_points_artifact(tmp_path: Path) -> None:
+    result = _build_lexical_restore_fixture(tmp_path)
+    payload = json.loads(result.artifact_paths["lexical_checkpoint_points"].read_text(encoding="utf-8"))
+    restore_labels = {
+        label
+        for point in payload["points"]
+        for label in point.get("restore", {}).get("eligibility", ())
+    }
+
+    assert {"pure_binding", "let_continuation", "match_branch", "loop_frame"} <= restore_labels
+    assert any(point.get("restore", {}).get("binding_descriptor_digests") for point in payload["points"])
+    assert any(point.get("restore", {}).get("proof_descriptor_digests") for point in payload["points"])
+    assert any(point.get("restore", {}).get("loop_frame_descriptor_digest") for point in payload["points"])
+    assert all("binding_descriptors" not in point.get("restore", {}) for point in payload["points"])
+    assert all("proof_descriptors" not in point.get("restore", {}) for point in payload["points"])
+    assert all("loop_frame_descriptor" not in point.get("restore", {}) for point in payload["points"])
+    assert "wcc-node:" not in json.dumps(payload, sort_keys=True)
+    assert "wcc_m4" not in json.dumps(payload, sort_keys=True)
 
 
 def test_checkpoint_points_artifact_rejects_missing_executable_node_linkage(tmp_path: Path) -> None:

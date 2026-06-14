@@ -2320,6 +2320,8 @@ def _serialize_lexical_checkpoint_points(
     runtime_plan_payload: Mapping[str, Any],
     semantic_ir_payload: Mapping[str, Any],
 ) -> dict[str, object]:
+    from orchestrator.workflow_lisp.lexical_checkpoint_restore import public_restore_metadata
+
     points = [
         {
             "checkpoint_id": point.checkpoint_id,
@@ -2339,6 +2341,7 @@ def _serialize_lexical_checkpoint_points(
             "storage": point.details.get("storage"),
             "effect_boundary": point.details.get("effect_boundary"),
             "loop_back_edge": point.details.get("loop_back_edge"),
+            "restore": public_restore_metadata(point.details.get("restore", {})),
         }
         for point in validated_bundle.runtime_plan.lexical_checkpoint_points
     ]

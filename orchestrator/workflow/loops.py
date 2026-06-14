@@ -426,6 +426,8 @@ class LoopExecutor:
         loop_name: str,
         progress: Dict[str, Any],
         frame_result: Dict[str, Any],
+        *,
+        emit_checkpoint_shadow: bool = True,
     ) -> None:
         """Persist repeat_until bookkeeping plus the current loop-frame snapshot."""
         state.setdefault("steps", {})
@@ -433,7 +435,8 @@ class LoopExecutor:
         state["steps"][loop_name] = frame_result
         state["repeat_until"][loop_name] = progress
         self.executor.state_manager.update_repeat_until_state(loop_name, progress, frame_result)
-        self.executor._emit_lexical_checkpoint_shadow_after_repeat_until_commit(step, progress)
+        if emit_checkpoint_shadow:
+            self.executor._emit_lexical_checkpoint_shadow_after_repeat_until_commit(step, progress)
 
     def repeat_until_iteration_resume_state(
         self,
@@ -457,6 +460,32 @@ class LoopExecutor:
             start_nested_index = len(body_steps)
 
         return iteration_state, start_nested_index, start_nested_index >= len(body_steps)
+
+    def _restore_overlay_completes_repeat_until_iteration(
+        self,
+        *,
+        state: Dict[str, Any],
+        loop_name: str,
+        iteration: int,
+        completed_iterations: List[int],
+        condition_evaluated_for_iteration: Optional[int],
+    ) -> bool:
+        """Return True when a restored loop frame lets resume skip replaying this iteration."""
+        if self.collect_persisted_iteration_state(state, loop_name, iteration):
+            return False
+        loop_frame = self.executor._restore_overlay_loop_frame(loop_name)
+        if not isinstance(loop_frame, Mapping):
+            return False
+        restored_iteration = loop_frame.get("iteration")
+        next_iteration = loop_frame.get("next_iteration")
+        if restored_iteration != iteration:
+            return False
+        if next_iteration != iteration + 1:
+            return False
+        return (
+            iteration in completed_iterations
+            or condition_evaluated_for_iteration == iteration
+        )
 
     def clear_resumed_iteration_step(
         self,
@@ -795,21 +824,7 @@ class LoopExecutor:
                     last_condition_result = None
 
         while current_iteration < max_iterations:
-            progress = {
-                "current_iteration": current_iteration,
-                "completed_iterations": completed_iterations,
-                "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
-                "last_condition_result": last_condition_result,
-            }
-            running_frame = self.build_repeat_until_frame_result(
-                step,
-                status="running",
-                exit_code=0,
-                artifacts=frame_artifacts,
-                progress=progress,
-            )
-            self.persist_repeat_until_progress(state, step, frame_key, progress, running_frame)
-
+            restored_iteration_complete = False
             if typed_body_context is not None:
                 _loop_node_id, body_node_ids, loop_projection = typed_body_context
                 iteration_state, start_node_id, body_complete = self._typed_iteration_resume_state(
@@ -819,12 +834,63 @@ class LoopExecutor:
                     body_node_ids,
                     loop_projection,
                 )
+                if (
+                    resume
+                    and not body_complete
+                    and self._restore_overlay_completes_repeat_until_iteration(
+                        state=state,
+                        loop_name=frame_key,
+                        iteration=current_iteration,
+                        completed_iterations=completed_iterations,
+                        condition_evaluated_for_iteration=condition_evaluated_for_iteration,
+                    )
+                ):
+                    start_node_id = None
+                    body_complete = True
+                    restored_iteration_complete = True
             else:
                 iteration_state, start_nested_index, body_complete = self.repeat_until_iteration_resume_state(
                     state,
                     step_name,
                     current_iteration,
                     body_steps,
+                )
+                if (
+                    resume
+                    and not body_complete
+                    and self._restore_overlay_completes_repeat_until_iteration(
+                        state=state,
+                        loop_name=step_name,
+                        iteration=current_iteration,
+                        completed_iterations=completed_iterations,
+                        condition_evaluated_for_iteration=condition_evaluated_for_iteration,
+                    )
+                ):
+                    start_nested_index = len(body_steps)
+                    body_complete = True
+                    restored_iteration_complete = True
+            emit_checkpoint_shadow = not restored_iteration_complete
+            progress = {
+                "current_iteration": current_iteration,
+                "completed_iterations": completed_iterations,
+                "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
+                "last_condition_result": last_condition_result,
+            }
+            if not restored_iteration_complete:
+                running_frame = self.build_repeat_until_frame_result(
+                    step,
+                    status="running",
+                    exit_code=0,
+                    artifacts=frame_artifacts,
+                    progress=progress,
+                )
+                self.persist_repeat_until_progress(
+                    state,
+                    step,
+                    frame_key,
+                    progress,
+                    running_frame,
+                    emit_checkpoint_shadow=emit_checkpoint_shadow,
                 )
             if resume and not body_complete:
                 if typed_body_context is not None and start_node_id is not None:
@@ -1054,12 +1120,19 @@ class LoopExecutor:
                                     "error": failure_result.get("error"),
                                 },
                             },
-                        ),
-                        phase_hint=phase_hint,
-                        class_hint=class_hint,
-                        retryable_hint=retryable_hint,
+                    ),
+                    phase_hint=phase_hint,
+                    class_hint=class_hint,
+                    retryable_hint=retryable_hint,
+                )
+                    self.persist_repeat_until_progress(
+                        state,
+                        step,
+                        frame_key,
+                        failure_progress,
+                        failure,
+                        emit_checkpoint_shadow=emit_checkpoint_shadow,
                     )
-                    self.persist_repeat_until_progress(state, step, frame_key, failure_progress, failure)
                     return state
 
             artifacts = self.executor._resolve_structured_output_artifacts(
@@ -1095,7 +1168,14 @@ class LoopExecutor:
                     class_hint="contract_violation",
                     retryable_hint=False,
                 )
-                self.persist_repeat_until_progress(state, step, frame_key, failure_progress, failure)
+                self.persist_repeat_until_progress(
+                    state,
+                    step,
+                    frame_key,
+                    failure_progress,
+                    failure,
+                    emit_checkpoint_shadow=emit_checkpoint_shadow,
+                )
                 return state
 
             frame_artifacts = artifacts
@@ -1117,6 +1197,7 @@ class LoopExecutor:
                     artifacts=frame_artifacts,
                     progress=progress,
                 ),
+                emit_checkpoint_shadow=emit_checkpoint_shadow,
             )
 
             if condition_evaluated_for_iteration != current_iteration:
@@ -1156,7 +1237,14 @@ class LoopExecutor:
                         class_hint="contract_violation",
                         retryable_hint=False,
                     )
-                    self.persist_repeat_until_progress(state, step, frame_key, failure_progress, failure)
+                    self.persist_repeat_until_progress(
+                        state,
+                        step,
+                        frame_key,
+                        failure_progress,
+                        failure,
+                        emit_checkpoint_shadow=emit_checkpoint_shadow,
+                    )
                     return state
                 condition_evaluated_for_iteration = current_iteration
                 last_condition_result = should_stop
@@ -1178,6 +1266,7 @@ class LoopExecutor:
                         artifacts=frame_artifacts,
                         progress=progress,
                     ),
+                    emit_checkpoint_shadow=emit_checkpoint_shadow,
                 )
             else:
                 should_stop = bool(last_condition_result)
@@ -1200,7 +1289,14 @@ class LoopExecutor:
                         progress=progress,
                     ),
                 )
-                self.persist_repeat_until_progress(state, step, frame_key, progress, completed)
+                self.persist_repeat_until_progress(
+                    state,
+                    step,
+                    frame_key,
+                    progress,
+                    completed,
+                    emit_checkpoint_shadow=emit_checkpoint_shadow,
+                )
                 return state
 
             if current_iteration + 1 >= max_iterations:
@@ -1223,7 +1319,14 @@ class LoopExecutor:
                             progress=progress,
                         ),
                     )
-                    self.persist_repeat_until_progress(state, step, frame_key, progress, completed)
+                    self.persist_repeat_until_progress(
+                        state,
+                        step,
+                        frame_key,
+                        progress,
+                        completed,
+                        emit_checkpoint_shadow=emit_checkpoint_shadow,
+                    )
                     return state
 
                 exhausted = self.executor._attach_outcome(
@@ -1247,7 +1350,14 @@ class LoopExecutor:
                     class_hint="assert_failed",
                     retryable_hint=False,
                 )
-                self.persist_repeat_until_progress(state, step, frame_key, progress, exhausted)
+                self.persist_repeat_until_progress(
+                    state,
+                    step,
+                    frame_key,
+                    progress,
+                    exhausted,
+                    emit_checkpoint_shadow=emit_checkpoint_shadow,
+                )
                 return state
 
             current_iteration += 1

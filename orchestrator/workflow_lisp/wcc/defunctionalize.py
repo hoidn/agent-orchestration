@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -53,6 +54,7 @@ from ..workflow_refs import ResolvedWorkflowRef
 from .route import LOWERING_SCHEMA_WCC
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from ..lowering import core as lowering_core
+from ..lexical_checkpoint_restore import build_restore_metadata
 from ..lexical_checkpoints import allocate_checkpoint_storage, derive_checkpoint_id, derive_program_point_id
 from ..lowering.context import (
     _LoweringContext,
@@ -854,6 +856,184 @@ def _walk_authored_steps(raw_steps: object) -> tuple[Mapping[str, object], ...]:
     return tuple(steps)
 
 
+def _type_ref_name(type_ref: TypeRef | None) -> str:
+    if isinstance(type_ref, (PrimitiveTypeRef, PathTypeRef, RecordTypeRef, UnionTypeRef)):
+        return type_ref.name
+    return repr(type_ref)
+
+
+def _local_value_source_step_name(local_value: Any) -> str | None:
+    if isinstance(local_value, str):
+        match = re.match(r"^(?:root|self|parent)\.steps\.(?P<step_name>.+?)\.artifacts\.", local_value)
+        if match is not None:
+            return match.group("step_name")
+        return None
+    if isinstance(local_value, Mapping):
+        step_names = {
+            step_name
+            for value in local_value.values()
+            for step_name in (_local_value_source_step_name(value),)
+            if isinstance(step_name, str) and step_name
+        }
+        if len(step_names) == 1:
+            return next(iter(step_names))
+    return None
+
+
+def _match_subject_from_step_name(step_name: str) -> str | None:
+    _, marker, subject_binding = step_name.rpartition("__match_")
+    if marker != "__match_" or not subject_binding:
+        return None
+    return subject_binding
+
+
+def _origin_key_for_step(
+    *,
+    context: _LoweringContext,
+    step_name: str,
+    step_id: str,
+) -> str:
+    origin = context.step_spans.get(step_id)
+    if origin is None:
+        origin = context.step_spans.get(step_name)
+    if isinstance(origin, LoweringOrigin):
+        return _with_origin_key(
+            origin,
+            workflow_name=context.workflow_name,
+            entity_kind="step_id",
+            subject_name=step_id,
+        ).origin_key
+    return f"{context.workflow_name}::step_id::{step_id}"
+
+
+def _collect_restore_match_descriptors(
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[tuple[dict[str, str], ...], tuple[dict[str, str], ...]]:
+    binding_descriptors: list[dict[str, str]] = []
+    proof_descriptors: list[dict[str, str]] = []
+    seen_proof_sources: set[str] = set()
+    signature_param_names = {
+        name
+        for name in context.authored_input_contracts
+        if isinstance(name, str) and name
+    }
+
+    for binding_name, local_value in sorted(local_values.items()):
+        if not isinstance(binding_name, str) or not binding_name or binding_name.startswith("__"):
+            continue
+        if binding_name in signature_param_names:
+            continue
+        if isinstance(local_value, Mapping) and "__lowering_returned_union_type" in local_value:
+            continue
+        value_document = _binding_restore_value_document(local_value)
+        if value_document is None:
+            continue
+        source_step_name = _local_value_source_step_name(local_value)
+        binding_step_name = _binding_step_prefix(context, binding_name)
+        if (
+            isinstance(local_value, str)
+            and isinstance(source_step_name, str)
+            and not source_step_name.endswith("__match_decision")
+            and source_step_name != binding_step_name
+        ):
+            continue
+        descriptor = {
+            "binding_name": binding_name,
+            "binding_kind": "pure_binding",
+            "type_ref": _type_ref_name(context.local_type_bindings.get(binding_name)),
+            "source_map_origin_key": f"{context.workflow_name}::binding::{binding_name}",
+            "value_document": value_document,
+        }
+        source_step_id = None
+        if isinstance(source_step_name, str) and source_step_name:
+            source_step_id = lowering_core._normalize_generated_step_id(source_step_name)
+            descriptor["source_step_name"] = source_step_name
+            descriptor["source_step_id"] = source_step_id
+            descriptor["source_map_origin_key"] = _origin_key_for_step(
+                context=context,
+                step_name=source_step_name,
+                step_id=source_step_id,
+            )
+        binding_descriptors.append(descriptor)
+
+        if not isinstance(source_step_name, str) or not source_step_name.endswith("__match_decision"):
+            continue
+
+        if source_step_id in seen_proof_sources:
+            continue
+        subject_binding = _match_subject_from_step_name(source_step_name)
+        subject_type = context.local_type_bindings.get(subject_binding) if isinstance(subject_binding, str) else None
+        if not isinstance(subject_binding, str) or not subject_binding:
+            continue
+        proof_descriptors.append(
+            {
+                "proof_id": f"proof:{context.workflow_name}:{source_step_id}",
+                "subject_binding": subject_binding,
+                "union_type": _type_ref_name(subject_type),
+                "proof_source": source_step_id,
+                "source_step_name": source_step_name,
+                "source_step_id": source_step_id,
+                "source_map_origin_key": descriptor["source_map_origin_key"],
+            }
+        )
+        seen_proof_sources.add(source_step_id)
+
+    return tuple(binding_descriptors), tuple(proof_descriptors)
+
+
+def _binding_restore_value_document(local_value: Any) -> Any | None:
+    if isinstance(local_value, ProjectedPathRef):
+        return {"ref": local_value.ref}
+    if isinstance(local_value, LiteralExpr):
+        return local_value.value
+    if isinstance(local_value, str):
+        if local_value.startswith(("root.steps.", "self.steps.", "parent.steps.")):
+            return {"ref": local_value}
+        return local_value
+    if local_value is None or isinstance(local_value, (int, float, bool)):
+        return local_value
+    if isinstance(local_value, Mapping):
+        document: dict[str, Any] = {}
+        for key, value in local_value.items():
+            nested = _binding_restore_value_document(value)
+            if nested is None:
+                return None
+            document[str(key)] = nested
+        return document
+    if isinstance(local_value, (list, tuple)):
+        document_list: list[Any] = []
+        for item in local_value:
+            nested = _binding_restore_value_document(item)
+            if nested is None:
+                return None
+            document_list.append(nested)
+        return document_list
+    return None
+
+
+def _loop_frame_restore_descriptor(
+    *,
+    context: _LoweringContext,
+    body: WccRecJoin,
+    repeat_step_name: str,
+    repeat_step_id: str,
+) -> dict[str, str]:
+    state_param = body.params[0] if body.params else WccJoinParam(name="state", type_ref=body.metadata.type_ref)
+    return {
+        "loop_name": repeat_step_name,
+        "loop_site_id": f"loop:{_sha256_text(body.metadata.scope_id)[len('sha256:'):]}",
+        "state_binding_name": state_param.name,
+        "state_type_ref": _type_ref_name(state_param.type_ref),
+        "source_map_origin_key": _origin_key_for_step(
+            context=context,
+            step_name=repeat_step_name,
+            step_id=repeat_step_id,
+        ),
+    }
+
+
 def _effect_boundary_step_kind(value: WccPerform | WccCall) -> str:
     if isinstance(value, WccCall):
         return "call"
@@ -875,6 +1055,8 @@ def _effect_boundary_checkpoint_point_payload(
     workflow_name: str,
     value: WccPerform | WccCall,
     terminal: _TerminalResult,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
 ) -> Mapping[str, object]:
     payload = dict(
         _base_checkpoint_point_payload(
@@ -912,6 +1094,14 @@ def _effect_boundary_checkpoint_point_payload(
         "policy_status": "shadow_record_only",
     }
     payload["loop_back_edge"] = None
+    binding_descriptors, proof_descriptors = _collect_restore_match_descriptors(
+        context=context,
+        local_values=local_values,
+    )
+    payload["restore"] = build_restore_metadata(
+        binding_descriptors=binding_descriptors,
+        proof_descriptors=proof_descriptors,
+    )
     return MappingProxyType(payload)
 
 
@@ -919,7 +1109,10 @@ def _loop_back_edge_checkpoint_point_payload(
     *,
     workflow_name: str,
     body: WccRecJoin,
+    repeat_step_name: str,
     repeat_step_id: str,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
 ) -> Mapping[str, object]:
     payload = dict(
         _base_checkpoint_point_payload(
@@ -957,6 +1150,20 @@ def _loop_back_edge_checkpoint_point_payload(
         "state_param_schema_digest": _sha256_json([param.name for param in body.params]),
         "policy_status": "shadow_record_only",
     }
+    binding_descriptors, proof_descriptors = _collect_restore_match_descriptors(
+        context=context,
+        local_values=local_values,
+    )
+    payload["restore"] = build_restore_metadata(
+        binding_descriptors=binding_descriptors,
+        proof_descriptors=proof_descriptors,
+        loop_frame_descriptor=_loop_frame_restore_descriptor(
+            context=context,
+            body=body,
+            repeat_step_name=repeat_step_name,
+            repeat_step_id=repeat_step_id,
+        ),
+    )
     return MappingProxyType(payload)
 
 
@@ -997,6 +1204,8 @@ def _defunctionalize_body(
                         workflow_name=context.workflow_name,
                         value=body.bound_value,
                         terminal=binding_terminal,
+                        context=context,
+                        local_values=updated_locals,
                     )
                 )
             binding_hidden_inputs.update(binding_terminal.hidden_inputs)
@@ -1194,12 +1403,16 @@ def _defunctionalize_rec_join(
             None,
         )
         repeat_step_id = repeat_step.get("id") if isinstance(repeat_step, Mapping) else None
+        repeat_step_name = repeat_step.get("name") if isinstance(repeat_step, Mapping) else None
         if isinstance(repeat_step_id, str) and repeat_step_id:
             lexical_checkpoint_points.append(
                 _loop_back_edge_checkpoint_point_payload(
                     workflow_name=context.workflow_name,
                     body=body,
+                    repeat_step_name=repeat_step_name or repeat_step_id,
                     repeat_step_id=repeat_step_id,
+                    context=context,
+                    local_values=local_values,
                 )
             )
     return steps, terminal
