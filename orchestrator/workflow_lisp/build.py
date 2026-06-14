@@ -45,6 +45,7 @@ from .phase_family_boundary import (
     is_design_delta_parent_drain_target_workflow,
     load_design_delta_boundary_authority_registry,
 )
+from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
 from .value_flow_census import (
@@ -83,6 +84,14 @@ DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.value_flow_census.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.resume_plumbing_retirement.json"
 )
 DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS = (
     "classify_lisp_frontend_work_item_terminal",
@@ -332,6 +341,11 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     value_flow_census = _maybe_load_design_delta_value_flow_census(
         entry_workflow=entry_selection.canonical_name,
     )
+    resume_plumbing_retirement_manifest = (
+        _maybe_load_design_delta_resume_plumbing_retirement_manifest(
+            entry_workflow=entry_selection.canonical_name,
+        )
+    )
     selected_bundle = compile_result.entry_result.validated_bundles[entry_selection.canonical_name]
     source_map_payload = _serialize_source_map(
         compile_result,
@@ -359,6 +373,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         command_boundary_manifest=command_boundary_manifest,
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
+        resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
@@ -398,9 +413,14 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         imports=selected_bundle.imports,
         provenance=provenance,
     )
+    runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
+    semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
     adapter_census_payload = None
     boundary_authority_report_payload = None
     value_flow_census_report_payload = None
+    resume_plumbing_retirement_report_payload = None
+    checkpoint_points_payload = None
+    checkpoint_shadow_report_payload = None
     g8_deletion_evidence_payload = None
     if boundary_authority_registry is not None:
         adapter_census_payload = _serialize_design_delta_adapter_census(
@@ -412,6 +432,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             boundary_projection_payload=workflow_boundary_projection_payload,
             boundary_authority_registry=boundary_authority_registry,
             source_map_payload=source_map_payload,
+            value_flow_census=value_flow_census,
         )
         if value_flow_census is not None:
             value_flow_census_report_payload = reconcile_value_flow_census(
@@ -460,6 +481,88 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                         ),
                     )
                 )
+            candidate_rows = resume_plumbing_retirement.select_resume_plumbing_retirement_candidates(
+                value_flow_census
+            )
+            try:
+                checkpoint_workflow_names = {
+                    str(row.get("workflow_surface"))
+                    for row in candidate_rows
+                    if isinstance(row, Mapping) and isinstance(row.get("workflow_surface"), str)
+                }
+                checkpoint_points_payload = _serialize_lexical_checkpoint_points_for_retirement(
+                    validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                    workflow_names=checkpoint_workflow_names,
+                    selected_workflow_name=entry_selection.canonical_name,
+                )
+                checkpoint_shadow_report_payload = _serialize_lexical_checkpoint_shadow_reports_for_retirement(
+                    validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                    workflow_names=checkpoint_workflow_names,
+                    selected_workflow_name=entry_selection.canonical_name,
+                    source_map_payload=source_map_payload,
+                )
+                compiled_retirement_rows = (
+                    resume_plumbing_retirement.normalize_resume_plumbing_retirement_compiled_rows(
+                        candidate_rows,
+                        boundary_authority_report=boundary_authority_report_payload,
+                        source_text_by_surface=_resume_plumbing_retirement_source_texts(),
+                    )
+                )
+                resume_plumbing_retirement_report_payload = (
+                    resume_plumbing_retirement.build_resume_plumbing_retirement_report(
+                        workflow_family="design_delta_parent_drain",
+                        census=value_flow_census,
+                        census_fingerprint=(
+                            f"sha256:{value_flow_census.get('__census_sha256__', '')}"
+                        ),
+                        compiled_rows=compiled_retirement_rows,
+                        manifest=resume_plumbing_retirement_manifest,
+                        manifest_fingerprint=(
+                            f"sha256:{resume_plumbing_retirement_manifest.get('__manifest_sha256__', '')}"
+                            if resume_plumbing_retirement_manifest is not None
+                            else None
+                        ),
+                        checkpoint_points_payload=checkpoint_points_payload,
+                        checkpoint_shadow_report_payload=checkpoint_shadow_report_payload,
+                    )
+                )
+            except ValueError as exc:
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="resume_plumbing_retirement_invalid",
+                            message=str(exc),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                ) from exc
+            diagnostics_bucket = resume_plumbing_retirement_report_payload.get(
+                "diagnostics", []
+            )
+            if isinstance(diagnostics_bucket, list) and diagnostics_bucket:
+                first = diagnostics_bucket[0]
+                first_code = (
+                    str(first.get("code"))
+                    if isinstance(first, Mapping) and first.get("code")
+                    else "resume_plumbing_retirement_invalid"
+                )
+                first_row_id = (
+                    str(first.get("row_id"))
+                    if isinstance(first, Mapping) and first.get("row_id")
+                    else "unknown_row"
+                )
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="resume_plumbing_retirement_invalid",
+                            message=(
+                                "design-delta resume plumbing retirement report failed: "
+                                f"{first_code}: {first_row_id}"
+                            ),
+                            path=Path(str(value_flow_census.get("__census_path__", ""))),
+                        ),
+                    )
+                )
         if boundary_authority_registry.get("workflow_family") == "design_delta_parent_drain":
             g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
                 command_boundary_manifest=command_boundary_manifest,
@@ -476,6 +579,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         adapter_census_payload=adapter_census_payload,
         boundary_authority_report_payload=boundary_authority_report_payload,
         value_flow_census_report_payload=value_flow_census_report_payload,
+        resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
     )
     manifest = _build_manifest(
@@ -490,6 +594,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         emit_debug_yaml=resolved_request.emit_debug_yaml,
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
+        resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
     )
     manifest_path = build_root / "manifest.json"
     manifest_path.write_text(
@@ -1484,6 +1589,42 @@ def _maybe_load_design_delta_value_flow_census(
     }
 
 
+def _maybe_load_design_delta_resume_plumbing_retirement_manifest(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    if not DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH.is_file():
+        return None
+    try:
+        payload = resume_plumbing_retirement.load_resume_plumbing_retirement_manifest(
+            DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="resume_plumbing_retirement_invalid",
+                    message=(
+                        "design-delta resume plumbing retirement manifest is invalid: "
+                        f"{exc}"
+                    ),
+                    path=DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH,
+                ),
+            )
+        ) from exc
+    return {
+        **payload,
+        "__manifest_path__": str(
+            DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH
+        ),
+        "__manifest_sha256__": _sha256_path(
+            DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH
+        ),
+    }
+
+
 def _boundary_authority_registry_provenance(
     boundary_authority_registry: Mapping[str, object] | None,
 ) -> Mapping[str, object] | None:
@@ -1619,12 +1760,16 @@ def _serialize_design_delta_boundary_authority_report(
     boundary_projection_payload: Mapping[str, object],
     boundary_authority_registry: Mapping[str, object],
     source_map_payload: Mapping[str, object],
+    value_flow_census: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     expected_rows = build_design_delta_boundary_authority_expected_rows(dict(boundary_projection_payload))
     expected_row_keys = {
         (workflow_name, field_name, str(row["surface_kind"])): row
         for (workflow_name, field_name), row in expected_rows.items()
     }
+    allowed_stale_registry_rows = _allowed_resume_plumbing_retirement_registry_rows(
+        value_flow_census
+    )
     registry_rows = {
         (
             str(row["workflow_name"]),
@@ -1635,7 +1780,11 @@ def _serialize_design_delta_boundary_authority_report(
         if isinstance(row, Mapping)
         and is_design_delta_parent_drain_target_workflow(str(row.get("workflow_name", "")))
     }
-    stale_rows = sorted(key for key in registry_rows if key not in expected_row_keys)
+    stale_rows = sorted(
+        key
+        for key in registry_rows
+        if key not in expected_row_keys and key not in allowed_stale_registry_rows
+    )
     if stale_rows:
         workflow_name, field_name, surface_kind = stale_rows[0]
         raise LispFrontendCompileError(
@@ -1939,6 +2088,31 @@ def _serialize_design_delta_boundary_authority_report(
     }
 
 
+def _allowed_resume_plumbing_retirement_registry_rows(
+    value_flow_census: Mapping[str, object] | None,
+) -> set[tuple[str, str, str]]:
+    if not isinstance(value_flow_census, Mapping):
+        return set()
+    allowed_rows: set[tuple[str, str, str]] = set()
+    for row in value_flow_census.get("rows", []):
+        if not isinstance(row, Mapping):
+            continue
+        if (
+            row.get("plumbing_class") != "resume_only"
+            or row.get("current_consumer") != "runtime_resume"
+            or row.get("boundary_authority_class") != "compatibility_bridge"
+        ):
+            continue
+        workflow_surface = row.get("workflow_surface")
+        field_name = row.get("symbol_or_field")
+        if not isinstance(workflow_surface, str) or not isinstance(field_name, str):
+            continue
+        allowed_rows.add(
+            (workflow_surface, field_name, "compatibility_bridge_input")
+        )
+    return allowed_rows
+
+
 def _serialize_design_delta_g8_deletion_evidence(
     *,
     command_boundary_manifest: Mapping[str, object],
@@ -2051,7 +2225,7 @@ def _design_delta_generated_internal_entry_is_path_like(
         flattened_input.get("contract_definition")
     ):
         return True
-    return field.get("reason") == "managed_write_root"
+    return field.get("reason") in {"managed_write_root", "compatibility_bridge"}
 
 
 def _fingerprint_build(
@@ -2065,6 +2239,7 @@ def _fingerprint_build(
     command_boundary_manifest: Mapping[str, object],
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
+    resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> str:
     source_payload = {
         "schema_version": BUILD_SCHEMA_VERSION,
@@ -2094,6 +2269,11 @@ def _fingerprint_build(
         "value_flow_census": _json_data(value_flow_census)
         if value_flow_census is not None
         else None,
+        "resume_plumbing_retirement_manifest": _json_data(
+            resume_plumbing_retirement_manifest
+        )
+        if resume_plumbing_retirement_manifest is not None
+        else None,
     }
     encoded = json.dumps(source_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
@@ -2112,6 +2292,7 @@ def _write_build_artifacts(
     adapter_census_payload: Mapping[str, object] | None,
     boundary_authority_report_payload: Mapping[str, object] | None,
     value_flow_census_report_payload: Mapping[str, object] | None,
+    resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
@@ -2139,6 +2320,10 @@ def _write_build_artifacts(
         artifact_paths["boundary_authority_report"] = build_root / "boundary_authority_report.json"
     if value_flow_census_report_payload is not None:
         artifact_paths["value_flow_census_report"] = build_root / "value_flow_census_report.json"
+    if resume_plumbing_retirement_report_payload is not None:
+        artifact_paths["resume_plumbing_retirement_report"] = (
+            build_root / "resume_plumbing_retirement_report.json"
+        )
     if g8_deletion_evidence_payload is not None:
         artifact_paths["g8_deletion_evidence"] = build_root / "g8_deletion_evidence.json"
     payloads = {
@@ -2171,6 +2356,10 @@ def _write_build_artifacts(
         payloads["boundary_authority_report"] = _json_data(boundary_authority_report_payload)
     if value_flow_census_report_payload is not None:
         payloads["value_flow_census_report"] = _json_data(value_flow_census_report_payload)
+    if resume_plumbing_retirement_report_payload is not None:
+        payloads["resume_plumbing_retirement_report"] = _json_data(
+            resume_plumbing_retirement_report_payload
+        )
     if g8_deletion_evidence_payload is not None:
         payloads["g8_deletion_evidence"] = _json_data(g8_deletion_evidence_payload)
     for name, path in artifact_paths.items():
@@ -2235,6 +2424,7 @@ def _build_manifest(
     emit_debug_yaml: bool,
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
+    resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> FrontendBuildManifest:
     return FrontendBuildManifest(
         schema_version=BUILD_SCHEMA_VERSION,
@@ -2284,6 +2474,24 @@ def _build_manifest(
         ),
         value_flow_census=_value_flow_census_provenance(value_flow_census),
     )
+
+
+def _resume_plumbing_retirement_source_texts() -> Mapping[str, str]:
+    root = Path(__file__).resolve().parents[2] / "workflows" / "library" / "lisp_frontend_design_delta"
+    return {
+        "lisp_frontend_design_delta/types": (root / "types.orc").read_text(
+            encoding="utf-8"
+        ),
+        "lisp_frontend_design_delta/drain::drain": (root / "drain.orc").read_text(
+            encoding="utf-8"
+        ),
+        "lisp_frontend_design_delta/work_item::run-work-item": (
+            root / "work_item.orc"
+        ).read_text(encoding="utf-8"),
+        "lisp_frontend_design_delta/transitions": (
+            root / "transitions.orc"
+        ).read_text(encoding="utf-8"),
+    }
 
 
 def _collect_origin_keys(value: Any) -> set[str]:
@@ -2354,6 +2562,35 @@ def _serialize_lexical_checkpoint_points(
             runtime_plan_payload=runtime_plan_payload,
             semantic_ir_payload=semantic_ir_payload,
         ),
+        "points": points,
+    }
+
+
+def _serialize_lexical_checkpoint_points_for_retirement(
+    *,
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    workflow_names: set[str],
+    selected_workflow_name: str,
+) -> dict[str, object]:
+    points: list[dict[str, object]] = []
+    for workflow_name in sorted(workflow_names):
+        bundle = validated_bundles_by_name.get(workflow_name)
+        if bundle is None:
+            continue
+        payload = _serialize_lexical_checkpoint_points(
+            bundle,
+            runtime_plan_payload=_public_runtime_plan_payload(bundle.runtime_plan),
+            semantic_ir_payload=workflow_semantic_ir_to_json(bundle.semantic_ir),
+        )
+        bundle_points = payload.get("points")
+        if isinstance(bundle_points, list):
+            points.extend(
+                point for point in bundle_points if isinstance(point, dict)
+            )
+    return {
+        "schema_version": CHECKPOINT_POINTS_SCHEMA_VERSION,
+        "workflow_name": selected_workflow_name,
+        "checkpoint_schema_version": CHECKPOINT_RECORD_SCHEMA_VERSION,
         "points": points,
     }
 
@@ -2437,6 +2674,50 @@ def _serialize_lexical_checkpoint_shadow_report(
         "invalid_records": [],
         "stale_records": [],
         "diagnostics": [],
+    }
+
+
+def _serialize_lexical_checkpoint_shadow_reports_for_retirement(
+    *,
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    workflow_names: set[str],
+    selected_workflow_name: str,
+    source_map_payload: Mapping[str, Any],
+) -> dict[str, object]:
+    workflow_reports: list[dict[str, object]] = []
+    diagnostics: list[object] = []
+    total_checked_points = 0
+    total_checked_records = 0
+    aggregate_status = "pass"
+    for workflow_name in sorted(workflow_names):
+        bundle = validated_bundles_by_name.get(workflow_name)
+        if bundle is None:
+            continue
+        report = _serialize_lexical_checkpoint_shadow_report(
+            bundle,
+            semantic_ir_payload=workflow_semantic_ir_to_json(bundle.semantic_ir),
+            runtime_plan_payload=_public_runtime_plan_payload(bundle.runtime_plan),
+            source_map_payload=source_map_payload,
+        )
+        workflow_reports.append(report)
+        total_checked_points += int(report.get("checked_points", 0) or 0)
+        total_checked_records += int(report.get("checked_records", 0) or 0)
+        if report.get("status") != "pass":
+            aggregate_status = "fail"
+        report_diagnostics = report.get("diagnostics")
+        if isinstance(report_diagnostics, list):
+            diagnostics.extend(report_diagnostics)
+    return {
+        "schema_version": CHECKPOINT_SHADOW_REPORT_SCHEMA_VERSION,
+        "workflow_name": selected_workflow_name,
+        "status": aggregate_status,
+        "checked_points": total_checked_points,
+        "checked_records": total_checked_records,
+        "missing_points": [],
+        "invalid_records": [],
+        "stale_records": [],
+        "diagnostics": diagnostics,
+        "workflow_reports": workflow_reports,
     }
 
 

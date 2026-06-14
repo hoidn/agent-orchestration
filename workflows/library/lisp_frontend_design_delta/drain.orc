@@ -48,7 +48,6 @@
                :max 3
                :state (record DrainState
                         :iteration-count 0
-                        :run-state run_state_path
                         :item-count 0)
                :on-exhausted (variant DrainLoopTerminal EXHAUSTED
                                :reason "max_iterations_exhausted")
@@ -60,7 +59,7 @@
                             :baseline_design baseline_design_path
                             :manifest manifest_path
                             :progress_ledger progress_ledger_path
-                            :run_state state.run-state))
+                            :run_state run_state_path))
                         (action
                           (call project-selector-action
                             :selection_status selection.selection_status
@@ -72,19 +71,17 @@
                         (variant DrainLoopTerminal DONE)))
                      ((SELECTED_ITEM selected)
                      (let* ((item
-                               (call run-work-item
-                                 :selection_bundle_path selected.selected_item_selection_bundle
-                                 :manifest_path manifest_path
-                                 :architecture_bundle_path architecture_bundle_path
-                                 :steering_path steering_path
-                                 :target_design_path target_design_path
-                                 :baseline_design_path baseline_design_path
-                                 :progress_ledger_path progress_ledger_path
-                                 :run_state_path state.run-state)))
+                             (call run-work-item
+                               :selection_bundle_path selected.selected_item_selection_bundle
+                               :manifest_path manifest_path
+                               :architecture_bundle_path architecture_bundle_path
+                               :steering_path steering_path
+                               :target_design_path target_design_path
+                               :baseline_design_path baseline_design_path
+                                :progress_ledger_path progress_ledger_path)))
                         (continue
                           (record DrainState
                             :iteration-count (+ state.iteration-count 1)
-                            :run-state state.run-state
                             :item-count (+ state.item-count 1)))))
                      ((DRAFT_DESIGN_GAP gap)
                       (let* ((draft
@@ -102,7 +99,6 @@
                         (continue
                           (record DrainState
                             :iteration-count (+ state.iteration-count 1)
-                            :run-state state.run-state
                             :item-count state.item-count))))
                      ((BLOCKED_RECOVERY recovery)
                       (done

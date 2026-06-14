@@ -1,0 +1,24 @@
+{
+  "schema_version": "workflow_lisp_resume_plumbing_retirement.v1",
+  "target_family": "lisp_frontend_design_delta_parent_drain",
+  "source_census": {
+    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
+    "fingerprint": "sha256:df2f3eda0b26eee9087cd316a0aceb742483299d502634797c173050edba886c"
+  },
+  "decisions": [
+    {
+      "row_id": "work_item.loop.run_state_path",
+      "decision": "KEPT_COMPATIBILITY",
+      "remaining_consumer": "runtime_transition_bridge",
+      "retirement_condition": "remove after runtime-derived drain-run-state backing stops injecting the private work-item run_state_path bridge",
+      "parity_constraint": "R5 keeps the existing drain-run-state transition surface and must record the surviving private work-item bridge explicitly rather than claiming full retirement"
+    },
+    {
+      "row_id": "transitions.resource.drain_run_state",
+      "decision": "KEPT_COMPATIBILITY",
+      "remaining_consumer": "runtime_transition_bridge",
+      "retirement_condition": "remove after runtime-native drain-run-state backing becomes runtime-derived without the run_state_path bridge",
+      "parity_constraint": "R5 keeps the existing drain-run-state transition surface and Track C run_state publication unchanged in this slice"
+    }
+  ]
+}

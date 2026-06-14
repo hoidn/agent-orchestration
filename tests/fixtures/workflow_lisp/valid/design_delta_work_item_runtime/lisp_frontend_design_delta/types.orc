@@ -380,7 +380,6 @@
 
   (defrecord DrainState
     (iteration-count Int)
-    (run-state RunStatePath)
     (item-count Int))
 
   (defunion DrainLoopTerminal

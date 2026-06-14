@@ -98,12 +98,11 @@
       :returns BlockedRecoveryClassification))
 
   (defproc finalize-terminal-work-item
-    ((run_state_path RunStatePath)
-     (work_item_id String)
+    ((work_item_id String)
      (work_item_source WorkItemSource)
      (reason String)
      (item_summary_target_path WorkReportTarget)
-    (item_summary_pointer_path WorkReportTarget)
+     (item_summary_pointer_path WorkReportTarget)
      (drain_status_path StateFile)
      (terminal_route String))
     -> WorkItemSummary
@@ -136,8 +135,7 @@
         :summary rendered-summary)))
 
   (defproc finalize-blocked-recovery-outcome
-    ((run_state_path RunStatePath)
-     (work_item_id String)
+    ((work_item_id String)
      (work_item_source WorkItemSource)
      (resolved_inputs ResolvedWorkItemInputs)
      (implementation_phase_result ImplementationPhaseResult)
@@ -183,7 +181,6 @@
   (defworkflow route-blocked-implementation
     ((target_design_path TargetDesignDoc)
      (baseline_design_path BaselineDesignDoc)
-     (run_state_path RunStatePath)
      (resolved_inputs ResolvedWorkItemInputs)
      (approved_plan_path PlanDoc)
      (implementation_phase_result ImplementationPhaseResult))
@@ -204,7 +201,6 @@
         ((TERMINAL_BLOCKED terminal)
          (let* ((recorded
                   (finalize-terminal-work-item
-                    run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     "implementation_blocked"
@@ -218,7 +214,6 @@
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (finalize-blocked-recovery-outcome
-                    run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     resolved_inputs
@@ -232,7 +227,6 @@
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (finalize-blocked-recovery-outcome
-                    run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     resolved_inputs
@@ -246,7 +240,6 @@
         ((PREREQUISITE_GAP_REQUIRED recovery)
          (let* ((recorded
                   (finalize-blocked-recovery-outcome
-                    run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     resolved_inputs
@@ -266,8 +259,7 @@
      (steering_path SteeringDoc)
      (target_design_path TargetDesignDoc)
      (baseline_design_path BaselineDesignDoc)
-     (progress_ledger_path ProgressLedger)
-     (run_state_path RunStatePath))
+     (progress_ledger_path ProgressLedger))
     -> WorkItemResult
     (let* ((resolved
              (resolve-work-item-inputs
@@ -309,14 +301,12 @@
               (call route-blocked-implementation
                 :target_design_path target_design_path
                 :baseline_design_path baseline_design_path
-                :run_state_path run_state_path
                 :resolved_inputs resolved
                 :approved_plan_path approved.approved_plan_path
                 :implementation_phase_result implementation))
              ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
               (let* ((recorded
                        (finalize-terminal-work-item
-                         run_state_path
                          resolved.work_item_id
                          resolved.work_item_source
                          "plan_review_exhausted"
@@ -330,7 +320,6 @@
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
               (let* ((recorded
                        (finalize-terminal-work-item
-                         run_state_path
                          resolved.work_item_id
                          resolved.work_item_source
                          "implementation_review_exhausted"
@@ -344,7 +333,6 @@
              ((COMPLETE complete)
               (let* ((recorded
                        (finalize-terminal-work-item
-                         run_state_path
                          resolved.work_item_id
                          resolved.work_item_source
                          "complete"
@@ -358,7 +346,6 @@
         ((BLOCKED blocked)
          (let* ((recorded
                   (finalize-terminal-work-item
-                    run_state_path
                     resolved.work_item_id
                     resolved.work_item_source
                     "plan_blocked"
@@ -372,7 +359,6 @@
         ((EXHAUSTED exhausted)
          (let* ((recorded
                   (finalize-terminal-work-item
-                    run_state_path
                     resolved.work_item_id
                     resolved.work_item_source
                     "plan_review_exhausted"

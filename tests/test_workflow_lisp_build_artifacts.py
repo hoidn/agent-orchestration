@@ -256,6 +256,10 @@ def _load_design_delta_value_flow_census() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH.read_text(encoding="utf-8"))
 
 
+def _load_design_delta_resume_plumbing_retirement_manifest(path: Path) -> dict[str, object]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[str, object]:
     build = _build_module()
     request = _design_delta_parent_drain_request(tmp_path)
@@ -281,6 +285,7 @@ def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[st
     )
     expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
     checked_in_registry = _load_design_delta_boundary_authority_registry()
+    checked_census = _load_design_delta_value_flow_census()
     rows_by_key = {
         (row["workflow_name"], row["field_name"], row["surface_kind"]): row
         for row in checked_in_registry["rows"]
@@ -314,6 +319,29 @@ def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[st
         else:
             row["path_like"] = expected["path_like"]
         rows.append(row)
+    existing_keys = {
+        (row["workflow_name"], row["field_name"], row["surface_kind"])
+        for row in rows
+    }
+    for census_row in checked_census["rows"]:
+        if (
+            census_row.get("plumbing_class") != "resume_only"
+            or census_row.get("current_consumer") != "runtime_resume"
+            or census_row.get("boundary_authority_class") != "compatibility_bridge"
+        ):
+            continue
+        key = (
+            census_row["workflow_surface"],
+            census_row["symbol_or_field"],
+            "compatibility_bridge_input",
+        )
+        if key in existing_keys:
+            continue
+        checked_row = rows_by_key.get(key)
+        if checked_row is None:
+            continue
+        rows.append(dict(checked_row))
+        existing_keys.add(key)
     return {
         "schema_version": "workflow_lisp_design_delta_boundary_authority.v1",
         "rows": rows,
@@ -4074,12 +4102,20 @@ def test_design_delta_parent_drain_boundary_authority_registry_covers_expected_r
     expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
     registry_payload = _load_design_delta_boundary_authority_registry()
 
-    assert {
+    registry_keys = {
         (row["workflow_name"], row["field_name"], row["surface_kind"])
         for row in registry_payload["rows"]
-    } == {
+    }
+    expected_keys = {
         (workflow_name, field_name, row["surface_kind"])
         for (workflow_name, field_name), row in expected_rows.items()
+    }
+    assert registry_keys == expected_keys | {
+        (
+            "lisp_frontend_design_delta/work_item::run-work-item",
+            "run_state_path",
+            "compatibility_bridge_input",
+        )
     }
 
 
@@ -4679,6 +4715,337 @@ def test_design_delta_parent_drain_value_flow_census_changes_build_fingerprint(
     )
 
     assert first.manifest.fingerprint != second.manifest.fingerprint
+
+
+def test_design_delta_parent_drain_build_emits_resume_plumbing_retirement_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "resume_plumbing_retirement_report" in result.artifact_paths
+    assert (
+        result.manifest.artifact_status["resume_plumbing_retirement_report"] == "emitted"
+    )
+    payload = json.loads(
+        result.artifact_paths["resume_plumbing_retirement_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_census_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["resume_plumbing_retirement_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["source_census"]["path"].endswith(
+        "design_delta_parent_drain.value_flow_census.json"
+    )
+    assert payload["source_census"]["fingerprint"].startswith("sha256:")
+
+
+def test_design_delta_parent_drain_checked_inputs_keep_work_item_run_state_retirement_row() -> None:
+    census = _load_design_delta_value_flow_census()
+    registry = _load_design_delta_boundary_authority_registry()
+
+    assert any(
+        row["row_id"] == "work_item.loop.run_state_path"
+        for row in census["rows"]
+    )
+    assert any(
+        row["workflow_name"] == "lisp_frontend_design_delta/work_item::run-work-item"
+        and row["field_name"] == "run_state_path"
+        for row in registry["rows"]
+    )
+
+
+def test_design_delta_parent_drain_boundary_authority_report_keeps_live_work_item_run_state_bridge_visible(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["boundary_authority_report"].read_text(encoding="utf-8")
+    )
+    workflow_row = next(
+        row
+        for row in payload["workflows"]
+        if row["workflow_name"] == "lisp_frontend_design_delta/work_item::run-work-item"
+    )
+
+    assert "run_state_path" in workflow_row["compatibility_bridge"]
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_work_item_row_as_checked_compatibility(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["resume_plumbing_retirement_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    decision = next(
+        row
+        for row in payload["decisions"]
+        if row["row_id"] == "work_item.loop.run_state_path"
+    )
+    assert decision["decision"] == "KEPT_COMPATIBILITY"
+    assert decision["observed_locations"] == ["call_signature"]
+    assert payload["manifest"]["path"].endswith(
+        "design_delta_parent_drain.resume_plumbing_retirement.json"
+    )
+    assert payload["manifest"]["fingerprint"].startswith("sha256:")
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_drain_run_state_bridge_as_checked_compatibility(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["resume_plumbing_retirement_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    decision = next(
+        row
+        for row in payload["decisions"]
+        if row["row_id"] == "transitions.resource.drain_run_state"
+    )
+
+    assert decision["decision"] == "KEPT_COMPATIBILITY"
+    assert decision["observed_locations"] == ["resource_bridge_backing"]
+    assert payload["manifest"]["path"].endswith(
+        "design_delta_parent_drain.resume_plumbing_retirement.json"
+    )
+    assert payload["manifest"]["fingerprint"].startswith("sha256:")
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_rejects_public_resume_only_boundary_exposure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resume = importlib.import_module(
+        "orchestrator.workflow_lisp.resume_plumbing_retirement"
+    )
+    original = resume.normalize_resume_plumbing_retirement_compiled_rows
+
+    def _mutated(*args, **kwargs):
+        rows = original(*args, **kwargs)
+        rows["drain.loop.run_state_path"] = {
+            "row_id": "drain.loop.run_state_path",
+            "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+            "symbol_or_field": "run_state_path",
+            "source_kind": "loop_state_field",
+            "boundary_authority_class": "public_authored",
+            "observed_locations": ["public_boundary"],
+            "semantic_authority_source": "typed_runtime_resource",
+        }
+        return rows
+
+    monkeypatch.setattr(
+        resume,
+        "normalize_resume_plumbing_retirement_compiled_rows",
+        _mutated,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+    assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
+    assert "resume_plumbing_retirement_public_boundary_exposed" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_rejects_loop_state_exposure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resume = importlib.import_module(
+        "orchestrator.workflow_lisp.resume_plumbing_retirement"
+    )
+    original = resume.normalize_resume_plumbing_retirement_compiled_rows
+
+    def _mutated(*args, **kwargs):
+        rows = original(*args, **kwargs)
+        rows["drain.loop.run_state_path"] = {
+            "row_id": "drain.loop.run_state_path",
+            "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+            "symbol_or_field": "run_state_path",
+            "source_kind": "loop_state_field",
+            "boundary_authority_class": "compatibility_bridge",
+            "observed_locations": ["loop_state_field"],
+            "semantic_authority_source": "typed_runtime_resource",
+        }
+        return rows
+
+    monkeypatch.setattr(
+        resume,
+        "normalize_resume_plumbing_retirement_compiled_rows",
+        _mutated,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+    assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
+    assert "resume_plumbing_retirement_loop_state_exposed" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_rejects_unjustified_compatibility(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    manifest_path = tmp_path / "design_delta_parent_drain.resume_plumbing_retirement.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_resume_plumbing_retirement.v1",
+                "target_family": "lisp_frontend_design_delta_parent_drain",
+                "source_census": {
+                    "path": str(DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH),
+                    "fingerprint": "sha256:bad",
+                },
+                "decisions": [
+                    {
+                        "row_id": "drain.loop.run_state_path",
+                        "decision": "KEPT_COMPATIBILITY",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        build,
+        "DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH",
+        manifest_path,
+        raising=False,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+    assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
+    assert "resume_plumbing_retirement_compatibility_unjustified" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_ignores_track_c_public_output_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    payload = json.loads(
+        result.artifact_paths["resume_plumbing_retirement_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    decision = next(
+        row
+        for row in payload["decisions"]
+        if row["row_id"] == "drain.output.return_run_state"
+    )
+    assert decision["decision"] == "NOT_R5_TARGET"
+
+
+def test_design_delta_parent_drain_resume_plumbing_retirement_build_passes_checkpoint_evidence_into_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    resume = importlib.import_module(
+        "orchestrator.workflow_lisp.resume_plumbing_retirement"
+    )
+    original = resume.build_resume_plumbing_retirement_report
+
+    def _wrapped(*args, **kwargs):
+        points_payload = kwargs["checkpoint_points_payload"]
+        shadow_report_payload = kwargs["checkpoint_shadow_report_payload"]
+        assert points_payload["schema_version"] == "workflow_lisp_lexical_checkpoint_points.v1"
+        assert (
+            shadow_report_payload["schema_version"]
+            == "workflow_lisp_lexical_checkpoint_shadow_report.v1"
+        )
+        assert any(
+            point.get("workflow_name")
+            == "lisp_frontend_design_delta/work_item::run-work-item"
+            for point in points_payload["points"]
+        )
+        assert any(
+            (
+                point.get("effect_boundary", {})
+                .get("policy", {})
+                .get("evidence_requirements", {})
+                .get("transition", {})
+                .get("transition_identity")
+            )
+            == "write-drain-status"
+            for point in points_payload["points"]
+            if point.get("point_kind") == "effect_boundary"
+        )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        resume,
+        "build_resume_plumbing_retirement_report",
+        _wrapped,
+    )
+
+    _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
 
 
 def test_build_emits_lexical_checkpoint_points_artifact(tmp_path: Path) -> None:

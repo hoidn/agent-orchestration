@@ -456,7 +456,7 @@ def _is_path_like_generated_internal_field(
         flattened_input.get("contract_definition")
     ):
         return True
-    return field.get("reason") == "managed_write_root"
+    return field.get("reason") in {"managed_write_root", "compatibility_bridge"}
 
 
 def _require_registry_string(row: dict[str, object], field_name: str, *, index: int) -> str:

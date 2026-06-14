@@ -22,6 +22,7 @@ from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_context,
+    workflow_boundary_projection,
     workflow_runtime_input_contracts,
     workflow_runtime_context_inputs,
     workflow_public_input_contracts,
@@ -3479,6 +3480,86 @@ def test_design_delta_parent_drain_entrypoint_owns_loop_control(
         "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
         in loop_call_targets
     )
+
+
+def test_design_delta_parent_drain_removes_run_state_from_authored_loop_state(
+    tmp_path: Path,
+) -> None:
+    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    types_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "types.orc"
+    ).read_text(encoding="utf-8")
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    loop_steps = list(
+        _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
+    )
+
+    assert (
+        "  (defrecord DrainState\n"
+        "    (iteration-count Int)\n"
+        "    (run-state RunStatePath)\n"
+        "    (item-count Int))"
+    ) not in types_source
+    assert (
+        ":state (record DrainState\n"
+        "                        :iteration-count 0\n"
+        "                        :run-state run_state_path\n"
+        "                        :item-count 0)"
+    ) not in drain_source
+    assert ":run-state state.run-state" not in drain_source
+    assert all("state.run-state" not in repr(step) for step in loop_steps)
+
+
+def test_design_delta_parent_drain_removes_run_state_from_work_item_authored_signatures_while_preserving_private_bridge(
+    tmp_path: Path,
+) -> None:
+    result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    boundary = workflow_boundary_projection(
+        result.validated_bundles_by_name["lisp_frontend_design_delta/work_item::run-work-item"]
+    )
+
+    assert "(defworkflow run-work-item\n    ((phase-ctx PhaseCtx)" in work_item_source
+    assert "(run_state_path RunStatePath))" not in work_item_source
+    assert "((run_state_path RunStatePath)" not in work_item_source
+    assert ":run_state_path run_state_path" not in work_item_source
+    assert ":run_state_path run_state_path" in drain_source
+    assert "state.run-state" not in work_item_source
+    assert "run_state_path" in boundary.private_compatibility_bridge_inputs
+    assert "run_state_path" not in boundary.public_input_contracts
+
+
+def test_design_delta_parent_drain_runtime_fixture_mirror_stays_aligned_after_r5_cleanup() -> None:
+    mirror_root = DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta"
+    authoritative_modules = _design_delta_work_item_runtime_authoritative_modules()
+
+    for name, expected_bytes in authoritative_modules.items():
+        assert (mirror_root / name).read_bytes() == expected_bytes
+
+
+def test_design_delta_parent_drain_preserves_runtime_native_transition_calls_after_r5_cleanup(
+    tmp_path: Path,
+) -> None:
+    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    drain_steps = list(
+        _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
+    )
+    drain_calls = {
+        step.get("call") for step in drain_steps if isinstance(step.get("call"), str)
+    }
+
+    assert "lisp_frontend_design_delta/work_item::run-work-item" in drain_calls
+    assert any("repeat_until" in step for step in drain_steps)
+    lowered_drain = repr(lowered_by_name["lisp_frontend_design_delta/drain::drain"])
+    assert "write-drain-status" in lowered_drain
+    assert "drain-run-state" in lowered_drain
 
 
 def test_design_delta_projection_runtime_fixture_compiles(

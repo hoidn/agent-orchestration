@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,174 @@ BOUNDARY_AUTHORITY_BUCKETS = {
     "materialized_view": "materialized_view",
     "public_artifact": "public_artifact",
 }
+
+
+def select_resume_plumbing_retirement_candidates(
+    census: Mapping[str, Any] | Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    rows = census.get("rows", []) if isinstance(census, Mapping) else census
+    return [
+        dict(row)
+        for row in rows
+        if isinstance(row, Mapping)
+        and resume_plumbing_retirement_target_status(row) != "NOT_R5_TARGET"
+    ]
+
+
+def resume_plumbing_retirement_target_status(row: Mapping[str, Any]) -> str:
+    if row.get("plumbing_class") != "resume_only":
+        return "NOT_R5_TARGET"
+    if row.get("current_consumer") != "runtime_resume":
+        return "NOT_R5_TARGET"
+    boundary_authority_class = row.get("boundary_authority_class")
+    source_kind = row.get("source_kind")
+    if boundary_authority_class in {"runtime_derived", "generated_internal"}:
+        return "HIDDEN_PRIVATE"
+    if source_kind == "generated_path":
+        return "HIDDEN_PRIVATE"
+    return "RETIRED"
+
+
+def validate_resume_plumbing_retirement_decision(
+    row: Mapping[str, Any],
+    *,
+    decision: str,
+) -> None:
+    if decision not in {
+        "RETIRED",
+        "HIDDEN_PRIVATE",
+        "KEPT_COMPATIBILITY",
+        "BLOCKED",
+        "NOT_R5_TARGET",
+    }:
+        raise ValueError(
+            f"resume_plumbing_retirement_schema_invalid: unknown decision `{decision}`"
+        )
+    automatic_status = resume_plumbing_retirement_target_status(row)
+    if automatic_status == "NOT_R5_TARGET" and decision != "NOT_R5_TARGET":
+        raise ValueError(
+            "resume_plumbing_retirement_wrong_track: "
+            f"row `{row.get('row_id', '')}` is outside R5 automatic candidate scope"
+        )
+    if decision in {"KEPT_COMPATIBILITY", "BLOCKED"}:
+        bridge = row.get("bridge")
+        if not isinstance(bridge, Mapping):
+            raise ValueError(
+                "resume_plumbing_retirement_compatibility_unjustified: "
+                f"row `{row.get('row_id', '')}` requires checked bridge metadata"
+            )
+        for field_name in (
+            "bridge_owner",
+            "consumer",
+            "file_shape",
+            "retirement_condition",
+        ):
+            if not _non_empty_string(bridge.get(field_name)):
+                raise ValueError(
+                    "resume_plumbing_retirement_compatibility_unjustified: "
+                    f"row `{row.get('row_id', '')}` bridge metadata is missing `{field_name}`"
+                )
+
+
+def normalize_resume_plumbing_retirement_compiled_rows(
+    candidate_rows: Iterable[Mapping[str, Any]],
+    *,
+    boundary_authority_report: Mapping[str, Any],
+    source_text_by_surface: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
+    boundary_rows = _index_boundary_authority_report(boundary_authority_report)
+    normalized: dict[str, dict[str, Any]] = {}
+    types_source = source_text_by_surface.get("lisp_frontend_design_delta/types", "")
+    drain_source = source_text_by_surface.get(
+        "lisp_frontend_design_delta/drain::drain", ""
+    )
+    work_item_source = source_text_by_surface.get(
+        "lisp_frontend_design_delta/work_item::run-work-item", ""
+    )
+
+    for candidate in candidate_rows:
+        row_id = str(candidate.get("row_id", ""))
+        normalized_row = {
+            "row_id": row_id,
+            "workflow_surface": str(candidate.get("workflow_surface", "")),
+            "symbol_or_field": str(candidate.get("symbol_or_field", "")),
+            "source_kind": str(candidate.get("source_kind", "")),
+            "boundary_authority_class": None,
+            "observed_locations": [],
+            "semantic_authority_source": "typed_runtime_resource",
+        }
+        if row_id == "drain.loop.run_state_path":
+            drain_state_block = _source_block(
+                types_source,
+                "(defrecord DrainState",
+                "(defunion DrainLoopTerminal",
+            )
+            if "(run-state RunStatePath)" in drain_state_block:
+                normalized_row["observed_locations"].append("loop_state_field")
+            if "state.run-state" in drain_source:
+                normalized_row["observed_locations"].append("call_signature")
+        elif row_id == "work_item.loop.run_state_path":
+            boundary_row = boundary_rows.get(
+                ("lisp_frontend_design_delta/work_item::run-work-item", "run_state_path")
+            )
+            if boundary_row is not None:
+                normalized_row["boundary_authority_class"] = boundary_row[
+                    "boundary_authority_class"
+                ]
+                normalized_row["observed_locations"].append("call_signature")
+            if "(run_state_path RunStatePath)" in work_item_source:
+                normalized_row["observed_locations"].append("call_signature")
+            if ":run_state_path" in work_item_source:
+                normalized_row["observed_locations"].append("call_signature")
+        else:
+            boundary_row = boundary_rows.get(
+                (
+                    str(candidate.get("workflow_surface", "")),
+                    str(candidate.get("symbol_or_field", "")),
+                )
+            )
+            if boundary_row is not None:
+                normalized_row["boundary_authority_class"] = boundary_row[
+                    "boundary_authority_class"
+                ]
+                normalized_row["observed_locations"].append("boundary_report")
+
+        if normalized_row["observed_locations"]:
+            normalized_row["observed_locations"] = sorted(
+                set(normalized_row["observed_locations"])
+            )
+            normalized[row_id] = normalized_row
+
+    return normalized
+
+
+def summarize_resume_plumbing_retirement_stale_rows(
+    candidate_rows: Iterable[Mapping[str, Any]],
+    *,
+    compiled_rows: Mapping[str, Mapping[str, Any]] | Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    if isinstance(compiled_rows, Mapping):
+        compiled_row_ids = {str(row_id) for row_id in compiled_rows}
+    else:
+        compiled_row_ids = {
+            str(row.get("row_id", ""))
+            for row in compiled_rows
+            if isinstance(row, Mapping)
+        }
+    stale_rows: list[dict[str, Any]] = []
+    for row in candidate_rows:
+        row_id = str(row.get("row_id", ""))
+        if row_id in compiled_row_ids:
+            continue
+        stale_rows.append(
+            {
+                "row_id": row_id,
+                "workflow_surface": str(row.get("workflow_surface", "")),
+                "symbol_or_field": str(row.get("symbol_or_field", "")),
+                "reason": "compiled evidence missing for checked resume-only row",
+            }
+        )
+    return stale_rows
 
 
 def load_value_flow_census(path: Path) -> dict[str, Any]:
@@ -675,6 +843,45 @@ def _checked_row_summary(row: Mapping[str, Any]) -> dict[str, Any]:
         "source_kind": row["source_kind"],
         "symbol_or_field": row["symbol_or_field"],
     }
+
+
+def _index_boundary_authority_report(
+    boundary_authority_report: Mapping[str, Any],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    indexed: dict[tuple[str, str], dict[str, Any]] = {}
+    workflows = boundary_authority_report.get("workflows")
+    if not isinstance(workflows, list):
+        return indexed
+    for workflow_row in workflows:
+        if not isinstance(workflow_row, Mapping):
+            continue
+        workflow_name = workflow_row.get("workflow_name")
+        if not _non_empty_string(workflow_name):
+            continue
+        for bucket_name in BOUNDARY_AUTHORITY_BUCKETS:
+            bucket_rows = workflow_row.get(bucket_name)
+            if not isinstance(bucket_rows, list):
+                continue
+            for bucket_row in bucket_rows:
+                if not _non_empty_string(bucket_row):
+                    continue
+                field_name = str(bucket_row)
+                indexed[(str(workflow_name), str(field_name))] = {
+                    "workflow_surface": str(workflow_name),
+                    "field_name": str(field_name),
+                    "boundary_authority_class": bucket_name,
+                }
+    return indexed
+
+
+def _source_block(source: str, start_marker: str, end_marker: str) -> str:
+    start_index = source.find(start_marker)
+    if start_index < 0:
+        return ""
+    end_index = source.find(end_marker, start_index)
+    if end_index < 0:
+        return source[start_index:]
+    return source[start_index:end_index]
 
 
 def _require_mapping(mapping: Mapping[str, Any], field_name: str) -> Mapping[str, Any]:

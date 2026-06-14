@@ -57,6 +57,29 @@ def _valid_payload(*, rows: list[dict[str, object]] | None = None) -> dict[str, 
     }
 
 
+def _resume_only_runtime_row(**overrides: object) -> dict[str, object]:
+    row = _valid_row(
+        row_id="drain.loop.run_state_path",
+        source_kind="loop_state_field",
+        symbol_or_field="run_state_path",
+        path_or_contract="RunStatePath",
+        plumbing_class="resume_only",
+        boundary_authority_class="compatibility_bridge",
+        track_owner="R",
+        current_consumer="runtime_resume",
+        semantic_owner="runtime_resume",
+        bridge={
+            "bridge_owner": "lisp_frontend_design_delta/drain",
+            "consumer": "runtime_resume",
+            "file_shape": "json_state_pointer",
+            "retirement_condition": "remove after private checkpoint restore replaces authored run-state loop carriage",
+        },
+        replacement_target="Track R private lexical checkpoints",
+    )
+    row.update(overrides)
+    return row
+
+
 def test_load_value_flow_census_accepts_minimal_valid_design_delta_payload(
     tmp_path: Path,
 ) -> None:
@@ -248,6 +271,79 @@ def test_load_value_flow_census_rejects_compatibility_bridge_without_bridge_meta
 
     with pytest.raises(ValueError, match="bridge metadata"):
         module.load_value_flow_census(path)
+
+
+def test_select_resume_plumbing_retirement_candidates_returns_only_runtime_resume_rows() -> None:
+    module = _module()
+    census = _valid_payload(
+        rows=[
+            _resume_only_runtime_row(),
+            _valid_row(
+                row_id="drain.output.return_run_state",
+                source_kind="public_output",
+                symbol_or_field="return__run-state",
+                path_or_contract="return__run-state",
+                plumbing_class="entry_publication",
+                boundary_authority_class="public_artifact",
+                track_owner="C",
+                current_consumer="downstream_workflow",
+                semantic_owner="workflow_surface",
+            ),
+        ]
+    )
+
+    candidates = module.select_resume_plumbing_retirement_candidates(census)
+
+    assert [row["row_id"] for row in candidates] == ["drain.loop.run_state_path"]
+
+
+def test_resume_plumbing_retirement_target_status_keeps_track_c_public_output_out_of_scope() -> None:
+    module = _module()
+
+    decision = module.resume_plumbing_retirement_target_status(
+        _valid_row(
+            row_id="drain.output.return_run_state",
+            source_kind="public_output",
+            symbol_or_field="return__run-state",
+            path_or_contract="return__run-state",
+            plumbing_class="entry_publication",
+            boundary_authority_class="public_artifact",
+            track_owner="C",
+            current_consumer="downstream_workflow",
+            semantic_owner="workflow_surface",
+        )
+    )
+
+    assert decision == "NOT_R5_TARGET"
+
+
+def test_validate_resume_plumbing_retirement_compatibility_requires_bridge_metadata() -> None:
+    module = _module()
+
+    with pytest.raises(
+        ValueError, match="resume_plumbing_retirement_compatibility_unjustified"
+    ):
+        module.validate_resume_plumbing_retirement_decision(
+            _resume_only_runtime_row(bridge=None),
+            decision="KEPT_COMPATIBILITY",
+        )
+
+
+def test_summarize_resume_plumbing_retirement_stale_rows_reports_missing_candidate() -> None:
+    module = _module()
+    stale = module.summarize_resume_plumbing_retirement_stale_rows(
+        [_resume_only_runtime_row()],
+        compiled_rows=[],
+    )
+
+    assert stale == [
+        {
+            "row_id": "drain.loop.run_state_path",
+            "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+            "symbol_or_field": "run_state_path",
+            "reason": "compiled evidence missing for checked resume-only row",
+        }
+    ]
 
 
 def test_reconcile_value_flow_census_reports_missing_compiled_boundary_rows_outside_legacy_allowlist() -> None:
