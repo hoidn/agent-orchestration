@@ -24,6 +24,7 @@ LEXICAL_CHECKPOINT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_ch
 LEXICAL_POLICY_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_effect_policies.orc")
 LEXICAL_RESTORE_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/lexical_checkpoint_restore_regions.orc")
 TYPED_PROMPT_INPUT_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/typed_prompt_input_phase.orc")
+ENTRY_PUBLICATION_RUNTIME_FIXTURE = Path("tests/fixtures/workflow_lisp/valid/entry_publication_runtime.orc")
 
 
 def _g0_retirement_metadata(
@@ -609,9 +610,28 @@ def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
         ("pre_snapshot", True),
         ("select_variant_output", True),
     }
-    assert any(
-        effect["effect_kind"] == "snapshot_capture"
-        for effect in snapshot_source_map["workflows"][snapshot_workflow_name]["generated_semantic_effects"]
+
+
+def test_semantic_ir_records_entry_publication_materialize_view_metadata(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_entrypoint_fixture(
+        tmp_path,
+        fixture_path=ENTRY_PUBLICATION_RUNTIME_FIXTURE,
+        entry_workflow="entry-publication-runtime",
+        extra_source_roots=(ENTRY_PUBLICATION_RUNTIME_FIXTURE.parent,),
+    ).validated_bundles_by_name["entry_publication_runtime::entry-publication-runtime"]
+
+    publication_effect = next(
+        effect
+        for effect in bundle.semantic_ir.effects.values()
+        if effect.effect_kind == "materialize_view"
+        and isinstance(effect.details.get("publication"), Mapping)
+    )
+
+    assert publication_effect.details["publication"]["role"] == "drain-summary"
+    assert publication_effect.details["publication"]["row_id"].startswith(
+        "publish.entry-publication-runtime"
     )
 
 

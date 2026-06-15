@@ -45,6 +45,7 @@ PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 PROC_REF_RUNTIME_TRANSPORT_FIXTURE = FIXTURES / "invalid" / "proc_ref_runtime_transport_invalid.orc"
+ENTRY_PUBLICATION_RUNTIME_FIXTURE = FIXTURES / "valid" / "entry_publication_runtime.orc"
 FORM_PATH = ("workflow-lisp", "workflow-expression-test")
 
 
@@ -1043,3 +1044,46 @@ def test_workflow_boundary_rejects_proc_ref_union_payloads(tmp_path: Path) -> No
         )
 
     _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
+def test_elaborate_workflow_definitions_accepts_optional_publish_metadata_clause() -> None:
+    syntax_module = _build_syntax_module(ENTRY_PUBLICATION_RUNTIME_FIXTURE)
+
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    entry_workflow = next(
+        workflow_def
+        for workflow_def in workflow_defs
+        if workflow_def.name == "entry-publication-runtime"
+    )
+
+    assert hasattr(entry_workflow, "publication_policy")
+    assert getattr(entry_workflow, "publication_policy") is not None
+
+
+def test_elaborate_workflow_definitions_keeps_legacy_single_body_workflows_source_compatible() -> None:
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(TYPE_FIXTURE))
+
+    assert all(getattr(workflow_def, "body", None) is not None for workflow_def in workflow_defs)
+
+
+def test_workflow_signature_identity_excludes_publish_metadata() -> None:
+    type_env = _build_type_env(ENTRY_PUBLICATION_RUNTIME_FIXTURE)
+    definition_module = _compile_definition_module(ENTRY_PUBLICATION_RUNTIME_FIXTURE)
+    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(ENTRY_PUBLICATION_RUNTIME_FIXTURE))
+
+    workflow_catalog = build_workflow_catalog(
+        definition_module,
+        workflow_defs,
+        type_env,
+    )
+
+    publishable_signature = workflow_catalog.signatures_by_name[
+        "entry-publication-runtime"
+    ]
+    helper_signature = workflow_catalog.signatures_by_name[
+        "call-entry-publication-runtime"
+    ]
+
+    assert publishable_signature.params == helper_signature.params
+    assert publishable_signature.return_type_ref == helper_signature.return_type_ref
+    assert not hasattr(publishable_signature, "publication_policy")

@@ -482,6 +482,7 @@ def compile_stage3_entrypoint(
     path: Path,
     *,
     source_roots: tuple[Path, ...] | None = None,
+    entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
@@ -511,6 +512,7 @@ def compile_stage3_entrypoint(
     compile_result, results = _run_stage3_entrypoint_validation_pipeline(
         path,
         source_roots=_effective_source_roots(path, source_roots=source_roots),
+        entry_workflow=entry_workflow,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
@@ -557,6 +559,7 @@ def compile_stage3_entrypoint(
 def compile_stage3_module(
     path: Path,
     *,
+    entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
@@ -579,6 +582,7 @@ def compile_stage3_module(
             _raise_wcc_module_graph_unsupported(path, normalized_lowering_route)
         linked = compile_stage3_entrypoint(
             path,
+            entry_workflow=entry_workflow,
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
             imported_workflow_bundles=imported_workflow_bundles,
@@ -959,6 +963,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     path: Path,
     *,
     source_roots: tuple[Path, ...] | None = None,
+    entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
@@ -982,6 +987,7 @@ def _run_stage3_entrypoint_validation_pipeline(
         nonlocal compile_result, selected_workflow_name
         compile_result = _compile_stage3_graph(
             graph,
+            entry_workflow=entry_workflow,
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
             imported_workflow_bundles=imported_workflow_bundles,
@@ -1320,6 +1326,7 @@ def _run_stage3_validation_pipeline(
         typed_procedures, typed_workflows, resolved_procedure_catalog = (
             _infer_stage3_effect_summaries(
                 procedure_defs,
+                module=module,
                 workflow_defs=workflow_defs,
                 type_env=type_env,
                 workflow_catalog=workflow_catalog,
@@ -1331,6 +1338,7 @@ def _run_stage3_validation_pipeline(
                     local_raw_names=frozenset(procedure.name for procedure in procedure_defs),
                 ),
                 reusable_state_producer_context=reusable_state_producer_context,
+                selected_entry_workflow_name=None,
             )
         )
         typed_functions_by_name = {
@@ -1788,6 +1796,7 @@ def _derive_reusable_state_producer_context(
 def _compile_stage3_graph(
     graph: LinkedModuleGraph,
     *,
+    entry_workflow: str | None,
     provider_externs: Mapping[str, str] | None,
     prompt_externs: Mapping[str, str] | None,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
@@ -1951,6 +1960,9 @@ def _compile_stage3_graph(
             lookup_aliases=workflow_lookup_aliases,
             imported_workflow_bundles=effective_imported_bundles,
             allow_hidden_context_callers=module_name == graph.entry_module_name,
+            selected_entry_workflow_name=(
+                entry_workflow if module_name == graph.entry_module_name else None
+            ),
             allow_collection_input_boundaries=True,
             allow_collection_return_boundaries=True,
         )
@@ -2045,6 +2057,7 @@ def _compile_stage3_graph(
         }
         typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
             procedure_defs,
+            module=definition_module,
             workflow_defs=workflow_defs,
             type_env=type_env,
             workflow_catalog=workflow_catalog,
@@ -2064,6 +2077,9 @@ def _compile_stage3_graph(
                 visible_procedure_names_by_module=visible_procedure_names_by_module,
             ),
             reusable_state_producer_context=reusable_state_producer_context,
+            selected_entry_workflow_name=(
+                entry_workflow if module_name == graph.entry_module_name else None
+            ),
         )
         typed_procedures = tuple(
             replace(
@@ -3561,6 +3577,7 @@ def _discover_proc_ref_specializations(
 def _infer_stage3_effect_summaries(
     procedure_defs: tuple[ProcedureDef, ...],
     *,
+    module: WorkflowLispModule | None = None,
     workflow_defs: tuple[object, ...],
     type_env: FrontendTypeEnvironment,
     workflow_catalog: object,
@@ -3576,6 +3593,7 @@ def _infer_stage3_effect_summaries(
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
+    selected_entry_workflow_name: str | None = None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
@@ -3666,6 +3684,7 @@ def _infer_stage3_effect_summaries(
             }
             typed_workflows = typecheck_workflow_definitions(
                 workflow_defs,
+                module=module,
                 type_env=type_env,
                 workflow_catalog=workflow_catalog,
                 procedure_catalog=procedure_catalog,
@@ -3679,6 +3698,7 @@ def _infer_stage3_effect_summaries(
                 workflow_name_resolver=workflow_name_resolver,
                 proc_ref_resolution_context=proc_ref_resolution_context,
                 reusable_state_producer_context=reusable_state_producer_context,
+                selected_entry_workflow_name=selected_entry_workflow_name,
             )
             generated_from_workflows = {
                 procedure.definition.name: procedure
@@ -3745,6 +3765,7 @@ def _infer_stage3_effect_summaries(
         )
         typed_workflows = typecheck_workflow_definitions(
             workflow_defs,
+            module=module,
             type_env=type_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
@@ -3758,6 +3779,7 @@ def _infer_stage3_effect_summaries(
             workflow_name_resolver=workflow_name_resolver,
             proc_ref_resolution_context=proc_ref_resolution_context,
             reusable_state_producer_context=reusable_state_producer_context,
+            selected_entry_workflow_name=selected_entry_workflow_name,
         )
         generated_from_workflows = {
             procedure.definition.name: procedure

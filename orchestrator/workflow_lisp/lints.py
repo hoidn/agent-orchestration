@@ -136,6 +136,17 @@ REQUIRED_LINT_REGISTRY: dict[str, RequiredLintRule] = {
         primary_surface="macro",
         replacement_hint="surface the effect through typed workflow or procedure forms",
     ),
+    "interior_publication": RequiredLintRule(
+        code="interior_publication",
+        summary="non-entry promoted workflows must not keep authored body-level materialize-view publication",
+        owning_pass="authority",
+        authority_layer="frontend",
+        default_severity="error",
+        strict_severity="error",
+        surface_status="active",
+        primary_surface="typed_ast",
+        replacement_hint="move durable publication to entry-boundary `:publish` or keep it as an explicitly timed publication outside C3",
+    ),
     "command_adapter_missing_contract": RequiredLintRule(
         code="command_adapter_missing_contract",
         summary="workflow-semantic commands require certified adapter metadata",

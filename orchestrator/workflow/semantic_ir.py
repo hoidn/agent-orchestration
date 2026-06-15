@@ -1877,6 +1877,9 @@ def _generated_promoted_effect_details(
         target_allocation_id = details.get("target_allocation_id")
         if target_allocation_id is not None:
             normalized_details["target_allocation_id"] = target_allocation_id
+        publication = payload.get("publication")
+        if isinstance(publication, Mapping):
+            normalized_details["publication"] = dict(publication)
         return MappingProxyType(normalized_details)
 
     if surface_step.kind is not SurfaceStepKind.MATERIALIZE_ARTIFACTS:
@@ -2041,6 +2044,9 @@ def _generated_materialize_view_effect_details(
         "target_allocation_id": payload.get("target_allocation_id"),
         "authority_class": authority_class,
     }
+    publication = payload.get("publication")
+    if isinstance(publication, Mapping):
+        details["publication"] = dict(publication)
     return MappingProxyType(details)
 
 

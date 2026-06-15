@@ -45,6 +45,21 @@ INVALID_MATERIALIZE_VIEW_INVALID_VALUE_TYPE_FIXTURE = (
 INVALID_MATERIALIZE_VIEW_TARGET_CONTRACT_INVALID_FIXTURE = (
     FIXTURES / "invalid" / "materialize_view_target_contract_invalid.orc"
 )
+INVALID_ENTRY_PUBLICATION_NOT_ENTRYPOINT_FIXTURE = (
+    FIXTURES / "invalid" / "entry_publication_not_entrypoint.orc"
+)
+INVALID_ENTRY_PUBLICATION_RETURN_NOT_UNION_FIXTURE = (
+    FIXTURES / "invalid" / "entry_publication_return_not_union.orc"
+)
+INVALID_ENTRY_PUBLICATION_UNKNOWN_VARIANT_FIXTURE = (
+    FIXTURES / "invalid" / "entry_publication_unknown_variant.orc"
+)
+INVALID_ENTRY_PUBLICATION_DUPLICATE_ROW_FIXTURE = (
+    FIXTURES / "invalid" / "entry_publication_duplicate_row.orc"
+)
+INVALID_ENTRY_PUBLICATION_UNKNOWN_ROLE_FIXTURE = (
+    FIXTURES / "invalid" / "entry_publication_unknown_role.orc"
+)
 INVALID_MATERIALIZED_VIEW_SEMANTIC_AUTHORITY_FIXTURE = (
     FIXTURES / "invalid" / "materialized_view_used_as_semantic_authority.orc"
 )
@@ -207,6 +222,7 @@ def test_required_lint_registry_contains_active_and_reserved_policy_metadata() -
         "recovery_gate_without_resume_or_start": ("authority", "frontend", "error", "error", "active"),
         "workflow_call_signature_erased": ("reference", "frontend", "error", "error", "active"),
         "macro_hidden_effect": ("effect", "frontend", "error", "error", "active"),
+        "interior_publication": ("authority", "frontend", "error", "error", "active"),
         "command_adapter_missing_contract": ("authority", "frontend", "error", "error", "active"),
         "inline_python_command_in_workflow": ("authority", "frontend", "error", "error", "active"),
         "inline_shell_command_in_workflow": ("authority", "frontend", "error", "error", "active"),
@@ -2245,3 +2261,53 @@ def test_compile_stage3_reports_materialized_view_bridge_authority_diagnostic(
         "materialized_view_used_as_semantic_authority" in str(error.message)
         for error in excinfo.value.errors
     )
+
+
+@pytest.mark.parametrize(
+    ("fixture_path", "entry_workflow", "expected_code"),
+    [
+        (
+            INVALID_ENTRY_PUBLICATION_NOT_ENTRYPOINT_FIXTURE,
+            "entry",
+            "entry_publication_not_entrypoint",
+        ),
+        (
+            INVALID_ENTRY_PUBLICATION_RETURN_NOT_UNION_FIXTURE,
+            "entry-publication-return-not-union",
+            "entry_publication_return_not_union",
+        ),
+        (
+            INVALID_ENTRY_PUBLICATION_UNKNOWN_VARIANT_FIXTURE,
+            "entry-publication-unknown-variant",
+            "entry_publication_variant_unknown",
+        ),
+        (
+            INVALID_ENTRY_PUBLICATION_DUPLICATE_ROW_FIXTURE,
+            "entry-publication-duplicate-row",
+            "entry_publication_duplicate_row",
+        ),
+        (
+            INVALID_ENTRY_PUBLICATION_UNKNOWN_ROLE_FIXTURE,
+            "entry-publication-unknown-role",
+            "entry_publication_role_unknown",
+        ),
+    ],
+)
+def test_compile_stage3_reports_entry_publication_diagnostics(
+    tmp_path: Path,
+    fixture_path: Path,
+    entry_workflow: str,
+    expected_code: str,
+) -> None:
+    del entry_workflow
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            fixture_path,
+            provider_externs={},
+            prompt_externs={},
+            command_boundaries={},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == expected_code

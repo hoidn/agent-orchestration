@@ -55,6 +55,7 @@ IMPORTED_STDLIB_HELPER_ENTRY = (
 )
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
+ENTRY_PUBLICATION_RUNTIME_FIXTURE = FIXTURES / "valid" / "entry_publication_runtime.orc"
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
@@ -204,6 +205,24 @@ def _build_lexical_restore_fixture(tmp_path: Path):
             source_path=LEXICAL_RESTORE_FIXTURE,
             source_roots=(FIXTURES / "valid",),
             entry_workflow="orchestrate",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
+def _build_entry_publication_fixture(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=ENTRY_PUBLICATION_RUNTIME_FIXTURE,
+            source_roots=(FIXTURES / "valid",),
+            entry_workflow="entry-publication-runtime",
             provider_externs_path=None,
             prompt_externs_path=None,
             imported_workflow_bundles_path=None,
@@ -4826,6 +4845,49 @@ def test_design_delta_parent_drain_build_emits_typed_prompt_input_report_artifac
     }
 
 
+def test_design_delta_parent_drain_build_emits_entry_publication_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "entry_publication_report" in result.artifact_paths
+    assert result.manifest.artifact_status["entry_publication_report"] == "emitted"
+    payload = json.loads(
+        result.artifact_paths["entry_publication_report"].read_text(encoding="utf-8")
+    )
+    assert payload["schema_version"] == "workflow_lisp_entry_publication_report.v1"
+    assert payload["status"] == "pass"
+    assert payload["target_family"] == "lisp_frontend_design_delta_parent_drain"
+    assert payload["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
+    assert {row["row_id"] for row in payload["selected_c0_rows"]} == {
+        "c0.design_gap_architect_validate_output_work_item_bundle_path",
+        "c0.plan_phase_output_approved_plan_path",
+        "c0.plan_phase_output_return_blocked_plan_path",
+        "c0.plan_phase_output_return_exhausted_plan_path",
+        "c0.plan_phase_output_return_findings_items_path",
+        "c0.selector_output_return_selection_bundle_path",
+        "c0.drain_output_return_run_state",
+    }
+    assert payload["publication_policy"] == {}
+    assert payload["lowered_publications"] == []
+    assert {
+        row["row_id"] for row in payload["compatibility_reasons"]
+    } == {
+        "c0.design_gap_architect_validate_output_work_item_bundle_path",
+        "c0.plan_phase_output_approved_plan_path",
+        "c0.plan_phase_output_return_blocked_plan_path",
+        "c0.plan_phase_output_return_exhausted_plan_path",
+        "c0.plan_phase_output_return_findings_items_path",
+        "c0.selector_output_return_selection_bundle_path",
+        "c0.drain_output_return_run_state",
+    }
+
+
 def test_design_delta_parent_drain_consumer_rendering_report_records_manifest_and_u0_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4866,6 +4928,195 @@ def test_design_delta_parent_drain_consumer_rendering_report_records_manifest_an
     provenance = result.manifest.consumer_rendering_census
     assert provenance["workflow_family"] == "design_delta_parent_drain"
     assert provenance["sha256"].startswith("sha256:")
+
+
+def test_entry_publication_build_artifacts_expose_generated_publication_lineage(
+    tmp_path: Path,
+) -> None:
+    result = _build_entry_publication_fixture(tmp_path)
+    semantic_ir = json.loads(
+        result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    )
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+
+    publication_effect = next(
+        effect
+        for effect in semantic_ir["effects"].values()
+        if effect["effect_kind"] == "materialize_view"
+        and isinstance(effect.get("details", {}).get("publication"), dict)
+    )
+    assert publication_effect["details"]["publication"]["role"] == "drain-summary"
+    assert publication_effect["details"]["publication"]["row_id"].startswith(
+        "publish.entry-publication-runtime"
+    )
+
+    workflow_name = "entry_publication_runtime::entry-publication-runtime"
+    generated_effects = source_map["workflows"][workflow_name]["generated_semantic_effects"]
+    assert any(
+        effect["effect_kind"] == "materialize_view"
+        and "publish" in effect["step_id"]
+        for effect in generated_effects
+    )
+
+
+def test_entry_publication_build_fails_closed_when_lowering_evidence_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    compile_result = compile_stage3_entrypoint(
+        ENTRY_PUBLICATION_RUNTIME_FIXTURE,
+        source_roots=(FIXTURES / "valid",),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    workflow_name = "entry_publication_runtime::entry-publication-runtime"
+
+    monkeypatch.setattr(
+        build,
+        "_collect_entry_publication_lowerings",
+        lambda compile_result: [],
+    )
+
+    payload = build._build_entry_publication_report(
+        compile_result=compile_result,
+        entry_workflow_name=workflow_name,
+        workflow_boundary_projection_payload=build._serialize_workflow_boundary_projection(
+            compile_result,
+            selected_name=workflow_name,
+        ),
+        source_map_payload=build._serialize_source_map(
+            compile_result,
+            selected_name=workflow_name,
+        ),
+        consumer_rendering_census={"target_family": "entry_publication_runtime", "rows": []},
+    )
+
+    assert payload["status"] == "fail"
+    assert payload["diagnostics"][0]["code"] == "entry_publication_lowering_missing"
+
+
+def test_entry_publication_build_accepts_selected_later_exported_entry_workflow(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    source_path = tmp_path / "entry_publication_selected_entry.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule entry_publication_selected_entry)",
+                "  (export first second)",
+                "  (defunion EntryPublicationResult",
+                "    (DONE (message String))",
+                "    (BLOCKED (reason String)))",
+                "  (defworkflow first",
+                "    ()",
+                "    -> EntryPublicationResult",
+                "    (variant EntryPublicationResult DONE",
+                '      :message "first"))',
+                "  (defworkflow second",
+                "    ()",
+                "    -> EntryPublicationResult",
+                "    (:publish",
+                "      ((DONE :as drain-summary)))",
+                "    (variant EntryPublicationResult DONE",
+                '      :message "second")))',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    result = build.build_frontend_bundle(
+        request_cls(
+            source_path=source_path,
+            source_roots=(tmp_path,),
+            entry_workflow="second",
+            workspace_root=tmp_path,
+        )
+    )
+
+    assert result.selected_workflow_name == "entry_publication_selected_entry::second"
+    assert result.manifest.entry_workflow == "entry_publication_selected_entry::second"
+
+
+def test_entry_publication_build_fails_closed_when_selected_non_entry_keeps_materialize_view(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    request = _design_delta_parent_drain_request(tmp_path)
+
+    compile_result = compile_stage3_entrypoint(
+        request.source_path,
+        source_roots=request.source_roots,
+        provider_externs=json.loads(request.provider_externs_path.read_text(encoding="utf-8")),
+        prompt_externs=json.loads(request.prompt_externs_path.read_text(encoding="utf-8")),
+        command_boundaries=build._parse_command_boundaries_manifest(
+            json.loads(
+                request.command_boundaries_path.read_text(encoding="utf-8")
+            ),
+            manifest_path=request.command_boundaries_path,
+        ),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    original_collect = build._collect_materialize_view_effects
+
+    def _collect_with_selected_non_entry_effect(compile_result):
+        effects = list(original_collect(compile_result))
+        effects.append(
+            {
+                "effect_id": (
+                    "effect:lisp_frontend_design_delta/selector::select-next-work:"
+                    "synthetic_interior_publication:materialize_view"
+                ),
+                "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "target_path": "artifacts/work/synthetic-selected-summary.json",
+                "value_type": {
+                    "kind": "record",
+                    "name": "lisp_frontend_design_delta/types::SelectionOutput",
+                },
+            }
+        )
+        return effects
+
+    monkeypatch.setattr(
+        build,
+        "_collect_materialize_view_effects",
+        _collect_with_selected_non_entry_effect,
+    )
+
+    report = build._build_entry_publication_report(
+        compile_result=compile_result,
+        entry_workflow_name="lisp_frontend_design_delta/drain::drain",
+        workflow_boundary_projection_payload=build._serialize_workflow_boundary_projection(
+            compile_result,
+            selected_name="lisp_frontend_design_delta/drain::drain",
+        ),
+        source_map_payload=build._serialize_source_map(
+            compile_result,
+            selected_name="lisp_frontend_design_delta/drain::drain",
+        ),
+        consumer_rendering_census=_load_design_delta_consumer_rendering_census(),
+    )
+
+    assert report["status"] == "fail"
+    assert any(
+        diagnostic["code"] == "interior_publication"
+        and diagnostic["workflow_name"] == "lisp_frontend_design_delta/selector::select-next-work"
+        for diagnostic in report["diagnostics"]
+    )
 
 
 def test_design_delta_parent_drain_consumer_rendering_report_reconciles_materialize_view_effects(

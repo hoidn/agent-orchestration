@@ -11,6 +11,7 @@ import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow.executable_ir import (
     CallStepConfig,
     CallOutputAddress,
@@ -28,6 +29,10 @@ from orchestrator.workflow.executable_ir import (
 from orchestrator.workflow import lowering
 from orchestrator.workflow import executable_ir
 from tests.workflow_bundle_helpers import materialize_execution_config_for_test
+
+
+WORKFLOW_LISP_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "workflow_lisp" / "valid"
+ENTRY_PUBLICATION_RUNTIME_FIXTURE = WORKFLOW_LISP_FIXTURES / "entry_publication_runtime.orc"
 
 
 def _detach_core_ast_surface_links(value):
@@ -965,3 +970,38 @@ def test_loaded_bundle_exposes_semantic_ir_with_runtime_bridge(tmp_path: Path):
     assert set(semantic_workflow.executable_bridge.presentation_keys) == {
         node.presentation_key for node in bundle.runtime_plan.nodes.values()
     }
+
+
+def test_entry_publication_lowering_emits_generated_materialize_view_steps_for_published_variants_only(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        ENTRY_PUBLICATION_RUNTIME_FIXTURE,
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["entry-publication-runtime"]
+    step_ids = [step.step_id for step in bundle.surface.steps]
+
+    assert any("publish" in step_id for step_id in step_ids)
+    assert not any("SKIPPED" in step_id for step_id in step_ids)
+
+
+def test_entry_publication_lowering_does_not_emit_boundary_publication_when_workflow_is_only_called(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        ENTRY_PUBLICATION_RUNTIME_FIXTURE,
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    bundle = result.validated_bundles["call-entry-publication-runtime"]
+    assert not any("publish" in step.step_id for step in bundle.surface.steps)

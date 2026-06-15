@@ -28,6 +28,7 @@ from .command_boundaries import (
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
+from .entry_publication import EntryPublicationPolicy, parse_entry_publication_policy, validate_entry_publication_policy
 from .expressions import elaborate_expression
 from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
@@ -327,6 +328,7 @@ class WorkflowDef:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    publication_policy: EntryPublicationPolicy | None = None
 
 
 @dataclass(frozen=True)
@@ -702,6 +704,7 @@ def build_workflow_catalog(
     lookup_aliases: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
     allow_hidden_context_callers: bool = False,
+    selected_entry_workflow_name: str | None = None,
     allow_collection_input_boundaries: bool = False,
     allow_collection_return_boundaries: bool = False,
 ) -> WorkflowCatalog:
@@ -813,6 +816,7 @@ def build_workflow_catalog(
         selected_workflow_name = _selected_hidden_context_entry_workflow_name(
             workflow_defs=workflow_defs,
             signatures_by_name=signatures_by_name,
+            requested_name=selected_entry_workflow_name,
         )
         if selected_workflow_name is not None:
             signature = signatures_by_name[selected_workflow_name]
@@ -864,8 +868,28 @@ def _selected_hidden_context_entry_workflow_name(
     *,
     workflow_defs: tuple[WorkflowDef, ...],
     signatures_by_name: Mapping[str, WorkflowSignature],
+    requested_name: str | None = None,
 ) -> str | None:
     """Return the exact entry workflow allowed to use promoted hidden bindings."""
+
+    if requested_name is not None:
+        requested_names = {
+            requested_name,
+            requested_name.rsplit("::", 1)[-1],
+        }
+        for workflow_def in workflow_defs:
+            if (
+                workflow_def.name not in requested_names
+                and workflow_def.name.rsplit("::", 1)[-1] not in requested_names
+            ):
+                continue
+            signature = signatures_by_name.get(workflow_def.name)
+            if signature is None:
+                return None
+            if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params):
+                return None
+            return workflow_def.name
+        return None
 
     for workflow_def in workflow_defs:
         signature = signatures_by_name.get(workflow_def.name)
@@ -1270,6 +1294,7 @@ def _bundle_source_span(bundle: "LoadedWorkflowBundle") -> SourceSpan:
 def typecheck_workflow_definitions(
     workflow_defs: tuple[WorkflowDef, ...],
     *,
+    module: WorkflowLispModule | None = None,
     type_env: FrontendTypeEnvironment,
     workflow_catalog: WorkflowCatalog,
     procedure_catalog: ProcedureCatalog | None = None,
@@ -1283,6 +1308,7 @@ def typecheck_workflow_definitions(
     workflow_name_resolver=None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
     reusable_state_producer_context: Mapping[str, object] | None = None,
+    selected_entry_workflow_name: str | None = None,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -1297,6 +1323,18 @@ def typecheck_workflow_definitions(
     elaborated_bodies: dict[str, object] = {}
     for workflow_def in workflow_defs:
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
+        if workflow_def.publication_policy is not None:
+            validate_entry_publication_policy(
+                workflow_def.publication_policy,
+                workflow_name=workflow_def.name,
+                return_union_variants=(
+                    tuple(variant.name for variant in signature.return_type_ref.definition.variants)
+                    if isinstance(signature.return_type_ref, UnionTypeRef)
+                    else None
+                ),
+                selected_entry_workflow_name=selected_entry_workflow_name,
+                exported_workflow_names=() if module is None else module.exports,
+            )
         value_env: dict[str, TypeRef] = {
             param_name: type_ref for param_name, type_ref in signature.params
         }
@@ -1561,16 +1599,28 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
             form_path=form.form_path,
             expansion_stack=return_type_node.expansion_stack,
         )
-    if len(datum.items) != 6:
+    publication_policy = None
+    if len(datum.items) not in {6, 7}:
         _raise_error(
             "`defworkflow` requires exactly one body expression",
             span=form.span,
             form_path=form.form_path,
             expansion_stack=form.expansion_stack,
         )
+    if len(datum.items) == 7:
+        policy_datum = datum.items[5]
+        publication_policy = parse_entry_publication_policy(
+            SyntaxNode(
+                datum=policy_datum,
+                span=policy_datum.span,
+                module_path=form.module_path,
+                form_path=form.form_path,
+            ),
+            workflow_name=name_node.resolved_name,
+        )
 
     params = tuple(_elaborate_param(param, form.form_path) for param in params_node.items)
-    body_datum = datum.items[5]
+    body_datum = datum.items[6] if len(datum.items) == 7 else datum.items[5]
     body = SyntaxNode(
         datum=body_datum,
         span=body_datum.span,
@@ -1585,6 +1635,7 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
         span=form.span,
         form_path=form.form_path,
         expansion_stack=datum.expansion_stack,
+        publication_policy=publication_policy,
     )
 
 

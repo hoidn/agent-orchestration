@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 MATERIALIZE_VIEW_RUNTIME = VALID_FIXTURES / "materialize_view_runtime.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET = VALID_FIXTURES / "materialize_view_allocated_target.orc"
+ENTRY_PUBLICATION_RUNTIME = VALID_FIXTURES / "entry_publication_runtime.orc"
 
 def _materialized_value_type() -> dict[str, object]:
     return {
@@ -197,6 +198,19 @@ def _compile_materialize_view_bundle(fixture_path: Path, tmp_path: Path):
     )
     module_name = f"{fixture_path.stem}::orchestrate"
     return result.validated_bundles_by_name[module_name]
+
+
+def _compile_entry_publication_bundle(tmp_path: Path, workflow_name: str):
+    result = compile_stage3_entrypoint(
+        ENTRY_PUBLICATION_RUNTIME,
+        source_roots=(ENTRY_PUBLICATION_RUNTIME.parent,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    return result.validated_bundles_by_name[f"entry_publication_runtime::{workflow_name}"]
 
 
 def _compile_single_ref_field_materialize_view_bundle(tmp_path: Path):
@@ -419,6 +433,111 @@ def test_authored_materialize_view_runtime_preserves_literal_ref_field_data(tmp_
         "return": "artifacts/work/only-ref.json"
     }
     assert rendered_path.read_bytes() == b'{"ref":"literal-string"}\n'
+
+
+def test_entry_publication_runtime_writes_published_variant_without_observability_summary(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_entry_publication_bundle(tmp_path, "entry-publication-runtime")
+    state_manager = StateManager(workspace=tmp_path, run_id="entry-publication-done")
+    state_manager.initialize(
+        str(ENTRY_PUBLICATION_RUNTIME.resolve()),
+        bound_inputs={"selected_variant": "DONE"},
+    )
+
+    result = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    publication_step = next(
+        step
+        for step in result["steps"].values()
+        if isinstance(step.get("debug", {}).get("materialize_view"), dict)
+    )
+    target_path = publication_step["artifacts"]["return"]
+
+    assert result["status"] == "completed"
+    assert target_path.endswith("done-drain-summary.json")
+    assert (tmp_path / target_path).read_bytes() == (
+        b'{"message":"published-done","variant":"DONE"}\n'
+    )
+    assert not list(tmp_path.rglob("observability_summary_report.json"))
+
+
+def test_entry_publication_runtime_omitted_variant_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_entry_publication_bundle(tmp_path, "entry-publication-runtime")
+    state_manager = StateManager(workspace=tmp_path, run_id="entry-publication-skipped")
+    state_manager.initialize(
+        str(ENTRY_PUBLICATION_RUNTIME.resolve()),
+        bound_inputs={"selected_variant": "SKIPPED"},
+    )
+
+    result = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert result["status"] == "completed"
+    assert not any(
+        isinstance(step.get("debug", {}).get("materialize_view"), dict)
+        for step in result["steps"].values()
+    )
+    publication_root = (
+        tmp_path
+        / "artifacts"
+        / "work"
+        / "workflow_lisp_entry_publication"
+        / "entry-publication-runtime--entry-publication-runtime"
+    )
+    assert not publication_root.exists()
+
+
+def test_nested_entry_publication_call_does_not_write_publication_artifact(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_entry_publication_bundle(tmp_path, "call-entry-publication-runtime")
+    state_manager = StateManager(workspace=tmp_path, run_id="entry-publication-nested-call")
+    state_manager.initialize(
+        str(ENTRY_PUBLICATION_RUNTIME.resolve()),
+        bound_inputs={"selected_variant": "DONE"},
+    )
+
+    result = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    publication_root = (
+        tmp_path
+        / "artifacts"
+        / "work"
+        / "workflow_lisp_entry_publication"
+        / "entry-publication-runtime--entry-publication-runtime"
+    )
+
+    assert result["status"] == "completed"
+    assert not publication_root.exists()
+
+
+def test_entry_publication_runtime_fails_closed_when_publication_view_drifts_on_resume(
+    tmp_path: Path,
+) -> None:
+    bundle = _compile_entry_publication_bundle(tmp_path, "entry-publication-runtime")
+    state_manager = StateManager(workspace=tmp_path, run_id="entry-publication-drift")
+    state_manager.initialize(
+        str(ENTRY_PUBLICATION_RUNTIME.resolve()),
+        bound_inputs={"selected_variant": "DONE"},
+    )
+
+    first = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    publication_step_name = next(
+        step_name
+        for step_name, step in first["steps"].items()
+        if isinstance(step.get("debug", {}).get("materialize_view"), dict)
+    )
+    target_path = tmp_path / first["steps"][publication_step_name]["artifacts"]["return"]
+    target_path.write_text('{"variant":"DONE","message":"tampered"}\n', encoding="utf-8")
+
+    _resume_failed_single_step(state_manager, step_name=publication_step_name)
+    resumed = WorkflowExecutor(bundle, tmp_path, state_manager).execute(resume=True)
+
+    assert resumed["steps"][publication_step_name]["status"] == "failed"
+    assert (
+        resumed["steps"][publication_step_name]["error"]["type"]
+        == "materialize_view_nondeterministic_render"
+    )
 
 
 def test_materialize_view_runtime_reuses_committed_view_on_resume(tmp_path: Path) -> None:

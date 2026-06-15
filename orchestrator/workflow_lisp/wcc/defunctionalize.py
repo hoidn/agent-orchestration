@@ -53,7 +53,10 @@ from ..workflow_refs import WorkflowCallableSpecialization, specialization_name
 from ..workflow_refs import ResolvedWorkflowRef
 from .route import LOWERING_SCHEMA_WCC
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.references import MaterializeViewBindingReference
+from orchestrator.workflow.view_renderer import VIEW_RENDERER_SCHEMA_VERSION, resolve_view_renderer
 from ..lowering import core as lowering_core
+from ..entry_publication import EntryPublicationPolicyRow, resolve_publication_role_registry
 from ..lexical_checkpoint_restore import build_restore_metadata
 from ..lexical_checkpoint_effect_policies import build_effect_resume_policy
 from ..lexical_checkpoints import allocate_checkpoint_storage, derive_checkpoint_id, derive_program_point_id
@@ -64,8 +67,8 @@ from ..lowering.context import (
     _copy_context_with_phase_scope,
 )
 from ..lowering.control_dispatch import _binding_local_value_from_terminal
-from ..lowering.origins import LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
-from ..lowering.generated_paths import allocate_generated_result_bundle, allocation_reason
+from ..lowering.origins import GeneratedSemanticEffectBinding, LoweringOrigin, LoweringOriginMap, _build_validation_subject_bindings, _derive_generated_semantic_effects, _origins_with_keys, _origin_for_workflow as _origin_for_workflow_owner, _record_step_origin, _with_origin_key
+from ..lowering.generated_paths import allocate_generated_result_bundle, allocate_materialized_value_view, allocation_reason
 from ..lowering.phase_scope import _resolve_active_phase_scope_parts
 from ..lowering.materialize_view import lower_materialize_view_step
 from ..lowering.pure_projection import is_pure_projection_expr, lower_pure_projection_step, try_evaluate_static_pure_expr
@@ -84,7 +87,7 @@ from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
 from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _resolve_procedure_lowering, _lower_procedure_call, _rewrite_nested_sibling_step_refs
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
-from orchestrator.workflow.state_layout import GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
+from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
 from .anf import normalize_wcc_body_to_anf
 from .elaborate import elaborate_typed_workflow, elaborate_typed_workflow_body
 from .model import (
@@ -666,6 +669,12 @@ def _lower_one_wcc_workflow(
         ),
         "steps": steps,
     }
+    authored_mapping["steps"] = _append_entry_publication_steps(
+        typed_workflow=typed_workflow,
+        terminal=terminal,
+        steps=list(authored_mapping["steps"]),
+        context=context,
+    )
     if context.top_level_artifacts:
         authored_mapping["artifacts"] = dict(context.top_level_artifacts)
 
@@ -801,6 +810,202 @@ def _lower_one_wcc_workflow(
             lowering_core._capture_generated_repeat_until_on_exhausted_refs(authored_mapping)
         ),
     )
+
+
+def _append_entry_publication_steps(
+    *,
+    typed_workflow: TypedWorkflowDef,
+    terminal: _TerminalResult,
+    steps: list[dict[str, Any]],
+    context: _LoweringContext,
+) -> list[dict[str, Any]]:
+    policy = typed_workflow.definition.publication_policy
+    if policy is None or not isinstance(typed_workflow.signature.return_type_ref, UnionTypeRef):
+        return steps
+    variant_ref = terminal.output_refs.get("return__variant")
+    if not isinstance(variant_ref, str):
+        return steps
+
+    role_registry = resolve_publication_role_registry()
+    cases: dict[str, dict[str, Any]] = {}
+    for variant_index, variant in enumerate(typed_workflow.signature.return_type_ref.definition.variants):
+        rows = [row for row in policy.rows if row.variant == variant.name]
+        cases[variant.name] = {
+            "id": lowering_core._normalize_generated_step_id(
+                f"{typed_workflow.definition.name}__publish__{variant.name.lower()}"
+            ),
+            "steps": (
+                [
+                    _entry_publication_materialize_step(
+                        typed_workflow=typed_workflow,
+                        row=row,
+                        variant_field_names=tuple(field.name for field in variant.fields),
+                        terminal=terminal,
+                        context=context,
+                        role_descriptor=role_registry[row.role],
+                    )
+                    for row in rows
+                ]
+                if rows
+                else [
+                    _entry_publication_noop_step(
+                        typed_workflow=typed_workflow,
+                        terminal=terminal,
+                        context=context,
+                        case_ordinal=variant_index,
+                    )
+                ]
+            ),
+        }
+
+    step_name = f"{typed_workflow.definition.name}__publish_boundary"
+    step_id = lowering_core._normalize_generated_step_id(step_name)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=policy)
+    return [
+        *steps,
+        {
+            "name": step_name,
+            "id": step_id,
+            "match": {
+                "ref": variant_ref,
+                "cases": cases,
+            },
+        },
+    ]
+
+
+def _entry_publication_materialize_step(
+    *,
+    typed_workflow: TypedWorkflowDef,
+    row: EntryPublicationPolicyRow,
+    variant_field_names: tuple[str, ...],
+    terminal: _TerminalResult,
+    context: _LoweringContext,
+    role_descriptor: Mapping[str, object],
+) -> dict[str, Any]:
+    renderer_id = row.renderer_id or str(role_descriptor["renderer_id"])
+    renderer_version = row.renderer_version or int(role_descriptor["renderer_version"])
+    renderer = resolve_view_renderer(renderer_id, renderer_version)
+    step_name = (
+        f"{typed_workflow.definition.name}__publish__{row.variant.lower()}__"
+        f"{_publication_slug(row.role)}"
+    )
+    step_id = lowering_core._normalize_generated_step_id(step_name)
+    source = SimpleNamespace(
+        span=row.span,
+        form_path=row.form_path,
+        expansion_stack=row.expansion_stack,
+    )
+    allocation = allocate_materialized_value_view(
+        context=context,
+        source_expr=source,
+        path_template=(
+            f"artifacts/work/workflow_lisp_entry_publication/"
+            f"{_publication_slug(typed_workflow.definition.name)}/"
+            f"{row.variant.lower()}-{_publication_slug(row.role)}{renderer.file_extension}"
+        ),
+        stable_target=f"entry-publication-{row.variant.lower()}-{_publication_slug(row.role)}",
+        privacy=GeneratedPathPrivacy.PUBLIC_ARTIFACT,
+    )
+    origin = LoweringOrigin(
+        span=row.span,
+        form_path=row.form_path,
+        expansion_stack=row.expansion_stack,
+    )
+    context.generated_path_spans[allocation.concrete_path_template] = origin
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=source)
+    value_document: dict[str, Any] = {
+        "variant": MaterializeViewBindingReference(
+            ref=str(terminal.output_refs["return__variant"])
+        )
+    }
+    for field_name in variant_field_names:
+        output_ref = terminal.output_refs.get(f"return__{field_name}")
+        if isinstance(output_ref, str):
+            value_document[field_name] = MaterializeViewBindingReference(ref=output_ref)
+
+    context.generated_semantic_effects.append(
+        GeneratedSemanticEffectBinding(
+            effect_key=f"materialize_view:{step_id}",
+            step_id=step_id,
+            effect_kind="materialize_view",
+            origin=context.step_spans[step_id],
+            details={
+                "renderer_id": renderer_id,
+                "renderer_version": renderer_version,
+                "view_renderer_schema_version": VIEW_RENDERER_SCHEMA_VERSION,
+                "value_type": {
+                    "kind": "union_variant",
+                    "name": typed_workflow.signature.return_type_ref.name,
+                    "variant": row.variant,
+                    "fields": list(variant_field_names),
+                },
+                "target_path": allocation.concrete_path_template,
+                "target_allocation_id": allocation.allocation_id,
+                "authority_class": "public_artifact",
+                "publication_role": row.role,
+            },
+        )
+    )
+    return {
+        "name": step_name,
+        "id": step_id,
+        "materialize_view": {
+            "renderer_id": renderer_id,
+            "renderer_version": renderer_version,
+            "view_renderer_schema_version": VIEW_RENDERER_SCHEMA_VERSION,
+            "value_type": {
+                "kind": "union_variant",
+                "name": typed_workflow.signature.return_type_ref.name,
+                "variant": row.variant,
+                "fields": list(variant_field_names),
+            },
+            "value_document": value_document,
+            "target_path": allocation.concrete_path_template,
+            "target_allocation_id": allocation.allocation_id,
+            "authority_class": "public_artifact",
+            "output_contracts": {"return": dict(role_descriptor["output_contract"])},
+            "publication": {
+                "schema_version": typed_workflow.definition.publication_policy.schema_version,
+                "row_id": row.row_id,
+                "role": row.role,
+                "variant": row.variant,
+                "workflow_name": typed_workflow.definition.name,
+                "entry_boundary_only": True,
+            },
+        },
+    }
+
+
+def _entry_publication_noop_step(
+    *,
+    typed_workflow: TypedWorkflowDef,
+    terminal: _TerminalResult,
+    context: _LoweringContext,
+    case_ordinal: int,
+) -> dict[str, Any]:
+    variant_ref = terminal.output_refs.get("return__variant")
+    if not isinstance(variant_ref, str):
+        raise ValueError("entry publication no-op step requires return__variant ref")
+    step_name = f"{typed_workflow.definition.name}__publish__omitted_{case_ordinal}"
+    step_id = lowering_core._normalize_generated_step_id(step_name)
+    source = typed_workflow.definition.publication_policy or typed_workflow.definition
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=source)
+    return {
+        "name": step_name,
+        "id": step_id,
+        "assert": {
+            "compare": {
+                "left": {"ref": variant_ref},
+                "op": "eq",
+                "right": {"ref": variant_ref},
+            }
+        },
+    }
+
+
+def _publication_slug(value: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in value).strip("-") or "publication"
 
 
 def _binding_schema_digest_for_point(
@@ -1855,9 +2060,10 @@ def _iter_nested_case_step_lists(step: Mapping[str, Any]) -> tuple[list[dict[str
 def _rewrite_case_sibling_refs_in_value(value: Any, *, sibling_names: tuple[str, ...]) -> Any:
     if isinstance(value, str):
         for step_name in sibling_names:
-            prefix = f"parent.steps.{step_name}."
-            if value.startswith(prefix):
-                return "self.steps." + value.removeprefix("parent.steps.")
+            for scope_prefix in ("parent.steps.", "root.steps."):
+                prefix = f"{scope_prefix}{step_name}."
+                if value.startswith(prefix):
+                    return "self.steps." + value.removeprefix(scope_prefix)
         return value
     if isinstance(value, list):
         return [_rewrite_case_sibling_refs_in_value(item, sibling_names=sibling_names) for item in value]
@@ -1990,6 +2196,7 @@ def _defunctionalize_case(
         hoist_effectful_case_steps = bool(arm_steps) and (
             context.is_generated_private_workflow
             or context.requires_guarded_case_step_hoist
+            or arm_context.requires_guarded_case_step_hoist
             or _case_steps_require_guarded_hoist(arm_steps)
         )
         if any("match" in step for step in arm_steps) or hoist_effectful_case_steps:
