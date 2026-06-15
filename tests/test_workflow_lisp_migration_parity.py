@@ -3381,6 +3381,42 @@ def test_design_delta_parent_drain_target_requires_rendering_cleanup_compile_art
     assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
 
 
+def test_design_delta_parent_drain_target_requires_rendering_ergonomics_compile_artifact() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    required = target["compile_artifacts"]["required"]
+    assert "rendering_ergonomics_report" in required
+    # Additive widening must preserve every pre-existing required artifact.
+    for prior in (
+        "core_workflow_ast",
+        "semantic_ir",
+        "source_map",
+        "workflow_boundary_projection",
+        "adapter_census",
+        "boundary_authority_report",
+        "value_flow_census_report",
+        "consumer_rendering_census_report",
+        "typed_prompt_input_report",
+        "entry_publication_report",
+        "compatibility_bridge_report",
+        "rendering_cleanup_report",
+        "g8_deletion_evidence",
+    ):
+        assert prior in required
+
+
 def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
