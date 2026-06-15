@@ -55,6 +55,43 @@ LANE_TO_TRACK_C = {
     "timed_body_materialization": "C5",
 }
 
+# Author-facing lint codes: explicit body-level rendering or command-glue that
+# an author should replace with a consumer-owned lane. Surfaced from the C6
+# report (mirroring how C5 surfaces body_materialization diagnostics) rather than
+# through the frontend required-lint registry.
+RENDERING_ERGONOMICS_AUTHOR_LINT_CODES = frozenset(
+    {
+        "rendering_ergonomics_body_render_not_timed",
+        "rendering_ergonomics_command_glue_forbidden",
+        "rendering_ergonomics_publication_not_at_entry_boundary",
+        "rendering_ergonomics_bridge_not_metadata",
+        "rendering_ergonomics_view_used_as_state",
+    }
+)
+
+# Body-level rendering misuses surfaced under the report's body_render_lints.
+_BODY_RENDER_LINT_CODES = frozenset(
+    {
+        "rendering_ergonomics_body_render_not_timed",
+        "rendering_ergonomics_command_glue_forbidden",
+        "rendering_ergonomics_view_used_as_state",
+    }
+)
+
+# Rendering implementations an author must never use for ergonomic rendering.
+FORBIDDEN_RENDERING_IMPLEMENTATIONS = frozenset(
+    {
+        "command",
+        "command_glue",
+        "certified_adapter",
+        "inline_python",
+        "inline_shell",
+        "report_parse",
+        "stdout_as_state",
+        "pointer_as_state",
+    }
+)
+
 # Six prerequisite reports the C6 report joins (schema key differs for C2).
 PREREQUISITE_REPORTS = (
     ("consumer_rendering_census_report", "schema_version"),
@@ -429,6 +466,52 @@ def _check_lane_slot(
     return None
 
 
+def _authoring_lint_diag(slot: Mapping[str, Any], c0_row_id: str) -> dict[str, Any] | None:
+    """Detect author-side command-glue or view-as-state misuse for one slot."""
+
+    implementation = str(slot.get("rendering_implementation", "") or "")
+    if implementation in FORBIDDEN_RENDERING_IMPLEMENTATIONS:
+        return _diagnostic(
+            "rendering_ergonomics_command_glue_forbidden",
+            str(slot.get("slot_id", "")),
+            "ergonomic rendering must not be implemented via command glue, report "
+            "parsing, stdout-as-state, or pointer-as-state",
+            c0_row_id=c0_row_id,
+            rendering_implementation=implementation,
+        )
+    value = slot.get("value", {})
+    if (
+        slot.get("consumer_lane") == "typed_step"
+        and isinstance(value, Mapping)
+        and value.get("authority") in {"rendered_view", "view"}
+    ):
+        return _diagnostic(
+            "rendering_ergonomics_view_used_as_state",
+            str(slot.get("slot_id", "")),
+            "a rendered view is consumed as typed semantic state",
+            c0_row_id=c0_row_id,
+        )
+    return None
+
+
+def rendering_ergonomics_author_lints(
+    report: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Surface the author-facing lint subset of a built C6 report.
+
+    The lint hook reuses :func:`build_rendering_ergonomics_report` results so an
+    author sees body-render/command-glue/publication/bridge/view-as-state misuse
+    under one consumer-slot message naming the replacement lane.
+    """
+
+    return [
+        dict(diagnostic)
+        for diagnostic in report.get("diagnostics", [])
+        if isinstance(diagnostic, Mapping)
+        and diagnostic.get("code") in RENDERING_ERGONOMICS_AUTHOR_LINT_CODES
+    ]
+
+
 def _contract_isolation(diagnostics: Sequence[Mapping[str, Any]]) -> dict[str, bool]:
     codes = {d.get("code") for d in diagnostics}
     return {
@@ -489,10 +572,15 @@ def build_rendering_ergonomics_report(
     body_render_lints: list[dict[str, Any]] = []
     for slot in sorted(slots, key=lambda s: str(s.get("slot_id", ""))):
         c0_row_id = str(slot.get("c0_row_id", ""))
+        author_diag = _authoring_lint_diag(slot, c0_row_id)
+        if author_diag is not None:
+            diagnostics.append(author_diag)
+            if author_diag["code"] in _BODY_RENDER_LINT_CODES:
+                body_render_lints.append(author_diag)
         lane_diag = _check_lane_slot(slot, c0_row_id, prerequisite_reports, evidence)
         if lane_diag is not None:
             diagnostics.append(lane_diag)
-            if lane_diag["code"] == "rendering_ergonomics_body_render_not_timed":
+            if lane_diag["code"] in _BODY_RENDER_LINT_CODES:
                 body_render_lints.append(lane_diag)
         resolution = resolve_renderer_for_slot(slot)
         resolution["selected_lane"] = _selected_lane_label(slot)

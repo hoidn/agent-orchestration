@@ -22,6 +22,7 @@ from orchestrator.workflow_lisp.rendering_ergonomics import (
     load_rendering_ergonomics_policy,
     build_rendering_ergonomics_report,
     resolve_renderer_for_slot,
+    rendering_ergonomics_author_lints,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -305,6 +306,75 @@ def test_report_fails_on_body_render_not_timed():
         d["code"] == "rendering_ergonomics_body_render_not_timed" for d in report["diagnostics"]
     )
     assert report["body_render_lints"]
+
+
+# --------------------------------------------------------------------------- #
+# Author-facing lints (Task 5)
+# --------------------------------------------------------------------------- #
+
+
+def test_command_glue_rendering_is_linted():
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [
+            {
+                "slot_id": "s.glue",
+                "consumer_lane": "entry_publication",
+                "expected_track_c_lane": "C3",
+                "c0_row_id": "c0.glue",
+                "rendering_implementation": "inline_python",
+                "renderer_selection": {
+                    "mode": "infer",
+                    "allowed_renderers": [{"renderer_id": "canonical-json", "renderer_version": 1}],
+                },
+                "value": {"type_name": "Bundle"},
+            }
+        ],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": "c0.glue", "consumer_lane": "entry_publication"}],
+        },
+        entry_publication_report={"status": "pass", "selected_c0_rows": ["c0.glue"]},
+    )
+    report = build_rendering_ergonomics_report(policy=policy, prerequisite_reports=reports)
+    assert report["status"] == "fail"
+    lints = rendering_ergonomics_author_lints(report)
+    assert any(d["code"] == "rendering_ergonomics_command_glue_forbidden" for d in lints)
+
+
+def test_body_render_not_timed_names_replacement_lane_via_author_lints():
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [
+            {
+                "slot_id": "s.body",
+                "consumer_lane": "timed_body_materialization",
+                "expected_track_c_lane": "C5",
+                "c0_row_id": "c0.body",
+                "renderer_selection": {
+                    "mode": "infer",
+                    "allowed_renderers": [{"renderer_id": "canonical-json", "renderer_version": 1}],
+                },
+                "value": {"type_name": "Summary"},
+            }
+        ],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": "c0.body", "consumer_lane": "timed_body_materialization"}],
+        }
+    )
+    report = build_rendering_ergonomics_report(policy=policy, prerequisite_reports=reports)
+    lints = rendering_ergonomics_author_lints(report)
+    body = next(
+        d for d in lints if d["code"] == "rendering_ergonomics_body_render_not_timed"
+    )
+    assert body["replacement_lane"]
 
 
 def test_load_policy_rejects_typed_step_with_renderer(tmp_path):
