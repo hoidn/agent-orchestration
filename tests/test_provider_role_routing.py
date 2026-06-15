@@ -26,6 +26,26 @@ def test_neurips_steered_backlog_drain_defaults_route_execute_to_opus_and_fix_to
     assert workflow["inputs"]["implementation_fix_provider"]["default"] == "codex"
 
 
+def test_workflow_local_claude_opus_aliases_use_stdin_prompt_delivery():
+    workflow_paths = [
+        "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+        "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml",
+        "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
+        "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
+        "workflows/library/neurips_backlog_implementation_phase.yaml",
+    ]
+
+    for relpath in workflow_paths:
+        workflow = yaml.safe_load((REPO_ROOT / relpath).read_text(encoding="utf-8"))
+        provider = workflow["providers"]["claude_opus"]
+
+        assert provider["input_mode"] == "stdin", relpath
+        assert "${PROMPT}" not in " ".join(provider["command"]), relpath
+
+
 def _write_workflow(workspace: Path, payload: dict) -> Path:
     path = workspace / "workflow.yaml"
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")

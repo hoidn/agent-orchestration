@@ -35,6 +35,16 @@ inputs:
   plan_review_report_target_path:
     type: relpath
     under: artifacts/review
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "claude_opus"
+  implementation_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "claude_opus"
 
 outputs:
   plan_path:
@@ -63,6 +73,12 @@ providers:
     defaults:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
+  claude_opus:
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
+    defaults:
+      model: "opus"
+      effort: "high"
 
 artifacts:
   steering:
@@ -162,7 +178,7 @@ steps:
 
   - name: DraftPlan
     id: draft_plan
-    provider: codex
+    provider: ${inputs.implementation_execute_provider}
     asset_file: prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md
     timeout_sec: 3600
     consumes:
@@ -229,7 +245,7 @@ steps:
             - ${inputs.state_root}/plan_review_decision.txt
         - name: ReviewPlan
           id: review_plan
-          provider: codex
+          provider: ${inputs.implementation_review_provider}
           asset_file: prompts/lisp_frontend_design_delta_plan_phase/review_plan.md
           timeout_sec: 1800
           consumes:
@@ -294,7 +310,7 @@ steps:
                 steps:
                   - name: RevisePlan
                     id: revise_plan
-                    provider: codex
+                    provider: ${inputs.implementation_execute_provider}
                     asset_file: prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md
                     timeout_sec: 3600
                     consumes:

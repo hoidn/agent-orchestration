@@ -46,7 +46,7 @@ inputs:
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "fable"
+    default: "opus"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -77,7 +77,7 @@ providers:
     command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
     input_mode: "stdin"
     defaults:
-      model: "fable"
+      model: "opus"
       effort: "high"
 
 steps:
@@ -181,8 +181,8 @@ steps:
         requested_model = model
         requested_effort = effort
         fallback_reason = ""
-        if provider == "claude" and model not in {"fable", "claude-fable-5"}:
-            errors.append(f"design-gap drafting via Claude must use Fable, got {model!r}")
+        if provider == "claude" and model not in {"opus", "fable", "claude-fable-5"}:
+            errors.append(f"design-gap drafting via Claude must use a supported Claude model alias, got {model!r}")
         if provider == "codex" and not (
             model.startswith("gpt-")
             or "codex" in model
@@ -220,7 +220,7 @@ steps:
                 model = "gpt-5.5"
                 effort = "high"
                 fallback_reason = (
-                    "Claude Fable unavailable; falling back to Codex gpt-5.5. "
+                    "Claude drafting model unavailable; falling back to Codex gpt-5.5. "
                     + (probe.stdout or "").strip()
                 )
 

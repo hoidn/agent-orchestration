@@ -64,11 +64,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "codex"
+    default: "claude"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "gpt-5.4"
+    default: "opus"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -89,12 +89,12 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
   implementation_review_provider:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
 
 outputs:
   drain_status:
@@ -112,8 +112,8 @@ providers:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
   claude_opus:
-    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
-    input_mode: "argv"
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
     defaults:
       model: "opus"
       effort: "high"
@@ -127,7 +127,7 @@ artifacts:
 steps:
   - name: ReviewDoneDecision
     id: review_done_decision
-    provider: codex
+    provider: ${inputs.implementation_review_provider}
     asset_file: prompts/lisp_frontend_selector/review_done_design_delta.md
     timeout_sec: 1800
     depends_on:

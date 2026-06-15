@@ -61,12 +61,12 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
   implementation_review_provider:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
 
 providers:
   codex:
@@ -76,8 +76,8 @@ providers:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
   claude_opus:
-    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
-    input_mode: "argv"
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
     defaults:
       model: "opus"
       effort: "high"
@@ -201,6 +201,10 @@ steps:
         ref: root.steps.ResolveWorkItemInputs.artifacts.plan_target_path
       plan_review_report_target_path:
         ref: root.steps.ResolveWorkItemInputs.artifacts.plan_review_report_target_path
+      implementation_execute_provider:
+        ref: inputs.implementation_execute_provider
+      implementation_review_provider:
+        ref: inputs.implementation_review_provider
 
   - name: RunImplementationPhase
     id: run_implementation_phase

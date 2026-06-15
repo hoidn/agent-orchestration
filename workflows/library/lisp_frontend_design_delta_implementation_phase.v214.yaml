@@ -41,12 +41,12 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
   implementation_review_provider:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
 
 outputs:
   implementation_state:
@@ -70,8 +70,8 @@ providers:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
   claude_opus:
-    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
-    input_mode: "argv"
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
     defaults:
       model: "opus"
       effort: "high"
