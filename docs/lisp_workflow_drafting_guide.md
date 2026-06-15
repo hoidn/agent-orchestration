@@ -28,6 +28,8 @@ Design references:
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
 - [Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement](design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
+- [Workflow Lisp Private Runtime State And Consumer Value Flow](design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md)
+- [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
 
 Use this guide for authoring judgment. Use
 [Capability Status Matrix](capability_status_matrix.md) for current
@@ -150,28 +152,24 @@ Good high-level workflow code should look like typed composition:
 
 ```lisp
 (defworkflow run-selected-backlog-item
-  ((ctx ItemCtx)
-   (selection SelectionInput)
+  ((selection SelectionInput)
    (providers NeuripsProviders))
   -> SelectedItemResult
 
   (let* ((selected
-           (resolve-selected-item ctx selection))
+           (resolve-selected-item selection))
 
          (plan
            (ensure-approved-plan
-             :ctx (phase-ctx ctx 'plan)
              :selected selected
              :providers providers.plan))
 
          (implementation
            (call implementation/run
-             :ctx (phase-ctx ctx 'implementation)
              :inputs (make-implementation-inputs selected plan)
              :providers providers.implementation)))
 
     (finalize-selected-item
-      :ctx ctx
       :selected selected
       :plan plan
       :implementation implementation)))
@@ -190,6 +188,40 @@ It should not look like low-level runtime plumbing:
 
 Those lower-level concepts may still exist after lowering, but they should not
 dominate high-level authored Lisp.
+
+## Runtime-Native Authoring Direction
+
+For new high-level Workflow Lisp, pass typed domain values by default and let
+lowering/runtime own execution mechanics.
+
+Preferred authoring shape:
+
+- provider calls receive typed prompt-input records or small typed values;
+- private runtime context, generated paths, checkpoint identity, and write roots
+  are hidden from public entrypoints and ordinary user-facing calls;
+- deterministic local reshaping uses pure typed projection instead of Python;
+- durable state changes use `resource-transition` or certified transition
+  adapters;
+- prompt text, public summaries, observability, and compatibility files are
+  renderings at consumer seams; and
+- body-level `materialize-view` is reserved for justified timed publications or
+  low-level compatibility work.
+
+For example, the high-level call should usually be:
+
+```lisp
+(run-work-item item)
+```
+
+not:
+
+```lisp
+(run-work-item item item-ctx state-root artifact-root summary-path)
+```
+
+The compiler/runtime may still bind a private item/resource context in
+executable IR. That context is visible in source maps, Semantic IR, and build
+evidence, but it is not a public authored workflow input.
 
 ## Prompt Externs
 
@@ -1183,9 +1215,12 @@ mirrors a union's discriminant, the record is probably a fake outcome type
 
 ## 11. Contexts And Derived State
 
-High-level Lisp should derive state paths from contexts.
+High-level Lisp should derive state paths from private context and typed
+resources, not from public path plumbing. Public workflow inputs are for caller
+intent; runtime context is for allocation, checkpointing, idempotency, resume,
+and provenance.
 
-Common authored context records:
+Common library/internal context records:
 
 ```lisp
 (defrecord RunCtx
@@ -1213,8 +1248,13 @@ Common authored context records:
   (ledger Path.state-existing))
 ```
 
+These records may appear in stdlib modules, reusable helper internals, low-level
+fixtures, executable contracts, source maps, and Semantic IR. They should not
+be exposed as ordinary public inputs for a promoted high-level workflow unless
+the workflow is explicitly a low-level fixture or compatibility bridge.
+
 When a promoted entry workflow omits one of these context parameters for an
-internal reusable call, Workflow Lisp now records that omission as private
+internal reusable call, Workflow Lisp records that omission as private
 executable-context metadata. Public authored inputs stay public; runtime-owned
 context bindings, managed write roots, and YAML-compatibility bridge values
 stay off the public boundary.
@@ -1243,6 +1283,14 @@ Use helpers:
 ```lisp
 (phase-ctx ctx 'implementation)
 (phase-target ctx "execution-report.md")
+```
+
+Use those helpers inside library or lower-level procedures that already receive
+private context. At higher-level call sites, prefer domain calls that allow the
+compiler/runtime to provide the context privately:
+
+```lisp
+(run-work-item item)
 ```
 
 Avoid:
@@ -1472,7 +1520,28 @@ Usually avoid:
 - broad ambient doc globs;
 - instructions to echo session IDs or pointer paths.
 
-If a provider is declared as:
+For nontrivial provider calls, build a typed prompt-input record and pass that
+record to `:inputs`. This keeps provider inputs named, typed, and separate from
+runtime bookkeeping:
+
+```lisp
+(defrecord ImplementationRequest
+  (target-design TargetDesignDoc)
+  (baseline-design BaselineDesignDoc)
+  (approved-plan PlanDoc)
+  (checks CheckSpec)
+  (output-targets ImplementationOutputTargets))
+
+(provider-result providers.execute
+  :prompt prompts.implementation.execute
+  :inputs request
+  :returns ImplementationAttempt)
+```
+
+The runtime renders `request` at the provider prompt seam. The provider output
+still comes from the declared structured result contract.
+
+Flat input lists are fine for small calls:
 
 ```lisp
 (provider-result providers.execute
@@ -1483,6 +1552,13 @@ If a provider is declared as:
 
 then the provider must produce `ImplementationAttempt`. The report explains the
 work; the union value controls routing.
+
+Do not put generated report targets, state roots, checkpoint paths, or
+compatibility pointer paths in provider inputs merely so a prompt can tell the
+provider where runtime-owned files live. Output targets belong in typed target
+records, provider structured-output bindings, publication policy, bridge
+metadata, or lower-level compatibility adapters according to their authority
+class.
 
 ## 15. Operational Notes
 
@@ -1666,6 +1742,23 @@ Semantic IR also promotes a small set of generated visibility effects
 generated runtime structure stays inspectable. A `pure_projection` entry is
 observational metadata for one generated projection boundary; it does not
 mean the authored expression gained provider, command, IO, or state effects.
+
+Rendering is also an effect boundary. Prefer the consumer-owned lane:
+
+| Consumer | Preferred authoring surface |
+| --- | --- |
+| typed workflow step | pass the typed value; no rendering |
+| provider prompt | typed value or request record in `provider-result :inputs` |
+| public workflow output | entry publication policy / boundary view |
+| observability | typed terminal result rendered by report/dashboard surfaces |
+| legacy reader | labeled compatibility bridge |
+| timed mid-run artifact | explicit `materialize-view` |
+
+If a body-level `materialize-view` only exists so a later prompt, summary,
+public output, or legacy reader can see bytes, prefer moving that rendering to
+the consumer seam. Keep explicit `materialize-view` when the file must exist at
+that exact point in the workflow or when a low-level compatibility fixture is
+being preserved deliberately.
 
 ## 19. Source Maps And Debugging
 
@@ -1956,39 +2049,31 @@ or markdown line extraction.
 
 ```lisp
 (defworkflow selected-item/run
-  ((ctx ItemCtx)
-   (selection SelectionInput)
+  ((selection SelectionInput)
    (providers NeuripsProviders))
   -> SelectedItemResult
 
   (let* ((selected
-           (resolve-selected-item
-             :ctx ctx
-             :selection selection))
+           (resolve-selected-item selection))
 
          (queued
            (resource-transition selected-backlog-item
-             :ctx ctx
              :resource selected.item
              :from Queue.active
              :to Queue.in-progress
-             :ledger ctx.ledger
              :event SELECTED))
 
          (roadmap
            (call roadmap/run-sync
-             :ctx (phase-ctx ctx 'roadmap-sync)
              :selected selected
              :providers providers.roadmap))
 
          (plan
            (resume-or-start plan-gate
-             :ctx (phase-ctx ctx 'plan)
              :resume-from selected.final-plan-gate-state
              :valid-when APPROVED
              :start
                (call plan/run
-                 :ctx (phase-ctx ctx 'plan)
                  :selected selected
                  :roadmap roadmap
                  :providers providers.plan)
@@ -1996,7 +2081,6 @@ or markdown line extraction.
 
          (implementation
            (call implementation/run
-             :ctx (phase-ctx ctx 'implementation)
              :inputs
                (make-implementation-inputs
                  :selected selected
@@ -2004,7 +2088,6 @@ or markdown line extraction.
              :providers providers.implementation)))
 
     (finalize-selected-item
-      :ctx ctx
       :selected selected
       :queued queued
       :roadmap roadmap
@@ -2013,19 +2096,19 @@ or markdown line extraction.
 ```
 
 This is the target shape for procedural composability. The workflow reads like a
-typed program, not like a list of gates.
+typed program, not like a list of gates. Lowering/runtime may bind `ItemCtx`,
+phase contexts, generated paths, idempotency keys, and transition audit state
+behind this surface; those bindings should not become public workflow inputs.
 
 ## 25. Example: Top-Level Backlog Drain
 
 ```lisp
 (defworkflow neurips/run-backlog-drain
-  ((ctx DrainCtx)
-   (providers NeuripsProviders)
+  ((providers NeuripsProviders)
    (max-iterations Int))
   -> DrainResult
 
   (backlog-drain neurips
-    :ctx ctx
     :selector selector/run
     :run-item selected-item/run
     :gap-drafter gap/draft
@@ -2037,7 +2120,10 @@ The `backlog-drain` form should own select, run selected item, handle empty,
 handle gap, handle blocked item, record terminal drain state, and bounded
 repetition.
 
-Do not hand-author this pattern repeatedly.
+Do not hand-author this pattern repeatedly, and do not expose `DrainCtx`,
+run-state roots, summary targets, or generated bundle paths as ordinary public
+inputs just to make the drain work. Library internals may still receive private
+context after lowering.
 
 ## 26. Prompt Examples
 
