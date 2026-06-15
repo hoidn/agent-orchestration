@@ -283,6 +283,11 @@ document owns the answer.
 **Keywords:** lisp-frontend, resume, checkpoints, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges, boundary-cleanup, values-before-artifacts
 **Use this when:** Planning or reviewing the combined cleanup of resume-only and render-only path plumbing from Workflow Lisp workflows.
 
+### [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
+**Description:** Draft target for proving the runtime-native authoring shape on a working Design Delta Drain `.orc` family: typed provider request records, private runtime context, consumer-side rendering, typed projections, resource transitions, and certified adapter boundaries.
+**Keywords:** lisp-frontend, drain, runtime-native, typed-values, provider-inputs, private-context, consumer-rendering, resource-transitions, adapter-retirement
+**Use this when:** Planning or reviewing the concrete reference-family acceptance target for a principled Design Delta Drain `.orc` translation.
+
 ### [Workflow Lisp Consumer-Side Rendering](design/workflow_lisp_consumer_side_rendering.md)
 **Description:** Predecessor draft for the umbrella target's consumer-rendering track.
 **Keywords:** lisp-frontend, rendering, materialized-views, prompts, observability, publish-policy, compatibility-bridges
