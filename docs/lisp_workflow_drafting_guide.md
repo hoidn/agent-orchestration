@@ -1304,6 +1304,37 @@ Avoid:
 Those paths may exist after lowering, but they should not be ordinary high-level
 authoring concerns.
 
+### 11.2 Path Management
+
+Before adding a path field, decide who semantically owns that path:
+
+| Path class | Examples | Authoring rule |
+| --- | --- | --- |
+| Public authored input | target design doc, baseline design doc, steering doc, explicit output root | Keep as a typed public input when the caller genuinely chooses it. |
+| Source or context document | prompt context doc, design reference doc, check-command spec | Model as a typed path value or typed request field. |
+| Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
+| Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
+| Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
+| Prompt rendering | provider prompt input text | Pass a typed value/request record; prompt composition renders it. |
+| Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
+| Durable workflow state | backlog item state, drain state, recovery state | Use `Resource<TState>` and `Transition<TRequest, TResult>`, not arbitrary file writes. |
+
+Litmus test: if deleting the path field would not change the workflow's
+semantic domain input or output, the path is probably private, generated,
+runtime-derived, a materialized view, or a compatibility bridge. It should not
+be ordinary authored data.
+
+If the only way to compute a path is string concatenation such as
+`"${inputs.state_root}/..."`, stop and classify the value first. The fix is
+usually one of:
+
+- move the value into a typed request record;
+- derive it from private context through `StateLayout`;
+- make it a provider/command structured-output target;
+- publish it at the boundary;
+- declare it as a compatibility bridge; or
+- keep it behind a certified adapter if it is truly legacy protocol work.
+
 ## 12. Transitions Instead Of Gates
 
 A gate asks: may I continue?
