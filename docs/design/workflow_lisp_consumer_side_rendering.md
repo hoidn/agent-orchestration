@@ -115,6 +115,9 @@ Implement the work in ordered tranches:
 - C5: kernel split and cleanup — ephemeral vs durable renderings made
   explicit in the kernel; authored views replaced by C1-C4 retired with
   dual-run evidence.
+- C6: author-facing rendering ergonomics — common prompt, publication,
+  and bridge renderings are inferred from consumer position and boundary
+  policy; explicit render/materialize forms remain advanced escape hatches.
 
 The target success condition is not "views are easier to write." It is
 that the reference family's body code contains zero `materialize-view`
@@ -500,7 +503,95 @@ consumer class, and verify the kernel seam this design depends on.
   attributable (policy, metadata, or justified timed form); zero
   unattributed files (goal 4 proven mechanically).
 
-## 15. Failure Modes
+## 15. Tranche C6: Author-Facing Rendering Ergonomics
+
+C1-C5 make rendering ownership correct. C6 makes the ordinary authoring
+surface small enough that workflow authors express typed dataflow and boundary
+intent, not renderer plumbing.
+
+### 15.1 Tasks
+
+- Provider prompt inputs infer ephemeral rendering from provider-input
+  position. A typed input in `provider-result :inputs` is rendered at prompt
+  composition with the default renderer for its type and prompt slot unless
+  an explicit renderer override is supplied.
+- Entry workflow publications infer durable rendering from `:publish` policy.
+  Authors publish typed result fields or variant fields by role; they do not
+  hand-author terminal `materialize-view` steps for ordinary reports.
+- Compatibility bridge renderings infer durable bridge maintenance from bridge
+  metadata. Authors name the typed source and legacy role; they do not write
+  path-producing body code for the bridge.
+- `render` / `materialize-view` remains available only for advanced cases:
+  explicit renderer override, justified timed publication, or low-level
+  compatibility work. Review guidance should treat unexplained body-level
+  rendering as a design smell.
+- Renderer selection errors must be compile-time or preflight diagnostics
+  that name the typed value, consumer slot, candidate renderer, and missing
+  default.
+- Source maps, Semantic IR, and build evidence must show the inferred
+  rendering decision even when the authored code contains no explicit render
+  form.
+
+### 15.2 Illustrative Surface
+
+Prompt input rendering should usually be implicit:
+
+```lisp
+(provider-result review
+  :prompt review-prompt
+  :inputs (draft-result context-docs)
+  :returns ReviewDecision)
+```
+
+Renderer overrides should be local to the consumer slot:
+
+```lisp
+(provider-result review
+  :prompt review-prompt
+  :inputs ((draft-result :renderer markdown-compact))
+  :returns ReviewDecision)
+```
+
+Durable rendering belongs at boundaries:
+
+```lisp
+(defworkflow drain
+  ((steering SteeringDoc)
+   (target-design TargetDesignDoc)
+   (baseline-design BaselineDesignDoc))
+  -> DrainResult
+  (:publish
+    ((DONE.drain-summary :renderer markdown :role drain-summary)
+     (BLOCKED.drain-summary :renderer markdown :role drain-summary)))
+  ...)
+```
+
+Legacy files belong in bridge metadata:
+
+```lisp
+(:bridge
+  ((legacy-selection-bundle
+     :from selection
+     :renderer canonical-json
+     :schema design-delta-selection-bundle.v1)))
+```
+
+### 15.3 Acceptance
+
+- A provider step can pass typed values in `:inputs` without an authored
+  render/materialize form, and the composed-prompt log records the inferred
+  renderer id/version and source value.
+- Ordinary entrypoint reports are expressed through `:publish` policy, not
+  body-level `materialize-view`.
+- Compatibility bundle maintenance is expressed through bridge metadata, not
+  workflow body path construction.
+- Explicit renderer overrides work, but unexplained explicit renderings in
+  workflow bodies fail lint unless they are timed publications or accepted
+  compatibility escapes.
+- The reference family keeps the C5 cleanup end-state while reducing visible
+  rendering boilerplate in author-facing `.orc`.
+
+## 16. Failure Modes
 
 | Failure | Detection | Response |
 | --- | --- | --- |
@@ -510,8 +601,10 @@ consumer class, and verify the kernel seam this design depends on.
 | Bridge file diverges from typed value | impossible while maintained (rendered on commit); orphan check for unmaintained files | CI failure on orphans |
 | Derived report content drifts from retired view expectations | dual-run retirement evidence; renderer versioning | retirement blocked until match |
 | Ephemeral lane silently allocates | C1 no-allocation assertion | test failure (invariant 3) |
+| Inferred renderer is ambiguous | C6 renderer-resolution diagnostic | require an explicit local renderer override |
+| Explicit render reintroduces body plumbing | C6 body-render lint | require `:publish`, bridge metadata, prompt input inference, or timed-publication justification |
 
-## 16. Verification Strategy
+## 17. Verification Strategy
 
 - Shared renderer determinism vectors across all lanes and the kernel.
 - C1 no-allocation and prompt-content dual-run assertions.
@@ -523,16 +616,19 @@ consumer class, and verify the kernel seam this design depends on.
   entries, metadata entries, and timed forms — zero unmatched.
 - Lint negatives for `interior_publication` and view-as-semantic-input
   across the new lanes.
+- C6 ergonomics fixtures: implicit provider input rendering, local renderer
+  override, boundary `:publish` lowering, bridge metadata lowering, ambiguous
+  renderer failure, and body-render lint failure.
 
-## 17. Declarative Acceptance Scenarios
+## 18. Declarative Acceptance Scenarios
 
-### 17.1 A value goes to a prompt without a file
+### 18.1 A value goes to a prompt without a file
 
 A review step receives the drain's typed terminal result directly; the
 composed prompt shows the rendered JSON with its provenance header; no
 view file exists anywhere in the run for that injection.
 
-### 17.2 The summary nobody wrote
+### 18.2 The summary nobody wrote
 
 A full drain fixture run produces no authored summary view, yet
 `orchestrate report` shows the terminal summary rendered from the typed

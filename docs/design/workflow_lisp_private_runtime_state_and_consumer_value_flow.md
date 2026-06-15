@@ -121,6 +121,7 @@ Track C: consumer-side rendering
   C3 entry-boundary publish policy
   C4 compatibility bridges as metadata
   C5 durable/ephemeral rendering cleanup
+  C6 author-facing rendering ergonomics
 ```
 
 Merging the targets does not mean making either track block the other. The
@@ -530,6 +531,24 @@ Acceptance:
 - reference-family bodies contain no `materialize-view` except justified timed
   publications.
 
+### C6: Author-facing rendering ergonomics
+
+Make the ordinary rendering surface consumer-position driven. Workflow authors
+should pass typed values to provider inputs, entrypoint publication policy, or
+bridge metadata; they should not write render/materialize plumbing unless they
+are overriding a renderer, declaring a timed publication, or maintaining an
+accepted compatibility escape.
+
+Acceptance:
+
+- provider `:inputs` can accept typed values and infer ephemeral prompt
+  rendering with source-map and composed-prompt evidence;
+- entrypoint `:publish` and bridge metadata cover ordinary durable rendering;
+- explicit body-level rendering is linted unless it is justified by timed
+  publication or compatibility metadata;
+- renderer ambiguity fails with a diagnostic naming the consumer slot and
+  requiring a local override.
+
 ## 11. Dependencies And Sequencing
 
 Prerequisites:
@@ -553,6 +572,7 @@ U0 shared census
   -> C1/C2 prompt and observability rendering
   -> C3/C4 publication and bridge policy
   -> C5 render-only plumbing retirement
+  -> C6 author-facing rendering ergonomics
 ```
 
 Track R and Track C may proceed in either order after U0/C0/R0 if their touched
