@@ -309,6 +309,86 @@ def test_report_fails_on_body_render_not_timed():
 
 
 # --------------------------------------------------------------------------- #
+# Provider :inputs typed value -> C1 lane (Task 7)
+# --------------------------------------------------------------------------- #
+
+
+def _prompt_slot(c0_row_id="c0.plan_phase_prompt_draft"):
+    return {
+        "slot_id": "provider.plan.draft.inputs.plan_context",
+        "consumer_lane": "prompt_input",
+        "expected_track_c_lane": "C1",
+        "c0_row_id": c0_row_id,
+        "source_form": {"kind": "provider_input"},
+        "renderer_selection": {
+            "mode": "infer",
+            "allowed_renderers": [{"renderer_id": "canonical-json", "renderer_version": 1}],
+            "override_allowed": True,
+        },
+        "value": {"type_name": "PlanPromptContext", "authority": "typed_value"},
+    }
+
+
+def test_provider_inputs_typed_value_selects_c1_lane_without_prompt_file():
+    slot = _prompt_slot()
+    resolution = resolve_renderer_for_slot(slot)
+    assert resolution["resolution"] == "selected"
+    assert resolution["selected_lane"] == "C1_TYPED_PROMPT_INPUT"
+
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [{"c0_row_id": slot["c0_row_id"]}],
+        },
+    )
+    report = build_rendering_ergonomics_report(policy=policy, prerequisite_reports=reports)
+    assert report["status"] == "pass"
+    assert not any(
+        d["code"] == "rendering_ergonomics_prompt_file_still_required"
+        for d in report["diagnostics"]
+    )
+
+
+def test_provider_inputs_still_requiring_prompt_file_fails():
+    slot = _prompt_slot()
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [
+                {
+                    "c0_row_id": slot["c0_row_id"],
+                    "prompt_input_file": "artifacts/work/plan_context.prompt.txt",
+                }
+            ],
+        },
+    )
+    report = build_rendering_ergonomics_report(policy=policy, prerequisite_reports=reports)
+    assert report["status"] == "fail"
+    assert any(
+        d["code"] == "rendering_ergonomics_prompt_file_still_required"
+        for d in report["diagnostics"]
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Author-facing lints (Task 5)
 # --------------------------------------------------------------------------- #
 

@@ -278,6 +278,7 @@ def resolve_renderer_for_slot(slot: Mapping[str, Any]) -> dict[str, Any]:
     selection = slot.get("renderer_selection", {}) or {}
     mode = selection.get("mode")
     base = _empty_resolution(slot_id)
+    base["selected_lane"] = _selected_lane_label(slot)
 
     if lane == "typed_step" or mode == "none":
         base["resolution"] = "not_rendered"
