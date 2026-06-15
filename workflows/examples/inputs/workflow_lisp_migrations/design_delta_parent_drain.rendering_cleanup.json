@@ -1,0 +1,128 @@
+{
+  "schema_version": "workflow_lisp_rendering_cleanup.v1",
+  "target_family": "lisp_frontend_design_delta_parent_drain",
+  "source_census": {
+    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
+    "schema_version": "workflow_lisp_private_runtime_value_flow_census.v1"
+  },
+  "source_consumer_rendering_census": {
+    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.consumer_rendering_census.json",
+    "schema_version": "workflow_lisp_consumer_rendering_census.v1"
+  },
+  "prerequisite_reports": {
+    "typed_prompt_input_report": "workflow_lisp_typed_prompt_input_report.v1",
+    "observability_summary_report": "workflow_lisp_observability_summary_report.v1",
+    "entry_publication_report": "workflow_lisp_entry_publication_report.v1",
+    "compatibility_bridge_report": "workflow_lisp_compatibility_bridge_report.v1"
+  },
+  "rows": [
+    {
+      "c0_row_id": "c0.plan_phase_prompt_draft",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.selector_prompt_select_next_work",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.drain_materialized_drain_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.drain_summary_report_target_final_summary_view",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_materialized_return_checks_report",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_materialized_return_execution_report",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_materialized_return_progress_report",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_approved_plan_review_report_path",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_last_plan_review_report_path",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.work_item_summary_summary_path",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_output_approved_plan_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_output_return_findings_items_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.selector_output_return_selection_bundle_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.drain_output_return_run_state",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.drain_bridge_manifest_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.drain_bridge_progress_ledger_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_bridge_architecture_bundle_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_bridge_manifest_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_bridge_progress_ledger_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_pointer_selection_bundle_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_command_selection_bundle_path",
+      "decision": "KEPT_BLOCKED_COMPATIBILITY"
+    }
+  ]
+}

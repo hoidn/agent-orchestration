@@ -388,6 +388,9 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "value_flow_census_report",
                     "consumer_rendering_census_report",
                     "typed_prompt_input_report",
+                    "entry_publication_report",
+                    "compatibility_bridge_report",
+                    "rendering_cleanup_report",
                     "g8_deletion_evidence",
                 ],
                 "optional": ["expanded_debug_yaml"],
@@ -2484,6 +2487,9 @@ def _write_design_delta_g0_build_manifest(
     include_value_flow_census_report: bool = True,
     include_consumer_rendering_census_report: bool = True,
     include_typed_prompt_input_report: bool = True,
+    include_entry_publication_report: bool = True,
+    include_compatibility_bridge_report: bool = True,
+    include_rendering_cleanup_report: bool = True,
     include_g8_deletion_evidence: bool = True,
     g8_removed_manifest_rows: list[str] | None = None,
     boundary_unclassified: list[str] | None = None,
@@ -2496,6 +2502,9 @@ def _write_design_delta_g0_build_manifest(
     value_flow_status: str = "pass",
     consumer_rendering_status: str = "pass",
     typed_prompt_input_status: str = "pass",
+    entry_publication_status: str = "pass",
+    compatibility_bridge_status: str = "pass",
+    rendering_cleanup_status: str = "pass",
 ) -> Path:
     build_root = tmp_path / "build"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -2734,6 +2743,211 @@ def _write_design_delta_g0_build_manifest(
                 "status": typed_prompt_input_status,
             },
         )
+    if include_entry_publication_report:
+        _write_json(
+            build_root / "entry_publication_report.json",
+            {
+                "schema_version": "workflow_lisp_entry_publication_report.v1",
+                "workflow_family": "lisp_frontend_design_delta_parent_drain",
+                "status": entry_publication_status,
+                "selected_c0_rows": [
+                    {"row_id": "c0.plan_phase_output_approved_plan_path"}
+                ],
+                "lowered_publications": [],
+                "compatibility_reasons": [
+                    {"row_id": "c0.plan_phase_output_approved_plan_path"}
+                ],
+            },
+        )
+    if include_compatibility_bridge_report:
+        _write_json(
+            build_root / "compatibility_bridge_report.json",
+            {
+                "schema_version": "workflow_lisp_compatibility_bridge_report.v1",
+                "workflow_family": "design_delta_parent_drain",
+                "selected_c0_rows": [
+                    {"row_id": "c0.work_item_pointer_selection_bundle_path"},
+                    {"row_id": "c0.work_item_command_selection_bundle_path"},
+                ],
+                "generated_bridges": [
+                    {"c0_row_id": "c0.work_item_pointer_selection_bundle_path"}
+                ],
+                "blocked_bridges": [
+                    {"c0_row_id": "c0.work_item_command_selection_bundle_path"}
+                ],
+                "retired_bridges": [],
+                "orphan_bridge_files": [],
+                "contract_isolation": {
+                    "workflow_signature_unchanged": True,
+                    "call_contract_unchanged": True,
+                    "boundary_projection_public_inputs_unchanged": True,
+                    "typed_steps_do_not_consume_bridge_views": True,
+                },
+                "diagnostics": [],
+                "status": compatibility_bridge_status,
+            },
+        )
+    if include_rendering_cleanup_report:
+        _write_json(
+            build_root / "rendering_cleanup_report.json",
+            {
+                "schema_version": "workflow_lisp_rendering_cleanup_report.v1",
+                "workflow_family": "design_delta_parent_drain",
+                "status": rendering_cleanup_status,
+                "selected_rows": [
+                    {"row_id": "c0.plan_phase_output_approved_plan_path"},
+                    {"row_id": "c0.work_item_command_selection_bundle_path"},
+                    {"row_id": "c0.drain_materialized_drain_summary"},
+                ],
+                "source_census": {
+                    "path": (
+                        "workflows/examples/inputs/workflow_lisp_migrations/"
+                        "design_delta_parent_drain.value_flow_census.json"
+                    ),
+                    "schema_version": "workflow_lisp_private_runtime_value_flow_census.v1",
+                },
+                "prerequisite_reports": {
+                    "typed_prompt_input_report": {
+                        "status": "pass",
+                        "schema_version": "workflow_lisp_typed_prompt_input_report.v1",
+                    },
+                    "observability_summary_report": {
+                        "status": "pass",
+                        "schema_version": "workflow_lisp_observability_summary_report.v1",
+                    },
+                    "entry_publication_report": {
+                        "status": "pass",
+                        "schema_version": "workflow_lisp_entry_publication_report.v1",
+                    },
+                    "compatibility_bridge_report": {
+                        "status": "pass",
+                        "schema_version": "workflow_lisp_compatibility_bridge_report.v1",
+                    },
+                },
+                "cleanup_decisions": [
+                    {
+                        "cleanup_id": "cleanup.c0.plan.phase.output.approved.plan.path",
+                        "c0_row_id": "c0.plan_phase_output_approved_plan_path",
+                        "u0_row_id": "plan.phase.output.approved_plan_path",
+                        "previous_track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+                        "cleanup_decision": "BLOCKED",
+                        "durability_before": "durable_publication",
+                        "durability_after": "durable_publication",
+                        "replacement_evidence": {
+                            "report_name": "entry_publication_report",
+                            "report_schema_version": "workflow_lisp_entry_publication_report.v1",
+                            "report_path": "",
+                            "row_id": "c0.plan_phase_output_approved_plan_path",
+                            "status": "pass",
+                        },
+                        "compiled_liveness": {
+                            "old_body_materialize_view_unreferenced": True,
+                            "old_public_output_unreferenced": False,
+                            "old_bridge_unreferenced": True,
+                        },
+                        "source_cleanup": {
+                            "allowed": False,
+                            "expected_files": [
+                                "workflows/library/lisp_frontend_design_delta/drain.orc"
+                            ],
+                        },
+                        "notes": "",
+                    },
+                    {
+                        "cleanup_id": "cleanup.c0.work.item.command.selection.bundle.path",
+                        "c0_row_id": "c0.work_item_command_selection_bundle_path",
+                        "u0_row_id": "work_item.command.selection_bundle_path",
+                        "previous_track_c_decision": "BLOCKED",
+                        "cleanup_decision": "KEPT_BLOCKED_COMPATIBILITY",
+                        "durability_before": "durable_bridge",
+                        "durability_after": "durable_bridge",
+                        "replacement_evidence": {
+                            "report_name": "compatibility_bridge_report",
+                            "report_schema_version": "workflow_lisp_compatibility_bridge_report.v1",
+                            "report_path": "",
+                            "row_id": "c0.work_item_command_selection_bundle_path",
+                            "status": "pass",
+                        },
+                        "compiled_liveness": {
+                            "old_body_materialize_view_unreferenced": True,
+                            "old_public_output_unreferenced": True,
+                            "old_bridge_unreferenced": False,
+                        },
+                        "source_cleanup": {
+                            "allowed": False,
+                            "expected_files": [
+                                "workflows/library/lisp_frontend_design_delta/work_item.orc"
+                            ],
+                        },
+                        "blocked_by": {
+                            "adapter": "materialize_lisp_frontend_work_item_inputs",
+                            "reason": "certified adapter still consumes the bridge",
+                        },
+                        "notes": "",
+                    },
+                    {
+                        "cleanup_id": "cleanup.c0.drain.materialized.drain.summary",
+                        "c0_row_id": "c0.drain_materialized_drain_summary",
+                        "u0_row_id": "drain.materialized.drain_summary",
+                        "previous_track_c_decision": "KEEP_TIMED_PUBLICATION",
+                        "cleanup_decision": "KEEP_TIMED_PUBLICATION",
+                        "durability_before": "durable_timed_body",
+                        "durability_after": "durable_timed_body",
+                        "replacement_evidence": {
+                            "report_name": "consumer_rendering_census",
+                            "report_schema_version": "workflow_lisp_consumer_rendering_census.v1",
+                            "report_path": "",
+                            "row_id": "c0.drain_materialized_drain_summary",
+                            "status": "pass",
+                        },
+                        "compiled_liveness": {
+                            "old_body_materialize_view_unreferenced": False,
+                            "old_public_output_unreferenced": True,
+                            "old_bridge_unreferenced": True,
+                        },
+                        "source_cleanup": {
+                            "allowed": False,
+                            "expected_files": [
+                                "workflows/library/lisp_frontend_design_delta/drain.orc"
+                            ],
+                        },
+                        "timed_publication": {
+                            "reason": "view must remain materialized before downstream consumers observe the timed summary path",
+                            "materialize_view_step_ids": [
+                                "root.__timed_view"
+                            ],
+                        },
+                        "notes": "",
+                    },
+                ],
+                "decision_counts": {
+                    "KEEP_TIMED_PUBLICATION": 2,
+                    "BLOCKED": 7,
+                    "KEPT_BLOCKED_COMPATIBILITY": 1,
+                },
+                "blocked_row_ids": [
+                    "c0.plan_phase_output_approved_plan_path",
+                    "c0.work_item_command_selection_bundle_path",
+                ],
+                "surviving_body_materialization_row_ids": [
+                    "c0.drain_materialized_drain_summary",
+                    "c0.work_item_summary_summary_path",
+                ],
+                "durability_reconciliation": {
+                    "prompt_rows_ephemeral": True,
+                    "durable_publications_state_layout_allocated": True,
+                    "durable_bridges_state_layout_allocated": True,
+                    "body_materialize_views_timed_only": True,
+                },
+                "contract_isolation": {
+                    "workflow_signature_unchanged": True,
+                    "typed_steps_do_not_consume_views": True,
+                    "prompt_views_not_published": True,
+                    "observability_views_not_semantic_outputs": True,
+                },
+                "diagnostics": [],
+            },
+        )
     if include_g8_deletion_evidence:
         _write_json(
             build_root / "g8_deletion_evidence.json",
@@ -2776,6 +2990,21 @@ def _write_design_delta_g0_build_manifest(
             build_root / "typed_prompt_input_report.json"
         )
         artifact_status["typed_prompt_input_report"] = "emitted"
+    if include_entry_publication_report:
+        artifact_paths["entry_publication_report"] = str(
+            build_root / "entry_publication_report.json"
+        )
+        artifact_status["entry_publication_report"] = "emitted"
+    if include_compatibility_bridge_report:
+        artifact_paths["compatibility_bridge_report"] = str(
+            build_root / "compatibility_bridge_report.json"
+        )
+        artifact_status["compatibility_bridge_report"] = "emitted"
+    if include_rendering_cleanup_report:
+        artifact_paths["rendering_cleanup_report"] = str(
+            build_root / "rendering_cleanup_report.json"
+        )
+        artifact_status["rendering_cleanup_report"] = "emitted"
     if include_g8_deletion_evidence:
         artifact_paths["g8_deletion_evidence"] = str(build_root / "g8_deletion_evidence.json")
         artifact_status["g8_deletion_evidence"] = "emitted"
@@ -2843,6 +3072,9 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
     assert report["boundary_authority_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["value_flow_census_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["consumer_rendering_census_report"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["entry_publication_report"]["workflow_family"] == "lisp_frontend_design_delta_parent_drain"
+    assert report["compatibility_bridge_report"]["workflow_family"] == "design_delta_parent_drain"
+    assert report["rendering_cleanup_report"]["workflow_family"] == "design_delta_parent_drain"
     assert report["g8_deletion_evidence"]["workflow_family"] == "design_delta_parent_drain"
     assert report["compile_artifacts"]["required"]["adapter_census"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["boundary_authority_report"]["status"] == "pass"
@@ -2851,7 +3083,53 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
         report["compile_artifacts"]["required"]["consumer_rendering_census_report"]["status"]
         == "pass"
     )
+    assert report["compile_artifacts"]["required"]["entry_publication_report"]["status"] == "pass"
+    assert report["compile_artifacts"]["required"]["compatibility_bridge_report"]["status"] == "pass"
+    assert report["compile_artifacts"]["required"]["rendering_cleanup_report"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["g8_deletion_evidence"]["status"] == "pass"
+
+
+def test_run_parity_target_fails_when_c4_c5_reports_are_under_specified(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    compatibility_bridge_report_path = build_root / "compatibility_bridge_report.json"
+    rendering_cleanup_report_path = build_root / "rendering_cleanup_report.json"
+    compatibility_bridge_payload = json.loads(
+        compatibility_bridge_report_path.read_text(encoding="utf-8")
+    )
+    rendering_cleanup_payload = json.loads(
+        rendering_cleanup_report_path.read_text(encoding="utf-8")
+    )
+    compatibility_bridge_payload.pop("contract_isolation", None)
+    rendering_cleanup_payload.pop("durability_reconciliation", None)
+    rendering_cleanup_payload.pop("contract_isolation", None)
+    rendering_cleanup_payload["cleanup_decisions"] = [
+        {
+            "c0_row_id": "c0.work_item_command_selection_bundle_path",
+            "cleanup_decision": "KEPT_BLOCKED_COMPATIBILITY",
+        }
+    ]
+    _write_json(compatibility_bridge_report_path, compatibility_bridge_payload)
+    _write_json(rendering_cleanup_report_path, rendering_cleanup_payload)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["compatibility_bridge_report"][
+        "status"
+    ] == "fail"
+    assert report["compile_artifacts"]["required"]["rendering_cleanup_report"][
+        "status"
+    ] == "fail"
 
 
 def test_run_parity_target_fails_cleanly_when_consumer_rendering_census_report_artifact_is_missing(
@@ -2926,6 +3204,90 @@ def test_run_parity_target_fails_cleanly_when_typed_prompt_input_report_artifact
     assert report["compile_artifacts"]["required"]["typed_prompt_input_report"]["status"] == "missing"
 
 
+def test_run_parity_target_fails_cleanly_when_compatibility_bridge_report_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_compatibility_bridge_report=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["compatibility_bridge_report"]["status"] == "missing"
+
+
+def test_run_parity_target_fails_when_compatibility_bridge_report_is_non_passing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        compatibility_bridge_status="fail",
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["compatibility_bridge_report"]["status"] == "fail"
+
+
+def test_run_parity_target_fails_cleanly_when_rendering_cleanup_report_artifact_is_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_rendering_cleanup_report=False,
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["rendering_cleanup_report"]["status"] == "missing"
+
+
+def test_run_parity_target_fails_when_rendering_cleanup_report_is_non_passing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        rendering_cleanup_status="fail",
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["compile_artifacts"]["required"]["rendering_cleanup_report"]["status"] == "fail"
+
+
 def test_run_parity_target_fails_when_typed_prompt_input_report_is_non_passing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2963,6 +3325,60 @@ def test_design_delta_parent_drain_target_requires_typed_prompt_input_compile_ar
     )
 
     assert "typed_prompt_input_report" in target["compile_artifacts"]["required"]
+
+
+def test_design_delta_parent_drain_target_requires_compatibility_bridge_compile_artifact() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert "compatibility_bridge_report" in target["compile_artifacts"]["required"]
+
+
+def test_design_delta_parent_drain_target_requires_entry_publication_compile_artifact() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert "entry_publication_report" in target["compile_artifacts"]["required"]
+
+
+def test_design_delta_parent_drain_target_requires_rendering_cleanup_compile_artifact() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
 
 
 def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapter_is_still_live(
@@ -3366,6 +3782,9 @@ def test_design_delta_parent_drain_target_requires_g0_compile_artifacts() -> Non
     assert "boundary_authority_report" in target["compile_artifacts"]["required"]
     assert "value_flow_census_report" in target["compile_artifacts"]["required"]
     assert "consumer_rendering_census_report" in target["compile_artifacts"]["required"]
+    assert "entry_publication_report" in target["compile_artifacts"]["required"]
+    assert "compatibility_bridge_report" in target["compile_artifacts"]["required"]
+    assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
     assert "g8_deletion_evidence" in target["compile_artifacts"]["required"]
 
 

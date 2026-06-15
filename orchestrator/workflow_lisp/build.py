@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -14,11 +14,22 @@ from typing import Any
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.core_ast import build_core_workflow_ast, workflow_core_ast_to_json
 from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_boundary_projection
+from orchestrator.workflow.references import MaterializeViewBindingReference
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
-from orchestrator.workflow.state_layout import GeneratedPathSemanticRole
-from orchestrator.workflow.surface_ast import WorkflowProvenance
+from orchestrator.workflow.state_layout import (
+    GeneratedPathAllocation,
+    GeneratedPathPrivacy,
+    GeneratedPathResumeScope,
+    GeneratedPathSemanticRole,
+)
+from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind, WorkflowProvenance
+from orchestrator.workflow.view_renderer import (
+    VIEW_RENDERER_SCHEMA_VERSION,
+    resolve_view_renderer,
+)
 
 from .command_boundaries import (
     CertifiedAdapterBinding,
@@ -33,6 +44,10 @@ from .consumer_rendering_census import (
     build_consumer_rendering_census_report,
     extract_materialize_view_effects,
     load_consumer_rendering_census,
+)
+from .compatibility_bridges import (
+    build_compatibility_bridge_report,
+    load_compatibility_bridge_manifest,
 )
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
@@ -56,11 +71,16 @@ from .phase_family_boundary import (
     is_design_delta_parent_drain_target_workflow,
     load_design_delta_boundary_authority_registry,
 )
+from .observability_summaries import OBSERVABILITY_SUMMARY_REPORT_SCHEMA_ID
 from . import lexical_checkpoint_default_resume
 from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
 from .typed_prompt_inputs import build_typed_prompt_input_report
+from .rendering_cleanup import (
+    build_rendering_cleanup_report,
+    load_rendering_cleanup_manifest,
+)
 from .type_env import UnionTypeRef
 from .value_flow_census import (
     load_value_flow_census,
@@ -106,6 +126,22 @@ DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.consumer_rendering_census.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.compatibility_bridges.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.rendering_cleanup.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
     Path(__file__).resolve().parents[2]
@@ -386,6 +422,16 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         entry_workflow=entry_selection.canonical_name,
         value_flow_census=value_flow_census,
     )
+    compatibility_bridge_manifest = None
+    if consumer_rendering_census is not None and value_flow_census is not None:
+        compatibility_bridge_manifest = (
+            _maybe_load_design_delta_compatibility_bridge_manifest(
+                entry_workflow=entry_selection.canonical_name,
+                value_flow_census=value_flow_census,
+                consumer_rendering_census=consumer_rendering_census,
+                command_boundary_manifest=command_boundary_manifest,
+            )
+        )
     resume_plumbing_retirement_manifest = (
         _maybe_load_design_delta_resume_plumbing_retirement_manifest(
             entry_workflow=entry_selection.canonical_name,
@@ -399,14 +445,6 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     workflow_boundary_projection_payload = _serialize_workflow_boundary_projection(
         compile_result,
         selected_name=entry_selection.canonical_name,
-    )
-    runtime_plan = enrich_workflow_runtime_plan(
-        selected_bundle.runtime_plan,
-        command_boundary_metadata=_command_boundary_metadata_for_workflow(
-            source_map_payload,
-            workflow_name=entry_selection.canonical_name,
-        ),
-        has_compiled_frontend_lineage=True,
     )
     fingerprint = _fingerprint_build(
         request=resolved_request,
@@ -435,38 +473,49 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         frontend_source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         frontend_source_map_coverage=dict(SOURCE_MAP_COVERAGE),
     )
-    validated_surface = replace(selected_bundle.surface, provenance=provenance)
+    validated_bundle, validated_bundles_by_name = (
+        _materialize_design_delta_compatibility_bridge_bundles(
+            selected_bundle=selected_bundle,
+            validated_bundles_by_name=compile_result.validated_bundles_by_name,
+            selected_provenance=replace(
+                provenance,
+                frontend_source_trace_path=None,
+                frontend_source_map_schema_version=None,
+                frontend_source_map_coverage=None,
+            ),
+            compatibility_bridge_manifest=compatibility_bridge_manifest,
+        )
+    )
+    validated_bundle = _reattach_bundle_provenance(
+        bundle=validated_bundle,
+        provenance=provenance,
+    )
+    runtime_plan = enrich_workflow_runtime_plan(
+        validated_bundle.runtime_plan,
+        command_boundary_metadata=_command_boundary_metadata_for_workflow(
+            source_map_payload,
+            workflow_name=entry_selection.canonical_name,
+        ),
+        has_compiled_frontend_lineage=True,
+    )
+    validated_bundle = replace(validated_bundle, runtime_plan=runtime_plan)
     source_map_path.write_text(
         json.dumps(_json_data(source_map_payload), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    core_workflow_ast = build_core_workflow_ast(validated_surface, selected_bundle.imports, provenance)
-    validated_bundle = LoadedWorkflowBundle(
-        surface=validated_surface,
-        core_workflow_ast=core_workflow_ast,
-        semantic_ir=derive_workflow_semantic_ir(
-            core_workflow_ast=core_workflow_ast,
-            surface=validated_surface,
-            ir=selected_bundle.ir,
-            projection=selected_bundle.projection,
-            runtime_plan=runtime_plan,
-            imports=selected_bundle.imports,
-            provenance=provenance,
-        ),
-        ir=selected_bundle.ir,
-        projection=selected_bundle.projection,
-        runtime_plan=runtime_plan,
-        imports=selected_bundle.imports,
-        provenance=provenance,
-    )
     runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
     semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
+    executable_ir_payload = workflow_executable_ir_to_json(validated_bundle.ir)
     adapter_census_payload = None
     boundary_authority_report_payload = None
     value_flow_census_report_payload = None
     consumer_rendering_census_report_payload = None
     typed_prompt_input_report_payload = None
+    observability_summary_report_payload = None
     entry_publication_report_payload = None
+    compatibility_bridge_report_payload = None
+    compatibility_bridge_generated_steps: list[dict[str, Any]] = []
+    rendering_cleanup_report_payload = None
     resume_plumbing_retirement_report_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
@@ -493,6 +542,9 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             value_flow_census=value_flow_census,
         )
         if value_flow_census is not None:
+            materialize_view_effects = _collect_materialize_view_effects(
+                validated_bundles_by_name
+            )
             value_flow_census_report_payload = reconcile_value_flow_census(
                 census=value_flow_census,
                 checked_census_path=Path(str(value_flow_census.get("__census_path__", ""))),
@@ -544,9 +596,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                     build_consumer_rendering_census_report(
                         manifest=consumer_rendering_census,
                         value_flow_census=value_flow_census,
-                        materialize_view_effects=_collect_materialize_view_effects(
-                            compile_result
-                        ),
+                        materialize_view_effects=materialize_view_effects,
                         command_boundary_manifest=command_boundary_manifest,
                         boundary_authority_report=boundary_authority_report_payload,
                         boundary_authority_report_path=str(
@@ -623,7 +673,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                     checked_manifest_sha256=str(
                         consumer_rendering_census.get("__manifest_sha256__", "")
                     ),
-                    validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                    validated_bundles_by_name=validated_bundles_by_name,
                 )
                 if typed_prompt_input_report_payload.get("status") != "pass":
                     diagnostics_bucket: list[dict[str, Any]] = []
@@ -650,6 +700,54 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                                 code="typed_prompt_input_invalid",
                                 message=(
                                     "design-delta typed prompt-input report failed: "
+                                    f"{first_code}: {first_row_id}"
+                                ),
+                                path=Path(
+                                    str(
+                                        consumer_rendering_census.get(
+                                            "__manifest_path__", ""
+                                        )
+                                    )
+                                ),
+                            ),
+                        )
+                    )
+                observability_summary_report_payload = (
+                    _build_design_delta_observability_summary_prerequisite_report(
+                        consumer_rendering_census=consumer_rendering_census,
+                        materialize_view_effects=materialize_view_effects,
+                    )
+                )
+                if observability_summary_report_payload.get("status") != "pass":
+                    diagnostics_bucket = observability_summary_report_payload.get(
+                        "diagnostics", {}
+                    )
+                    errors = (
+                        diagnostics_bucket.get("errors", [])
+                        if isinstance(diagnostics_bucket, Mapping)
+                        else []
+                    )
+                    first = (
+                        errors[0]
+                        if isinstance(errors, list) and errors
+                        else {}
+                    )
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "observability_summary_c0_row_missing"
+                    )
+                    first_row_id = (
+                        str(first.get("c0_row_id"))
+                        if isinstance(first, Mapping) and first.get("c0_row_id")
+                        else "unknown_row"
+                    )
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code=first_code,
+                                message=(
+                                    "design-delta observability summary evidence failed: "
                                     f"{first_code}: {first_row_id}"
                                 ),
                                 path=Path(
@@ -706,6 +804,141 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                             ),
                         )
                     )
+                if compatibility_bridge_manifest is not None:
+                    compatibility_bridge_generated_steps = (
+                        _augment_design_delta_compatibility_bridge_lineage(
+                            source_map_payload=source_map_payload,
+                            selected_workflow_name=entry_selection.canonical_name,
+                            compatibility_bridge_manifest=compatibility_bridge_manifest,
+                            validated_bundles_by_name=validated_bundles_by_name,
+                        )
+                    )
+                    compatibility_bridge_report_payload = (
+                        build_compatibility_bridge_report(
+                            workflow_family="design_delta_parent_drain",
+                            manifest=compatibility_bridge_manifest,
+                            consumer_rendering_census=consumer_rendering_census,
+                            command_boundary_manifest=command_boundary_manifest,
+                            workflow_boundary_projection=workflow_boundary_projection_payload,
+                            source_map_payload=source_map_payload,
+                            materialize_view_effects=materialize_view_effects,
+                        )
+                    )
+                    if compatibility_bridge_report_payload.get("status") != "pass":
+                        diagnostics_bucket = compatibility_bridge_report_payload.get(
+                            "diagnostics", []
+                        )
+                        first = (
+                            diagnostics_bucket[0]
+                            if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                            else {}
+                        )
+                        first_code = (
+                            str(first.get("code"))
+                            if isinstance(first, Mapping) and first.get("code")
+                            else "compatibility_bridge_metadata_invalid"
+                        )
+                        first_row_id = (
+                            str(first.get("c0_row_id"))
+                            if isinstance(first, Mapping) and first.get("c0_row_id")
+                            else "unknown_row"
+                        )
+                        raise LispFrontendCompileError(
+                            (
+                                _cli_request_diagnostic(
+                                    code=first_code,
+                                    message=(
+                                        "design-delta compatibility bridge report failed: "
+                                        f"{first_code}: {first_row_id}"
+                                    ),
+                                    path=Path(
+                                        str(
+                                            compatibility_bridge_manifest.get(
+                                                "__manifest_path__", ""
+                                            )
+                                        )
+                                    ),
+                            ),
+                        )
+                    )
+                report_paths = _design_delta_prerequisite_report_paths(
+                    build_root=build_root,
+                    workspace_root=resolved_request.workspace_root,
+                )
+                typed_prompt_input_report_payload = _with_report_path(
+                    typed_prompt_input_report_payload,
+                    report_paths["typed_prompt_input_report"],
+                )
+                observability_summary_report_payload = _with_report_path(
+                    observability_summary_report_payload,
+                    report_paths["observability_summary_report"],
+                )
+                entry_publication_report_payload = _with_report_path(
+                    entry_publication_report_payload,
+                    report_paths["entry_publication_report"],
+                )
+                compatibility_bridge_report_payload = _with_report_path(
+                    compatibility_bridge_report_payload,
+                    report_paths["compatibility_bridge_report"],
+                )
+                rendering_cleanup_manifest = (
+                    _maybe_load_design_delta_rendering_cleanup_manifest(
+                        entry_workflow=entry_selection.canonical_name,
+                        consumer_rendering_census=consumer_rendering_census,
+                    )
+                )
+                if rendering_cleanup_manifest is not None:
+                    rendering_cleanup_report_payload = (
+                        build_rendering_cleanup_report(
+                            workflow_family="design_delta_parent_drain",
+                            manifest=rendering_cleanup_manifest,
+                            consumer_rendering_census=consumer_rendering_census,
+                            typed_prompt_input_report=typed_prompt_input_report_payload,
+                            observability_summary_report=observability_summary_report_payload,
+                            entry_publication_report=entry_publication_report_payload,
+                            compatibility_bridge_report=compatibility_bridge_report_payload,
+                            materialize_view_effects=materialize_view_effects,
+                            workflow_boundary_projection=workflow_boundary_projection_payload,
+                            source_map_payload=source_map_payload,
+                        )
+                    )
+                    if rendering_cleanup_report_payload.get("status") != "pass":
+                        diagnostics_bucket = rendering_cleanup_report_payload.get(
+                            "diagnostics", []
+                        )
+                        first = (
+                            diagnostics_bucket[0]
+                            if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                            else {}
+                        )
+                        first_code = (
+                            str(first.get("code"))
+                            if isinstance(first, Mapping) and first.get("code")
+                            else "rendering_cleanup_manifest_invalid"
+                        )
+                        first_row_id = (
+                            str(first.get("c0_row_id"))
+                            if isinstance(first, Mapping) and first.get("c0_row_id")
+                            else "unknown_row"
+                        )
+                        raise LispFrontendCompileError(
+                            (
+                                _cli_request_diagnostic(
+                                    code=first_code,
+                                    message=(
+                                        "design-delta rendering cleanup report failed: "
+                                        f"{first_code}: {first_row_id}"
+                                    ),
+                                    path=Path(
+                                        str(
+                                            rendering_cleanup_manifest.get(
+                                                "__manifest_path__", ""
+                                            )
+                                        )
+                                    ),
+                                ),
+                            )
+                        )
             candidate_rows = resume_plumbing_retirement.select_resume_plumbing_retirement_candidates(
                 value_flow_census
             )
@@ -852,6 +1085,8 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         entry_selection=entry_selection,
         diagnostics=diagnostics,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
+        executable_ir_payload=executable_ir_payload,
+        semantic_ir_payload=semantic_ir_payload,
         source_map_payload=source_map_payload,
         workflow_boundary_projection_payload=workflow_boundary_projection_payload,
         adapter_census_payload=adapter_census_payload,
@@ -859,7 +1094,11 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         value_flow_census_report_payload=value_flow_census_report_payload,
         consumer_rendering_census_report_payload=consumer_rendering_census_report_payload,
         typed_prompt_input_report_payload=typed_prompt_input_report_payload,
+        observability_summary_report_payload=observability_summary_report_payload,
         entry_publication_report_payload=entry_publication_report_payload,
+        compatibility_bridge_report_payload=compatibility_bridge_report_payload,
+        compatibility_bridge_generated_steps=compatibility_bridge_generated_steps,
+        rendering_cleanup_report_payload=rendering_cleanup_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
@@ -1898,6 +2137,62 @@ def _maybe_load_design_delta_consumer_rendering_census(
         ) from exc
 
 
+def _maybe_load_design_delta_compatibility_bridge_manifest(
+    *,
+    entry_workflow: str,
+    value_flow_census: Mapping[str, object] | None,
+    consumer_rendering_census: Mapping[str, object] | None,
+    command_boundary_manifest: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    if value_flow_census is None or consumer_rendering_census is None:
+        return None
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        return load_compatibility_bridge_manifest(
+            DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH,
+            value_flow_census=value_flow_census,
+            consumer_rendering_census=consumer_rendering_census,
+            command_boundary_manifest=command_boundary_manifest,
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="compatibility_bridge_metadata_invalid",
+                    message=f"design-delta compatibility bridge metadata is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH,
+                ),
+            )
+        ) from exc
+
+
+def _maybe_load_design_delta_rendering_cleanup_manifest(
+    *,
+    entry_workflow: str,
+    consumer_rendering_census: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if consumer_rendering_census is None:
+        return None
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        return load_rendering_cleanup_manifest(
+            DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH,
+            consumer_rendering_census=consumer_rendering_census,
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="rendering_cleanup_manifest_invalid",
+                    message=f"design-delta rendering cleanup manifest is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH,
+                ),
+            )
+        ) from exc
+
+
 def _maybe_load_design_delta_view_dual_run_vectors(
     *,
     entry_workflow: str,
@@ -2024,11 +2319,11 @@ def _consumer_rendering_census_provenance(
 
 
 def _collect_materialize_view_effects(
-    compile_result: LinkedStage3CompileResult,
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
 ) -> list[dict[str, Any]]:
     collected: list[dict[str, Any]] = []
     seen_effect_ids: set[str] = set()
-    for bundle in compile_result.validated_bundles_by_name.values():
+    for bundle in validated_bundles_by_name.values():
         semantic_ir_payload = workflow_semantic_ir_to_json(bundle.semantic_ir)
         for effect in extract_materialize_view_effects(semantic_ir_payload):
             effect_id = str(effect.get("effect_id", ""))
@@ -2038,6 +2333,469 @@ def _collect_materialize_view_effects(
                 seen_effect_ids.add(effect_id)
             collected.append(effect)
     return collected
+
+
+def _materialize_design_delta_compatibility_bridge_bundles(
+    *,
+    selected_bundle: LoadedWorkflowBundle,
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    selected_provenance: WorkflowProvenance,
+    compatibility_bridge_manifest: Mapping[str, Any] | None,
+) -> tuple[LoadedWorkflowBundle, Mapping[str, LoadedWorkflowBundle]]:
+    if not isinstance(compatibility_bridge_manifest, Mapping):
+        return (
+            build_loaded_workflow_bundle(
+                replace(selected_bundle.surface, provenance=selected_provenance),
+                imports=selected_bundle.imports,
+                private_artifact_ids=tuple(selected_bundle.ir.private_artifacts),
+            ),
+            dict(validated_bundles_by_name),
+        )
+
+    rows_by_workflow: dict[str, list[Mapping[str, Any]]] = {}
+    for raw_row in compatibility_bridge_manifest.get("bridges", []):
+        if not isinstance(raw_row, Mapping):
+            continue
+        if isinstance(raw_row.get("command_boundary"), Mapping):
+            continue
+        workflow_name = str(raw_row.get("workflow_surface", ""))
+        if not workflow_name:
+            continue
+        rows_by_workflow.setdefault(workflow_name, []).append(raw_row)
+
+    original_by_name = {
+        str(name): bundle for name, bundle in validated_bundles_by_name.items() if isinstance(name, str)
+    }
+    memo: dict[str, LoadedWorkflowBundle] = {}
+
+    def transform_bundle(
+        workflow_name: str,
+        *,
+        provenance_override: WorkflowProvenance | None = None,
+    ) -> LoadedWorkflowBundle:
+        if provenance_override is None and workflow_name in memo:
+            return memo[workflow_name]
+        bundle = original_by_name[workflow_name]
+        transformed_imports = {
+            alias: (
+                transform_bundle(imported.surface.name)
+                if isinstance(imported.surface.name, str)
+                and imported.surface.name in original_by_name
+                else imported
+            )
+            for alias, imported in bundle.imports.items()
+        }
+        surface = replace(
+            bundle.surface,
+            provenance=provenance_override or bundle.provenance,
+        )
+        bridge_rows = rows_by_workflow.get(workflow_name, [])
+        if bridge_rows:
+            surface = _surface_with_compatibility_bridge_steps(
+                surface=surface,
+                bridge_rows=bridge_rows,
+            )
+        rebuilt = build_loaded_workflow_bundle(
+            surface,
+            imports=transformed_imports,
+            private_artifact_ids=tuple(bundle.ir.private_artifacts),
+        )
+        if provenance_override is None:
+            memo[workflow_name] = rebuilt
+        return rebuilt
+
+    selected_name = str(selected_bundle.surface.name or "")
+    transformed_selected = transform_bundle(
+        selected_name,
+        provenance_override=selected_provenance,
+    )
+    memo[selected_name] = transformed_selected
+    transformed_by_name = {
+        workflow_name: memo.get(workflow_name, bundle)
+        for workflow_name, bundle in original_by_name.items()
+    }
+    return transformed_selected, transformed_by_name
+
+
+def _surface_with_compatibility_bridge_steps(
+    *,
+    surface,
+    bridge_rows: Sequence[Mapping[str, Any]],
+):
+    existing_allocations = {
+        allocation.allocation_id
+        for allocation in surface.provenance.generated_path_allocations
+    }
+    allocations = list(surface.provenance.generated_path_allocations)
+    steps = list(surface.steps)
+    for row in bridge_rows:
+        step, allocation = _compatibility_bridge_surface_step(
+            workflow_name=str(surface.name or ""),
+            row=row,
+        )
+        if allocation.allocation_id not in existing_allocations:
+            allocations.append(allocation)
+            existing_allocations.add(allocation.allocation_id)
+        steps.append(step)
+    return replace(
+        surface,
+        steps=tuple(steps),
+        provenance=replace(
+            surface.provenance,
+            generated_path_allocations=tuple(allocations),
+        ),
+    )
+
+
+def _reattach_bundle_provenance(
+    *,
+    bundle: LoadedWorkflowBundle,
+    provenance: WorkflowProvenance,
+) -> LoadedWorkflowBundle:
+    return replace(
+        bundle,
+        surface=replace(bundle.surface, provenance=provenance),
+        core_workflow_ast=replace(bundle.core_workflow_ast, provenance=provenance),
+        ir=replace(bundle.ir, provenance=provenance),
+        provenance=provenance,
+    )
+
+
+def _compatibility_bridge_surface_step(
+    *,
+    workflow_name: str,
+    row: Mapping[str, Any],
+) -> tuple[SurfaceStep, GeneratedPathAllocation]:
+    bridge_id = str(row.get("bridge_id", ""))
+    bridge_slug = _build_slug(bridge_id)
+    workflow_slug = _build_slug(workflow_name)
+    renderer = row.get("renderer", {})
+    renderer_id = str(renderer.get("renderer_id", ""))
+    renderer_version = int(renderer.get("renderer_version", 0))
+    renderer_descriptor = resolve_view_renderer(renderer_id, renderer_version)
+    target_path = (
+        ".orchestrate/workflow_lisp/compatibility_bridges/"
+        f"{workflow_slug}/{bridge_slug}{renderer_descriptor.file_extension}"
+    )
+    allocation_id = f"alloc:design_delta_compatibility_bridge:{workflow_slug}:{bridge_slug}"
+    step_id = f"compatibility_bridge__{bridge_slug}"
+    value_ref = _compatibility_bridge_value_ref(
+        bridge_id=bridge_id,
+        row=row,
+    )
+    output_under = Path(target_path).parent.as_posix()
+    allocation = GeneratedPathAllocation(
+        allocation_id=allocation_id,
+        workflow_name=workflow_name,
+        semantic_role=GeneratedPathSemanticRole.MATERIALIZED_VALUE_VIEW,
+        privacy=GeneratedPathPrivacy.COMPATIBILITY_VIEW,
+        resume_scope=GeneratedPathResumeScope.NONE,
+        stable_identity=f"schema:2/{workflow_name}/compatibility_bridge/{bridge_id}",
+        concrete_path_template=target_path,
+    )
+    return (
+        SurfaceStep(
+            name=step_id,
+            step_id=step_id,
+            kind=SurfaceStepKind.MATERIALIZE_VIEW,
+            materialize_view={
+                "renderer_id": renderer_id,
+                "renderer_version": renderer_version,
+                "view_renderer_schema_version": VIEW_RENDERER_SCHEMA_VERSION,
+                "value_type": {
+                    "kind": "compatibility_bridge",
+                    "name": bridge_id,
+                },
+                "value_document": MaterializeViewBindingReference(ref=value_ref),
+                "target_path": target_path,
+                "target_allocation_id": allocation_id,
+                "authority_class": "compatibility_bridge",
+                "bridge_id": bridge_id,
+                "c0_row_id": str(row.get("c0_row_id", "")),
+                "output_contracts": {
+                    "return": {
+                        "kind": "relpath",
+                        "type": "relpath",
+                        "under": output_under,
+                        "must_exist_target": True,
+                    }
+                },
+            },
+        ),
+        allocation,
+    )
+
+
+def _compatibility_bridge_value_ref(
+    *,
+    bridge_id: str,
+    row: Mapping[str, Any],
+) -> str:
+    typed_value_source = row.get("typed_value_source")
+    source_ref = (
+        str(typed_value_source.get("ref", ""))
+        if isinstance(typed_value_source, Mapping)
+        else ""
+    )
+    if source_ref:
+        known_refs = {
+            "drain.architecture_bundle": "inputs.architecture_bundle_path",
+            "drain.manifest_bundle": "inputs.manifest_path",
+            "drain.progress_ledger_path": "inputs.progress_ledger_path",
+            "work_item.architecture_bundle": "inputs.architecture_bundle_path",
+            "work_item.manifest_bundle": "inputs.manifest_path",
+            "work_item.progress_ledger_path": "inputs.progress_ledger_path",
+            "work_item.selection_bundle_pointer": "inputs.selection_bundle_path",
+            "work_item.selection_bundle_command_input": "inputs.selection_bundle_path",
+        }
+        if source_ref in known_refs:
+            return known_refs[source_ref]
+    field_name = {
+        "bridge.drain.architecture_bundle": "inputs.architecture_bundle_path",
+        "bridge.drain.manifest": "inputs.manifest_path",
+        "bridge.drain.progress_ledger": "inputs.progress_ledger_path",
+        "bridge.work_item.architecture_bundle": "inputs.architecture_bundle_path",
+        "bridge.work_item.manifest": "inputs.manifest_path",
+        "bridge.work_item.progress_ledger": "inputs.progress_ledger_path",
+        "bridge.work_item.pointer.selection_bundle": "inputs.selection_bundle_path",
+        "bridge.work_item.command.selection_bundle": "inputs.selection_bundle_path",
+    }.get(bridge_id)
+    if field_name is not None:
+        return field_name
+    raise LispFrontendCompileError(
+        (
+            _cli_request_diagnostic(
+                code="compatibility_bridge_typed_source_missing",
+                message=(
+                    "design-delta compatibility bridge value source is not mapped "
+                    f"for `{bridge_id}`"
+                ),
+                path=DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH,
+            ),
+        )
+    )
+
+
+def _augment_design_delta_compatibility_bridge_lineage(
+    *,
+    source_map_payload: dict[str, Any],
+    selected_workflow_name: str,
+    compatibility_bridge_manifest: Mapping[str, Any] | None,
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+) -> list[dict[str, Any]]:
+    if not isinstance(compatibility_bridge_manifest, Mapping):
+        return []
+    workflows = source_map_payload.get("workflows")
+    if not isinstance(workflows, dict):
+        return []
+    generated_steps: list[dict[str, Any]] = []
+    for raw_row in compatibility_bridge_manifest.get("bridges", []):
+        if not isinstance(raw_row, Mapping):
+            continue
+        if isinstance(raw_row.get("command_boundary"), Mapping):
+            continue
+        workflow_name = str(raw_row.get("workflow_surface", ""))
+        workflow = workflows.get(workflow_name)
+        if not isinstance(workflow, dict):
+            continue
+        bridge_id = str(raw_row.get("bridge_id", ""))
+        renderer = raw_row.get("renderer")
+        if not bridge_id or not isinstance(renderer, Mapping):
+            continue
+        renderer_id = str(renderer.get("renderer_id", ""))
+        renderer_version = renderer.get("renderer_version")
+        if not renderer_id or not isinstance(renderer_version, int):
+            continue
+        renderer_descriptor = resolve_view_renderer(renderer_id, renderer_version)
+        bridge_slug = _build_slug(bridge_id)
+        workflow_slug = _build_slug(workflow_name)
+        allocation_id = (
+            f"alloc:design_delta_compatibility_bridge:{workflow_slug}:{bridge_slug}"
+        )
+        target_path = (
+            ".orchestrate/workflow_lisp/compatibility_bridges/"
+            f"{workflow_slug}/{bridge_slug}{renderer_descriptor.file_extension}"
+        )
+        step_id = f"compatibility_bridge__{bridge_slug}"
+        c0_row_id = str(raw_row.get("c0_row_id", ""))
+        origin_key = f"{workflow_name}::step_id::{step_id}"
+        step_ids = workflow.setdefault("step_ids", {})
+        if isinstance(step_ids, dict) and step_id not in step_ids:
+            step_ids[step_id] = {
+                "origin_key": origin_key,
+                "entity_kind": "step_id",
+                "workflow_name": workflow_name,
+                "path": str(DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH),
+                "line": 1,
+                "column": 1,
+                "end_line": 1,
+                "end_column": 1,
+                "form_path": ["compatibility_bridge", bridge_id],
+                "notes": ["generated compatibility bridge materialize_view"],
+            }
+        generated_allocations = workflow.setdefault("generated_path_allocations", [])
+        if isinstance(generated_allocations, list) and not any(
+            isinstance(allocation, Mapping)
+            and allocation.get("allocation_id") == allocation_id
+            for allocation in generated_allocations
+        ):
+            generated_allocations.append(
+                {
+                    "allocation_id": allocation_id,
+                    "semantic_role": "materialized_value_view",
+                    "privacy": "compatibility_view",
+                    "resume_scope": "none",
+                    "stable_identity": (
+                        "schema:2/"
+                        f"{workflow_name}/compatibility_bridge/{bridge_id}"
+                    ),
+                    "concrete_path_template": target_path,
+                    "generated_input_name": None,
+                    "path_safety_policy": "workspace_relative",
+                    "origin_key": origin_key,
+                }
+            )
+        generated_effects = workflow.setdefault("generated_semantic_effects", [])
+        if isinstance(generated_effects, list) and not any(
+            isinstance(effect, Mapping)
+            and effect.get("effect_kind") == "materialize_view"
+            and isinstance(effect.get("details"), Mapping)
+            and (
+                effect["details"].get("target_allocation_id")
+                or effect["details"].get("allocation_id")
+            )
+            == allocation_id
+            for effect in generated_effects
+        ):
+            generated_effects.append(
+                {
+                    "effect_key": f"materialize_view:{step_id}",
+                    "step_id": step_id,
+                    "effect_kind": "materialize_view",
+                    "origin_key": origin_key,
+                    "details": {
+                        "renderer_id": renderer_id,
+                        "renderer_version": renderer_version,
+                        "value_type": {
+                            "kind": "compatibility_bridge",
+                            "name": bridge_id,
+                        },
+                        "target_path": target_path,
+                        "target_allocation_id": allocation_id,
+                        "authority_class": "compatibility_bridge",
+                        "bridge_id": bridge_id,
+                        "c0_row_id": c0_row_id,
+                    },
+                }
+            )
+        if workflow_name != selected_workflow_name:
+            continue
+        bundle = validated_bundles_by_name.get(workflow_name)
+        if bundle is None:
+            continue
+        generated_steps.append(
+            {
+                "workflow_name": workflow_name,
+                "bridge_id": bridge_id,
+                "c0_row_id": c0_row_id,
+                "step_id": step_id,
+                "target_path": target_path,
+                "target_allocation_id": allocation_id,
+                "renderer_id": renderer_id,
+                "renderer_version": renderer_version,
+                "authority_class": "compatibility_bridge",
+            }
+        )
+
+    generated_steps.sort(
+        key=lambda row: (str(row.get("workflow_name", "")), str(row.get("bridge_id", "")))
+    )
+    return generated_steps
+
+
+def _build_slug(value: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in value).strip("-") or "bridge"
+
+
+def _design_delta_prerequisite_report_paths(
+    *,
+    build_root: Path,
+    workspace_root: Path,
+) -> dict[str, str]:
+    relative = build_root.relative_to(workspace_root)
+    return {
+        "typed_prompt_input_report": str(relative / "typed_prompt_input_report.json"),
+        "observability_summary_report": str(relative / "observability_summary_report.json"),
+        "entry_publication_report": str(relative / "entry_publication_report.json"),
+        "compatibility_bridge_report": str(relative / "compatibility_bridge_report.json"),
+    }
+
+
+def _with_report_path(
+    payload: Mapping[str, Any] | None,
+    path: str,
+) -> Mapping[str, Any] | None:
+    if payload is None:
+        return None
+    return {
+        **dict(payload),
+        "path": path,
+    }
+
+
+def _build_design_delta_observability_summary_prerequisite_report(
+    *,
+    consumer_rendering_census: Mapping[str, object],
+    materialize_view_effects: Sequence[Mapping[str, Any]],
+) -> Mapping[str, object]:
+    selected_row_ids: list[str] = []
+    diagnostics_errors: list[dict[str, object]] = []
+    for row in consumer_rendering_census.get("rows", []):
+        if not isinstance(row, Mapping):
+            continue
+        row_id = row.get("row_id")
+        if not isinstance(row_id, str):
+            continue
+        if row.get("consumer_lane") != "human_observability" and row.get(
+            "track_c_decision"
+        ) != "RETIRE_TO_OBSERVABILITY":
+            continue
+        selected_row_ids.append(row_id)
+        compiled_effect = row.get("compiled_effect_match")
+        if not isinstance(compiled_effect, Mapping):
+            continue
+        suffix = compiled_effect.get("step_id_suffix")
+        workflow_surface = row.get("workflow_surface")
+        if not isinstance(suffix, str) or not suffix:
+            continue
+        if any(
+            isinstance(effect.get("step_id"), str)
+            and effect["step_id"].endswith(suffix)
+            and str(effect.get("authority_class", "materialized_view"))
+            == "materialized_view"
+            and (
+                not isinstance(workflow_surface, str)
+                or effect.get("workflow_surface") == workflow_surface
+            )
+            for effect in materialize_view_effects
+        ):
+            diagnostics_errors.append(
+                {
+                    "code": "observability_summary_old_writer_comparison_missing",
+                    "c0_row_id": row_id,
+                    "message": "observability row still lowers a body materialize_view effect",
+                }
+            )
+    return {
+        "schema_id": OBSERVABILITY_SUMMARY_REPORT_SCHEMA_ID,
+        "workflow_family": "design_delta_parent_drain",
+        "status": "fail" if diagnostics_errors else "pass",
+        "selected_c0_row_ids": sorted(selected_row_ids),
+        "diagnostics": {
+            "errors": diagnostics_errors,
+            "warnings": [],
+        },
+    }
 
 
 def _build_entry_publication_report(
@@ -2059,11 +2817,15 @@ def _build_entry_publication_report(
     compatibility_reasons: list[dict[str, object]] = []
     diagnostics: list[dict[str, object]] = []
     lowered_publications = _collect_entry_publication_lowerings(compile_result)
-    materialize_view_effects = _collect_materialize_view_effects(compile_result)
+    materialize_view_effects = _collect_materialize_view_effects(
+        compile_result.validated_bundles_by_name
+    )
     materialize_view_workflows = {
         str(effect.get("workflow_surface", ""))
         for effect in materialize_view_effects
         if isinstance(effect.get("workflow_surface"), str)
+        and str(effect.get("authority_class", "materialized_view"))
+        == "materialized_view"
     }
     published_variants: set[str] = set()
     policy_rows = ()
@@ -2966,6 +3728,8 @@ def _write_build_artifacts(
     entry_selection: FrontendEntrySelection,
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     emit_debug_yaml: bool,
+    executable_ir_payload: Mapping[str, object],
+    semantic_ir_payload: Mapping[str, object],
     source_map_payload: Mapping[str, object],
     workflow_boundary_projection_payload: Mapping[str, object],
     adapter_census_payload: Mapping[str, object] | None,
@@ -2973,7 +3737,11 @@ def _write_build_artifacts(
     value_flow_census_report_payload: Mapping[str, object] | None,
     consumer_rendering_census_report_payload: Mapping[str, object] | None,
     typed_prompt_input_report_payload: Mapping[str, object] | None,
+    observability_summary_report_payload: Mapping[str, object] | None,
     entry_publication_report_payload: Mapping[str, object] | None,
+    compatibility_bridge_report_payload: Mapping[str, object] | None,
+    compatibility_bridge_generated_steps: Sequence[Mapping[str, object]],
+    rendering_cleanup_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
@@ -2995,7 +3763,6 @@ def _write_build_artifacts(
         "diagnostics": build_root / "diagnostics.json",
     }
     runtime_plan_payload = _public_runtime_plan_payload(validated_bundle.runtime_plan)
-    semantic_ir_payload = workflow_semantic_ir_to_json(validated_bundle.semantic_ir)
     source_map_json = _json_data(source_map_payload)
     if adapter_census_payload is not None:
         artifact_paths["adapter_census"] = build_root / "adapter_census.json"
@@ -3011,9 +3778,21 @@ def _write_build_artifacts(
         artifact_paths["typed_prompt_input_report"] = (
             build_root / "typed_prompt_input_report.json"
         )
+    if observability_summary_report_payload is not None:
+        artifact_paths["observability_summary_report"] = (
+            build_root / "observability_summary_report.json"
+        )
     if entry_publication_report_payload is not None:
         artifact_paths["entry_publication_report"] = (
             build_root / "entry_publication_report.json"
+        )
+    if compatibility_bridge_report_payload is not None:
+        artifact_paths["compatibility_bridge_report"] = (
+            build_root / "compatibility_bridge_report.json"
+        )
+    if rendering_cleanup_report_payload is not None:
+        artifact_paths["rendering_cleanup_report"] = (
+            build_root / "rendering_cleanup_report.json"
         )
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
@@ -3029,8 +3808,11 @@ def _write_build_artifacts(
         "frontend_ast": _serialize_frontend_ast(compile_result),
         "expanded_frontend_ast": _serialize_expanded_frontend_ast(compile_result),
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
-        "lowered_workflows": _serialize_lowered_workflows(compile_result),
-        "executable_ir": workflow_executable_ir_to_json(validated_bundle.ir),
+        "lowered_workflows": _serialize_lowered_workflows(
+            compile_result,
+            extra_compatibility_bridge_steps=compatibility_bridge_generated_steps,
+        ),
+        "executable_ir": executable_ir_payload,
         "core_workflow_ast": workflow_core_ast_to_json(validated_bundle.core_workflow_ast),
         "semantic_ir": semantic_ir_payload,
         "runtime_plan": runtime_plan_payload,
@@ -3063,9 +3845,21 @@ def _write_build_artifacts(
         payloads["typed_prompt_input_report"] = _json_data(
             typed_prompt_input_report_payload
         )
+    if observability_summary_report_payload is not None:
+        payloads["observability_summary_report"] = _json_data(
+            observability_summary_report_payload
+        )
     if entry_publication_report_payload is not None:
         payloads["entry_publication_report"] = _json_data(
             entry_publication_report_payload
+        )
+    if compatibility_bridge_report_payload is not None:
+        payloads["compatibility_bridge_report"] = _json_data(
+            compatibility_bridge_report_payload
+        )
+    if rendering_cleanup_report_payload is not None:
+        payloads["rendering_cleanup_report"] = _json_data(
+            rendering_cleanup_report_payload
         )
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(
@@ -3093,37 +3887,112 @@ def _write_build_artifacts(
     return artifact_paths
 
 
-def _public_runtime_plan_payload(runtime_plan: Any) -> Mapping[str, Any]:
+def _public_runtime_plan_payload(
+    runtime_plan: Any,
+    *,
+    extra_compatibility_bridge_steps: Sequence[Mapping[str, object]] = (),
+) -> Mapping[str, Any]:
     """Serialize runtime-plan build output without private checkpoint identity."""
 
     payload = _json_data(runtime_plan)
     lexical_points = payload.get("lexical_checkpoint_points")
-    if not isinstance(lexical_points, list):
-        return payload
+    if isinstance(lexical_points, list):
+        sanitized_points: list[Any] = []
+        for point in lexical_points:
+            if not isinstance(point, Mapping):
+                sanitized_points.append(point)
+                continue
+            details = point.get("details")
+            if not isinstance(details, Mapping):
+                sanitized_points.append(point)
+                continue
+            sanitized_points.append(
+                {
+                    **point,
+                    "details": {
+                        str(key): value
+                        for key, value in details.items()
+                        if key != "runtime_program_identity"
+                    },
+                }
+            )
+        payload = {
+            **payload,
+            "lexical_checkpoint_points": sanitized_points,
+        }
 
-    sanitized_points: list[Any] = []
-    for point in lexical_points:
-        if not isinstance(point, Mapping):
-            sanitized_points.append(point)
-            continue
-        details = point.get("details")
-        if not isinstance(details, Mapping):
-            sanitized_points.append(point)
-            continue
-        sanitized_points.append(
-            {
-                **point,
-                "details": {
-                    str(key): value
-                    for key, value in details.items()
-                    if key != "runtime_program_identity"
-                },
-            }
-        )
-    return {
-        **payload,
-        "lexical_checkpoint_points": sanitized_points,
+    workflow_name = payload.get("workflow_name")
+    if not isinstance(workflow_name, str) or not workflow_name:
+        return payload
+    nodes = payload.get("nodes")
+    if not isinstance(nodes, dict):
+        return payload
+    observability = payload.get("observability")
+    observability_nodes = (
+        observability.get("nodes")
+        if isinstance(observability, dict)
+        and isinstance(observability.get("nodes"), dict)
+        else None
+    )
+    ordered_node_ids = payload.get("ordered_node_ids")
+    if not isinstance(ordered_node_ids, list):
+        ordered_node_ids = []
+        payload["ordered_node_ids"] = ordered_node_ids
+    existing_step_ids = {
+        str(node.get("step_id", ""))
+        for node in nodes.values()
+        if isinstance(node, Mapping) and isinstance(node.get("step_id"), str)
     }
+    execution_indexes = [
+        int(node.get("execution_index"))
+        for node in nodes.values()
+        if isinstance(node, Mapping) and isinstance(node.get("execution_index"), int)
+    ]
+    next_execution_index = max(execution_indexes) + 1 if execution_indexes else 0
+    for row in extra_compatibility_bridge_steps:
+        if not isinstance(row, Mapping) or row.get("workflow_name") != workflow_name:
+            continue
+        step_id = row.get("step_id")
+        node_id = row.get("node_id")
+        if not isinstance(step_id, str) or not isinstance(node_id, str):
+            continue
+        if step_id in existing_step_ids:
+            continue
+        display_name = step_id.replace("__", " ")
+        node_payload = {
+            "node_id": node_id,
+            "step_id": step_id,
+            "presentation_key": step_id,
+            "display_name": display_name,
+            "kind": "materialize_view",
+            "region": "top_level",
+            "execution_index": next_execution_index,
+            "lexical_scope": [],
+            "fallthrough_node_id": None,
+            "routed_transfer_targets": {},
+            "dependency_node_ids": [],
+            "nested_body_node_ids": [],
+            "call_alias": None,
+            "command_boundary_kind": None,
+            "command_boundary_name": None,
+        }
+        nodes[node_id] = node_payload
+        ordered_node_ids.append(node_id)
+        if observability_nodes is not None:
+            observability_nodes[node_id] = {
+                "node_id": node_id,
+                "step_id": step_id,
+                "presentation_key": step_id,
+                "display_name": display_name,
+                "kind": "materialize_view",
+                "region": "top_level",
+            }
+            top_level = observability.get("top_level_ordered_node_ids")
+            if isinstance(top_level, list):
+                top_level.append(node_id)
+        existing_step_ids.add(step_id)
+        next_execution_index += 1
+    return payload
 
 
 def _build_manifest(
@@ -3484,7 +4353,20 @@ def _serialize_typed_frontend_ast(compile_result: LinkedStage3CompileResult) -> 
     }
 
 
-def _serialize_lowered_workflows(compile_result: LinkedStage3CompileResult) -> dict[str, object]:
+def _serialize_lowered_workflows(
+    compile_result: LinkedStage3CompileResult,
+    *,
+    extra_compatibility_bridge_steps: Sequence[Mapping[str, object]] = (),
+) -> dict[str, object]:
+    step_ids_by_workflow: dict[str, set[str]] = {}
+    for row in extra_compatibility_bridge_steps:
+        if not isinstance(row, Mapping):
+            continue
+        workflow_name = row.get("workflow_name")
+        step_id = row.get("step_id")
+        if not isinstance(workflow_name, str) or not isinstance(step_id, str):
+            continue
+        step_ids_by_workflow.setdefault(workflow_name, set()).add(step_id)
     return {
         "modules": {
             module_name: {
@@ -3493,7 +4375,12 @@ def _serialize_lowered_workflows(compile_result: LinkedStage3CompileResult) -> d
                         "workflow_name": lowered.typed_workflow.definition.name,
                         "display_name": _display_workflow_name(lowered.typed_workflow.definition.name),
                         "authored_mapping": _json_data(lowered.authored_mapping),
-                        "step_ids": sorted(lowered.origin_map.step_spans),
+                        "step_ids": sorted(
+                            set(lowered.origin_map.step_spans)
+                            | step_ids_by_workflow.get(
+                                lowered.typed_workflow.definition.name, set()
+                            )
+                        ),
                     }
                     for lowered in compiled_result.lowered_workflows
                 ],

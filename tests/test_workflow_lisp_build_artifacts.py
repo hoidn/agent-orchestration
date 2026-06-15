@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
+from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
+from orchestrator.workflow.semantic_ir import workflow_semantic_ir_to_json
 import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint, compile_stage3_module
@@ -38,6 +40,9 @@ DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH = (
 )
 DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.consumer_rendering_census.json"
+)
+DESIGN_DELTA_COMPATIBILITY_BRIDGES_PATH = (
+    DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.compatibility_bridges.json"
 )
 DESIGN_DELTA_RESUME_PLUMBING_RETIREMENT_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS
@@ -332,6 +337,12 @@ def _load_design_delta_value_flow_census() -> dict[str, object]:
 def _load_design_delta_consumer_rendering_census() -> dict[str, object]:
     return json.loads(
         DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _load_design_delta_compatibility_bridges() -> dict[str, object]:
+    return json.loads(
+        DESIGN_DELTA_COMPATIBILITY_BRIDGES_PATH.read_text(encoding="utf-8")
     )
 
 
@@ -4845,7 +4856,7 @@ def test_design_delta_parent_drain_build_emits_typed_prompt_input_report_artifac
     }
 
 
-def test_design_delta_parent_drain_build_emits_entry_publication_report_artifact(
+def test_design_delta_parent_drain_build_emits_compatibility_bridge_report_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4855,37 +4866,149 @@ def test_design_delta_parent_drain_build_emits_entry_publication_report_artifact
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
     )
 
-    assert "entry_publication_report" in result.artifact_paths
-    assert result.manifest.artifact_status["entry_publication_report"] == "emitted"
+    assert "compatibility_bridge_report" in result.artifact_paths
+    assert result.manifest.artifact_status["compatibility_bridge_report"] == "emitted"
     payload = json.loads(
-        result.artifact_paths["entry_publication_report"].read_text(encoding="utf-8")
+        result.artifact_paths["compatibility_bridge_report"].read_text(
+            encoding="utf-8"
+        )
     )
-    assert payload["schema_version"] == "workflow_lisp_entry_publication_report.v1"
+    assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
-    assert payload["target_family"] == "lisp_frontend_design_delta_parent_drain"
-    assert payload["workflow_name"] == "lisp_frontend_design_delta/drain::drain"
-    assert {row["row_id"] for row in payload["selected_c0_rows"]} == {
-        "c0.design_gap_architect_validate_output_work_item_bundle_path",
-        "c0.plan_phase_output_approved_plan_path",
-        "c0.plan_phase_output_return_blocked_plan_path",
-        "c0.plan_phase_output_return_exhausted_plan_path",
-        "c0.plan_phase_output_return_findings_items_path",
-        "c0.selector_output_return_selection_bundle_path",
-        "c0.drain_output_return_run_state",
-    }
-    assert payload["publication_policy"] == {}
-    assert payload["lowered_publications"] == []
-    assert {
-        row["row_id"] for row in payload["compatibility_reasons"]
-    } == {
-        "c0.design_gap_architect_validate_output_work_item_bundle_path",
-        "c0.plan_phase_output_approved_plan_path",
-        "c0.plan_phase_output_return_blocked_plan_path",
-        "c0.plan_phase_output_return_exhausted_plan_path",
-        "c0.plan_phase_output_return_findings_items_path",
-        "c0.selector_output_return_selection_bundle_path",
-        "c0.drain_output_return_run_state",
-    }
+    assert payload["generated_bridges"]
+    assert payload["blocked_bridges"]
+    assert payload["contract_isolation"]["typed_steps_do_not_consume_bridge_views"] is True
+
+
+def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "observability_summary_report" in result.artifact_paths
+    assert (
+        result.manifest.artifact_status["observability_summary_report"] == "emitted"
+    )
+    assert "rendering_cleanup_report" in result.artifact_paths
+    assert result.manifest.artifact_status["rendering_cleanup_report"] == "emitted"
+    payload = json.loads(
+        result.artifact_paths["rendering_cleanup_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["schema_version"] == "workflow_lisp_rendering_cleanup_report.v1"
+    assert payload["status"] == "pass"
+    assert payload["blocked_compatibility_row_ids"] == [
+        "c0.work_item_command_selection_bundle_path"
+    ]
+    assert payload["surviving_body_materialization_row_ids"] == [
+        "c0.drain_materialized_drain_summary",
+        "c0.work_item_summary_summary_path",
+    ]
+    cleanup_rows = {row["c0_row_id"]: row for row in payload["cleanup_decisions"]}
+    assert cleanup_rows["c0.drain_summary_report_target_final_summary_view"][
+        "replacement_evidence"
+    ]["report_path"].endswith("observability_summary_report.json")
+    assert cleanup_rows["c0.plan_phase_output_approved_plan_path"][
+        "replacement_evidence"
+    ]["report_path"].endswith("entry_publication_report.json")
+    assert cleanup_rows["c0.work_item_bridge_manifest_path"]["replacement_evidence"][
+        "report_path"
+    ].endswith("compatibility_bridge_report.json")
+    assert cleanup_rows["c0.plan_phase_prompt_draft"]["replacement_evidence"][
+        "report_path"
+    ].endswith("typed_prompt_input_report.json")
+
+
+def test_design_delta_parent_drain_build_bridge_lineage_in_semantic_and_executable_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    semantic_ir = json.loads(
+        result.artifact_paths["semantic_ir"].read_text(encoding="utf-8")
+    )
+    executable_ir = json.loads(
+        result.artifact_paths["executable_ir"].read_text(encoding="utf-8")
+    )
+    lowered_workflows = json.loads(
+        result.artifact_paths["lowered_workflows"].read_text(encoding="utf-8")
+    )
+    runtime_plan = json.loads(
+        result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")
+    )
+    source_map = json.loads(
+        result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    )
+
+    assert semantic_ir["generated_compatibility_bridges"]
+    assert executable_ir["generated_compatibility_bridges"]
+    assert any(
+        step_id.startswith("compatibility_bridge__")
+        for module_payload in lowered_workflows["modules"].values()
+        for workflow_payload in module_payload["workflows"]
+        for step_id in workflow_payload["step_ids"]
+    )
+    assert any(
+        node["step_id"].startswith("compatibility_bridge__")
+        for node in runtime_plan["nodes"].values()
+    )
+    generated_effects = source_map["workflows"][
+        "lisp_frontend_design_delta/work_item::run-work-item"
+    ]["generated_semantic_effects"]
+    assert any(
+        effect["effect_kind"] == "materialize_view"
+        and effect["details"]["authority_class"] == "compatibility_bridge"
+        for effect in generated_effects
+    )
+
+
+def test_design_delta_parent_drain_build_returns_real_bridge_lineage_in_loaded_bundles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    drain_semantic_ir = workflow_semantic_ir_to_json(result.validated_bundle.semantic_ir)
+    drain_executable_ir = workflow_executable_ir_to_json(result.validated_bundle.ir)
+    drain_bridge_nodes = [
+        node
+        for node in result.validated_bundle.runtime_plan.nodes.values()
+        if "compatibility_bridge__" in node.step_id
+    ]
+
+    work_item_bundle = result.validated_bundle.imports[
+        "lisp_frontend_design_delta/work_item::run-work-item"
+    ]
+    work_item_semantic_ir = workflow_semantic_ir_to_json(work_item_bundle.semantic_ir)
+    work_item_executable_ir = workflow_executable_ir_to_json(work_item_bundle.ir)
+    work_item_bridge_nodes = [
+        node
+        for node in work_item_bundle.runtime_plan.nodes.values()
+        if "compatibility_bridge__" in node.step_id
+    ]
+
+    assert len(drain_semantic_ir["generated_compatibility_bridges"]) == 3
+    assert len(drain_executable_ir["generated_compatibility_bridges"]) == 3
+    assert len(drain_bridge_nodes) == 3
+    assert len(work_item_semantic_ir["generated_compatibility_bridges"]) == 4
+    assert len(work_item_executable_ir["generated_compatibility_bridges"]) == 4
+    assert len(work_item_bridge_nodes) == 4
 
 
 def test_design_delta_parent_drain_consumer_rendering_report_records_manifest_and_u0_provenance(

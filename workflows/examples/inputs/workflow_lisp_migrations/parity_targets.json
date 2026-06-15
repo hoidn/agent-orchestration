@@ -378,6 +378,9 @@
           "value_flow_census_report",
           "consumer_rendering_census_report",
           "typed_prompt_input_report",
+          "entry_publication_report",
+          "compatibility_bridge_report",
+          "rendering_cleanup_report",
           "g8_deletion_evidence"
         ],
         "optional": [

@@ -376,6 +376,24 @@ def run_parity_target(
         build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
         repo_root=repo_root,
     )
+    entry_publication_report = _load_compile_artifact_json(
+        artifact_name="entry_publication_report",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
+    compatibility_bridge_report = _load_compile_artifact_json(
+        artifact_name="compatibility_bridge_report",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
+    rendering_cleanup_report = _load_compile_artifact_json(
+        artifact_name="rendering_cleanup_report",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
     g8_deletion_evidence = _load_compile_artifact_json(
         artifact_name="g8_deletion_evidence",
         build_manifest=build_manifest,
@@ -394,6 +412,12 @@ def run_parity_target(
         report["consumer_rendering_census_report"] = dict(
             consumer_rendering_census_report
         )
+    if isinstance(entry_publication_report, Mapping):
+        report["entry_publication_report"] = dict(entry_publication_report)
+    if isinstance(compatibility_bridge_report, Mapping):
+        report["compatibility_bridge_report"] = dict(compatibility_bridge_report)
+    if isinstance(rendering_cleanup_report, Mapping):
+        report["rendering_cleanup_report"] = dict(rendering_cleanup_report)
     if isinstance(g8_deletion_evidence, Mapping):
         report["g8_deletion_evidence"] = dict(g8_deletion_evidence)
     if target.required_family_evidence_roles:
@@ -2062,6 +2086,9 @@ def _boundary_artifact_justification_evidence(
         if artifact_name in {
             "consumer_rendering_census_report",
             "typed_prompt_input_report",
+            "entry_publication_report",
+            "compatibility_bridge_report",
+            "rendering_cleanup_report",
         }:
             reason = "prerequisite_compile_evidence"
         else:
@@ -2528,6 +2555,33 @@ def _compile_artifact_report(
                 repo_root=repo_root,
             )
             continue
+        if artifact_name == "entry_publication_report":
+            required[artifact_name] = _entry_publication_artifact_status(
+                target=target,
+                path=path,
+                build_root=build_root,
+                build_manifest=build_manifest,
+                repo_root=repo_root,
+            )
+            continue
+        if artifact_name == "compatibility_bridge_report":
+            required[artifact_name] = _compatibility_bridge_artifact_status(
+                target=target,
+                path=path,
+                build_root=build_root,
+                build_manifest=build_manifest,
+                repo_root=repo_root,
+            )
+            continue
+        if artifact_name == "rendering_cleanup_report":
+            required[artifact_name] = _rendering_cleanup_artifact_status(
+                target=target,
+                path=path,
+                build_root=build_root,
+                build_manifest=build_manifest,
+                repo_root=repo_root,
+            )
+            continue
         raw_status = _artifact_raw_status(
             artifact_name,
             path=path,
@@ -2704,6 +2758,228 @@ def _typed_prompt_input_artifact_status(
         bucket = payload.get(bucket_name)
         if isinstance(bucket, list) and bucket:
             reasons.append(f"{bucket_name} present")
+    for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
+        if forbidden_key in payload:
+            reasons.append(f"forbidden track completion field `{forbidden_key}` present")
+    return {
+        "status": "fail" if reasons else "pass",
+        "path": path,
+        **({"reason": "; ".join(reasons)} if reasons else {}),
+    }
+
+
+def _entry_publication_artifact_status(
+    *,
+    target: ParityTarget,
+    path: str | None,
+    build_root: Path | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    if path is None:
+        return {"status": "missing", "path": None}
+    payload = _load_compile_artifact_json(
+        artifact_name="entry_publication_report",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if payload is None:
+        return {
+            "status": "missing",
+            "path": path,
+            "reason": "entry_publication_report is unreadable or absent",
+        }
+    reasons: list[str] = []
+    if payload.get("status") != "pass":
+        reasons.append("prerequisite compile evidence status is not pass")
+    selected_rows = payload.get("selected_c0_rows")
+    if not isinstance(selected_rows, list) or not selected_rows:
+        reasons.append("selected_c0_rows missing")
+    for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
+        if forbidden_key in payload:
+            reasons.append(f"forbidden track completion field `{forbidden_key}` present")
+    return {
+        "status": "fail" if reasons else "pass",
+        "path": path,
+        **({"reason": "; ".join(reasons)} if reasons else {}),
+    }
+
+
+def _compatibility_bridge_artifact_status(
+    *,
+    target: ParityTarget,
+    path: str | None,
+    build_root: Path | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    if path is None:
+        return {"status": "missing", "path": None}
+    payload = _load_compile_artifact_json(
+        artifact_name="compatibility_bridge_report",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if payload is None:
+        return {
+            "status": "missing",
+            "path": path,
+            "reason": "compatibility_bridge_report is unreadable or absent",
+        }
+    reasons: list[str] = []
+    if payload.get("workflow_family") != target.workflow_family:
+        reasons.append("workflow_family mismatch")
+    if payload.get("status") != "pass":
+        reasons.append("prerequisite compile evidence status is not pass")
+    selected_rows = payload.get("selected_c0_rows")
+    if not isinstance(selected_rows, list) or not selected_rows:
+        reasons.append("selected_c0_rows missing")
+    blocked_bridges = payload.get("blocked_bridges")
+    if not isinstance(blocked_bridges, list):
+        reasons.append("blocked_bridges missing")
+    contract_isolation = payload.get("contract_isolation")
+    expected_contract_checks = (
+        "workflow_signature_unchanged",
+        "call_contract_unchanged",
+        "boundary_projection_public_inputs_unchanged",
+        "typed_steps_do_not_consume_bridge_views",
+    )
+    if not isinstance(contract_isolation, Mapping):
+        reasons.append("contract_isolation missing")
+    else:
+        for check_name in expected_contract_checks:
+            if contract_isolation.get(check_name) is not True:
+                reasons.append(f"contract_isolation.{check_name} is not true")
+    for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
+        if forbidden_key in payload:
+            reasons.append(f"forbidden track completion field `{forbidden_key}` present")
+    return {
+        "status": "fail" if reasons else "pass",
+        "path": path,
+        **({"reason": "; ".join(reasons)} if reasons else {}),
+    }
+
+
+def _rendering_cleanup_artifact_status(
+    *,
+    target: ParityTarget,
+    path: str | None,
+    build_root: Path | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    if path is None:
+        return {"status": "missing", "path": None}
+    payload = _load_compile_artifact_json(
+        artifact_name="rendering_cleanup_report",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if payload is None:
+        return {
+            "status": "missing",
+            "path": path,
+            "reason": "rendering_cleanup_report is unreadable or absent",
+        }
+    reasons: list[str] = []
+    if payload.get("workflow_family") != target.workflow_family:
+        reasons.append("workflow_family mismatch")
+    if payload.get("status") != "pass":
+        reasons.append("prerequisite compile evidence status is not pass")
+    decision_counts = payload.get("decision_counts")
+    if not isinstance(decision_counts, Mapping) or not decision_counts:
+        reasons.append("decision_counts missing")
+    selected_rows = payload.get("selected_rows")
+    if not isinstance(selected_rows, list) or not selected_rows:
+        reasons.append("selected_rows missing")
+    cleanup_decisions = payload.get("cleanup_decisions")
+    if not isinstance(cleanup_decisions, list) or not cleanup_decisions:
+        reasons.append("cleanup_decisions missing")
+    else:
+        required_cleanup_fields = (
+            "cleanup_id",
+            "c0_row_id",
+            "u0_row_id",
+            "previous_track_c_decision",
+            "cleanup_decision",
+            "durability_before",
+            "durability_after",
+            "replacement_evidence",
+            "compiled_liveness",
+            "source_cleanup",
+        )
+        for row in cleanup_decisions:
+            if not isinstance(row, Mapping):
+                reasons.append("cleanup_decisions contains non-object rows")
+                break
+            missing = [
+                field_name
+                for field_name in required_cleanup_fields
+                if field_name not in row
+            ]
+            if missing:
+                reasons.append(
+                    "cleanup_decisions row missing fields: " + ", ".join(missing)
+                )
+                break
+            if not isinstance(row.get("replacement_evidence"), Mapping):
+                reasons.append("cleanup_decisions replacement_evidence missing")
+                break
+            if not isinstance(row.get("compiled_liveness"), Mapping):
+                reasons.append("cleanup_decisions compiled_liveness missing")
+                break
+            if not isinstance(row.get("source_cleanup"), Mapping):
+                reasons.append("cleanup_decisions source_cleanup missing")
+                break
+            cleanup_decision = row.get("cleanup_decision")
+            if cleanup_decision == "KEEP_TIMED_PUBLICATION" and not isinstance(
+                row.get("timed_publication"), Mapping
+            ):
+                reasons.append("cleanup_decisions timed_publication missing")
+                break
+            if cleanup_decision == "KEPT_BLOCKED_COMPATIBILITY" and not isinstance(
+                row.get("blocked_by"), Mapping
+            ):
+                reasons.append("cleanup_decisions blocked_by missing")
+                break
+    blocked_row_ids = payload.get("blocked_row_ids")
+    if not isinstance(blocked_row_ids, list):
+        reasons.append("blocked_row_ids missing")
+    source_census = payload.get("source_census")
+    if not isinstance(source_census, Mapping) or not source_census:
+        reasons.append("source_census missing")
+    prerequisite_reports = payload.get("prerequisite_reports")
+    if not isinstance(prerequisite_reports, Mapping) or not prerequisite_reports:
+        reasons.append("prerequisite_reports missing")
+    durability_reconciliation = payload.get("durability_reconciliation")
+    expected_durability_checks = (
+        "prompt_rows_ephemeral",
+        "durable_publications_state_layout_allocated",
+        "durable_bridges_state_layout_allocated",
+        "body_materialize_views_timed_only",
+    )
+    if not isinstance(durability_reconciliation, Mapping):
+        reasons.append("durability_reconciliation missing")
+    else:
+        for check_name in expected_durability_checks:
+            if durability_reconciliation.get(check_name) is not True:
+                reasons.append(f"durability_reconciliation.{check_name} is not true")
+    contract_isolation = payload.get("contract_isolation")
+    expected_contract_checks = (
+        "workflow_signature_unchanged",
+        "typed_steps_do_not_consume_views",
+        "prompt_views_not_published",
+        "observability_views_not_semantic_outputs",
+    )
+    if not isinstance(contract_isolation, Mapping):
+        reasons.append("contract_isolation missing")
+    else:
+        for check_name in expected_contract_checks:
+            if contract_isolation.get(check_name) is not True:
+                reasons.append(f"contract_isolation.{check_name} is not true")
     for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
         if forbidden_key in payload:
             reasons.append(f"forbidden track completion field `{forbidden_key}` present")
