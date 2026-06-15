@@ -4926,6 +4926,75 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     ].endswith("typed_prompt_input_report.json")
 
 
+def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "rendering_ergonomics_report" in result.artifact_paths
+    assert (
+        result.manifest.artifact_status["rendering_ergonomics_report"] == "emitted"
+    )
+    payload = json.loads(
+        result.artifact_paths["rendering_ergonomics_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == "workflow_lisp_rendering_ergonomics_report.v1"
+    assert payload["status"] == "pass"
+    assert payload["target_family"] == "lisp_frontend_design_delta_parent_drain"
+    assert len(payload["consumer_slots"]) == 27
+    # Every C0 rendering row resolves to exactly one slot and owning lane.
+    assert all(payload["contract_isolation"].values())
+    assert not payload["diagnostics"]
+    # The report joins all six C0-C5 prerequisite reports as passing evidence.
+    assert {
+        report["status"] for report in payload["prerequisite_reports"].values()
+    } == {"pass"}
+    # The blocked command-bound bridge stays a bridge slot (never retired).
+    bridge_rows = [
+        slot["c0_row_id"]
+        for slot in payload["consumer_slots"]
+        if slot["consumer_lane"] == "compatibility_bridge"
+    ]
+    assert "c0.work_item_command_selection_bundle_path" in bridge_rows
+
+
+def test_design_delta_parent_drain_rendering_ergonomics_report_fails_closed_on_missing_slot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    policy = json.loads(
+        build.DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH.read_text(
+            encoding="utf-8"
+        )
+    )
+    # Drop one selected C0 row's slot: the C6 report must fail closed.
+    policy["consumer_slots"] = policy["consumer_slots"][1:]
+    bad_path = tmp_path / "design_delta_parent_drain.rendering_ergonomics.json"
+    bad_path.write_text(json.dumps(policy, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setattr(
+        build,
+        "DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH",
+        bad_path,
+        raising=False,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+    assert excinfo.value.diagnostics[0].code == "rendering_ergonomics_consumer_slot_missing"
+
+
 def test_design_delta_parent_drain_build_bridge_lineage_in_semantic_and_executable_artifacts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

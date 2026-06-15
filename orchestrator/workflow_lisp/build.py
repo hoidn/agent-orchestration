@@ -81,6 +81,10 @@ from .rendering_cleanup import (
     build_rendering_cleanup_report,
     load_rendering_cleanup_manifest,
 )
+from .rendering_ergonomics import (
+    build_rendering_ergonomics_report,
+    load_rendering_ergonomics_policy,
+)
 from .type_env import UnionTypeRef
 from .value_flow_census import (
     load_value_flow_census,
@@ -142,6 +146,14 @@ DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.rendering_cleanup.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.rendering_ergonomics.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
     Path(__file__).resolve().parents[2]
@@ -516,6 +528,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     compatibility_bridge_report_payload = None
     compatibility_bridge_generated_steps: list[dict[str, Any]] = []
     rendering_cleanup_report_payload = None
+    rendering_ergonomics_report_payload = None
     resume_plumbing_retirement_report_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
@@ -939,6 +952,61 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                                 ),
                             )
                         )
+                rendering_ergonomics_policy = (
+                    _maybe_load_design_delta_rendering_ergonomics_manifest(
+                        entry_workflow=entry_selection.canonical_name,
+                    )
+                )
+                if rendering_ergonomics_policy is not None:
+                    rendering_ergonomics_report_payload = (
+                        build_rendering_ergonomics_report(
+                            policy=rendering_ergonomics_policy,
+                            prerequisite_reports={
+                                "consumer_rendering_census_report": consumer_rendering_census_report_payload,
+                                "typed_prompt_input_report": typed_prompt_input_report_payload,
+                                "observability_summary_report": observability_summary_report_payload,
+                                "entry_publication_report": entry_publication_report_payload,
+                                "compatibility_bridge_report": compatibility_bridge_report_payload,
+                                "rendering_cleanup_report": rendering_cleanup_report_payload,
+                            },
+                        )
+                    )
+                    if rendering_ergonomics_report_payload.get("status") != "pass":
+                        diagnostics_bucket = rendering_ergonomics_report_payload.get(
+                            "diagnostics", []
+                        )
+                        first = (
+                            diagnostics_bucket[0]
+                            if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                            else {}
+                        )
+                        first_code = (
+                            str(first.get("code"))
+                            if isinstance(first, Mapping) and first.get("code")
+                            else "rendering_ergonomics_report_invalid"
+                        )
+                        first_slot = (
+                            str(
+                                first.get("slot_id")
+                                or first.get("c0_row_id")
+                                or first.get("report")
+                                or "unknown_slot"
+                            )
+                            if isinstance(first, Mapping)
+                            else "unknown_slot"
+                        )
+                        raise LispFrontendCompileError(
+                            (
+                                _cli_request_diagnostic(
+                                    code=first_code,
+                                    message=(
+                                        "design-delta rendering ergonomics report failed: "
+                                        f"{first_code}: {first_slot}"
+                                    ),
+                                    path=DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
+                                ),
+                            )
+                        )
             candidate_rows = resume_plumbing_retirement.select_resume_plumbing_retirement_candidates(
                 value_flow_census
             )
@@ -1099,6 +1167,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         compatibility_bridge_report_payload=compatibility_bridge_report_payload,
         compatibility_bridge_generated_steps=compatibility_bridge_generated_steps,
         rendering_cleanup_report_payload=rendering_cleanup_report_payload,
+        rendering_ergonomics_report_payload=rendering_ergonomics_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
@@ -2188,6 +2257,31 @@ def _maybe_load_design_delta_rendering_cleanup_manifest(
                     code="rendering_cleanup_manifest_invalid",
                     message=f"design-delta rendering cleanup manifest is invalid: {exc}",
                     path=DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH,
+                ),
+            )
+        ) from exc
+
+
+def _maybe_load_design_delta_rendering_ergonomics_manifest(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        return load_rendering_ergonomics_policy(
+            DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="rendering_ergonomics_policy_schema_invalid",
+                    message=(
+                        "design-delta rendering ergonomics manifest is invalid: "
+                        f"{exc}"
+                    ),
+                    path=DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
                 ),
             )
         ) from exc
@@ -3742,6 +3836,7 @@ def _write_build_artifacts(
     compatibility_bridge_report_payload: Mapping[str, object] | None,
     compatibility_bridge_generated_steps: Sequence[Mapping[str, object]],
     rendering_cleanup_report_payload: Mapping[str, object] | None,
+    rendering_ergonomics_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
@@ -3793,6 +3888,10 @@ def _write_build_artifacts(
     if rendering_cleanup_report_payload is not None:
         artifact_paths["rendering_cleanup_report"] = (
             build_root / "rendering_cleanup_report.json"
+        )
+    if rendering_ergonomics_report_payload is not None:
+        artifact_paths["rendering_ergonomics_report"] = (
+            build_root / "rendering_ergonomics_report.json"
         )
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
@@ -3860,6 +3959,10 @@ def _write_build_artifacts(
     if rendering_cleanup_report_payload is not None:
         payloads["rendering_cleanup_report"] = _json_data(
             rendering_cleanup_report_payload
+        )
+    if rendering_ergonomics_report_payload is not None:
+        payloads["rendering_ergonomics_report"] = _json_data(
+            rendering_ergonomics_report_payload
         )
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(
