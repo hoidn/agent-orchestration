@@ -1,6 +1,6 @@
 # Workflow Lisp Runtime-Native Drain Authoring
 
-Status: draft target design
+Status: reference target / regression checklist
 Kind: architecture decision / authoring and migration target
 Created: 2026-06-15
 Scope: Workflow Lisp authoring ergonomics for parent drain workflows; typed
@@ -8,11 +8,21 @@ prompt inputs; private runtime context; consumer-side rendering; typed
 projection; resource transitions; certified adapter retirement; and a working
 Design Delta Drain `.orc` family as the acceptance target.
 
+Current implementation status is tracked in
+`docs/capability_status_matrix.md`. This document defines the desired
+authoring shape and acceptance/regression checklist; it is not live completion
+state.
+
 Authority:
 
 - Normative runtime and DSL behavior remains in `specs/`.
 - `docs/design/workflow_lisp_frontend_specification.md` owns the parent
   Workflow Lisp language contract and WCC lowering route.
+- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
+  records the incorporated generic-core target for pure projection,
+  materialized views, typed transitions, boundary authority classes, adapter
+  retirement, and Design Delta cleanup; current contracts live in the frontend
+  specification where incorporated.
 - `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
   owns the private-checkpoint and consumer-rendering substrate.
 - `docs/design/workflow_lisp_generic_resource_context_core.md` owns the
@@ -27,6 +37,7 @@ Authority:
 Related docs:
 
 - `docs/design/workflow_lisp_frontend_specification.md`
+- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
 - `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
 - `docs/design/workflow_lisp_consumer_side_rendering.md`
 - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
@@ -232,10 +243,21 @@ language.
 
 ## 7. Target Authoring Shape
 
+The common authoring path is domain-shaped. Authors should primarily write
+domain records, unions, provider calls, `match`, named projections, and named
+domain transitions. Runtime context, generated paths, renderer choices, bridge
+files, checkpoint identity, and provider write targets are inferred, declared
+once at boundaries, or hidden behind named library policies. Raw
+`resource-transition`, explicit renderer/schema fields, bridge metadata, and
+certified adapter declarations are substrate or advanced escape hatches, not the
+ordinary drain body style.
+
 ### 7.1 Typed Provider Requests
 
 Provider calls should pass named typed request records when the input has more
-than a few fields or mixes semantic values with targets.
+than a few fields. Prompt-subject records carry semantic facts for the provider;
+provider write targets are separate role-classified bindings, not ordinary
+prompt facts.
 
 Preferred shape:
 
@@ -244,8 +266,7 @@ Preferred shape:
   (target_design TargetDesignDoc)
   (baseline_design BaselineDesignDoc)
   (approved_plan PlanDoc)
-  (checks CheckSpec)
-  (output_targets ImplementationOutputTargets))
+  (checks CheckSpec))
 
 (provider-result providers.implementation.execute
   :prompt prompts.implementation.execute
@@ -256,6 +277,11 @@ Preferred shape:
 The runtime renders `request` at the provider prompt seam. The provider output
 still comes from the declared provider-result contract and runtime-bound
 structured-output bundle.
+
+When a provider needs concrete report or bundle targets, those targets belong to
+a provider-result target policy or a separate typed target binding with authority
+class `provider_write_target`. They must not be indistinguishable from semantic
+prompt inputs.
 
 Flat provider input lists remain valid for small calls, but long lists are not
 the target style for parent drain workflows.
@@ -284,15 +310,13 @@ Deterministic reshaping should be native:
 ```lisp
 (defun make-implementation-request
   ((item WorkItem)
-   (plan ApprovedPlan)
-   (targets ImplementationOutputTargets))
+   (plan ApprovedPlan))
   -> ImplementationRequest
   (record ImplementationRequest
     :target_design item.target_design
     :baseline_design item.baseline_design
     :approved_plan plan.plan_doc
-    :checks item.checks
-    :output_targets targets))
+    :checks item.checks))
 ```
 
 This must not require a command step when it only constructs a typed value from
@@ -300,25 +324,37 @@ existing typed values.
 
 ### 7.4 Resource Transitions
 
-Durable state changes should be typed effects:
+The common authoring shape should be a named domain operation:
 
 ```lisp
-(resource-transition complete-work-item
+(complete-work-item item terminal-result)
+```
+
+That operation lowers to a declared transition contract. The current accepted
+substrate shape is:
+
+```lisp
+(resource-transition
+  :transition complete-work-item-transition
   :resource item-resource
-  :request (CompleteWorkItem
-             :item item
-             :terminal_result terminal-result)
-  :idempotency-key item.attempt_id)
+  :expect-version item.version
+  :request (record CompleteWorkItem
+    :item item
+    :terminal_result terminal-result))
 ```
 
 The runtime or certified adapter enforces resource identity, expected version,
 declared writes, idempotency, conflict behavior, resume behavior, audit
-projection, source-map provenance, and Semantic IR effect visibility.
+projection, source-map provenance, and Semantic IR effect visibility. Drain body
+code should use raw `resource-transition` only for low-level libraries,
+fixtures, or explicit adapter/transition definitions.
 
 ### 7.5 Boundary Publication
 
 A workflow returns typed terminal results. Durable reports or summaries are
 published by boundary policy:
+
+Accepted entry-boundary policy shape:
 
 ```lisp
 (defworkflow drain-design-deltas
@@ -339,6 +375,8 @@ for ordinary public reports.
 
 Legacy files should be driven by bridge metadata:
 
+Illustrative metadata shape:
+
 ```lisp
 (:bridge
   ((legacy-selection-bundle
@@ -349,7 +387,10 @@ Legacy files should be driven by bridge metadata:
 ```
 
 Deleting or expiring the bridge metadata retires the file. The workflow body
-does not hand-author path construction for the bridge.
+does not hand-author path construction for the bridge. Until a concrete `.orc`
+bridge declaration surface is accepted, equivalent manifest or boundary metadata
+is acceptable if it records the typed source value, renderer, schema/version,
+consumer, owner, and retirement condition.
 
 ## 8. Contracts And Interfaces
 
@@ -533,6 +574,22 @@ parent drain code:
 
 ### 13.3 Design Delta Drain Acceptance
 
+Before full reference-family acceptance, implementation must pass a staged proof
+ladder:
+
+- typed provider request-record fixture with prompt rendering evidence;
+- provider write-target fixture proving targets are role-classified separately
+  from prompt-subject data;
+- boundary `:publish` fixture proving terminal publication lowers to
+  materialized-view kernel operations;
+- bridge metadata fixture, or manifest-backed equivalent, proving compatibility
+  files are generated from typed source values;
+- named domain-transition fixture proving a helper such as
+  `complete-work-item` lowers to a declared `resource-transition` contract;
+- public/private boundary fixture proving `RunCtx`, generated write roots,
+  checkpoint paths, and generated targets stay off public authored inputs; and
+- parent-callable smoke or dry-run fixture for the Design Delta family route.
+
 The target is complete only when the Design Delta Drain `.orc` family:
 
 - compiles through the WCC route;
@@ -562,15 +619,23 @@ The target is complete only when the Design Delta Drain `.orc` family:
 Initial state: the Design Delta Drain family has a YAML primary and an `.orc`
 candidate under `workflows/library/lisp_frontend_design_delta/`.
 
-Entrypoint:
+Compile entrypoint:
 
 ```bash
-python -m orchestrator run workflows/examples/lisp_frontend_design_delta_drain.orc \
-  --dry-run
+python -m orchestrator compile \
+  workflows/library/lisp_frontend_design_delta/drain.orc \
+  --entry-workflow lisp_frontend_design_delta/drain::drain \
+  --provider-externs-file \
+    workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json \
+  --prompt-externs-file \
+    workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json \
+  --command-boundaries-file \
+    workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json
 ```
 
-or the equivalent supported `.orc` entrypoint for the Design Delta Drain
-family.
+Runtime acceptance additionally requires the equivalent supported `.orc`
+dry-run or smoke entrypoint for the Design Delta Drain family, with the
+implementation plan recording the exact public inputs used for that smoke.
 
 Expected result:
 
@@ -580,11 +645,13 @@ Expected result:
 - public inputs do not include `RunCtx`, item context, generated write roots,
   checkpoint paths, internal state roots, or generated bundle targets;
 - provider calls receive typed request records or small typed values;
+- provider write targets are separate role-classified bindings, not ordinary
+  semantic prompt facts;
 - prompt composition renders provider input values at the provider seam;
 - selection, work-item routing, terminal classification, and summary shaping
   are typed projections or certified adapters;
-- drain/work-item/recovery state changes are typed transitions or certified
-  transition adapters;
+- drain/work-item/recovery state changes are named domain operations that lower
+  to typed transitions or certified transition adapters;
 - public summaries and legacy bundles are produced by publication policy or
   bridge metadata; and
 - the run produces parity-comparable terminal state and artifacts.
@@ -608,8 +675,11 @@ This target succeeds when:
   discoverable;
 - the Design Delta Drain `.orc` family has a working parent-callable
   translation following this design;
+- the common drain body uses named domain operations rather than exposing
+  routine runtime bookkeeping;
 - typed provider request records replace long positional provider input lists
   in the reference family;
+- provider write targets are separated from semantic prompt-subject records;
 - private runtime context and generated paths are hidden from public authored
   boundaries;
 - consumer-side rendering handles prompt inputs, ordinary public summaries,
@@ -624,7 +694,8 @@ This target succeeds when:
   generated private context, projection, rendering, bridge, and transition
   effects; and
 - migration parity can evaluate the `.orc` family without treating rendered
-  files or reports as semantic authority.
+  files or reports as semantic authority. YAML-primary replacement remains owned
+  by the separate migration parity and promotion gates.
 
 ## 16. Stop Or Revise Criteria
 
