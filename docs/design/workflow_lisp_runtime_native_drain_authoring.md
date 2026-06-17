@@ -88,7 +88,7 @@ public workflow inputs
   -> parity-comparable typed terminal result plus boundary views
 ```
 
-The user-facing `.orc` should look like domain workflow code:
+Target-shape sketch:
 
 ```lisp
 (let* ((action (select-next-action drain-state request))
@@ -117,6 +117,28 @@ Internally, lowering and runtime may bind private context values such as
 targets, and view paths. Those values must be visible in executable contracts,
 source maps, Semantic IR, and build evidence, but not as public authored
 workflow inputs.
+
+### 2.1 Reference-Family Conformance Profile
+
+The Design Delta parent-family route is implemented as a parent-callable `.orc`
+family in the current checkout, but this document is a stricter authoring
+target and regression checklist. Implementation reports that claim this target
+must include or link a conformance profile for the reference family:
+
+| Surface | Current evidence source | Target question |
+| --- | --- | --- |
+| Parent-callable `.orc` route | `workflows/library/lisp_frontend_design_delta/drain.orc`; capability matrix | Does the parent family compile and smoke through WCC as one family? |
+| Public/private boundary | `design_delta_parent_drain.boundary_authority.json`; build boundary report | Are public inputs limited to public-authored values and labeled compatibility bridges? |
+| Provider inputs | `.orc` provider-result call sites; typed prompt-input report | Do nontrivial provider calls use typed prompt-subject records instead of long flat lists? |
+| Provider write targets | provider-result target policy or target-binding evidence | Are output/report targets role-classified separately from prompt facts? |
+| Body renderings | `.orc` `materialize-view` sites; rendering cleanup report | Are remaining body renderings timed publications or compatibility fixtures? |
+| Compatibility files | bridge metadata or boundary authority rows | Are legacy files generated from typed values with owner, schema, consumer, and retirement condition? |
+| Deterministic helpers | `design_delta_parent_drain.commands.json`; adapter census | Are local reshaping helpers retired to typed projection or certified with fixtures? |
+| Durable state changes | `deftransition` / `resource-transition` sites; transition audit evidence | Do state updates use meaningful typed transition contracts or certified transition adapters? |
+
+This profile prevents two mistakes: treating implemented parent-callability as
+proof of the stricter authoring shape, and treating this target as a live status
+report instead of an evidence checklist.
 
 ## 3. Problem
 
@@ -259,7 +281,7 @@ than a few fields. Prompt-subject records carry semantic facts for the provider;
 provider write targets are separate role-classified bindings, not ordinary
 prompt facts.
 
-Preferred shape:
+Copy-safe current shape:
 
 ```lisp
 (defrecord ImplementationRequest
@@ -330,8 +352,8 @@ The common authoring shape should be a named domain operation:
 (complete-work-item item terminal-result)
 ```
 
-That operation lowers to a declared transition contract. The current accepted
-substrate shape is:
+That operation lowers to a declared transition contract. Copy-safe current
+substrate shape:
 
 ```lisp
 (resource-transition
@@ -348,6 +370,19 @@ declared writes, idempotency, conflict behavior, resume behavior, audit
 projection, source-map provenance, and Semantic IR effect visibility. Drain body
 code should use raw `resource-transition` only for low-level libraries,
 fixtures, or explicit adapter/transition definitions.
+
+Transition contracts must be meaningful, not just present. Acceptance evidence
+must show:
+
+- preconditions are non-tautological and tied to request or resource state;
+- idempotency fields include enough identity to avoid accidental cross-item or
+  cross-run replay;
+- closed domain statuses are enums or typed variants rather than free strings
+  where the status set is known;
+- audit projection records resource identity/version, request digest, result
+  digest, source-map origin, and backend kind; and
+- runtime-native and certified-adapter backends satisfy the same typed
+  transition contract.
 
 ### 7.5 Boundary Publication
 
@@ -391,6 +426,44 @@ does not hand-author path construction for the bridge. Until a concrete `.orc`
 bridge declaration surface is accepted, equivalent manifest or boundary metadata
 is acceptable if it records the typed source value, renderer, schema/version,
 consumer, owner, and retirement condition.
+
+### 7.7 Private Context Parameters In Source
+
+Private context must stay off promoted public entrypoints. Internal reusable
+definitions may mention context types when those parameters are supplied by
+hidden reusable-call binding or by ordinary internal composition.
+
+Invalid promoted public boundary:
+
+```lisp
+(defworkflow drain
+  ((run RunCtx)
+   (target_design TargetDesignDoc))
+  -> DrainResult
+  ...)
+```
+
+Allowed internal reusable workflow shape:
+
+```lisp
+(defworkflow run-work-item
+  ((phase_ctx PhaseCtx)
+   (item WorkItem))
+  -> WorkItemResult
+  ...)
+```
+
+Preferred high-level caller shape:
+
+```lisp
+(run-work-item selected-item)
+```
+
+Build evidence must distinguish these cases. Public-boundary inspection rejects
+`RunCtx`, generated roots, checkpoint paths, and generated targets at promoted
+entrypoints. Hidden-binding metadata, source maps, and Semantic IR explain any
+private context supplied to internal calls. If a required private binding lacks a
+runtime anchor or compile-time default, compilation fails closed.
 
 ## 8. Contracts And Interfaces
 
@@ -572,7 +645,38 @@ parent drain code:
   audit projections.
 - Resume does not require public authored checkpoint or generated path inputs.
 
-### 13.3 Design Delta Drain Acceptance
+### 13.3 Authoring Ergonomics Gate
+
+Correct runtime behavior is necessary but not sufficient. Reference-family
+acceptance must include a source-shape report for
+`drain.orc`, `work_item.orc`, `plan_phase.orc`,
+`implementation_phase.orc`, `selector.orc`, and
+`design_gap_architect.orc`.
+
+The report must count and justify:
+
+- promoted public entrypoint inputs, split into public-authored values,
+  compatibility bridges, and rejected private/runtime values;
+- path-like parameters in high-level workflow signatures;
+- provider calls with more than three semantic fields that still use flat input
+  lists instead of typed prompt-subject records;
+- provider target/write-location fields and their authority class;
+- direct `__generated-relpath-seed__` occurrences in high-level parent drain
+  code;
+- body-level `materialize-view` occurrences, classified as timed publication,
+  compatibility fixture, ordinary boundary publication, or violation;
+- raw `command-result :argv` occurrences, classified as external tool,
+  certified adapter, compatibility bridge, or violation;
+- raw `resource-transition` occurrences in ordinary drain body code versus
+  low-level libraries/fixtures; and
+- retained Python helpers, with retirement class, owner, fixtures, and expiry.
+
+Acceptance requires every counted occurrence either to satisfy the target style
+or to carry an explicit compatibility/advanced-use justification. A reduction in
+file count or line count is not required; the gate measures whether the source
+shape exposes domain workflow logic instead of routine runtime bookkeeping.
+
+### 13.4 Design Delta Drain Acceptance
 
 Before full reference-family acceptance, implementation must pass a staged proof
 ladder:
@@ -599,10 +703,12 @@ The target is complete only when the Design Delta Drain `.orc` family:
   architect, review, fix, and recovery-classifier provider calls where the
   input is nontrivial;
 - hides runtime context and generated paths from public authored inputs;
+- keeps private context parameters limited to internal definitions with
+  hidden-binding evidence;
 - uses typed projection instead of Python for deterministic local reshaping
   where the closed expression surface is sufficient;
-- represents durable drain/work-item/recovery state changes as typed
-  transitions or certified transition adapters;
+- represents durable drain/work-item/recovery state changes as named domain
+  operations that lower to typed transitions or certified transition adapters;
 - uses boundary publication or bridge metadata for ordinary summaries,
   reports, selection bundles, and compatibility files;
 - contains no body-level `materialize-view` except justified timed
