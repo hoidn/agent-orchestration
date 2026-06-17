@@ -31,6 +31,9 @@ Authority:
   owns parent-callable workflow-family migration and promotion evidence.
 - `docs/design/workflow_command_adapter_contract.md` owns certified adapter
   boundaries.
+- Private binding, provider target binding, and bridge metadata grammar are
+  owned by the frontend/value-flow specs; this document requires evidence that
+  the reference family uses those contracts correctly.
 - This document does not by itself promote any `.orc` workflow to primary
   surface.
 
@@ -692,6 +695,9 @@ ladder:
   `complete-work-item` lowers to a declared `resource-transition` contract;
 - public/private boundary fixture proving `RunCtx`, generated write roots,
   checkpoint paths, and generated targets stay off public authored inputs; and
+- attached or generated source-shape summary for the reference family covering
+  public/private inputs, provider flat lists, body `materialize-view`, raw
+  command adapters, and raw transitions; and
 - parent-callable smoke or dry-run fixture for the Design Delta family route.
 
 The target is complete only when the Design Delta Drain `.orc` family:
