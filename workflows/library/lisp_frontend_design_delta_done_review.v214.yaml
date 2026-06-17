@@ -64,11 +64,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "claude"
+    default: "codex"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "opus"
+    default: "gpt-5.4"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -89,12 +89,17 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "claude_opus"
+    default: "codex"
   implementation_review_provider:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "claude_opus"
+    default: "codex"
+  done_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
 
 outputs:
   drain_status:
@@ -127,7 +132,7 @@ artifacts:
 steps:
   - name: ReviewDoneDecision
     id: review_done_decision
-    provider: ${inputs.implementation_review_provider}
+    provider: ${inputs.done_review_provider}
     asset_file: prompts/lisp_frontend_selector/review_done_design_delta.md
     timeout_sec: 1800
     depends_on:

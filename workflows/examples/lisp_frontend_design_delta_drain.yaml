@@ -75,11 +75,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "claude"
+    default: "codex"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "opus"
+    default: "gpt-5.4"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -88,12 +88,17 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "claude_opus"
+    default: "codex"
   implementation_review_provider:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "claude_opus"
+    default: "codex"
+  done_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
 
 providers:
   codex:
@@ -612,6 +617,8 @@ steps:
                         ref: inputs.implementation_execute_provider
                       implementation_review_provider:
                         ref: inputs.implementation_review_provider
+                      done_review_provider:
+                        ref: inputs.done_review_provider
                       design_gap_draft_provider:
                         ref: inputs.design_gap_draft_provider
                       design_gap_draft_model:

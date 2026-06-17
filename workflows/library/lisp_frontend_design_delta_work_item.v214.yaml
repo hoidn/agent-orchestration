@@ -61,12 +61,12 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "claude_opus"
+    default: "codex"
   implementation_review_provider:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "claude_opus"
+    default: "codex"
 
 providers:
   codex:

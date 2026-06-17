@@ -42,11 +42,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "claude"
+    default: "codex"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "opus"
+    default: "gpt-5.4"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -77,7 +77,7 @@ providers:
     command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
     input_mode: "stdin"
     defaults:
-      model: "opus"
+      model: "fable"
       effort: "high"
 
 steps:

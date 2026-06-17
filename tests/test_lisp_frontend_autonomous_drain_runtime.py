@@ -3375,6 +3375,9 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
     assert post_wcc_input["default"] == (
         "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json"
     )
+    done_review_provider_input = workflow["inputs"]["done_review_provider"]
+    assert done_review_provider_input["allowed"] == ["codex", "claude_opus"]
+    assert done_review_provider_input["default"] == "codex"
     drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
     prepare = next(step for step in drain_step["repeat_until"]["steps"] if step["name"] == "PrepareIterationPaths")
     prepare_fields = {field["name"]: field for field in prepare["output_bundle"]["fields"]}
@@ -3392,6 +3395,7 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
     assert done_call["call"] == "done_review"
     assert done_call["with"]["selection_bundle_path"]["ref"] == "parent.steps.SelectNextWork.artifacts.selection_bundle_path"
     assert done_call["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
+    assert done_call["with"]["done_review_provider"]["ref"] == "inputs.done_review_provider"
     assert done_call["with"]["state_root"]["ref"] == (
         "parent.steps.PrepareIterationPaths.artifacts.done_review_state_root"
     )
@@ -3406,7 +3410,11 @@ def test_design_delta_drain_done_route_requires_terminal_review_gate():
         (ROOT / "workflows/library/lisp_frontend_design_delta_done_review.v214.yaml").read_text()
     )
     assert done_workflow["inputs"]["post_wcc_inventory_path"]["under"] == "docs/plans"
+    done_review_provider_input = done_workflow["inputs"]["done_review_provider"]
+    assert done_review_provider_input["allowed"] == ["codex", "claude_opus"]
+    assert done_review_provider_input["default"] == "codex"
     review = next(step for step in done_workflow["steps"] if step["name"] == "ReviewDoneDecision")
+    assert review["provider"] == "${inputs.done_review_provider}"
     assert review["asset_file"] == "prompts/lisp_frontend_selector/review_done_design_delta.md"
     assert "${inputs.post_wcc_inventory_path}" in review["depends_on"]["required"]
     review_fields = {field["name"]: field for field in review["output_bundle"]["fields"]}

@@ -16,12 +16,12 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_neurips_steered_backlog_drain_defaults_route_execute_to_opus_and_fix_to_codex():
+def test_neurips_steered_backlog_drain_defaults_route_to_codex():
     workflow = yaml.safe_load(
         (REPO_ROOT / "workflows/examples/neurips_steered_backlog_drain.yaml").read_text(encoding="utf-8")
     )
 
-    assert workflow["inputs"]["implementation_execute_provider"]["default"] == "claude_opus"
+    assert workflow["inputs"]["implementation_execute_provider"]["default"] == "codex"
     assert workflow["inputs"]["implementation_review_provider"]["default"] == "codex"
     assert workflow["inputs"]["implementation_fix_provider"]["default"] == "codex"
 
@@ -44,6 +44,18 @@ def test_workflow_local_claude_opus_aliases_use_stdin_prompt_delivery():
 
         assert provider["input_mode"] == "stdin", relpath
         assert "${PROMPT}" not in " ".join(provider["command"]), relpath
+
+
+def test_design_delta_drain_defaults_route_work_to_codex_gpt54():
+    workflow = yaml.safe_load(
+        (REPO_ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text(encoding="utf-8")
+    )
+
+    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
+    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "gpt-5.4"
+    assert workflow["inputs"]["implementation_execute_provider"]["default"] == "codex"
+    assert workflow["inputs"]["implementation_review_provider"]["default"] == "codex"
+    assert workflow["inputs"]["done_review_provider"]["default"] == "codex"
 
 
 def _write_workflow(workspace: Path, payload: dict) -> Path:
