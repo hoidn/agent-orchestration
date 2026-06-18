@@ -74,6 +74,18 @@ PARENT_CALL_IMPLEMENTATION_PHASE_FIXTURE = (
 PARENT_CALL_WORK_ITEM_CANDIDATE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_parent_calls_work_item.orc"
 )
+ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
+)
+DERIVED_PHASE_CONTEXT_BINDING_INVALID_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "invalid" / "derived_phase_context_binding_invalid.orc"
+)
+DERIVED_PHASE_CONTEXT_AMBIGUOUS_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "invalid" / "derived_phase_context_ambiguous.orc"
+)
+DERIVED_PHASE_CONTEXT_NON_ITEM_CTX_ROOT_INVALID_FIXTURE = (
+    WORKFLOW_LISP_FIXTURES / "invalid" / "derived_phase_context_non_item_ctx_root_invalid.orc"
+)
 DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE = (
     REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "runtime_transition_fixture.orc"
 )
@@ -1015,6 +1027,53 @@ def _compile_design_delta_parent_call_work_item_entrypoint(tmp_path: Path):
     return module_path, result, lowered_by_name
 
 
+def _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(tmp_path: Path):
+    module_path = _write_entrypoint_fixture_to_tmp(
+        ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path, REPO_ROOT / "workflows" / "library"),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
+
+
+def _compile_arbitrary_derived_phase_reuse_entrypoint(tmp_path: Path):
+    source = ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE.read_text(encoding="utf-8")
+    source = source.replace(
+        "(defmodule design_delta_item_ctx_child_phase_reuse)",
+        "(defmodule arbitrary_derived_phase_reuse)",
+        1,
+    )
+    module_path = _write_module(tmp_path / "arbitrary_derived_phase_reuse.orc", source)
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path, REPO_ROOT / "workflows" / "library"),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
+
+
 def _design_delta_work_item_runtime_command_boundaries(tmp_path: Path) -> dict[str, object]:
     _ = tmp_path
     return dict(_design_delta_work_item_command_boundaries())
@@ -1907,6 +1966,19 @@ def _design_delta_work_item_bound_inputs() -> dict[str, object]:
         "run_state_path": "state/run_state.json",
     }
 
+
+def _design_delta_item_ctx_child_phase_reuse_bound_inputs() -> dict[str, object]:
+    return {
+        "work_item_bootstrap__work_item_source": "DESIGN_GAP",
+        "work_item_bootstrap__work_item_id": "design-gap-work-item",
+        "work_item_bootstrap__plan_target_path": "docs/plans/generated_plan.md",
+        "work_item_bootstrap__check_commands__commands": ["python -m pytest -q"],
+        "work_item_bootstrap__architecture_path": "docs/plans/generated_architecture.md",
+        "steering_path": "docs/steering.md",
+        "target_design_path": "docs/design/target.md",
+        "baseline_design_path": "docs/design/baseline.md",
+        "progress_ledger_path": "state/progress_ledger.json",
+    }
 
 def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
     return {
@@ -3323,6 +3395,133 @@ def test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context(
         "lisp_frontend_design_delta/work_item::run-work-item" in name
         for name in lowered_by_name
     )
+
+
+def test_design_delta_item_ctx_child_phase_reuse_compiles(tmp_path: Path) -> None:
+    _workflow_path, result, lowered_by_name = _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(
+        tmp_path
+    )
+    bundle = result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry"
+    ]
+    public_inputs = set(workflow_public_input_contracts(bundle))
+    run_item_steps = lowered_by_name["design_delta_item_ctx_child_phase_reuse::run-item-ctx-first"]["steps"]
+    run_item_calls = {
+        step["call"]
+        for step in _walk_lowered_steps(run_item_steps)
+        if step.get("call")
+    }
+
+    assert "phase-ctx__state-root" not in public_inputs
+    assert "phase-ctx__artifact-root" not in public_inputs
+    assert "phase-ctx__phase-name" not in public_inputs
+    assert "item-ctx__state-root" not in public_inputs
+    assert "item-ctx__artifact-root" not in public_inputs
+    assert "item-ctx__ledger" not in public_inputs
+    assert not any(name.startswith("__write_root__") for name in public_inputs)
+    assert "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first" in lowered_by_name
+    assert {
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+    }.issubset(run_item_calls)
+
+
+def test_design_delta_item_ctx_child_phase_reuse_smokes_approved_and_plan_blocked_routes(
+    tmp_path: Path,
+) -> None:
+    completed_path, completed_result, _lowered_by_name = (
+        _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(tmp_path / "completed")
+    )
+    completed_bundle = completed_result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry"
+    ]
+    completed_workspace, completed_state, completed_provider_calls = _execute_design_delta_work_item_bundle(
+        tmp_path / "completed",
+        workflow_path=completed_path,
+        bundle=completed_bundle,
+        bound_inputs=_design_delta_item_ctx_child_phase_reuse_bound_inputs(),
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+
+    blocked_path, blocked_result, _lowered_by_name = (
+        _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(tmp_path / "blocked")
+    )
+    blocked_bundle = blocked_result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry"
+    ]
+    blocked_workspace, blocked_state, blocked_provider_calls = _execute_design_delta_work_item_bundle(
+        tmp_path / "blocked",
+        workflow_path=blocked_path,
+        bundle=blocked_bundle,
+        bound_inputs=_design_delta_item_ctx_child_phase_reuse_bound_inputs(),
+        plan_variant="BLOCKED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+
+    assert completed_state["status"] == "completed"
+    assert completed_provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+    ]
+    assert completed_state["workflow_outputs"]["return__variant"] == "COMPLETED"
+    assert completed_state["workflow_outputs"]["return__implementation_state"] == "COMPLETED"
+    assert (completed_workspace / "artifacts" / "work" / "execution_report.md").is_file()
+
+    assert blocked_state["status"] == "completed"
+    assert blocked_provider_calls == ["fake-plan-draft", "fake-plan-review"]
+    assert blocked_state["workflow_outputs"]["return__variant"] == "PLAN_BLOCKED"
+    assert blocked_state["workflow_outputs"]["return__reason"] == "plan_blocked"
+    assert not (blocked_workspace / "artifacts" / "work" / "execution_report.md").exists()
+
+
+def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_modules(
+    tmp_path: Path,
+) -> None:
+    workflow_path, result, lowered_by_name = _compile_arbitrary_derived_phase_reuse_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles["arbitrary_derived_phase_reuse::run-entry"]
+    workspace, state, provider_calls = _execute_design_delta_work_item_bundle(
+        tmp_path,
+        workflow_path=workflow_path,
+        bundle=bundle,
+        bound_inputs=_design_delta_item_ctx_child_phase_reuse_bound_inputs(),
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+
+    assert "arbitrary_derived_phase_reuse::run-item-ctx-first" in lowered_by_name
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "COMPLETED"
+    assert state["workflow_outputs"]["return__implementation_state"] == "COMPLETED"
+    assert (workspace / "artifacts" / "work" / "execution_report.md").is_file()
+
+
+def test_design_delta_item_ctx_child_phase_reuse_route_rejects_non_item_ctx_root(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            DERIVED_PHASE_CONTEXT_NON_ITEM_CTX_ROOT_INVALID_FIXTURE,
+            source_roots=(WORKFLOW_LISP_FIXTURES / "invalid", REPO_ROOT / "workflows" / "library"),
+            provider_externs=_design_delta_work_item_provider_externs(),
+            prompt_externs=_design_delta_work_item_prompt_externs(),
+            command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "derived_phase_context_binding_invalid"
 
 
 def test_design_delta_work_item_route_passes_private_context_into_bootstrap_projection() -> None:

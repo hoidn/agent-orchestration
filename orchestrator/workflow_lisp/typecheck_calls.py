@@ -12,7 +12,10 @@ from .effects import (
     merge_effect_summaries,
 )
 from .expressions import CallExpr, EnumMemberExpr, ExprNode, FunctionCallExpr, NameExpr, WorkflowRefLiteralExpr
-from .phase import private_exec_context_kind
+from .phase import (
+    derived_private_child_context_eligibility,
+    private_exec_context_kind,
+)
 from .procedure_refs import (
     ProcRefResolutionContext,
     ResolvedProcRefValue,
@@ -49,11 +52,7 @@ def hidden_context_omission_allowed(
     from . import typecheck as compat
 
     active_signature = session_state.workflow_signature
-    if (
-        callee_signature is None
-        or active_signature is None
-        or not getattr(active_signature, "allow_hidden_context_binding", False)
-    ):
+    if callee_signature is None or active_signature is None:
         return False
     if not isinstance(expected_type, RecordTypeRef):
         return False
@@ -64,7 +63,30 @@ def hidden_context_omission_allowed(
         return False
 
     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
-    if param_name in ambiguities:
+    requirements = getattr(callee_signature, "hidden_context_requirements", {})
+    requirement = requirements.get(param_name) if isinstance(requirements, dict) else None
+    if requirement is not None and requirement.binding_kind == "derived_private_child_context":
+        if requirement.phase_name is None or param_name in ambiguities:
+            compat._raise_error(
+                f"derived child phase context for `{param_name}` is ambiguous in this callee",
+                code="derived_phase_context_ambiguous",
+                span=span,
+                form_path=form_path,
+            )
+        eligibility = derived_private_child_context_eligibility(
+            active_signature,
+            param_name=param_name,
+        )
+        if not eligibility.allowed:
+            compat._raise_error(
+                eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
+                code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
+                span=span,
+                form_path=form_path,
+            )
+        return True
+
+    if getattr(active_signature, "allow_hidden_context_binding", False) and param_name in ambiguities:
         phase_names = ambiguities[param_name]
         compat._raise_error(
             (
@@ -76,16 +98,17 @@ def hidden_context_omission_allowed(
             form_path=form_path,
         )
 
-    requirements = getattr(callee_signature, "hidden_context_requirements", {})
-    requirement = requirements.get(param_name) if isinstance(requirements, dict) else None
-    if requirement is None:
-        compat._raise_error(
-            f"promoted-entry hidden binding for `{param_name}` is unavailable in this callee",
-            code="promoted_entry_hidden_context_binding_invalid",
-            span=span,
-            form_path=form_path,
-        )
-    return True
+    if getattr(active_signature, "allow_hidden_context_binding", False):
+        if requirement is None:
+            compat._raise_error(
+                f"promoted-entry hidden binding for `{param_name}` is unavailable in this callee",
+                code="promoted_entry_hidden_context_binding_invalid",
+                span=span,
+                form_path=form_path,
+            )
+        return True
+
+    return False
 
 
 def typecheck_workflow_ref_argument(

@@ -22,6 +22,7 @@ from ..expressions import EnumMemberExpr, FieldAccessExpr, LiteralExpr, NameExpr
 from ..phase import (
     PHASE_CONTEXT_NAME,
     RUN_CONTEXT_NAME,
+    derived_private_child_context_eligibility,
     private_exec_context_bootstrap_supported,
     private_exec_context_capabilities,
     private_exec_context_kind,
@@ -104,40 +105,74 @@ def _declare_runtime_context_hidden_inputs(
     param_type: RecordTypeRef,
     requirement: PromotedEntryHiddenContextRequirement,
     source_expr: Any,
+    source_param_name: str | None = None,
+    bridge_class: str = "runtime_owned_context",
+    binding_id: str | None = None,
+    generated_name: str | None = None,
 ) -> dict[str, Any]:
     """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
 
     structural_classification = classify_structural_private_exec_context(param_type)
     origin = lowering_core._origin_from_context_source(context, source_expr)
-    prepared_fields: list[FlattenedContractField] = []
-    for flattened_field in derive_workflow_boundary_fields(
-        param_type,
-        generated_name=param_name,
-        source_path=(param_name,),
-        span=origin.span,
-        form_path=origin.form_path,
-    ):
-        contract_definition = dict(flattened_field.contract_definition)
+    binding_id = binding_id or param_name
+    generated_name = generated_name or param_name
+    callee_fields = tuple(
+        derive_workflow_boundary_fields(
+            param_type,
+            generated_name=param_name,
+            source_path=(param_name,),
+            span=origin.span,
+            form_path=origin.form_path,
+        )
+    )
+    generated_fields = tuple(
+        derive_workflow_boundary_fields(
+            param_type,
+            generated_name=generated_name,
+            source_path=(param_name,),
+            span=origin.span,
+            form_path=origin.form_path,
+        )
+    )
+    prepared_fields: list[tuple[FlattenedContractField, FlattenedContractField]] = []
+    for callee_field, generated_field in zip(callee_fields, generated_fields, strict=True):
+        if callee_field.source_path != generated_field.source_path:
+            raise lowering_core._compile_error(
+                code="workflow_boundary_type_invalid",
+                message=(
+                    f"generated hidden binding for `{binding_id}` changed source-path ordering "
+                    "for a private executable context field"
+                ),
+                span=source_expr.span,
+                form_path=source_expr.form_path,
+            )
+        contract_definition = dict(generated_field.contract_definition)
         default_value = _runtime_context_default_value(
             requirement=requirement,
-            source_path=flattened_field.source_path,
+            source_path=generated_field.source_path,
         )
         if default_value is not None:
             contract_definition["default"] = default_value
         prepared_fields.append(
-            FlattenedContractField(
-                generated_name=flattened_field.generated_name,
-                source_path=flattened_field.source_path,
-                contract_definition=contract_definition,
+            (
+                callee_field,
+                FlattenedContractField(
+                    generated_name=generated_field.generated_name,
+                    source_path=generated_field.source_path,
+                    contract_definition=contract_definition,
+                ),
             )
         )
 
-    bootstrap_plan = structural_bootstrap_plan(prepared_fields, structural_classification)
+    bootstrap_plan = structural_bootstrap_plan(
+        [generated_field for _callee_field, generated_field in prepared_fields],
+        structural_classification,
+    )
     if bootstrap_plan is None and not private_exec_context_bootstrap_supported(requirement.context_kind):
         unsupported_input_name = next(
             (
                 flattened_field.generated_name
-                for flattened_field in prepared_fields
+                for _callee_field, flattened_field in prepared_fields
                 if structural_classification is None
                 or _bootstrap_role_for_field(
                     source_path=flattened_field.source_path,
@@ -165,7 +200,7 @@ def _declare_runtime_context_hidden_inputs(
 
     with_bindings: dict[str, Any] = {}
     generated_input_names: list[str] = []
-    for flattened_field in prepared_fields:
+    for callee_field, flattened_field in prepared_fields:
         context.internal_generated_input_contracts.setdefault(
             flattened_field.generated_name,
             dict(flattened_field.contract_definition),
@@ -173,17 +208,17 @@ def _declare_runtime_context_hidden_inputs(
         context.generated_input_spans.setdefault(flattened_field.generated_name, origin)
         context.internal_generated_input_reasons.setdefault(
             flattened_field.generated_name,
-            "runtime_owned_context",
+            bridge_class,
         )
         generated_input_names.append(flattened_field.generated_name)
-        with_bindings[flattened_field.generated_name] = {
+        with_bindings[callee_field.generated_name] = {
             "ref": f"inputs.{flattened_field.generated_name}",
         }
     binding_record = PrivateExecContextBinding(
-        binding_id=param_name,
-        source_param_name=param_name,
+        binding_id=binding_id,
+        source_param_name=source_param_name or param_name,
         context_family=requirement.context_kind,
-        bridge_class="runtime_owned_context",
+        bridge_class=bridge_class,
         generated_input_names=tuple(generated_input_names),
         required_capabilities=(
             structural_classification.derived_capabilities
@@ -294,6 +329,48 @@ def _record_call_binding_label(param_name: str, field_path: tuple[str, ...]) -> 
     if not field_path:
         return param_name
     return f"{param_name}.{'.'.join(field_path)}"
+
+
+def _derived_private_context_source_field_path(generated_name: str) -> tuple[str, ...] | None:
+    if generated_name.endswith("__run__run-id"):
+        return ("run", "run-id")
+    if generated_name.endswith("__run__state-root"):
+        return ("run", "state-root")
+    if generated_name.endswith("__run__artifact-root"):
+        return ("run", "artifact-root")
+    if generated_name.endswith("__state-root"):
+        return ("state-root",)
+    if generated_name.endswith("__artifact-root"):
+        return ("artifact-root",)
+    return None
+
+
+def _render_callee_private_exec_context_call_bindings(
+    *,
+    lowered_callee: Any,
+    authored_bindings: Mapping[str, Any],
+    local_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    bindings: dict[str, Any] = {}
+    for binding in getattr(lowered_callee, "private_exec_context_bindings", ()):
+        if binding.bridge_class != "derived_private_child_context":
+            continue
+        source_expr = authored_bindings.get(binding.source_param_name)
+        if source_expr is None:
+            continue
+        for generated_name in binding.generated_input_names:
+            field_path = _derived_private_context_source_field_path(generated_name)
+            if field_path is None:
+                continue
+            bindings.setdefault(
+                generated_name,
+                _render_call_binding_ref(
+                    source_expr,
+                    local_values=local_values,
+                    field_path=field_path,
+                ),
+            )
+    return bindings
 
 
 def _render_call_binding_leaf_ref(
@@ -567,7 +644,51 @@ def _lower_workflow_call(
         value_expr = binding_by_name.get(param_name)
         if value_expr is None:
             requirement = getattr(callee_signature, "hidden_context_requirements", {}).get(param_name)
-            if getattr(context.signature, "allow_hidden_context_binding", False) and isinstance(param_type, RecordTypeRef):
+            if (
+                isinstance(param_type, RecordTypeRef)
+                and requirement is not None
+                and requirement.binding_kind == "derived_private_child_context"
+            ):
+                ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
+                if requirement.phase_name is None or param_name in ambiguities:
+                    raise lowering_core._compile_error(
+                        code="derived_phase_context_ambiguous",
+                        message=f"derived child phase context for `{param_name}` is ambiguous in this callee",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                eligibility = derived_private_child_context_eligibility(
+                    context.signature,
+                    param_name=param_name,
+                )
+                if not eligibility.allowed:
+                    raise lowering_core._compile_error(
+                        code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
+                        message=eligibility.diagnostic_message
+                        or f"invalid derived child phase context for `{param_name}`",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                generated_binding_name = f"{param_name}__{requirement.phase_name}"
+                with_bindings.update(
+                    _declare_runtime_context_hidden_inputs(
+                        context=context,
+                        param_name=param_name,
+                        param_type=param_type,
+                        requirement=requirement,
+                        source_expr=expr,
+                        source_param_name=eligibility.source_param_name,
+                        bridge_class="derived_private_child_context",
+                        binding_id=generated_binding_name,
+                        generated_name=generated_binding_name,
+                    )
+                )
+                continue
+            if isinstance(param_type, RecordTypeRef) and getattr(
+                context.signature,
+                "allow_hidden_context_binding",
+                False,
+            ):
                 if requirement is None and private_exec_context_kind(param_type) is not None:
                     code = "promoted_entry_hidden_context_metadata_missing"
                     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
@@ -644,6 +765,18 @@ def _lower_workflow_call(
                 raise
             projection_binding_steps.append(lowered.step)
             with_bindings[param_name] = {"ref": lowered.output_refs[param_name]}
+    if callee is not None:
+        with_bindings.update(
+            {
+                name: value
+                for name, value in _render_callee_private_exec_context_call_bindings(
+                    lowered_callee=callee,
+                    authored_bindings=binding_by_name,
+                    local_values=local_values,
+                ).items()
+                if name not in with_bindings
+            }
+        )
     managed_inputs = _managed_write_root_requirements_for_callable(
         lowered_callee=callee,
         imported_bundle=imported_bundle,

@@ -81,11 +81,110 @@ class PhaseScope:
 
 @dataclass(frozen=True)
 class PromotedEntryHiddenContextRequirement:
-    """Compiler-owned hidden context binding metadata for promoted-entry callers."""
+    """Compiler-owned hidden context binding metadata for omitted private bindings."""
 
     param_name: str
     context_kind: str
     phase_name: str | None = None
+    binding_kind: str = "runtime_owned_entry_context"
+
+
+@dataclass(frozen=True)
+class DerivedPrivateChildContextEligibility:
+    """Shared fixed-shape eligibility result for omitted child `PhaseCtx` reuse."""
+
+    source_param_name: str | None = None
+    payload_param_name: str | None = None
+    diagnostic_code: str | None = None
+    diagnostic_message: str | None = None
+
+    @property
+    def allowed(self) -> bool:
+        return self.diagnostic_code is None
+
+
+def eligible_private_context_source_param_names(
+    signature: "WorkflowSignature",
+) -> tuple[str, ...]:
+    """Return private context params that can authorize derived child bindings."""
+
+    eligible: list[str] = []
+    for param_name, type_ref in signature.params:
+        if (
+            private_exec_context_kind(type_ref) is not None
+            or classify_structural_private_exec_context(type_ref) is not None
+        ):
+            eligible.append(param_name)
+    return tuple(eligible)
+
+
+def derived_private_child_context_eligibility(
+    signature: "WorkflowSignature",
+    *,
+    param_name: str,
+) -> DerivedPrivateChildContextEligibility:
+    """Validate the shared `ItemCtx + typed payload` proof lane for child phases."""
+
+    source_param_names = eligible_private_context_source_param_names(signature)
+    if not source_param_names:
+        return DerivedPrivateChildContextEligibility(
+            diagnostic_code="derived_phase_context_binding_invalid",
+            diagnostic_message=(
+                f"derived child phase context for `{param_name}` requires the shared "
+                "item-context-first route: exactly one `(item-ctx ItemCtx)` source "
+                "and one typed payload record"
+            ),
+        )
+    if len(source_param_names) > 1:
+        return DerivedPrivateChildContextEligibility(
+            diagnostic_code="derived_phase_context_ambiguous",
+            diagnostic_message=(
+                f"derived child phase context for `{param_name}` is ambiguous across "
+                f"`{source_param_names[0]}` and `{source_param_names[-1]}`"
+            ),
+        )
+
+    source_param_name = source_param_names[0]
+    payload_params = [(name, type_ref) for name, type_ref in signature.params if name != source_param_name]
+    if len(signature.params) != 2 or len(payload_params) != 1:
+        return DerivedPrivateChildContextEligibility(
+            diagnostic_code="derived_phase_context_binding_invalid",
+            diagnostic_message=(
+                f"derived child phase context for `{param_name}` requires the shared "
+                "item-context-first route: exactly one `(item-ctx ItemCtx)` source "
+                "and one typed payload record"
+            ),
+        )
+
+    source_type = dict(signature.params)[source_param_name]
+    if source_param_name != "item-ctx" or private_exec_context_kind(source_type) != ITEM_CONTEXT_NAME:
+        return DerivedPrivateChildContextEligibility(
+            diagnostic_code="derived_phase_context_binding_invalid",
+            diagnostic_message=(
+                f"derived child phase context for `{param_name}` requires `(item-ctx ItemCtx)` "
+                "as the sole private context source"
+            ),
+        )
+
+    payload_param_name, payload_type = payload_params[0]
+    if (
+        not isinstance(payload_type, RecordTypeRef)
+        or private_exec_context_kind(payload_type) is not None
+        or classify_structural_private_exec_context(payload_type) is not None
+    ):
+        return DerivedPrivateChildContextEligibility(
+            diagnostic_code="derived_phase_context_binding_invalid",
+            diagnostic_message=(
+                f"derived child phase context for `{param_name}` requires the shared "
+                "item-context-first route: the non-`item-ctx` argument must be one "
+                "typed payload record"
+            ),
+        )
+
+    return DerivedPrivateChildContextEligibility(
+        source_param_name=source_param_name,
+        payload_param_name=payload_param_name,
+    )
 
 
 def private_exec_context_capabilities(context_kind: str) -> tuple[str, ...]:

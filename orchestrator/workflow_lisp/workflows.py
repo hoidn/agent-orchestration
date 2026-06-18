@@ -414,17 +414,24 @@ def _phase_family_hidden_context_requirements(
     }.get(entry_name)
     if phase_name is None:
         return requirements
+    binding_kind = (
+        "derived_private_child_context"
+        if entry_name in {"run-plan-phase", "implementation-phase"}
+        else "runtime_owned_entry_context"
+    )
 
     updated = dict(requirements)
     for param_name, type_ref in signature.params:
-        if param_name in updated:
-            continue
         if private_exec_context_kind(type_ref) != PHASE_CONTEXT_NAME:
+            continue
+        existing = updated.get(param_name)
+        if existing is not None and existing.context_kind != PHASE_CONTEXT_NAME:
             continue
         updated[param_name] = PromotedEntryHiddenContextRequirement(
             param_name=param_name,
             context_kind=PHASE_CONTEXT_NAME,
             phase_name=phase_name,
+            binding_kind=binding_kind,
         )
     return updated
 
