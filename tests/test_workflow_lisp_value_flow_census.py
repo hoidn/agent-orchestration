@@ -273,6 +273,24 @@ def test_load_value_flow_census_rejects_compatibility_bridge_without_bridge_meta
         module.load_value_flow_census(path)
 
 
+def test_checked_design_delta_value_flow_census_removes_selection_bundle_from_architect_subject() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.value_flow_census.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert not any(
+        row["row_id"] == "design_gap_architect_draft.input.selection_bundle"
+        for row in payload["rows"]
+    )
+
+
 def test_select_resume_plumbing_retirement_candidates_returns_only_runtime_resume_rows() -> None:
     module = _module()
     census = _valid_payload(

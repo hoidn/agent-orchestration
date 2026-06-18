@@ -39,6 +39,7 @@ INITIAL_REQUIRED_PATHS = {
     "workflows/examples/same_file_record_call_binding.orc",
     "workflows/examples/with_phase_composed_binding.orc",
     "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc",
+    "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
     "workflows/library/lisp_frontend_design_delta/drain.orc",
     "workflows/library/lisp_frontend_design_delta/implementation_phase.orc",
     "workflows/library/lisp_frontend_design_delta/plan_phase.orc",

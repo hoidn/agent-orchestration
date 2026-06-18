@@ -92,13 +92,13 @@ def _subset_value_flow_census(*row_ids: str) -> dict[str, object]:
 
 def _manifest_row(
     *,
-    bridge_id: str = "bridge.work_item.pointer.selection_bundle",
-    c0_row_id: str = "c0.work_item_pointer_selection_bundle_path",
-    u0_row_id: str = "work_item.pointer.selection_bundle_path",
+    bridge_id: str = "bridge.work_item.progress_ledger",
+    c0_row_id: str = "c0.work_item_bridge_progress_ledger_path",
+    u0_row_id: str = "work_item.bridge.progress_ledger_path",
     workflow_surface: str = "lisp_frontend_design_delta/work_item::run-work-item",
     bridge_owner: str = "lisp_frontend_design_delta/work_item",
-    consumer: str = "materialize_lisp_frontend_work_item_inputs",
-    file_shape: str = "pointer_file",
+    consumer: str = "legacy_bootstrap",
+    file_shape: str = "report_path",
     binding_name: str | None = None,
 ) -> dict[str, object]:
     row = {
@@ -111,7 +111,7 @@ def _manifest_row(
         "file_shape": file_shape,
         "typed_value_source": {
             "kind": "compatibility_value_ref",
-            "ref": "selection_bundle",
+            "ref": "progress_ledger",
         },
         "renderer": {
             "renderer_id": "posix-path-line",
@@ -152,13 +152,6 @@ def _manifest_payload(*, bridges: list[dict[str, object]] | None = None) -> dict
         if bridges is not None
         else [
             _manifest_row(),
-            _manifest_row(
-                bridge_id="bridge.work_item.command.selection_bundle",
-                c0_row_id="c0.work_item_command_selection_bundle_path",
-                u0_row_id="work_item.command.selection_bundle_path",
-                file_shape="pointer_file",
-                binding_name="materialize_lisp_frontend_work_item_inputs",
-            ),
         ],
     }
 
@@ -176,29 +169,22 @@ def test_select_compatibility_bridge_rows_uses_checked_c0_inventory() -> None:
         "c0.drain_bridge_manifest_path_compiled_boundary",
         "c0.drain_bridge_progress_ledger_path",
         "c0.drain_bridge_progress_ledger_path_compiled_boundary",
-        "c0.work_item_bridge_architecture_bundle_path",
         "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
-        "c0.work_item_bridge_manifest_path",
         "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",
         "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
-        "c0.work_item_pointer_selection_bundle_path",
-        "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
-        "c0.work_item_command_selection_bundle_path",
     }
 
 
-def test_load_compatibility_bridge_manifest_accepts_checked_blocked_row(
+def test_load_compatibility_bridge_manifest_accepts_checked_compatibility_row(
     tmp_path: Path,
 ) -> None:
     module = _module()
     consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_pointer_selection_bundle_path",
-        "c0.work_item_command_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path",
     )
     value_flow_census = _subset_value_flow_census(
-        "work_item.pointer.selection_bundle_path",
-        "work_item.command.selection_bundle_path",
+        "work_item.bridge.progress_ledger_path",
     )
     manifest_path = _write_json(
         tmp_path / "compatibility_bridges.json",
@@ -214,8 +200,7 @@ def test_load_compatibility_bridge_manifest_accepts_checked_blocked_row(
 
     assert payload["schema_version"] == "workflow_lisp_compatibility_bridge_metadata.v1"
     assert {row["c0_row_id"] for row in payload["bridges"]} == {
-        "c0.work_item_pointer_selection_bundle_path",
-        "c0.work_item_command_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path",
     }
 
 
@@ -223,21 +208,44 @@ def test_load_compatibility_bridge_manifest_rejects_uncertified_command_boundary
     tmp_path: Path,
 ) -> None:
     module = _module()
-    consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_command_selection_bundle_path",
-    )
-    value_flow_census = _subset_value_flow_census(
-        "work_item.command.selection_bundle_path",
-    )
+    consumer_rendering_census = {
+        "rows": [
+            {
+                "row_id": "c0.synthetic_command_bridge_path",
+                "u0_row_id": "work_item.command.synthetic_bridge_path",
+                "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+                "source_kind": "command_adapter_input",
+                "consumer_lane": "compatibility_bridge",
+                "track_c_decision": "BLOCKED",
+                "command_boundary": {
+                    "binding_name": "materialize_lisp_frontend_work_item_inputs"
+                },
+                "bridge": {
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "consumer": "materialize_lisp_frontend_work_item_inputs",
+                    "file_shape": "pointer_file",
+                },
+            }
+        ]
+    }
+    value_flow_census = {
+        "rows": [
+            {
+                "row_id": "work_item.command.synthetic_bridge_path",
+            }
+        ]
+    }
     manifest_path = _write_json(
         tmp_path / "compatibility_bridges.json",
         _manifest_payload(
             bridges=[
                 _manifest_row(
-                    bridge_id="bridge.work_item.command.selection_bundle",
-                    c0_row_id="c0.work_item_command_selection_bundle_path",
-                    u0_row_id="work_item.command.selection_bundle_path",
+                    bridge_id="bridge.work_item.command.synthetic_bridge",
+                    c0_row_id="c0.synthetic_command_bridge_path",
+                    u0_row_id="work_item.command.synthetic_bridge_path",
                     binding_name="materialize_lisp_frontend_work_item_inputs",
+                    consumer="materialize_lisp_frontend_work_item_inputs",
+                    file_shape="pointer_file",
                 )
             ]
         ),
@@ -262,10 +270,10 @@ def test_load_compatibility_bridge_manifest_requires_typed_value_source_locator(
 ) -> None:
     module = _module()
     consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_pointer_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path",
     )
     value_flow_census = _subset_value_flow_census(
-        "work_item.pointer.selection_bundle_path",
+        "work_item.bridge.progress_ledger_path",
     )
     row = _manifest_row()
     row["typed_value_source"] = {"kind": "compatibility_value_ref"}
@@ -281,6 +289,15 @@ def test_load_compatibility_bridge_manifest_requires_typed_value_source_locator(
             consumer_rendering_census=consumer_rendering_census,
             command_boundary_manifest=_command_boundaries(),
         )
+
+
+def test_checked_design_delta_compatibility_bridge_manifest_removes_selection_bundle_pointer_bridge(
+) -> None:
+    payload = _load_json(COMPATIBILITY_BRIDGES_PATH)
+    assert all(
+        row["bridge_id"] != "bridge.work_item.pointer.selection_bundle.compiled_boundary"
+        for row in payload["bridges"]
+    )
 
 
 def test_load_compatibility_bridge_manifest_requires_metadata_for_every_selected_c0_row(
@@ -315,17 +332,54 @@ def test_build_compatibility_bridge_report_preserves_blocked_command_row(
     tmp_path: Path,
 ) -> None:
     module = _module()
-    consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_pointer_selection_bundle_path",
-        "c0.work_item_command_selection_bundle_path",
-    )
-    value_flow_census = _subset_value_flow_census(
-        "work_item.pointer.selection_bundle_path",
-        "work_item.command.selection_bundle_path",
-    )
+    consumer_rendering_census = {
+        "rows": [
+            *_subset_consumer_rendering_census(
+                "c0.work_item_bridge_progress_ledger_path",
+            )["rows"],
+            {
+                "row_id": "c0.synthetic_command_bridge_path",
+                "u0_row_id": "work_item.command.synthetic_bridge_path",
+                "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+                "source_kind": "command_adapter_input",
+                "consumer_lane": "compatibility_bridge",
+                "track_c_decision": "BLOCKED",
+                "command_boundary": {
+                    "binding_name": "materialize_lisp_frontend_work_item_inputs"
+                },
+                "bridge": {
+                    "bridge_owner": "lisp_frontend_design_delta/work_item",
+                    "consumer": "materialize_lisp_frontend_work_item_inputs",
+                    "file_shape": "pointer_file",
+                },
+            },
+        ]
+    }
+    value_flow_census = {
+        "rows": [
+            *_subset_value_flow_census(
+                "work_item.bridge.progress_ledger_path",
+            )["rows"],
+            {
+                "row_id": "work_item.command.synthetic_bridge_path",
+            },
+        ]
+    }
     manifest_path = _write_json(
         tmp_path / "compatibility_bridges.json",
-        _manifest_payload(),
+        _manifest_payload(
+            bridges=[
+                _manifest_row(),
+                _manifest_row(
+                    bridge_id="bridge.work_item.command.synthetic_bridge",
+                    c0_row_id="c0.synthetic_command_bridge_path",
+                    u0_row_id="work_item.command.synthetic_bridge_path",
+                    binding_name="materialize_lisp_frontend_work_item_inputs",
+                    consumer="materialize_lisp_frontend_work_item_inputs",
+                    file_shape="pointer_file",
+                ),
+            ]
+        ),
     )
     manifest = module.load_compatibility_bridge_manifest(
         manifest_path,
@@ -379,11 +433,11 @@ def test_build_compatibility_bridge_report_preserves_blocked_command_row(
     assert report["schema_version"] == "workflow_lisp_compatibility_bridge_report.v1"
     assert report["status"] == "pass"
     assert [row["c0_row_id"] for row in report["blocked_bridges"]] == [
-        "c0.work_item_command_selection_bundle_path"
+        "c0.synthetic_command_bridge_path"
     ]
     assert {
         row["c0_row_id"] for row in report["generated_bridges"]
-    } == {"c0.work_item_pointer_selection_bundle_path"}
+    } == {"c0.work_item_bridge_progress_ledger_path"}
     assert report["contract_isolation"]["workflow_signature_unchanged"] is True
 
 
@@ -469,13 +523,15 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
         row["row_id"] for row in report["selected_c0_rows"]
     } == {
         "c0.drain_bridge_architecture_bundle_path",
+        "c0.drain_bridge_architecture_bundle_path_compiled_boundary",
         "c0.drain_bridge_manifest_path",
+        "c0.drain_bridge_manifest_path_compiled_boundary",
         "c0.drain_bridge_progress_ledger_path",
-        "c0.work_item_bridge_architecture_bundle_path",
-        "c0.work_item_bridge_manifest_path",
+        "c0.drain_bridge_progress_ledger_path_compiled_boundary",
+        "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
+        "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",
-        "c0.work_item_pointer_selection_bundle_path",
-        "c0.work_item_command_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
     }
     assert {
         (diagnostic["code"], diagnostic["c0_row_id"])
@@ -493,10 +549,10 @@ def test_build_compatibility_bridge_report_fails_without_state_layout_allocation
 ) -> None:
     module = _module()
     consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_pointer_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path",
     )
     value_flow_census = _subset_value_flow_census(
-        "work_item.pointer.selection_bundle_path",
+        "work_item.bridge.progress_ledger_path",
     )
     manifest_path = _write_json(
         tmp_path / "compatibility_bridges.json",
@@ -560,10 +616,10 @@ def test_build_compatibility_bridge_report_rejects_non_bridge_materialize_view_e
 ) -> None:
     module = _module()
     consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_pointer_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path",
     )
     value_flow_census = _subset_value_flow_census(
-        "work_item.pointer.selection_bundle_path",
+        "work_item.bridge.progress_ledger_path",
     )
     manifest_path = _write_json(
         tmp_path / "compatibility_bridges.json",
@@ -639,10 +695,10 @@ def test_build_compatibility_bridge_report_requires_compiled_bridge_effect_evide
 ) -> None:
     module = _module()
     consumer_rendering_census = _subset_consumer_rendering_census(
-        "c0.work_item_pointer_selection_bundle_path",
+        "c0.work_item_bridge_progress_ledger_path",
     )
     value_flow_census = _subset_value_flow_census(
-        "work_item.pointer.selection_bundle_path",
+        "work_item.bridge.progress_ledger_path",
     )
     manifest_path = _write_json(
         tmp_path / "compatibility_bridges.json",

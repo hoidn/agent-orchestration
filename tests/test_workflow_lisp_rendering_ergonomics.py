@@ -70,6 +70,18 @@ def test_load_policy_accepts_checked_manifest():
     assert policy["schema_version"] == RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION
     assert policy["target_family"] == "lisp_frontend_design_delta_parent_drain"
     assert policy["consumer_slots"], "policy must enumerate at least one consumer slot"
+    architect_slot = next(
+        slot
+        for slot in policy["consumer_slots"]
+        if slot["c0_row_id"] == "c0.design_gap_architect_prompt_draft"
+    )
+    assert architect_slot["request_shape"] == {
+        "request_type_name": "DesignGapArchitectureRequest",
+        "subject_type_name": "DesignGapArchitecturePromptSubject",
+        "targets_type_name": "DesignGapArchitectureProviderTargets",
+        "requires_request_record": True,
+        "requires_target_split": True,
+    }
 
 
 def test_load_policy_rejects_wrong_schema_version(tmp_path):

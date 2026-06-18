@@ -2,6 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/work_item)
+  (import lisp_frontend_design_delta/bootstrap :only (project-work-item-inputs))
   (import lisp_frontend_design_delta/implementation_phase :only (implementation-phase))
   (import lisp_frontend_design_delta/plan_phase :only (run-plan-phase))
   (import lisp_frontend_design_delta/projections :only
@@ -11,11 +12,10 @@
       record-blocked-recovery-outcome record-terminal-work-item))
   (import lisp_frontend_design_delta/types :only
     (ArtifactWorkTargetPath BaselineDesignDoc BlockedRecoveryReason BlockedRecoveryRoute
-      CheckCommandsPath ImplementationPhaseResult ImplementationReviewDecision
-      ImplementationState PlanDoc PlanReviewDecision ProgressLedger ResolvedWorkItemInputs
-      RunStatePath SelectionBundlePath StateFile StateFileExisting SteeringDoc TargetDesignDoc
-      WorkItemResult WorkItemSource WorkItemSummaryValue WorkItemTerminalDecision WorkReport
-      WorkReportTarget))
+      ImplementationPhaseResult ItemCtx PlanDoc PlanReviewDecision ProgressLedger
+      ResolvedWorkItemInputs SelectionCtx StateFile SteeringDoc TargetDesignDoc
+      WorkItemBootstrapSeed WorkItemContextValue WorkItemResult WorkItemSource
+      WorkItemSummaryValue WorkItemTerminalDecision WorkReport WorkReportTarget))
   (export
     BlockedImplementationRecoveryClassification
     BlockedRecoveryClassification
@@ -42,10 +42,10 @@
   (defrecord BlockedImplementationRecoveryPromptSubject
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (work_item_context WorkReport)
+    (work_item_context WorkItemContextValue)
     (approved_plan PlanDoc)
-    (implementation_state_bundle WorkReport)
-    (progress_report WorkReport))
+    (implementation_state_bundle ArtifactWorkTargetPath)
+    (progress_report ArtifactWorkTargetPath))
 
   (defrecord BlockedImplementationRecoveryRequest
     (subject BlockedImplementationRecoveryPromptSubject))
@@ -55,41 +55,16 @@
     (reason BlockedRecoveryReason)
     (summary String))
 
-  (defrecord BlockedRecoveryStatePromptSubject
-    (target_design_path TargetDesignDoc)
-    (baseline_design_path BaselineDesignDoc)
-    (work_item_context_path WorkReport)
-    (approved_plan_path PlanDoc)
-    (progress_report ArtifactWorkTargetPath))
-
-  (defrecord BlockedRecoveryStateRequest
-    (subject BlockedRecoveryStatePromptSubject))
-
   (defrecord WorkItemSummary
     (summary WorkReport))
-
-  (defproc resolve-work-item-inputs
-    ((selection_bundle_path SelectionBundlePath)
-     (manifest_path StateFileExisting)
-     (architecture_bundle_path StateFile))
-    -> ResolvedWorkItemInputs
-    :effects ((uses-command materialize_lisp_frontend_work_item_inputs))
-    :lowering inline
-    (command-result materialize_lisp_frontend_work_item_inputs
-      :adapter materialize_lisp_frontend_work_item_inputs
-      :inputs
-        ((selection_bundle_path selection_bundle_path)
-         (manifest_path manifest_path)
-         (architecture_bundle_path architecture_bundle_path))
-      :returns ResolvedWorkItemInputs))
 
   (defworkflow classify-blocked-implementation-recovery
     ((target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
-     (work_item_context WorkReport)
+     (work_item_context WorkItemContextValue)
      (approved_plan PlanDoc)
-     (implementation_state_bundle WorkReport)
-     (progress_report WorkReport))
+     (implementation_state_bundle ArtifactWorkTargetPath)
+     (progress_report ArtifactWorkTargetPath))
     -> BlockedImplementationRecoveryClassification
     (let* ((subject
              (record BlockedImplementationRecoveryPromptSubject
@@ -106,30 +81,6 @@
         :prompt prompts.work-item.classify-blocked-recovery
         :inputs (request)
         :returns BlockedImplementationRecoveryClassification)))
-
-  (defproc classify-blocked-implementation-recovery-state
-    ((target_design_path TargetDesignDoc)
-     (baseline_design_path BaselineDesignDoc)
-     (work_item_context_path WorkReport)
-     (approved_plan_path PlanDoc)
-     (implementation_phase_result ImplementationPhaseResult))
-    -> BlockedRecoveryClassification
-    :effects ((uses-provider providers.work-item.recovery-classifier))
-    :lowering inline
-    (let* ((subject
-             (record BlockedRecoveryStatePromptSubject
-               :target_design_path target_design_path
-               :baseline_design_path baseline_design_path
-               :work_item_context_path work_item_context_path
-               :approved_plan_path approved_plan_path
-               :progress_report implementation_phase_result.progress-report))
-           (request
-             (record BlockedRecoveryStateRequest
-               :subject subject)))
-      (provider-result providers.work-item.recovery-classifier
-        :prompt prompts.work-item.classify-blocked-recovery
-        :inputs (request)
-        :returns BlockedRecoveryClassification)))
 
   (defproc finalize-terminal-work-item
     ((work_item_id String)
@@ -178,9 +129,17 @@
      (summary_reason String))
     -> WorkItemSummary
     :effects ((uses-command apply_resource_transition)
-              (writes work-item-blocked-recovery-summary-view))
+              (writes work-item-blocked-recovery-summary-view)
+              (writes work-item-context-view))
     :lowering inline
-    (let* ((transition-result
+    (let* ((work-item-context-view
+             (materialize-view work-item-context-view
+               :value resolved_inputs.work_item_context
+               :renderer canonical-json
+               :renderer-version 1
+               :target resolved_inputs.work_item_context_view_target_path
+               :returns WorkReport))
+           (transition-result
              (resource-transition
                :transition record-blocked-recovery-outcome
                :resource drain-run-state
@@ -196,7 +155,7 @@
                  :drain_status_path resolved_inputs.drain_status_path
                  :progress_report_path implementation_phase_result.progress-report
                  :implementation_state_path implementation_phase_result.execution-report
-                 :architecture_bundle_path resolved_inputs.work_item_context_path
+                 :work_item_context_path work-item-context-view
                  :plan_path resolved_inputs.plan_target_path)))
            (rendered-summary
              (materialize-view work-item-blocked-recovery-summary-view
@@ -220,12 +179,13 @@
      (implementation_phase_result ImplementationPhaseResult))
     -> WorkItemResult
     (let* ((classification
-             (classify-blocked-implementation-recovery-state
-               target_design_path
-               baseline_design_path
-               resolved_inputs.work_item_context_path
-               approved_plan_path
-               implementation_phase_result))
+             (call classify-blocked-implementation-recovery
+               :target_design target_design_path
+               :baseline_design baseline_design_path
+               :work_item_context resolved_inputs.work_item_context
+               :approved_plan approved_plan_path
+               :implementation_state_bundle implementation_phase_result.execution-report
+               :progress_report implementation_phase_result.progress-report))
            (decision
              (call normalize-blocked-recovery-route
                :work_item_source resolved_inputs.work_item_source
@@ -287,26 +247,33 @@
 
   (defworkflow run-work-item
     ((phase-ctx PhaseCtx)
-     (selection_bundle_path SelectionBundlePath)
-     (manifest_path StateFileExisting)
-     (architecture_bundle_path StateFile)
+     (work_item_bootstrap WorkItemBootstrapSeed)
      (steering_path SteeringDoc)
      (target_design_path TargetDesignDoc)
      (baseline_design_path BaselineDesignDoc)
      (progress_ledger_path ProgressLedger))
     -> WorkItemResult
-    (let* ((resolved
-             (resolve-work-item-inputs
-               selection_bundle_path
-               manifest_path
-               architecture_bundle_path))
+    (let* ((selection-ctx
+             (record SelectionCtx
+               :state_root phase-ctx.state-root
+               :artifact_root phase-ctx.artifact-root))
+           (item-ctx
+             (record ItemCtx
+               :selection selection-ctx
+               :work_item_id work_item_bootstrap.work_item_id
+               :state_root phase-ctx.state-root
+               :artifact_root phase-ctx.artifact-root))
+           (resolved
+             (call project-work-item-inputs
+               :item_ctx item-ctx
+               :work_item_bootstrap work_item_bootstrap))
            (plan
              (call run-plan-phase
                :phase-ctx phase-ctx
                :steering steering_path
                :target_design target_design_path
                :baseline_design baseline_design_path
-               :work_item_context resolved.work_item_context_path
+               :work_item_context resolved.work_item_context
                :progress_ledger progress_ledger_path
                :plan_target_path resolved.plan_target_path
                :plan_review_report_target_path resolved.plan_review_report_target_path)))
@@ -317,7 +284,8 @@
                     :phase-ctx phase-ctx
                     :target_design target_design_path
                     :baseline_design baseline_design_path
-                    :check_commands_path resolved.check_commands_path
+                    :check_commands resolved.check_commands
+                    :check_commands_target_path resolved.check_commands_target_path
                     :plan_path approved.approved_plan_path
                     :execution_report_target_path resolved.execution_report_target_path
                     :progress_report_target_path resolved.progress_report_target_path

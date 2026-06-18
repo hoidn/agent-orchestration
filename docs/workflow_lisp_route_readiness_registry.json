@@ -228,6 +228,20 @@
     {
       "copy_safety": "test_evidence_only",
       "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_runtime_fixture_mirror_matches_library_module_set",
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "tests/fixtures/workflow_lisp/valid/design_delta_work_item_runtime/lisp_frontend_design_delta/bootstrap.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "wcc_default",
+      "surface_id": "tests.fixtures.workflow_lisp.valid.design_delta_work_item_runtime.lisp_frontend_design_delta.bootstrap",
+      "surface_kind": "test_fixture"
+    },
+    {
+      "copy_safety": "test_evidence_only",
+      "evidence": [
         "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_compiles_with_phase_family_boundary_contracts",
         "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
       ],
@@ -402,6 +416,20 @@
       "route_label": "wcc_default",
       "surface_id": "workflows.examples.with_phase_composed_binding",
       "surface_kind": "workflow_example"
+    },
+    {
+      "copy_safety": "migration_evidence_only",
+      "evidence": [
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context",
+        "tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py::test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_routes"
+      ],
+      "lowering_route": "wcc_m4",
+      "lowering_schema_version": 2,
+      "path": "workflows/library/lisp_frontend_design_delta/bootstrap.orc",
+      "readiness_label": "leaf_compile_candidate",
+      "route_label": "migration_candidate",
+      "surface_id": "workflows.library.lisp_frontend_design_delta.bootstrap",
+      "surface_kind": "library_workflow"
     },
     {
       "copy_safety": "migration_evidence_only",

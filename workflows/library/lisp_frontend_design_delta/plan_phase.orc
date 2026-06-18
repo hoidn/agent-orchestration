@@ -7,7 +7,7 @@
       review-revise-loop with-phase))
   (import lisp_frontend_design_delta/types :only
     (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanReviewDecision
-      ProgressLedger SteeringDoc TargetDesignDoc WorkReport))
+      ProgressLedger SteeringDoc TargetDesignDoc WorkItemContextValue))
   (export
     DesignDeltaPlanPhaseResult
     PhaseCtx
@@ -37,7 +37,7 @@
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (work_item_context WorkReport)
+    (work_item_context WorkItemContextValue)
     (progress_ledger ProgressLedger))
 
   (defrecord PlanDraftProviderTargets
@@ -50,7 +50,7 @@
   (defrecord PlanReviewPromptSubject
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (work_item_context WorkReport)
+    (work_item_context WorkItemContextValue)
     (plan_path PlanDoc))
 
   (defrecord PlanReviewProviderTargets
@@ -63,7 +63,7 @@
   (defrecord PlanFixPromptSubject
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (work_item_context WorkReport)
+    (work_item_context WorkItemContextValue)
     (plan_path PlanDoc)
     (findings_items_path ReviewFindingsJsonPath))
 
@@ -78,7 +78,7 @@
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (work_item_context WorkReport)
+    (work_item_context WorkItemContextValue)
     (progress_ledger ProgressLedger)
     (plan_target_path PlanDocTarget)
     (plan_review_report_target_path ArtifactReviewTargetPath))
@@ -158,7 +158,7 @@
      (steering SteeringDoc)
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
-     (work_item_context WorkReport)
+     (work_item_context WorkItemContextValue)
      (progress_ledger ProgressLedger)
      (plan_target_path PlanDocTarget)
      (plan_review_report_target_path ArtifactReviewTargetPath))

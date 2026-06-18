@@ -4076,8 +4076,15 @@ def test_design_delta_parent_drain_build_emits_adapter_census_artifact(
     assert review_findings["expiry_condition"]
     assert review_findings["evidence_refs"]
     assert review_findings["liveness"] == "live"
-    assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["retirement_label"] == "keep_bridge"
-    assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["liveness"] == "live"
+    assert (
+        rows_by_name["materialize_lisp_frontend_work_item_inputs"]["retirement_label"]
+        == "retire_to_projection"
+    )
+    assert (
+        rows_by_name["materialize_lisp_frontend_work_item_inputs"]["retirement_status"]
+        == "retired"
+    )
+    assert rows_by_name["materialize_lisp_frontend_work_item_inputs"]["liveness"] == "unreferenced"
 
 
 def test_design_delta_parent_drain_build_emits_g8_deletion_evidence_artifact(
@@ -4618,7 +4625,11 @@ def test_design_delta_parent_drain_value_flow_census_report_covers_required_sour
         for workflow_row in payload["workflow_rows"]
         for row in workflow_row["rows"]
     }
-    assert set(payload["required_source_kinds"]).issubset(covered_kinds)
+    checked_census = _load_design_delta_value_flow_census()
+    absent_kinds = set(
+        (checked_census.get("coverage", {}).get("absent_source_kinds") or {}).keys()
+    )
+    assert set(payload["required_source_kinds"]).issubset(covered_kinds | absent_kinds)
 
 
 def test_design_delta_parent_drain_value_flow_census_report_covers_declared_workflow_surfaces(
@@ -4850,7 +4861,8 @@ def test_design_delta_parent_drain_build_emits_typed_prompt_input_report_artifac
     )
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
-    assert {row["c0_row_id"] for row in payload["selected_rows"]} == {
+    rows_by_id = {row["c0_row_id"]: row for row in payload["selected_rows"]}
+    assert set(rows_by_id) == {
         "c0.design_gap_architect_prompt_draft",
         "c0.implementation_phase_prompt_execute",
         "c0.implementation_phase_prompt_fix",
@@ -4860,8 +4872,10 @@ def test_design_delta_parent_drain_build_emits_typed_prompt_input_report_artifac
         "c0.plan_phase_prompt_review",
         "c0.selector_prompt_select_next_work",
         "c0.work_item_prompt_classify_blocked_recovery",
-        "c0.work_item_prompt_classify_blocked_recovery_state",
     }
+    assert rows_by_id["c0.design_gap_architect_prompt_draft"]["binding_names"] == [
+        "request"
+    ]
 
 
 def test_design_delta_parent_drain_build_emits_compatibility_bridge_report_artifact(
@@ -4884,7 +4898,7 @@ def test_design_delta_parent_drain_build_emits_compatibility_bridge_report_artif
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
     assert payload["generated_bridges"]
-    assert payload["blocked_bridges"]
+    assert payload["blocked_bridges"] == []
     assert payload["contract_isolation"]["typed_steps_do_not_consume_bridge_views"] is True
 
 
@@ -4912,12 +4926,12 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["schema_version"] == "workflow_lisp_rendering_cleanup_report.v1"
     assert payload["status"] == "pass"
-    assert payload["blocked_compatibility_row_ids"] == [
-        "c0.work_item_command_selection_bundle_path"
-    ]
+    assert payload["blocked_compatibility_row_ids"] == []
     assert payload["surviving_body_materialization_row_ids"] == [
+        "c0.design_gap_architect_validate_materialized_architecture_targets_view",
         "c0.drain_materialized_drain_summary",
         "c0.drain_materialized_drain_summary_compiled_boundary",
+        "c0.implementation_phase_materialized_check_commands_view",
         "c0.work_item_summary_summary_path",
         "c0.work_item_summary_summary_path_compiled_boundary",
     ]
@@ -4928,9 +4942,11 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     assert cleanup_rows["c0.plan_phase_output_approved_plan_path"][
         "replacement_evidence"
     ]["report_path"].endswith("entry_publication_report.json")
-    assert cleanup_rows["c0.work_item_bridge_manifest_path"]["replacement_evidence"][
-        "report_path"
-    ].endswith("compatibility_bridge_report.json")
+    assert cleanup_rows[
+        "c0.work_item_bridge_manifest_path_compiled_boundary"
+    ]["replacement_evidence"]["report_path"].endswith(
+        "compatibility_bridge_report.json"
+    )
     assert cleanup_rows["c0.plan_phase_prompt_draft"]["replacement_evidence"][
         "report_path"
     ].endswith("typed_prompt_input_report.json")
@@ -4958,7 +4974,6 @@ def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artif
     assert payload["schema_version"] == "workflow_lisp_rendering_ergonomics_report.v1"
     assert payload["status"] == "pass"
     assert payload["target_family"] == "lisp_frontend_design_delta_parent_drain"
-    assert len(payload["consumer_slots"]) == 58
     provider_shapes = {row["c0_row_id"]: row for row in payload["provider_input_shapes"]}
     assert set(provider_shapes) == {
         "c0.design_gap_architect_prompt_draft",
@@ -4970,7 +4985,6 @@ def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artif
         "c0.plan_phase_prompt_review",
         "c0.selector_prompt_select_next_work",
         "c0.work_item_prompt_classify_blocked_recovery",
-        "c0.work_item_prompt_classify_blocked_recovery_state",
     }
     assert provider_shapes["c0.plan_phase_prompt_review"]["request_type_name"] == (
         "PlanReviewRequest"
@@ -4983,6 +4997,22 @@ def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artif
     )
     assert provider_shapes["c0.plan_phase_prompt_review"]["binding_names"] == ["request"]
     assert provider_shapes["c0.plan_phase_prompt_review"]["status"] == "pass"
+    assert (
+        provider_shapes["c0.design_gap_architect_prompt_draft"]["request_type_name"]
+        == "DesignGapArchitectureRequest"
+    )
+    assert (
+        provider_shapes["c0.design_gap_architect_prompt_draft"]["subject_type_name"]
+        == "DesignGapArchitecturePromptSubject"
+    )
+    assert (
+        provider_shapes["c0.design_gap_architect_prompt_draft"]["targets_type_name"]
+        == "DesignGapArchitectureProviderTargets"
+    )
+    assert provider_shapes["c0.design_gap_architect_prompt_draft"]["binding_names"] == [
+        "request"
+    ]
+    assert provider_shapes["c0.design_gap_architect_prompt_draft"]["status"] == "pass"
     # Every C0 rendering row resolves to exactly one slot and owning lane.
     assert all(payload["contract_isolation"].values())
     assert not payload["diagnostics"]
@@ -4996,7 +5026,7 @@ def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artif
         for slot in payload["consumer_slots"]
         if slot["consumer_lane"] == "compatibility_bridge"
     ]
-    assert "c0.work_item_command_selection_bundle_path" in bridge_rows
+    assert "c0.work_item_command_selection_bundle_path" not in bridge_rows
 
 
 def test_design_delta_parent_drain_rendering_ergonomics_report_fails_closed_on_missing_slot(

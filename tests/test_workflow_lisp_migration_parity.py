@@ -2406,8 +2406,14 @@ def test_design_delta_parent_drain_checked_in_command_boundary_metadata_matches_
         ).read_text(encoding="utf-8")
     )
 
-    assert payload["materialize_lisp_frontend_work_item_inputs"]["retirement_label"] == "keep_bridge"
-    assert payload["materialize_lisp_frontend_work_item_inputs"].get("retirement_status") is None
+    assert (
+        payload["materialize_lisp_frontend_work_item_inputs"]["retirement_label"]
+        == "retire_to_projection"
+    )
+    assert (
+        payload["materialize_lisp_frontend_work_item_inputs"]["retirement_status"]
+        == "retired"
+    )
     for binding_name in (
         "classify_lisp_frontend_work_item_terminal",
         "select_lisp_frontend_blocked_recovery_route",
@@ -3087,6 +3093,9 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
     assert report["compile_artifacts"]["required"]["compatibility_bridge_report"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["rendering_cleanup_report"]["status"] == "pass"
     assert report["compile_artifacts"]["required"]["g8_deletion_evidence"]["status"] == "pass"
+    assert report["g8_deletion_evidence"]["retained_bridges"] == _design_delta_g8_deletion_evidence_payload()[
+        "retained_bridges"
+    ]
 
 
 def test_run_parity_target_fails_when_c4_c5_reports_are_under_specified(

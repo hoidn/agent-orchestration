@@ -1,8 +1,8 @@
 Read the listed steering, target design, baseline design, command-adapter
-contract, progress ledger, selector bundle, architecture target contract, existing
-implementation architecture index, current implementation architecture,
-generated work-item context, generated check commands, and architecture review
-report from the checkout before acting.
+contract, progress ledger, typed design-gap subject record, architecture
+targets, existing implementation architecture index, current implementation
+architecture, generated work-item context, generated check commands, and
+architecture review report from the checkout before acting.
 
 Revise the implementation architecture for exactly the selected target-design
 gap to address the review findings.
@@ -25,11 +25,11 @@ The revised draft bundle must keep this shape:
 ```json
 {
   "draft_status": "DRAFTED",
-  "design_gap_id": "<design_gap_id from selection bundle>",
-  "architecture_path": "<architecture_path from architecture-targets.json>",
-  "work_item_context_path": "<work_item_context_path from architecture-targets.json>",
-  "check_commands_path": "<check_commands_path from architecture-targets.json>",
-  "plan_target_path": "<plan_target_path from architecture-targets.json>",
+  "design_gap_id": "<request.subject.design_gap_id>",
+  "architecture_path": "<request.targets.architecture_path>",
+  "work_item_context_path": "<request.targets.work_item_context_path>",
+  "check_commands_path": "<request.targets.check_commands_path>",
+  "plan_target_path": "<request.targets.plan_target_path>",
   "summary": "short summary"
 }
 ```

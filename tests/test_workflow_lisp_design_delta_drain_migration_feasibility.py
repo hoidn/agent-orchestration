@@ -1872,6 +1872,8 @@ def _write_design_delta_work_item_runtime_inputs(
         "docs/design/baseline.md": "# baseline\n",
         "docs/design/workflow_command_adapter_contract.md": "# command adapter contract\n",
         "docs/steering.md": "# steering\n",
+        "docs/plans/generated_plan.md": "# generated plan\n",
+        "docs/plans/generated_architecture.md": "# generated architecture\n",
         "state/progress_ledger.json": json.dumps({"events": []}) + "\n",
         "state/run_state.json": json.dumps({"history": []}) + "\n",
         "state/selection.json": json.dumps(
@@ -1888,11 +1890,14 @@ def _write_design_delta_work_item_runtime_inputs(
         target.write_text(contents, encoding="utf-8")
 
 
-def _design_delta_work_item_bound_inputs() -> dict[str, str]:
+def _design_delta_work_item_bound_inputs() -> dict[str, object]:
     return {
-        "selection_bundle_path": "state/selection.json",
-        "manifest_path": "state/manifest.json",
-        "architecture_bundle_path": "state/architecture_validation.json",
+        "work_item_bootstrap__work_item_source": "DESIGN_GAP",
+        "work_item_bootstrap__work_item_id": "design-gap-work-item",
+        "work_item_bootstrap__plan_target_path": "docs/plans/generated_plan.md",
+        "work_item_bootstrap__check_commands__commands": ["python -m pytest -q"],
+        "work_item_bootstrap__selection_bundle_path": "state/selection.json",
+        "work_item_bootstrap__architecture_path": "docs/plans/generated_architecture.md",
         "steering_path": "docs/steering.md",
         "target_design_path": "docs/design/target.md",
         "baseline_design_path": "docs/design/baseline.md",
@@ -1913,7 +1918,7 @@ def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
         "architecture_targets__design_gap_id": "design-gap-work-item",
         "architecture_targets__architecture_path": "docs/plans/generated_architecture.md",
         "architecture_targets__work_item_context_path": "artifacts/work/runtime_work_item_context.md",
-        "architecture_targets__check_commands_path": "artifacts/work/check_commands.md",
+        "architecture_targets__check_commands_path": "state/check_commands.json",
         "architecture_targets__plan_target_path": "docs/plans/generated_plan.md",
         "existing_architecture_index_path": "artifacts/work/existing_architecture_index.md",
     }
@@ -2054,9 +2059,22 @@ def _execute_design_delta_work_item_bundle(
                 if current_selector_status == "SELECT_BACKLOG_ITEM"
                 else current_selector_status
             )
+            normalized_source = (
+                "DESIGN_GAP" if work_item_source == "DRAFT_DESIGN_GAP" else work_item_source
+            )
             selector_payload = {
                 "selection_status": current_selector_status,
                 "selection_bundle_path": "state/selection.json",
+                "work_item_bootstrap": {
+                    "work_item_source": normalized_source,
+                    "work_item_id": "design-gap-work-item",
+                    "plan_target_path": "docs/plans/generated_plan.md",
+                    "check_commands": {
+                        "commands": ["python -m pytest -q"],
+                    },
+                    "selection_bundle_path": "state/selection.json",
+                    "architecture_path": "docs/plans/generated_architecture.md",
+                },
                 "is_selected": selector_variant == "SELECTED_ITEM",
                 "is_design_gap": selector_variant == "DRAFT_DESIGN_GAP",
                 "is_done": selector_variant == "DONE",
@@ -3241,6 +3259,49 @@ def test_design_delta_work_item_runtime_fixture_mirror_matches_library_module_se
         assert (mirror_root / name).read_bytes() == expected_bytes
 
 
+def test_design_delta_bootstrap_helper_requires_private_context_inputs() -> None:
+    bootstrap_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "bootstrap.orc"
+    ).read_text(encoding="utf-8")
+    signature = re.search(
+        r"\(defworkflow\s+project-work-item-inputs\s*\((?P<args>.*?)\)\s*->\s*ResolvedWorkItemInputs",
+        bootstrap_source,
+        re.DOTALL,
+    )
+
+    assert signature is not None
+    assert "item_ctx" in signature.group("args")
+    assert "((work_item_bootstrap WorkItemBootstrapSeed))" not in bootstrap_source
+
+
+def test_design_delta_bootstrap_projection_carries_private_item_context() -> None:
+    bootstrap_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "bootstrap.orc"
+    ).read_text(encoding="utf-8")
+    types_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "types.orc"
+    ).read_text(encoding="utf-8")
+
+    resolved_inputs = re.search(
+        r"\(defrecord\s+ResolvedWorkItemInputs(?P<body>.*?)\)\n\n",
+        types_source,
+        re.DOTALL,
+    )
+
+    assert resolved_inputs is not None
+    for field in (
+        "(selection_state_root Path.state-root)",
+        "(selection_artifact_root Path.artifact-root)",
+        "(item_state_root Path.state-root)",
+        "(item_artifact_root Path.artifact-root)",
+    ):
+        assert field in resolved_inputs.group("body")
+    assert ":selection_state_root item_ctx.selection.state_root" in bootstrap_source
+    assert ":selection_artifact_root item_ctx.selection.artifact_root" in bootstrap_source
+    assert ":item_state_root item_ctx.state_root" in bootstrap_source
+    assert ":item_artifact_root item_ctx.artifact_root" in bootstrap_source
+
+
 def test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context(
     tmp_path: Path,
 ) -> None:
@@ -3260,6 +3321,15 @@ def test_design_delta_parent_call_work_item_compiles_with_hidden_phase_context(
         "lisp_frontend_design_delta/work_item::run-work-item" in name
         for name in lowered_by_name
     )
+
+
+def test_design_delta_work_item_route_passes_private_context_into_bootstrap_projection() -> None:
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+
+    assert ":item_ctx item-ctx" in work_item_source
+    assert ":selection_ctx selection-ctx" not in work_item_source
 
 
 def test_design_delta_work_item_library_module_stays_closure_only(
@@ -3769,7 +3839,14 @@ def test_design_delta_parent_drain_removes_run_state_from_work_item_authored_sig
     assert "(run_state_path RunStatePath))" not in work_item_source
     assert "((run_state_path RunStatePath)" not in work_item_source
     assert ":run_state_path run_state_path" not in work_item_source
+    assert "(selection_bundle_path SelectionBundlePath)" not in work_item_source
+    assert "(manifest_path StateFileExisting)" not in work_item_source
+    assert "(architecture_bundle_path StateFile)" not in work_item_source
+    assert "materialize_lisp_frontend_work_item_inputs" not in work_item_source
     assert ":run_state_path run_state_path" in drain_source
+    assert ":selection_bundle_path" not in drain_source
+    assert ":manifest_path" not in drain_source
+    assert ":architecture_bundle_path" not in drain_source
     assert "state.run-state" not in work_item_source
     assert "run_state_path" in boundary.private_compatibility_bridge_inputs
     assert "run_state_path" not in boundary.public_input_contracts
@@ -3974,11 +4051,66 @@ def test_design_delta_parent_drain_routes_design_gap_bundle_from_action(
 
     design_gap_refs = [
         draft_call["with"]["progress_ledger"]["ref"],
-        draft_call["with"]["selection_bundle"]["ref"],
-        validate_call["with"]["architecture_targets_bundle"]["ref"],
+        draft_call["with"]["design_gap_bootstrap__work_item_id"]["ref"],
+        validate_call["with"]["design_gap_bootstrap__architecture_path"]["ref"],
     ]
-    assert all("design_gap_selection_bundle" in ref for ref in design_gap_refs)
+    assert design_gap_refs[0] == "inputs.progress_ledger_path"
+    assert all("design_gap_bootstrap" in ref for ref in design_gap_refs[1:])
     assert all(ref != "inputs.selection_bundle_report_path" for ref in design_gap_refs)
+    assert not any(key.startswith("architecture_targets__") for key in draft_call["with"])
+    assert not any(key.startswith("architecture_targets__") for key in validate_call["with"])
+
+
+def test_design_delta_design_gap_architect_prompt_contract_removes_selection_bundle_subject_authority(
+) -> None:
+    architect_source = (
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "lisp_frontend_design_delta"
+        / "design_gap_architect.orc"
+    ).read_text(encoding="utf-8")
+    draft_prompt = (
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "prompts"
+        / "lisp_frontend_design_delta_design_gap_architect"
+        / "draft_implementation_architecture.md"
+    ).read_text(encoding="utf-8")
+    revise_prompt = (
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "prompts"
+        / "lisp_frontend_design_delta_design_gap_architect"
+        / "revise_implementation_architecture.md"
+    ).read_text(encoding="utf-8")
+
+    assert "(selection_bundle SelectionBundlePath)" not in architect_source
+    assert ":selection_bundle selection_bundle" not in architect_source
+    for prompt_text in (draft_prompt, revise_prompt):
+        assert "typed design-gap bootstrap" not in prompt_text.lower()
+        assert "selection_bundle" not in prompt_text
+        assert "selector bundle" not in prompt_text.lower()
+        assert "architecture_path" in prompt_text
+        assert "work_item_context_path" in prompt_text
+        assert "check_commands_path" in prompt_text
+        assert "plan_target_path" in prompt_text
+
+
+def test_design_delta_blocked_recovery_request_renames_work_item_context_bridge_field() -> None:
+    transitions_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "transitions.orc"
+    ).read_text(encoding="utf-8")
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+
+    assert "(architecture_bundle_path WorkReport)" not in transitions_source
+    assert "(work_item_context_path WorkReport)" in transitions_source
+    assert ":architecture_bundle_path work-item-context-view" not in work_item_source
+    assert ":work_item_context_path work-item-context-view" in work_item_source
 
 
 def test_design_delta_work_item_candidate_advances_past_private_workflow_ifexpr_export_blocker(

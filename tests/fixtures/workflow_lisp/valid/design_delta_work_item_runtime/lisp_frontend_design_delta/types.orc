@@ -17,6 +17,8 @@
     BlockedRecoveryReason
     BlockedRecoveryOutcome
     CheckCommandsPath
+    CheckCommandsTargetPath
+    CheckCommandsValue
     DesignRevisionDecision
     DesignRevisionReviewDecision
     DesignRevisionResult
@@ -47,6 +49,7 @@
     ResolvedWorkItemInputs
     RunStatePath
     SelectionBundlePath
+    SelectionCtx
     SelectionResult
     SelectionStatus
     StateDir
@@ -54,7 +57,10 @@
     StateFileExisting
     SteeringDoc
     TargetDesignDoc
+    ItemCtx
     WorkItemResult
+    WorkItemBootstrapSeed
+    WorkItemContextValue
     WorkItemSummaryValue
     WorkItemSource
     WorkItemTerminalDecision
@@ -200,6 +206,11 @@
     :under "state"
     :must-exist true)
 
+  (defpath CheckCommandsTargetPath
+    :kind relpath
+    :under "state"
+    :must-exist false)
+
   (defpath StateDir
     :kind relpath
     :under "state"
@@ -264,6 +275,32 @@
     :kind relpath
     :under "state"
     :must-exist true)
+
+  (defrecord CheckCommandsValue
+    (commands List[String]))
+
+  (defrecord SelectionCtx
+    (state_root Path.state-root)
+    (artifact_root Path.artifact-root))
+
+  (defrecord ItemCtx
+    (selection SelectionCtx)
+    (work_item_id String)
+    (state_root Path.state-root)
+    (artifact_root Path.artifact-root))
+
+  (defrecord WorkItemContextValue
+    (work_item_source WorkItemSource)
+    (work_item_id String)
+    (plan_target_path PlanDocTarget)
+    (architecture_path PlanDocTarget))
+
+  (defrecord WorkItemBootstrapSeed
+    (work_item_source WorkItemSource)
+    (work_item_id String)
+    (plan_target_path PlanDocTarget)
+    (check_commands CheckCommandsValue)
+    (architecture_path PlanDocTarget))
 
   (defrecord SelectionPayload
     (work-item-id String)
@@ -345,8 +382,14 @@
   (defrecord ResolvedWorkItemInputs
     (work_item_source WorkItemSource)
     (work_item_id String)
-    (work_item_context_path WorkReport)
-    (check_commands_path CheckCommandsPath)
+    (selection_state_root Path.state-root)
+    (selection_artifact_root Path.artifact-root)
+    (item_state_root Path.state-root)
+    (item_artifact_root Path.artifact-root)
+    (work_item_context WorkItemContextValue)
+    (work_item_context_view_target_path WorkReportTarget)
+    (check_commands CheckCommandsValue)
+    (check_commands_target_path CheckCommandsTargetPath)
     (plan_target_path PlanDocTarget)
     (plan_phase_state_root StateDir)
     (implementation_phase_state_root StateDir)
@@ -406,9 +449,9 @@
 
   (defunion DesignDeltaDrainAction
     (SELECTED_ITEM
-      (selected_item_selection_bundle SelectionBundlePath))
+      (selected_item_bootstrap WorkItemBootstrapSeed))
     (DRAFT_DESIGN_GAP
-      (design_gap_selection_bundle SelectionBundlePath))
+      (design_gap_bootstrap WorkItemBootstrapSeed))
     (BLOCKED_RECOVERY
       (blocked_recovery_selection_bundle SelectionBundlePath)
       (blocked_recovery_reason String))

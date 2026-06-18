@@ -63,7 +63,7 @@
                         (action
                           (call project-selector-action
                             :selection_status selection.selection_status
-                            :selection_bundle_path selection.selection_bundle_path
+                            :work_item_bootstrap selection.work_item_bootstrap
                             :blocked_reason selection.blocked_reason)))
                    (match action
                      ((DONE done)
@@ -72,9 +72,7 @@
                      ((SELECTED_ITEM selected)
                      (let* ((item
                              (call run-work-item
-                               :selection_bundle_path selected.selected_item_selection_bundle
-                               :manifest_path manifest_path
-                               :architecture_bundle_path architecture_bundle_path
+                               :work_item_bootstrap selected.selected_item_bootstrap
                                :steering_path steering_path
                                :target_design_path target_design_path
                                :baseline_design_path baseline_design_path
@@ -84,18 +82,17 @@
                             :iteration-count (+ state.iteration-count 1)
                             :item-count (+ state.item-count 1)))))
                      ((DRAFT_DESIGN_GAP gap)
-                      (let* ((draft
-                               (call draft-design-gap-architecture
-                                 :steering steering_path
-                                 :target_design target_design_path
-                                 :baseline_design baseline_design_path
-                                 :progress_ledger gap.design_gap_selection_bundle
-                                 :selection_bundle gap.design_gap_selection_bundle
-                                 :architecture_targets architecture_targets
-                                 :existing_architecture_index existing_architecture_index_path))
+                     (let* ((draft
+                             (call draft-design-gap-architecture
+                               :steering steering_path
+                               :target_design target_design_path
+                               :baseline_design baseline_design_path
+                               :progress_ledger progress_ledger_path
+                               :design_gap_bootstrap gap.design_gap_bootstrap
+                               :existing_architecture_index existing_architecture_index_path))
                              (validation
                                (call validate-design-gap-architecture
-                                 :architecture_targets_bundle gap.design_gap_selection_bundle)))
+                                 :design_gap_bootstrap gap.design_gap_bootstrap)))
                         (continue
                           (record DrainState
                             :iteration-count (+ state.iteration-count 1)

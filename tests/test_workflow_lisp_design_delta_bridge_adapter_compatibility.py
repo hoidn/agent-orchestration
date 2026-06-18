@@ -30,7 +30,6 @@ DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
     / "design_delta_parent_drain.commands.json"
 )
 SHARED_BRIDGE_BINDING_NAMES = (
-    "materialize_lisp_frontend_work_item_inputs",
     "project_lisp_frontend_selector_action",
 )
 UPDATE_RUN_STATE_SCRIPT = (

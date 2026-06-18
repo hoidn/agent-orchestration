@@ -6,6 +6,16 @@ from pathlib import Path
 
 import pytest
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.consumer_rendering_census.json"
+)
+
 
 def _module():
     return importlib.import_module("orchestrator.workflow_lisp.consumer_rendering_census")
@@ -255,6 +265,18 @@ def test_reconcile_consumer_rendering_census_rejects_missing_render_only_u0_row(
             command_boundary_manifest={},
             **_prompt_support_kwargs(),
         )
+
+
+def test_checked_design_delta_consumer_rendering_census_does_not_route_selection_bundle_bridge_through_bootstrap_adapter(
+) -> None:
+    payload = json.loads(
+        DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH.read_text(encoding="utf-8")
+    )
+
+    assert all(
+        row["row_id"] != "c0.work_item_pointer_selection_bundle_path_compiled_boundary"
+        for row in payload["rows"]
+    )
 
 
 def test_load_consumer_rendering_census_rejects_unknown_renderer_id_version(
@@ -601,3 +623,14 @@ def test_reconcile_consumer_rendering_census_rejects_command_boundary_row_withou
                 }
             },
         )
+
+
+def test_checked_in_design_delta_consumer_rendering_census_drops_work_item_command_bridge_row() -> None:
+    payload = json.loads(
+        DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH.read_text(encoding="utf-8")
+    )
+
+    assert {
+        row["row_id"]
+        for row in payload["rows"]
+    }.isdisjoint({"c0.work_item_command_selection_bundle_path"})

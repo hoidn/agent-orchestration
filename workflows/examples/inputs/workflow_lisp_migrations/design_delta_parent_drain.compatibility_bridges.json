@@ -173,36 +173,9 @@
       }
     },
     {
-      "bridge_id": "bridge.work_item.architecture_bundle",
-      "c0_row_id": "c0.work_item_bridge_architecture_bundle_path",
-      "u0_row_id": "work_item.bridge.architecture_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
-      "consumer": "legacy_bootstrap",
-      "file_shape": "compatibility_file",
-      "typed_value_source": {
-        "kind": "compatibility_value_ref",
-        "ref": "work_item.architecture_bundle"
-      },
-      "renderer": {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value"
-      },
-      "target": {
-        "kind": "generated_materialized_view",
-        "durability": "durable_bridge",
-        "authority_class": "compatibility_bridge"
-      },
-      "retirement": {
-        "allowed_when": "private typed bootstrap removes authored architecture bridge",
-        "replacement_target": "Track R/C private bootstrap revision"
-      }
-    },
-    {
       "bridge_id": "bridge.work_item.architecture_bundle.compiled_boundary",
       "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::architecture_bundle_path",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__architecture_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "bridge_owner": "lisp_frontend_design_delta/work_item",
       "consumer": "legacy_bootstrap",
@@ -223,40 +196,13 @@
       },
       "retirement": {
         "allowed_when": "private typed bootstrap removes authored architecture bridge",
-        "replacement_target": "Track R/C private bootstrap revision"
-      }
-    },
-    {
-      "bridge_id": "bridge.work_item.manifest",
-      "c0_row_id": "c0.work_item_bridge_manifest_path",
-      "u0_row_id": "work_item.bridge.manifest_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
-      "consumer": "legacy_bootstrap",
-      "file_shape": "json_manifest_bundle",
-      "typed_value_source": {
-        "kind": "compatibility_value_ref",
-        "ref": "work_item.manifest_bundle"
-      },
-      "renderer": {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value"
-      },
-      "target": {
-        "kind": "generated_materialized_view",
-        "durability": "durable_bridge",
-        "authority_class": "compatibility_bridge"
-      },
-      "retirement": {
-        "allowed_when": "private typed bootstrap removes manifest bridge",
         "replacement_target": "Track R/C private bootstrap revision"
       }
     },
     {
       "bridge_id": "bridge.work_item.manifest.compiled_boundary",
       "c0_row_id": "c0.work_item_bridge_manifest_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::manifest_path",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__plan_target_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "bridge_owner": "lisp_frontend_design_delta/work_item",
       "consumer": "legacy_bootstrap",
@@ -332,91 +278,6 @@
       "retirement": {
         "allowed_when": "private typed transport removes progress-ledger bridge",
         "replacement_target": "Track R/C private bootstrap revision"
-      }
-    },
-    {
-      "bridge_id": "bridge.work_item.pointer.selection_bundle",
-      "c0_row_id": "c0.work_item_pointer_selection_bundle_path",
-      "u0_row_id": "work_item.pointer.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
-      "consumer": "materialize_lisp_frontend_work_item_inputs",
-      "file_shape": "pointer_file",
-      "typed_value_source": {
-        "kind": "compatibility_value_ref",
-        "ref": "work_item.selection_bundle_pointer"
-      },
-      "renderer": {
-        "renderer_id": "posix-path-line",
-        "renderer_version": 1,
-        "accepted_shape": "path_value"
-      },
-      "target": {
-        "kind": "generated_materialized_view",
-        "durability": "durable_bridge",
-        "authority_class": "compatibility_bridge"
-      },
-      "retirement": {
-        "allowed_when": "typed selection state replaces pointer-based bootstrap",
-        "replacement_target": "Track C typed value transport"
-      }
-    },
-    {
-      "bridge_id": "bridge.work_item.pointer.selection_bundle.compiled_boundary",
-      "c0_row_id": "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
-      "consumer": "materialize_lisp_frontend_work_item_inputs",
-      "file_shape": "pointer_file",
-      "typed_value_source": {
-        "kind": "compatibility_value_ref",
-        "ref": "work_item.selection_bundle_pointer"
-      },
-      "renderer": {
-        "renderer_id": "posix-path-line",
-        "renderer_version": 1,
-        "accepted_shape": "path_value"
-      },
-      "target": {
-        "kind": "generated_materialized_view",
-        "durability": "durable_bridge",
-        "authority_class": "compatibility_bridge"
-      },
-      "retirement": {
-        "allowed_when": "typed selection state replaces pointer-based bootstrap",
-        "replacement_target": "Track C typed value transport"
-      }
-    },
-    {
-      "bridge_id": "bridge.work_item.command.selection_bundle",
-      "c0_row_id": "c0.work_item_command_selection_bundle_path",
-      "u0_row_id": "work_item.command.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
-      "consumer": "materialize_lisp_frontend_work_item_inputs",
-      "file_shape": "pointer_file",
-      "typed_value_source": {
-        "kind": "compatibility_value_ref",
-        "ref": "work_item.selection_bundle_command_input"
-      },
-      "renderer": {
-        "renderer_id": "posix-path-line",
-        "renderer_version": 1,
-        "accepted_shape": "path_value"
-      },
-      "target": {
-        "kind": "generated_materialized_view",
-        "durability": "durable_bridge",
-        "authority_class": "compatibility_bridge"
-      },
-      "retirement": {
-        "allowed_when": "typed work-item bootstrap replaces command-bound selection-bundle transport",
-        "replacement_target": "Track C typed bootstrap inputs"
-      },
-      "command_boundary": {
-        "binding_name": "materialize_lisp_frontend_work_item_inputs",
-        "expected_kind": "certified_adapter"
       }
     }
   ]

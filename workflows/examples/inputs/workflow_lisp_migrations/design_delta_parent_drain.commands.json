@@ -187,13 +187,14 @@
     "owner_module": "lisp_frontend_design_delta/work_item",
     "replacement_path": "SelectionCtx + ItemCtx private bootstrap + typed projection",
     "invocation_protocol": "json_object_positional_arg",
-    "retirement_class": "manifest_assembly",
-    "retirement_label": "keep_bridge",
-    "replacement_surface": "SelectionCtx + ItemCtx private bootstrap with future generated path and materialized view retirement",
+    "retirement_class": "typed_projection",
+    "retirement_label": "retire_to_projection",
+    "replacement_surface": "typed work-item bootstrap projection",
     "bridge_owner": "lisp_frontend_design_delta/work_item",
-    "expiry_condition": "retain until later G4/G7 context/bootstrap work replaces manifest assembly and path materialization",
+    "expiry_condition": "retained only for checked manifest lineage after typed work-item bootstrap projection makes the adapter unreferenced",
     "evidence_refs": [
       "design_delta_work_item_inputs_ok"
-    ]
+    ],
+    "retirement_status": "retired"
   }
 }

@@ -934,13 +934,13 @@
       "u0_row_id": "design_gap_architect_validate.output.work_item_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed validation handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -949,20 +949,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Validated work-item bundle path is still a published artifact boundary."
+      "notes": "Validated work-item bundle path is an internal typed validation handoff, not an entry-facing publication."
     },
     {
       "row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::return__work_item_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed validation handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -975,7 +975,7 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Validated work-item bundle path is still a published artifact boundary. Compiled boundary inventory mirror of the same consumer surface."
+      "notes": "Validated work-item bundle path is an internal typed validation handoff, not an entry-facing publication. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_output_approved_plan_path",
@@ -1440,37 +1440,10 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
-      "row_id": "c0.work_item_bridge_architecture_bundle_path",
-      "u0_row_id": "work_item.bridge.architecture_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
-      "consumer_lane": "compatibility_bridge",
-      "durability": "durable_bridge",
-      "renderer": null,
-      "typed_value_source": null,
-      "target_binding": null,
-      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
-      "replacement_target": "Track R/C private bootstrap revision",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "compatibility_file",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
-      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
-    },
-    {
       "row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::architecture_bundle_path",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__architecture_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
+      "source_kind": "record_field",
       "consumer_lane": "compatibility_bridge",
       "durability": "durable_bridge",
       "renderer": null,
@@ -1498,37 +1471,10 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
-      "row_id": "c0.work_item_bridge_manifest_path",
-      "u0_row_id": "work_item.bridge.manifest_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
-      "consumer_lane": "compatibility_bridge",
-      "durability": "durable_bridge",
-      "renderer": null,
-      "typed_value_source": null,
-      "target_binding": null,
-      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
-      "replacement_target": "Track R/C private bootstrap revision",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "json_manifest_bundle",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
-      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
-    },
-    {
       "row_id": "c0.work_item_bridge_manifest_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::manifest_path",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__plan_target_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
+      "source_kind": "record_field",
       "consumer_lane": "compatibility_bridge",
       "durability": "durable_bridge",
       "renderer": null,
@@ -1612,99 +1558,6 @@
         "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
       },
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
-    },
-    {
-      "row_id": "c0.work_item_pointer_selection_bundle_path",
-      "u0_row_id": "work_item.pointer.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "pointer_path",
-      "consumer_lane": "compatibility_bridge",
-      "durability": "durable_bridge",
-      "renderer": null,
-      "typed_value_source": null,
-      "target_binding": null,
-      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
-      "replacement_target": "Track C typed value transport",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "materialize_lisp_frontend_work_item_inputs",
-        "file_shape": "pointer_file",
-        "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
-      },
-      "notes": "Pointer file must remain representation-only and never become semantic authority."
-    },
-    {
-      "row_id": "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "pointer_path",
-      "consumer_lane": "compatibility_bridge",
-      "durability": "durable_bridge",
-      "renderer": null,
-      "typed_value_source": null,
-      "target_binding": null,
-      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
-      "replacement_target": "Track C typed value transport",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        },
-        {
-          "kind": "compiled_boundary_inventory",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "materialize_lisp_frontend_work_item_inputs",
-        "file_shape": "pointer_file",
-        "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
-      },
-      "notes": "Pointer file must remain representation-only and never become semantic authority. Compiled boundary inventory mirror of the same consumer surface."
-    },
-    {
-      "row_id": "c0.work_item_command_selection_bundle_path",
-      "u0_row_id": "work_item.command.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "command_adapter_input",
-      "consumer_lane": "compatibility_bridge",
-      "durability": "durable_bridge",
-      "renderer": null,
-      "typed_value_source": null,
-      "target_binding": null,
-      "track_c_decision": "BLOCKED",
-      "replacement_target": "Track C typed bootstrap inputs",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "command_boundary": {
-        "binding_name": "materialize_lisp_frontend_work_item_inputs",
-        "behavior_class": "structured_result",
-        "replacement_surface": "SelectionCtx + ItemCtx private bootstrap with future generated path and materialized view retirement",
-        "retirement_label": "keep_bridge",
-        "evidence_refs": [
-          "design_delta_work_item_inputs_ok"
-        ]
-      },
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "materialize_lisp_frontend_work_item_inputs",
-        "file_shape": "pointer_file",
-        "retirement_condition": "remove when typed work-item bootstrap replaces command-bound selection-bundle path transport"
-      },
-      "notes": "Adapter boundary row for the checked selection-bundle path crossing."
     },
     {
       "row_id": "c0.design_gap_architect_prompt_draft",
@@ -2043,52 +1896,89 @@
       "notes": "Blocked-recovery classifier prompt stays explicit until recovery routing can consume typed request values directly."
     },
     {
-      "row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
-      "u0_row_id": "work_item.prompt.classify_blocked_recovery_state",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
-      "source_kind": "prompt_input_file",
-      "consumer_lane": "prompt_injection",
-      "durability": "none",
+      "row_id": "c0.implementation_phase_materialized_check_commands_view",
+      "u0_row_id": "implementation_phase.materialized.check_commands_view",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
         "accepted_shape": "any_pure_value"
       },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__check_commands_view"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": [
+          "pytest -q tests/test_neurips_backlog_checks_runner.py",
+          "pytest -q tests/test_neurips_steered_backlog_runtime.py"
+        ]
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/check_commands.render_a.json",
+          "artifacts/work/archive/check_commands.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Rendered check-commands input stays representation-only until typed external validation contracts can retire file-based command input transport."
+    },
+    {
+      "row_id": "c0.design_gap_architect_validate_materialized_architecture_targets_view",
+      "u0_row_id": "design_gap_architect_validate.materialized.architecture_targets_view",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__design_gap_architecture_targets_view"
+      },
       "typed_value_source": {
         "kind": "sample_value_document",
         "value_document": {
-          "prompt": "work_item.classify_blocked_recovery_state",
-          "phase": "work_item"
+          "design_gap_id": "gap-1",
+          "architecture_path": "docs/plans/gap-1/implementation_architecture.md",
+          "work_item_context_path": "state/gap-1/work_item_context.json",
+          "check_commands_path": "state/gap-1/check_commands.json",
+          "plan_target_path": "docs/plans/gap-1/execution_plan.md"
         }
       },
       "target_binding": {
         "kind": "consumer_owned_target",
         "target_labels": [
-          "artifacts/work/c0/work_item_blocked_recovery_state_prompt_a.json",
-          "artifacts/work/c0/work_item_blocked_recovery_state_prompt_b.json"
+          "state/design_gap_architecture_targets.render_a.json",
+          "state/archive/design_gap_architecture_targets.render_b.json"
         ]
       },
-      "track_c_decision": "KEEP_TYPED",
-      "replacement_target": "Track C typed prompt-input rendering",
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
           "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        },
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
-          "binding_name": "prompts.work-item.classify-blocked-recovery"
-        },
-        {
-          "kind": "provider_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
-          "binding_name": "providers.work-item.recovery-classifier"
         }
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Blocked-recovery-state classifier prompt stays explicit until recovery routing can consume typed request values directly."
+      "notes": "Rendered architecture-targets input stays representation-only until typed design-gap validation parity can retire file-based command input transport."
     }
   ]
 }

@@ -33,19 +33,13 @@
         "type_name": "work_item_bundle_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path",
       "u0_row_id": "design_gap_architect_validate.output.work_item_bundle_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -65,19 +59,13 @@
         "type_name": "work_item_bundle_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::return__work_item_bundle_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -1206,38 +1194,6 @@
       "body_rendering_policy": "forbid"
     },
     {
-      "slot_id": "work_item.bridge.architecture_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "bridge_file",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "bridge",
-          "architecture_bundle_path"
-        ]
-      },
-      "value": {
-        "type_name": "architecture_bundle_path",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "compatibility_bridge",
-      "expected_track_c_lane": "C4",
-      "c0_row_id": "c0.work_item_bridge_architecture_bundle_path",
-      "u0_row_id": "work_item.bridge.architecture_bundle_path",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "forbid"
-    },
-    {
       "slot_id": "work_item.bridge.architecture_bundle_path.compiled_boundary",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {
@@ -1256,39 +1212,7 @@
       "consumer_lane": "compatibility_bridge",
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::architecture_bundle_path",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "forbid"
-    },
-    {
-      "slot_id": "work_item.bridge.manifest_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "bridge_file",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "bridge",
-          "manifest_path"
-        ]
-      },
-      "value": {
-        "type_name": "manifest_path",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "compatibility_bridge",
-      "expected_track_c_lane": "C4",
-      "c0_row_id": "c0.work_item_bridge_manifest_path",
-      "u0_row_id": "work_item.bridge.manifest_path",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__architecture_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -1320,7 +1244,7 @@
       "consumer_lane": "compatibility_bridge",
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_bridge_manifest_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::manifest_path",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__plan_target_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -1385,103 +1309,6 @@
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::progress_ledger_path",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "forbid"
-    },
-    {
-      "slot_id": "work_item.command.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "command_adapter_input",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "command",
-          "selection_bundle_path"
-        ]
-      },
-      "value": {
-        "type_name": "selection_bundle_path",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "compatibility_bridge",
-      "expected_track_c_lane": "C4",
-      "c0_row_id": "c0.work_item_command_selection_bundle_path",
-      "u0_row_id": "work_item.command.selection_bundle_path",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "forbid",
-      "compatibility_status": "blocked"
-    },
-    {
-      "slot_id": "work_item.pointer.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "pointer_path",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "pointer",
-          "selection_bundle_path"
-        ]
-      },
-      "value": {
-        "type_name": "selection_bundle_path",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "compatibility_bridge",
-      "expected_track_c_lane": "C4",
-      "c0_row_id": "c0.work_item_pointer_selection_bundle_path",
-      "u0_row_id": "work_item.pointer.selection_bundle_path",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "forbid"
-    },
-    {
-      "slot_id": "work_item.pointer.selection_bundle_path.compiled_boundary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "pointer_path",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "pointer",
-          "selection_bundle_path"
-        ]
-      },
-      "value": {
-        "type_name": "selection_bundle_path",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "compatibility_bridge",
-      "expected_track_c_lane": "C4",
-      "c0_row_id": "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::selection_bundle_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -1838,26 +1665,25 @@
       "body_rendering_policy": "forbid"
     },
     {
-      "slot_id": "work_item.prompt.classify_blocked_recovery_state",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+      "slot_id": "design_gap_architect_validate.materialized.architecture_targets_view",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
       "source_form": {
-        "kind": "provider_input",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
-        "provider_call_locator": "providers.work-item.recovery-classifier",
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
         "form_path": [
-          "work_item",
-          "prompt",
-          "classify_blocked_recovery_state"
+          "design_gap_architect_validate",
+          "materialized",
+          "architecture_targets_view"
         ]
       },
       "value": {
-        "type_name": "BlockedRecoveryStateRequest",
+        "type_name": "architecture_targets_view",
         "authority": "typed_value"
       },
-      "consumer_lane": "prompt_input",
-      "expected_track_c_lane": "C1",
-      "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
-      "u0_row_id": "work_item.prompt.classify_blocked_recovery_state",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.design_gap_architect_validate_materialized_architecture_targets_view",
+      "u0_row_id": "design_gap_architect_validate.materialized.architecture_targets_view",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -1868,13 +1694,39 @@
         ],
         "override_allowed": true
       },
-      "request_shape": {
-        "request_type_name": "BlockedRecoveryStateRequest",
-        "subject_type_name": "BlockedRecoveryStatePromptSubject",
-        "requires_request_record": true,
-        "requires_target_split": false
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "implementation_phase.materialized.check_commands_view",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "form_path": [
+          "implementation_phase",
+          "materialized",
+          "check_commands_view"
+        ]
       },
-      "body_rendering_policy": "forbid"
+      "value": {
+        "type_name": "check_commands_view",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.implementation_phase_materialized_check_commands_view",
+      "u0_row_id": "implementation_phase.materialized.check_commands_view",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
     }
   ]
 }

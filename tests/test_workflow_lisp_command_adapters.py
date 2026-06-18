@@ -615,6 +615,14 @@ def test_design_delta_parent_drain_manifest_keeps_only_retained_g8_rows_and_cont
     assert getattr(review_findings, "expiry_condition")
     assert getattr(review_findings, "evidence_refs")
 
+    work_item_bootstrap = bindings["materialize_lisp_frontend_work_item_inputs"]
+    assert getattr(work_item_bootstrap, "retirement_label") == "retire_to_projection"
+    assert getattr(work_item_bootstrap, "retirement_status") == "retired"
+    assert getattr(work_item_bootstrap, "replacement_surface")
+    assert getattr(work_item_bootstrap, "bridge_owner")
+    assert getattr(work_item_bootstrap, "expiry_condition")
+    assert getattr(work_item_bootstrap, "evidence_refs")
+
 
 def test_design_delta_parent_drain_manifest_rejects_unknown_retirement_class() -> None:
     payload = {

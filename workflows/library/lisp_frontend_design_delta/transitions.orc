@@ -66,7 +66,7 @@
     (drain_status_path StateFile)
     (progress_report_path ArtifactWorkTargetPath)
     (implementation_state_path ArtifactWorkTargetPath)
-    (architecture_bundle_path WorkReport)
+    (work_item_context_path WorkReport)
     (plan_path PlanDocTarget))
 
   (defrecord TerminalOutcomeResult

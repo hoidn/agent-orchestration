@@ -5,7 +5,7 @@
   (import lisp_frontend_design_delta/types :only
     (BlockedRecoveryDecision BlockedRecoveryRoute BlockedRecoveryReason DesignDeltaDrainAction
       ImplementationReviewDecision ImplementationState PlanReviewDecision SelectionBundlePath SelectionStatus
-      WorkItemSource WorkItemTerminalDecision))
+      WorkItemBootstrapSeed WorkItemSource WorkItemTerminalDecision))
   (export
     classify-work-item-terminal
     normalize-blocked-recovery-route
@@ -13,7 +13,7 @@
 
   (defworkflow project-selector-action
     ((selection_status SelectionStatus)
-     (selection_bundle_path SelectionBundlePath)
+     (work_item_bootstrap WorkItemBootstrapSeed)
      (blocked_reason String))
     -> DesignDeltaDrainAction
     (let* ((is-selected
@@ -28,10 +28,10 @@
                blocked_reason)))
       (if is-selected
         (variant DesignDeltaDrainAction SELECTED_ITEM
-          :selected_item_selection_bundle selection_bundle_path)
+          :selected_item_bootstrap work_item_bootstrap)
         (if is-design-gap
           (variant DesignDeltaDrainAction DRAFT_DESIGN_GAP
-            :design_gap_selection_bundle selection_bundle_path)
+            :design_gap_bootstrap work_item_bootstrap)
           (if is-done
             (variant DesignDeltaDrainAction DONE)
             (variant DesignDeltaDrainAction BLOCKED

@@ -7,8 +7,9 @@
       review-revise-loop))
   (import lisp_frontend_design_delta/types :only
     (ArtifactChecksPath ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkPath
-      ArtifactWorkTargetPath BaselineDesignDoc CheckCommandsPath ImplementationPhaseResult
-      ImplementationReviewDecision ImplementationState PlanDoc TargetDesignDoc))
+      ArtifactWorkTargetPath BaselineDesignDoc CheckCommandsPath CheckCommandsTargetPath
+      CheckCommandsValue ImplementationPhaseResult ImplementationReviewDecision
+      ImplementationState PlanDoc TargetDesignDoc))
   (export implementation-phase)
 
   (defrecord RunCtx
@@ -29,7 +30,7 @@
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
     (plan_path PlanDoc)
-    (check_commands_path CheckCommandsPath))
+    (check_commands CheckCommandsValue))
 
   (defrecord ImplementationExecuteProviderTargets
     (execution_report_target_path ArtifactWorkTargetPath)
@@ -92,21 +93,30 @@
     (implementation_review_report_target_path ArtifactReviewTargetPath))
 
   (defproc run-checks
-    ((check_commands_path CheckCommandsPath)
+    ((check_commands CheckCommandsValue)
+     (check_commands_target_path CheckCommandsTargetPath)
      (checks_report_target_path ArtifactChecksTargetPath))
     -> ChecksResult
-    :effects ((uses-command run_neurips_backlog_checks))
+    :effects ((uses-command run_neurips_backlog_checks)
+              (writes check-commands-view))
     :lowering inline
-    (command-result run_neurips_backlog_checks
-      :argv ("python"
-             "workflows/library/scripts/run_neurips_backlog_checks.py"
-             "--checks-path"
-             check_commands_path
-             "--report-path"
-             checks_report_target_path
-             "--cwd"
-             ".")
-      :returns ChecksResult))
+    (let* ((check-commands-path
+             (materialize-view check-commands-view
+               :value check_commands.commands
+               :renderer canonical-json
+               :renderer-version 1
+               :target check_commands_target_path
+               :returns CheckCommandsPath)))
+      (command-result run_neurips_backlog_checks
+        :argv ("python"
+               "workflows/library/scripts/run_neurips_backlog_checks.py"
+               "--checks-path"
+               check-commands-path
+               "--report-path"
+               checks_report_target_path
+               "--cwd"
+               ".")
+        :returns ChecksResult)))
 
   (defproc review-implementation
     ((completed PrivateImplementationReviewSubject)
@@ -164,7 +174,8 @@
     ((phase-ctx PhaseCtx)
      (target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
-     (check_commands_path CheckCommandsPath)
+     (check_commands CheckCommandsValue)
+     (check_commands_target_path CheckCommandsTargetPath)
      (plan_path PlanDoc)
      (execution_report_target_path ArtifactWorkTargetPath)
      (progress_report_target_path ArtifactWorkTargetPath)
@@ -176,7 +187,7 @@
                :target_design target_design
                :baseline_design baseline_design
                :plan_path plan_path
-               :check_commands_path check_commands_path))
+               :check_commands check_commands))
            (execute-targets
              (record ImplementationExecuteProviderTargets
                :execution_report_target_path execution_report_target_path
@@ -195,7 +206,10 @@
       (match attempt
         ((COMPLETED completed)
          (let* ((checks
-                  (run-checks check_commands_path checks_report_target_path))
+                  (run-checks
+                    check_commands
+                    check_commands_target_path
+                    checks_report_target_path))
                 (review-subject
                   (record PrivateImplementationReviewSubject
                     :execution_report completed.execution_report

@@ -15,7 +15,6 @@
       "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "lisp_frontend_design_delta/selector::select-next-work",
       "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
-      "lisp_frontend_design_delta/work_item::route-blocked-implementation",
       "lisp_frontend_design_delta/work_item::run-work-item"
     ],
     "required_source_kinds": [
@@ -31,87 +30,33 @@
       "command_adapter_input",
       "bridge_file",
       "generated_path"
-    ]
+    ],
+    "absent_source_kinds": {
+      "command_adapter_input": {
+        "reason": "Design Delta now tracks checked command adapter input lanes through the consumer-rendering census and compatibility-bridge metadata instead of keeping duplicate value-flow rows.",
+        "source_evidence": [
+          {
+            "kind": "consumer_rendering_census",
+            "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.consumer_rendering_census.json"
+          },
+          {
+            "kind": "compatibility_bridge_metadata",
+            "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.compatibility_bridges.json"
+          }
+        ]
+      },
+      "pointer_path": {
+        "reason": "Design Delta no longer keeps checked pointer-path rows in the value-flow census; remaining pointer lanes are tracked through bridge metadata and emitted reports.",
+        "source_evidence": [
+          {
+            "kind": "boundary_authority_registry",
+            "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.boundary_authority.json"
+          }
+        ]
+      }
+    }
   },
   "rows": [
-    {
-      "row_id": "boundary.lisp_frontend_design_delta_implementation_phase_implementation_phase.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_decision_match_review_approved_terminal_projection_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review_decision__match_review__approved__terminal_projection__result_bundle",
-      "path_or_contract": "managed_write_root",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "workflow_lisp_generic_core_g0",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Generated from current compiled boundary authority projection."
-    },
-    {
-      "row_id": "boundary.lisp_frontend_design_delta_implementation_phase_implementation_phase.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_decision_match_review_blocked_terminal_projection_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review_decision__match_review__blocked__terminal_projection__result_bundle",
-      "path_or_contract": "managed_write_root",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "workflow_lisp_generic_core_g0",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Generated from current compiled boundary authority projection."
-    },
-    {
-      "row_id": "boundary.lisp_frontend_design_delta_implementation_phase_implementation_phase.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_decision_match_review_exhausted_terminal_projection_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review_decision__match_review__exhausted__terminal_projection__result_bundle",
-      "path_or_contract": "managed_write_root",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "workflow_lisp_generic_core_g0",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Generated from current compiled boundary authority projection."
-    },
     {
       "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::__write_root__lisp_frontend_design_delta_design_gap_architect_draft_design_gap_architecture__result__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
@@ -139,11 +84,11 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::architecture_targets__architecture_path",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::design_gap_bootstrap__architecture_path",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
       "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__architecture_path",
-      "path_or_contract": "architecture_targets__architecture_path",
+      "symbol_or_field": "design_gap_bootstrap__architecture_path",
+      "path_or_contract": "design_gap_bootstrap__architecture_path",
       "plumbing_class": "public_authored",
       "boundary_authority_class": "public_authored",
       "track_owner": "shared",
@@ -165,63 +110,11 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::architecture_targets__check_commands_path",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::design_gap_bootstrap__plan_target_path",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
       "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__check_commands_path",
-      "path_or_contract": "architecture_targets__check_commands_path",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::architecture_targets__plan_target_path",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__plan_target_path",
-      "path_or_contract": "architecture_targets__plan_target_path",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::architecture_targets__work_item_context_path",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__work_item_context_path",
-      "path_or_contract": "architecture_targets__work_item_context_path",
+      "symbol_or_field": "design_gap_bootstrap__plan_target_path",
+      "path_or_contract": "design_gap_bootstrap__plan_target_path",
       "plumbing_class": "public_authored",
       "boundary_authority_class": "public_authored",
       "track_owner": "shared",
@@ -321,32 +214,6 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::selection_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "public_input",
-      "symbol_or_field": "selection_bundle",
-      "path_or_contract": "selection_bundle",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
       "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture::steering",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
       "source_kind": "public_input",
@@ -406,32 +273,6 @@
       "path_or_contract": "__write_root__lisp_frontend_design_delta_design_gap_architect_validate_design_gap_architecture__validate_lisp_frontend_design_gap_architecture__result_bundle",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::architecture_targets_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
-      "source_kind": "public_input",
-      "symbol_or_field": "architecture_targets_bundle",
-      "path_or_contract": "architecture_targets_bundle",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
       "track_owner": "shared",
       "current_consumer": "workflow_boundary_projection",
       "semantic_owner": "compiled_boundary",
@@ -1121,11 +962,15 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1140,18 +985,18 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1166,18 +1011,18 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__state__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__revise__state__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__state__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__state__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__revise__state__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__revise__state__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1192,18 +1037,18 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_0c71b7d49824_270aa1f5d62e_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1218,11 +1063,7 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
       "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review_decision__match_review__approved__terminal_projection__result_bundle",
@@ -1329,11 +1170,11 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::check_commands_path",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::check_commands_target_path",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "public_input",
-      "symbol_or_field": "check_commands_path",
-      "path_or_contract": "check_commands_path",
+      "symbol_or_field": "check_commands_target_path",
+      "path_or_contract": "check_commands_target_path",
       "plumbing_class": "public_authored",
       "boundary_authority_class": "public_authored",
       "track_owner": "shared",
@@ -1745,11 +1586,15 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1764,18 +1609,18 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1790,18 +1635,18 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__state__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__revise__state__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__state__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__state__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__revise__state__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__revise__state__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1816,18 +1661,18 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_8b0632a9e044_055890cf1e68_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Recovered from compiled boundary evidence for bootstrap alignment.",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -1842,11 +1687,7 @@
           "kind": "boundary_authority_registry",
           "path": "design_delta_parent_drain.boundary_authority.json"
         }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+      ]
     },
     {
       "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::baseline_design",
@@ -2291,11 +2132,37 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::work_item_context",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::work_item_context__architecture_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "public_input",
-      "symbol_or_field": "work_item_context",
-      "path_or_contract": "work_item_context",
+      "source_kind": "record_field",
+      "symbol_or_field": "work_item_context__architecture_path",
+      "path_or_contract": "work_item_context__architecture_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+    },
+    {
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::work_item_context__plan_target_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "record_field",
+      "symbol_or_field": "work_item_context__plan_target_path",
+      "path_or_contract": "work_item_context__plan_target_path",
       "plumbing_class": "public_authored",
       "boundary_authority_class": "public_authored",
       "track_owner": "shared",
@@ -2442,6 +2309,58 @@
         }
       ],
       "replacement_target": "Track C entry publication policy",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+    },
+    {
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/selector::select-next-work::return__work_item_bootstrap__architecture_path",
+      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+      "source_kind": "materialized_output",
+      "symbol_or_field": "return__work_item_bootstrap__architecture_path",
+      "path_or_contract": "return__work_item_bootstrap__architecture_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+    },
+    {
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/selector::select-next-work::return__work_item_bootstrap__plan_target_path",
+      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+      "source_kind": "materialized_output",
+      "symbol_or_field": "return__work_item_bootstrap__plan_target_path",
+      "path_or_contract": "return__work_item_bootstrap__plan_target_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "replacement_target": null,
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
@@ -2707,63 +2626,6 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__resolved__lisp_frontend_design_delta_work_item_resolve_work_item_inputs_1__materialize_lisp_frontend_work_item_inputs__result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__resolved__lisp_frontend_design_delta_work_item_resolve_work_item_inputs_1__materialize_lisp_frontend_work_item_inputs__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__resolved__lisp_frontend_design_delta_work_item_resolve_work_item_inputs_1__materialize_lisp_frontend_work_item_inputs__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::architecture_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
-      "symbol_or_field": "architecture_bundle_path",
-      "path_or_contract": "architecture_bundle_path",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": "Track R/C private bootstrap revision",
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "compatibility_file",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::baseline_design_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_kind": "public_input",
@@ -2787,37 +2649,6 @@
       "replacement_target": null,
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::manifest_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
-      "symbol_or_field": "manifest_path",
-      "path_or_contract": "manifest_path",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": "Track R/C private bootstrap revision",
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "json_manifest_bundle",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
@@ -3013,37 +2844,6 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "pointer_path",
-      "symbol_or_field": "selection_bundle_path",
-      "path_or_contract": "SelectionBundlePath",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "workflow_boundary_projection",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        },
-        {
-          "kind": "boundary_authority_registry",
-          "path": "design_delta_parent_drain.boundary_authority.json"
-        }
-      ],
-      "replacement_target": "Track C typed value transport",
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "materialize_lisp_frontend_work_item_inputs",
-        "file_shape": "pointer_file",
-        "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
-      },
-      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
-    },
-    {
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::steering_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_kind": "public_input",
@@ -3096,26 +2896,56 @@
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
-      "row_id": "design_gap_architect.prompt.draft",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.architect.draft",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__architecture_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "record_field",
+      "symbol_or_field": "work_item_bootstrap__architecture_path",
+      "path_or_contract": "work_item_bootstrap__architecture_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
         }
       ],
-      "replacement_target": "Track C typed prompt-input rendering",
+      "replacement_target": null,
       "command_boundary": null,
       "bridge": null,
-      "notes": "Prompt file stays explicit until architecture drafting can consume typed request values directly."
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+    },
+    {
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__plan_target_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "record_field",
+      "symbol_or_field": "work_item_bootstrap__plan_target_path",
+      "path_or_contract": "work_item_bootstrap__plan_target_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
     },
     {
       "row_id": "design_gap_architect.provider.architect_draft",
@@ -3228,28 +3058,6 @@
       "notes": "Checked boundary inventory row from public_input / public_authored."
     },
     {
-      "row_id": "design_gap_architect_draft.input.selection_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "public_input",
-      "symbol_or_field": "selection_bundle",
-      "path_or_contract": "selection_bundle",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "caller",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
-    },
-    {
       "row_id": "design_gap_architect_draft.input.steering",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
       "source_kind": "public_input",
@@ -3294,94 +3102,6 @@
       "notes": "Checked boundary inventory row from public_input / public_authored."
     },
     {
-      "row_id": "design_gap_architect_draft.record.architecture_targets_architecture_path",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__architecture_path",
-      "path_or_contract": "architecture_targets__architecture_path",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "record_field",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
-    },
-    {
-      "row_id": "design_gap_architect_draft.record.architecture_targets_check_commands_path",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__check_commands_path",
-      "path_or_contract": "architecture_targets__check_commands_path",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "record_field",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
-    },
-    {
-      "row_id": "design_gap_architect_draft.record.architecture_targets_plan_target_path",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__plan_target_path",
-      "path_or_contract": "architecture_targets__plan_target_path",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "record_field",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
-    },
-    {
-      "row_id": "design_gap_architect_draft.record.architecture_targets_work_item_context_path",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-      "source_kind": "record_field",
-      "symbol_or_field": "architecture_targets__work_item_context_path",
-      "path_or_contract": "architecture_targets__work_item_context_path",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "record_field",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
-    },
-    {
       "row_id": "design_gap_architect_validate.generated.write_root_lisp_frontend_design_delta_design_gap_architect_validate_design_gap_architecture_validate_lisp_frontend_design_gap_architecture_result_bundle",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
       "source_kind": "generated_path",
@@ -3402,28 +3122,6 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "design_gap_architect_validate.input.architecture_targets_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
-      "source_kind": "public_input",
-      "symbol_or_field": "architecture_targets_bundle",
-      "path_or_contract": "architecture_targets_bundle",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "caller",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
     },
     {
       "row_id": "design_gap_architect_validate.output.work_item_bundle_path",
@@ -3974,41 +3672,6 @@
       "notes": "Checked summary report target remains a human-readable view, not semantic authority."
     },
     {
-      "row_id": "implementation_phase.external.backlog_checks",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "command_adapter_input",
-      "symbol_or_field": "run_neurips_backlog_checks",
-      "path_or_contract": "external_tool",
-      "plumbing_class": "genuine_external_io",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "run_neurips_backlog_checks",
-      "semantic_owner": "external_system",
-      "source_evidence": [
-        {
-          "kind": "command_boundary_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
-        },
-        {
-          "kind": "source_map",
-          "path": "source_map.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": {
-        "manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
-        "command_name": "run_neurips_backlog_checks",
-        "behavior_class": "external_tool",
-        "stable_command": [
-          "python",
-          "workflows/library/scripts/run_neurips_backlog_checks.py"
-        ],
-        "boundary_role": "external_system_requirement"
-      },
-      "bridge": null,
-      "notes": "Genuine external validation step retained outside Track R/C retirement claims."
-    },
-    {
       "row_id": "implementation_phase.generated.phase_ctx_artifact_root",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "generated_path",
@@ -4141,94 +3804,6 @@
       "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
     },
     {
-      "row_id": "implementation_phase.generated.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1_body_approve_validated_findings_validate_review_findings_v1_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "implementation_phase.generated.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1_body_blocked_validated_findings_validate_review_findings_v1_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "implementation_phase.generated.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1_body_revise_state_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__state__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__state__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "implementation_phase.generated.write_root_lisp_frontend_design_delta_implementation_phase_implementation_phase_match_attempt_completed_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1_body_revise_validated_findings_validate_review_findings_v1_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f985981f916c_f71b1a473ab6_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
       "row_id": "implementation_phase.input.baseline_design",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "public_input",
@@ -4251,11 +3826,11 @@
       "notes": "Checked boundary inventory row from public_input / public_authored."
     },
     {
-      "row_id": "implementation_phase.input.check_commands_path",
+      "row_id": "implementation_phase.input.check_commands_target_path",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "public_input",
-      "symbol_or_field": "check_commands_path",
-      "path_or_contract": "check_commands_path",
+      "symbol_or_field": "check_commands_target_path",
+      "path_or_contract": "check_commands_target_path",
       "plumbing_class": "public_authored",
       "boundary_authority_class": "public_authored",
       "track_owner": "shared",
@@ -4493,72 +4068,6 @@
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
     },
     {
-      "row_id": "implementation_phase.prompt.execute",
-      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.implementation.execute",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Execution prompt file stays explicit until implementation execution can consume typed request values directly."
-    },
-    {
-      "row_id": "implementation_phase.prompt.fix",
-      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.implementation.fix",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Fix prompt file stays explicit until implementation revision can consume typed request values directly."
-    },
-    {
-      "row_id": "implementation_phase.prompt.review",
-      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.implementation.review",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Review prompt file stays explicit until implementation review can consume typed request values directly."
-    },
-    {
       "row_id": "plan_phase.generated.phase_ctx_artifact_root",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "generated_path",
@@ -4652,94 +4161,6 @@
       "source_kind": "generated_path",
       "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__match_review__result_bundle",
       "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__match_review__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "plan_phase.generated.write_root_lisp_frontend_design_delta_plan_phase_run_plan_phase_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1_body_approve_validated_findings_validate_review_findings_v1_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "plan_phase.generated.write_root_lisp_frontend_design_delta_plan_phase_run_plan_phase_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1_body_blocked_validated_findings_validate_review_findings_v1_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "plan_phase.generated.write_root_lisp_frontend_design_delta_plan_phase_run_plan_phase_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1_body_revise_state_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__state__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__state__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
-      "row_id": "plan_phase.generated.write_root_lisp_frontend_design_delta_plan_phase_run_plan_phase_review_proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1_body_revise_validated_findings_validate_review_findings_v1_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_da6c89436216_ec3754dac53c_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "boundary_authority_class": "generated_internal",
       "track_owner": "shared",
@@ -4872,28 +4293,6 @@
       "source_kind": "public_input",
       "symbol_or_field": "target_design",
       "path_or_contract": "target_design",
-      "plumbing_class": "public_authored",
-      "boundary_authority_class": "public_authored",
-      "track_owner": "shared",
-      "current_consumer": "workflow_entry",
-      "semantic_owner": "caller",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from public_input / public_authored."
-    },
-    {
-      "row_id": "plan_phase.input.work_item_context",
-      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "public_input",
-      "symbol_or_field": "work_item_context",
-      "path_or_contract": "work_item_context",
       "plumbing_class": "public_authored",
       "boundary_authority_class": "public_authored",
       "track_owner": "shared",
@@ -5063,72 +4462,6 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
-    },
-    {
-      "row_id": "plan_phase.prompt.draft",
-      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.plan.draft",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "The draft-plan prompt file stays explicit until plan-phase prompt composition can consume typed values directly."
-    },
-    {
-      "row_id": "plan_phase.prompt.fix",
-      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.plan.fix",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Revision prompt file stays explicit until plan revision can consume typed request values directly."
-    },
-    {
-      "row_id": "plan_phase.prompt.review",
-      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.plan.review",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Review prompt file stays explicit until plan review can consume typed request values directly."
     },
     {
       "row_id": "plan_phase.provider.draft",
@@ -5329,82 +4662,6 @@
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
     },
     {
-      "row_id": "selector.prompt.select_next_work",
-      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.selector.select-next-work",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Prompt file stays explicit until provider prompt composition can consume typed values directly."
-    },
-    {
-      "row_id": "work_item.bridge.architecture_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
-      "symbol_or_field": "architecture_bundle_path",
-      "path_or_contract": "architecture_bundle_path",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "legacy_bootstrap",
-      "semantic_owner": "compatibility_bridge",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": "Track R/C private bootstrap revision",
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "compatibility_file",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
-      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
-    },
-    {
-      "row_id": "work_item.bridge.manifest_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "bridge_file",
-      "symbol_or_field": "manifest_path",
-      "path_or_contract": "manifest_path",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "legacy_bootstrap",
-      "semantic_owner": "compatibility_bridge",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": "Track R/C private bootstrap revision",
-      "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "json_manifest_bundle",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
-      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
-    },
-    {
       "row_id": "work_item.bridge.progress_ledger_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_kind": "bridge_file",
@@ -5430,47 +4687,6 @@
         "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
       },
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
-    },
-    {
-      "row_id": "work_item.command.selection_bundle_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "command_adapter_input",
-      "symbol_or_field": "selection_bundle_path",
-      "path_or_contract": "SelectionBundlePath",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "materialize_lisp_frontend_work_item_inputs",
-      "semantic_owner": "compatibility_bridge",
-      "source_evidence": [
-        {
-          "kind": "command_boundary_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
-        },
-        {
-          "kind": "source_map",
-          "path": "source_map.json"
-        }
-      ],
-      "replacement_target": "Track C typed bootstrap inputs",
-      "command_boundary": {
-        "manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
-        "command_name": "materialize_lisp_frontend_work_item_inputs",
-        "behavior_class": "structured_result",
-        "stable_command": [
-          "python",
-          "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"
-        ],
-        "boundary_role": "typed_input",
-        "input_signature_ref": "selection_bundle_path"
-      },
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "materialize_lisp_frontend_work_item_inputs",
-        "file_shape": "pointer_file",
-        "retirement_condition": "remove when typed work-item bootstrap replaces command-bound selection-bundle path transport"
-      },
-      "notes": "Adapter boundary row for the checked selection-bundle path crossing."
     },
     {
       "row_id": "work_item.generated.phase_ctx_artifact_root",
@@ -5715,28 +4931,6 @@
       "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
     },
     {
-      "row_id": "work_item.generated.write_root_lisp_frontend_design_delta_work_item_run_work_item_resolved_lisp_frontend_design_delta_work_item_resolve_work_item_inputs_1_materialize_lisp_frontend_work_item_inputs_result_bundle",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__resolved__lisp_frontend_design_delta_work_item_resolve_work_item_inputs_1__materialize_lisp_frontend_work_item_inputs__result_bundle",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__resolved__lisp_frontend_design_delta_work_item_resolve_work_item_inputs_1__materialize_lisp_frontend_work_item_inputs__result_bundle",
-      "plumbing_class": "generated_internal",
-      "boundary_authority_class": "generated_internal",
-      "track_owner": "shared",
-      "current_consumer": "runtime_internal",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "replacement_target": null,
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal."
-    },
-    {
       "row_id": "work_item.input.baseline_design_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_kind": "public_input",
@@ -5830,31 +5024,237 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
     },
     {
-      "row_id": "work_item.pointer.selection_bundle_path",
+      "row_id": "work_item.summary.summary_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "pointer_path",
-      "symbol_or_field": "selection_bundle_path",
-      "path_or_contract": "SelectionBundlePath",
-      "plumbing_class": "compatibility_bridge",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "shared",
-      "current_consumer": "materialize_lisp_frontend_work_item_inputs",
-      "semantic_owner": "compatibility_bridge",
+      "source_kind": "materialized_output",
+      "symbol_or_field": "return__summary",
+      "path_or_contract": "WorkItemSummaryPath",
+      "plumbing_class": "human_rendering",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "C",
+      "current_consumer": "entry_report",
+      "semantic_owner": "workflow_surface",
       "source_evidence": [
         {
           "kind": "boundary_authority_report",
           "path": "boundary_authority_report.json"
         }
       ],
-      "replacement_target": "Track C typed value transport",
+      "replacement_target": "Track C consumer-side rendering",
       "command_boundary": null,
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "materialize_lisp_frontend_work_item_inputs",
-        "file_shape": "pointer_file",
-        "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
+      "bridge": null,
+      "notes": "Summary path is retained as a rendering seam rather than semantic authority."
+    },
+    {
+      "row_id": "design_gap_architect.prompt.draft",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.architect.draft",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Prompt file stays explicit until architecture drafting can consume typed request values directly."
+    },
+    {
+      "row_id": "implementation_phase.materialized.check_commands_view",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "materialized_output",
+      "symbol_or_field": "check_commands_view",
+      "path_or_contract": "CheckCommandsPath",
+      "plumbing_class": "human_rendering",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "C",
+      "current_consumer": "run_neurips_backlog_checks",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "command_boundary_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        },
+        {
+          "kind": "source_map",
+          "path": "source_map.json"
+        }
+      ],
+      "replacement_target": "Track C bridge rendering retirement",
+      "command_boundary": {
+        "manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
+        "command_name": "run_neurips_backlog_checks",
+        "behavior_class": "external_tool",
+        "stable_command": [
+          "python",
+          "workflows/library/scripts/run_neurips_backlog_checks.py"
+        ],
+        "boundary_role": "rendered_command_input"
       },
-      "notes": "Pointer file must remain representation-only and never become semantic authority."
+      "bridge": null,
+      "notes": "Rendered check-commands input stays representation-only until typed external validation contracts can retire file-based command input transport."
+    },
+    {
+      "row_id": "implementation_phase.prompt.execute",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.implementation.execute",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Execution prompt file stays explicit until implementation execution can consume typed request values directly."
+    },
+    {
+      "row_id": "implementation_phase.prompt.fix",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.implementation.fix",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Fix prompt file stays explicit until implementation revision can consume typed request values directly."
+    },
+    {
+      "row_id": "implementation_phase.prompt.review",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.implementation.review",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Review prompt file stays explicit until implementation review can consume typed request values directly."
+    },
+    {
+      "row_id": "plan_phase.prompt.draft",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.plan.draft",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "The draft-plan prompt file stays explicit until plan-phase prompt composition can consume typed values directly."
+    },
+    {
+      "row_id": "plan_phase.prompt.fix",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.plan.fix",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Revision prompt file stays explicit until plan revision can consume typed request values directly."
+    },
+    {
+      "row_id": "plan_phase.prompt.review",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.plan.review",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Review prompt file stays explicit until plan review can consume typed request values directly."
+    },
+    {
+      "row_id": "selector.prompt.select_next_work",
+      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.selector.select-next-work",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
+      "plumbing_class": "prompt_rendering",
+      "boundary_authority_class": "compatibility_bridge",
+      "track_owner": "C",
+      "current_consumer": "provider_prompt",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "replacement_target": "Track C typed prompt-input rendering",
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Prompt file stays explicit until provider prompt composition can consume typed values directly."
     },
     {
       "row_id": "work_item.prompt.classify_blocked_recovery",
@@ -5879,48 +5279,91 @@
       "notes": "Blocked-recovery classifier prompt stays explicit until recovery routing can consume typed request values directly."
     },
     {
-      "row_id": "work_item.prompt.classify_blocked_recovery_state",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.work-item.classify-blocked-recovery",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md",
-      "plumbing_class": "prompt_rendering",
-      "boundary_authority_class": "compatibility_bridge",
-      "track_owner": "C",
-      "current_consumer": "provider_prompt",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "replacement_target": "Track C typed prompt-input rendering",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Blocked-recovery-state classifier prompt stays explicit until recovery routing can consume typed request values directly."
-    },
-    {
-      "row_id": "work_item.summary.summary_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "materialized_output",
-      "symbol_or_field": "return__summary",
-      "path_or_contract": "WorkItemSummaryPath",
-      "plumbing_class": "human_rendering",
-      "boundary_authority_class": "materialized_view",
-      "track_owner": "C",
-      "current_consumer": "entry_report",
-      "semantic_owner": "workflow_surface",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::design_gap_bootstrap__architecture_path",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_kind": "record_field",
+      "symbol_or_field": "design_gap_bootstrap__architecture_path",
+      "path_or_contract": "design_gap_bootstrap__architecture_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
           "kind": "boundary_authority_report",
           "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+    },
+    {
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::design_gap_bootstrap__plan_target_path",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_kind": "record_field",
+      "symbol_or_field": "design_gap_bootstrap__plan_target_path",
+      "path_or_contract": "design_gap_bootstrap__plan_target_path",
+      "plumbing_class": "public_authored",
+      "boundary_authority_class": "public_authored",
+      "track_owner": "shared",
+      "current_consumer": "workflow_boundary_projection",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "replacement_target": null,
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry."
+    },
+    {
+      "row_id": "design_gap_architect_validate.materialized.architecture_targets_view",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_kind": "materialized_output",
+      "symbol_or_field": "design_gap_architecture_targets_view",
+      "path_or_contract": "ArchitectureTargetsViewTarget",
+      "plumbing_class": "human_rendering",
+      "boundary_authority_class": "materialized_view",
+      "track_owner": "C",
+      "current_consumer": "validate_lisp_frontend_design_gap_architecture",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "command_boundary_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json"
+        },
+        {
+          "kind": "source_map",
+          "path": "source_map.json"
         }
       ],
       "replacement_target": "Track C consumer-side rendering",
-      "command_boundary": null,
+      "command_boundary": {
+        "manifest_path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
+        "command_name": "validate_lisp_frontend_design_gap_architecture",
+        "behavior_class": "external_tool",
+        "stable_command": [
+          "python",
+          "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"
+        ],
+        "boundary_role": "rendered_command_input"
+      },
       "bridge": null,
-      "notes": "Summary path is retained as a rendering seam rather than semantic authority."
+      "notes": "Rendered architecture-targets input stays representation-only until typed design-gap validation parity can retire file-based command input transport."
     }
   ]
 }

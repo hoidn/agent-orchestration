@@ -52,13 +52,18 @@ def test_entry_publication_helpers_select_only_c3_rows_from_checked_census() -> 
     selected_row_ids = {row["row_id"] for row in selected_rows}
 
     assert selected_row_ids == {
-        "c0.design_gap_architect_validate_output_work_item_bundle_path",
-        "c0.plan_phase_output_approved_plan_path",
-        "c0.plan_phase_output_return_blocked_plan_path",
-        "c0.plan_phase_output_return_exhausted_plan_path",
-        "c0.plan_phase_output_return_findings_items_path",
-        "c0.selector_output_return_selection_bundle_path",
         "c0.drain_output_return_run_state",
+        "c0.drain_output_return_run_state_compiled_boundary",
+        "c0.plan_phase_output_approved_plan_path",
+        "c0.plan_phase_output_approved_plan_path_compiled_boundary",
+        "c0.plan_phase_output_return_blocked_plan_path",
+        "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
+        "c0.plan_phase_output_return_exhausted_plan_path",
+        "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
+        "c0.plan_phase_output_return_findings_items_path",
+        "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
+        "c0.selector_output_return_selection_bundle_path",
+        "c0.selector_output_return_selection_bundle_path_compiled_boundary",
     }
 
 
