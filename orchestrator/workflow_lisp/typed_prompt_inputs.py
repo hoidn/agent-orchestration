@@ -178,6 +178,7 @@ def build_typed_prompt_input_report(
     """Reconcile checked prompt-injection rows with compiled typed prompt inputs."""
 
     selected_manifest_rows = _selected_typed_prompt_input_rows(checked_manifest)
+    bundle_index = _bundle_index_by_surface_name(validated_bundles_by_name)
     selected_rows: list[dict[str, Any]] = []
     missing_rows: list[dict[str, Any]] = []
     stale_rows: list[dict[str, Any]] = []
@@ -195,7 +196,7 @@ def build_typed_prompt_input_report(
                 }
             )
             continue
-        bundle = validated_bundles_by_name.get(workflow_surface)
+        bundle = bundle_index.get(workflow_surface)
         if bundle is None:
             missing_rows.append(
                 {
@@ -228,7 +229,7 @@ def build_typed_prompt_input_report(
 
         matching_entries: list[dict[str, Any]] = []
         provider_step_id: str | None = None
-        for step in bundle.surface.steps:
+        for step in _iter_surface_steps(bundle.surface.steps):
             if getattr(step, "kind", None) is not SurfaceStepKind.PROVIDER:
                 continue
             raw_entries = getattr(step, "typed_prompt_inputs", ()) or ()
@@ -364,3 +365,66 @@ def _compiled_effect_suffix(row: Mapping[str, Any]) -> str | None:
         return None
     suffix = compiled_effect_match.get("step_id_suffix")
     return suffix if isinstance(suffix, str) and suffix else None
+
+
+def _bundle_index_by_surface_name(
+    validated_bundles_by_name: Mapping[str, Any],
+) -> dict[str, Any]:
+    indexed: dict[str, Any] = {}
+    visited_bundle_ids: set[int] = set()
+
+    def visit(bundle: Any) -> None:
+        bundle_id = id(bundle)
+        if bundle_id in visited_bundle_ids:
+            return
+        visited_bundle_ids.add(bundle_id)
+
+        surface = getattr(bundle, "surface", None)
+        surface_name = getattr(surface, "name", None)
+        if isinstance(surface_name, str) and surface_name:
+            indexed.setdefault(surface_name, bundle)
+
+        imports = getattr(bundle, "imports", None)
+        if not isinstance(imports, Mapping):
+            return
+        for imported_bundle in imports.values():
+            visit(imported_bundle)
+
+    for bundle in validated_bundles_by_name.values():
+        visit(bundle)
+    return indexed
+
+
+def _iter_surface_steps(steps: Sequence[Any]) -> Sequence[Any]:
+    flat_steps: list[Any] = []
+
+    def visit(step: Any) -> None:
+        flat_steps.append(step)
+
+        repeat_until = getattr(step, "repeat_until", None)
+        if repeat_until is not None:
+            for child in getattr(repeat_until, "steps", ()) or ():
+                visit(child)
+
+        then_branch = getattr(step, "then_branch", None)
+        if then_branch is not None:
+            for child in getattr(then_branch, "steps", ()) or ():
+                visit(child)
+
+        else_branch = getattr(step, "else_branch", None)
+        if else_branch is not None:
+            for child in getattr(else_branch, "steps", ()) or ():
+                visit(child)
+
+        for child in getattr(step, "for_each_steps", ()) or ():
+            visit(child)
+
+        match_cases = getattr(step, "match_cases", None)
+        if isinstance(match_cases, Mapping):
+            for case in match_cases.values():
+                for child in getattr(case, "steps", ()) or ():
+                    visit(child)
+
+    for step in steps:
+        visit(step)
+    return flat_steps

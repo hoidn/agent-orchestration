@@ -388,6 +388,290 @@ def test_provider_inputs_still_requiring_prompt_file_fails():
     )
 
 
+def test_provider_input_shapes_emit_owned_request_record_observations():
+    slot = _prompt_slot("c0.plan_phase_prompt_review")
+    slot["workflow_surface"] = "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    slot["u0_row_id"] = "plan_phase.prompt.review"
+    slot["source_form"]["provider_call_locator"] = "providers.plan.review"
+    slot["request_shape"] = {
+        "request_type_name": "PlanReviewRequest",
+        "subject_type_name": "PlanReviewPromptSubject",
+        "targets_type_name": "PlanReviewProviderTargets",
+        "requires_request_record": True,
+        "requires_target_split": True,
+    }
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [
+                {
+                    "workflow_surface": slot["workflow_surface"],
+                    "provider_step_id": "root.plan.review",
+                    "c0_row_id": slot["c0_row_id"],
+                    "u0_row_id": slot["u0_row_id"],
+                    "binding_names": ["request"],
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "source_map_origin_keys": [slot["workflow_surface"]],
+                }
+            ],
+        },
+    )
+
+    report = build_rendering_ergonomics_report(
+        policy=policy,
+        prerequisite_reports=reports,
+        provider_input_observations=[
+            {
+                "workflow_surface": slot["workflow_surface"],
+                "provider_call_locator": "providers.plan.review",
+                "provider_step_id": "root.plan.review",
+                "c0_row_id": slot["c0_row_id"],
+                "binding_names": ["request"],
+                "binding_count": 1,
+                "value_type_name": "PlanReviewRequest",
+                "request_fields": {
+                    "subject_type_name": "PlanReviewPromptSubject",
+                    "targets_type_name": "PlanReviewProviderTargets",
+                },
+            }
+        ],
+    )
+
+    assert report["status"] == "pass"
+    provider_shapes = {row["c0_row_id"]: row for row in report["provider_input_shapes"]}
+    assert provider_shapes[slot["c0_row_id"]]["request_type_name"] == "PlanReviewRequest"
+    assert not report["diagnostics"]
+
+
+def test_provider_input_shapes_fail_when_nested_subject_or_targets_types_drift():
+    slot = _prompt_slot("c0.plan_phase_prompt_review")
+    slot["workflow_surface"] = "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    slot["u0_row_id"] = "plan_phase.prompt.review"
+    slot["source_form"]["provider_call_locator"] = "providers.plan.review"
+    slot["request_shape"] = {
+        "request_type_name": "PlanReviewRequest",
+        "subject_type_name": "PlanReviewPromptSubject",
+        "targets_type_name": "PlanReviewProviderTargets",
+        "requires_request_record": True,
+        "requires_target_split": True,
+    }
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [
+                {
+                    "workflow_surface": slot["workflow_surface"],
+                    "provider_step_id": "root.plan.review",
+                    "c0_row_id": slot["c0_row_id"],
+                    "u0_row_id": slot["u0_row_id"],
+                    "binding_names": ["request"],
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "source_map_origin_keys": [slot["workflow_surface"]],
+                }
+            ],
+        },
+    )
+
+    report = build_rendering_ergonomics_report(
+        policy=policy,
+        prerequisite_reports=reports,
+        provider_input_observations=[
+            {
+                "workflow_surface": slot["workflow_surface"],
+                "provider_call_locator": "providers.plan.review",
+                "provider_step_id": "root.plan.review",
+                "c0_row_id": slot["c0_row_id"],
+                "binding_names": ["request"],
+                "binding_count": 1,
+                "value_type_name": "PlanReviewRequest",
+                "request_fields": {
+                    "field_names": ["subject", "targets"],
+                    "subject_type_name": "WrongSubjectType",
+                    "targets_type_name": "WrongTargetsType",
+                    "semantic_field_count": 4,
+                    "write_target_field_count": 2,
+                },
+            }
+        ],
+    )
+
+    assert report["status"] == "fail"
+    assert any(
+        d["code"] == "rendering_ergonomics_provider_request_record_missing"
+        and d.get("expected_subject_type") == "PlanReviewPromptSubject"
+        and d.get("observed_subject_type") == "WrongSubjectType"
+        for d in report["diagnostics"]
+    )
+    assert any(
+        d["code"] == "rendering_ergonomics_provider_write_target_unclassified"
+        and d.get("expected_targets_type") == "PlanReviewProviderTargets"
+        and d.get("observed_targets_type") == "WrongTargetsType"
+        for d in report["diagnostics"]
+    )
+
+
+def test_provider_input_shapes_fail_when_request_record_is_flattened():
+    slot = _prompt_slot("c0.plan_phase_prompt_review")
+    slot["workflow_surface"] = "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    slot["u0_row_id"] = "plan_phase.prompt.review"
+    slot["source_form"]["provider_call_locator"] = "providers.plan.review"
+    slot["request_shape"] = {
+        "request_type_name": "PlanReviewRequest",
+        "subject_type_name": "PlanReviewPromptSubject",
+        "targets_type_name": "PlanReviewProviderTargets",
+        "requires_request_record": True,
+        "requires_target_split": True,
+    }
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [
+                {
+                    "workflow_surface": slot["workflow_surface"],
+                    "provider_step_id": "root.plan.review",
+                    "c0_row_id": slot["c0_row_id"],
+                    "u0_row_id": slot["u0_row_id"],
+                    "binding_names": ["subject", "targets"],
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "source_map_origin_keys": [slot["workflow_surface"]],
+                }
+            ],
+        },
+    )
+
+    report = build_rendering_ergonomics_report(
+        policy=policy,
+        prerequisite_reports=reports,
+        provider_input_observations=[
+            {
+                "workflow_surface": slot["workflow_surface"],
+                "provider_call_locator": "providers.plan.review",
+                "provider_step_id": "root.plan.review",
+                "c0_row_id": slot["c0_row_id"],
+                "binding_names": ["subject", "targets"],
+                "binding_count": 2,
+                "value_type_name": "PlanReviewRequest",
+            }
+        ],
+    )
+
+    assert report["status"] == "fail"
+    assert any(
+        d["code"] == "rendering_ergonomics_provider_flat_input_list_nontrivial"
+        for d in report["diagnostics"]
+    )
+
+
+def test_provider_input_shapes_fail_when_targets_split_is_missing():
+    slot = _prompt_slot("c0.plan_phase_prompt_review")
+    slot["workflow_surface"] = "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    slot["u0_row_id"] = "plan_phase.prompt.review"
+    slot["source_form"]["provider_call_locator"] = "providers.plan.review"
+    slot["request_shape"] = {
+        "request_type_name": "PlanReviewRequest",
+        "subject_type_name": "PlanReviewPromptSubject",
+        "targets_type_name": "PlanReviewProviderTargets",
+        "requires_request_record": True,
+        "requires_target_split": True,
+    }
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [
+                {
+                    "workflow_surface": slot["workflow_surface"],
+                    "provider_step_id": "root.plan.review",
+                    "c0_row_id": slot["c0_row_id"],
+                    "u0_row_id": slot["u0_row_id"],
+                    "binding_names": ["request"],
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "source_map_origin_keys": [slot["workflow_surface"]],
+                }
+            ],
+        },
+    )
+
+    report = build_rendering_ergonomics_report(
+        policy=policy,
+        prerequisite_reports=reports,
+        provider_input_observations=[
+            {
+                "workflow_surface": slot["workflow_surface"],
+                "provider_call_locator": "providers.plan.review",
+                "provider_step_id": "root.plan.review",
+                "c0_row_id": slot["c0_row_id"],
+                "binding_names": ["request"],
+                "binding_count": 1,
+                "value_type_name": "PlanReviewRequest",
+                "request_fields": {
+                    "field_names": ["subject"],
+                    "subject_type_name": "PlanReviewPromptSubject",
+                    "semantic_field_count": 4,
+                    "write_target_field_count": 0,
+                },
+            }
+        ],
+    )
+
+    assert report["status"] == "fail"
+    assert any(
+        d["code"] == "rendering_ergonomics_provider_write_target_unclassified"
+        for d in report["diagnostics"]
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Author-facing lints (Task 5)
 # --------------------------------------------------------------------------- #

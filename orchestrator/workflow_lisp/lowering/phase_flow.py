@@ -70,6 +70,7 @@ from .phase_scope import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
     _phase_prompt_artifact_name_for_target,
+    _typed_prompt_input_row_metadata,
     _require_phase_scope_name_match,
     _surface_contract_from_structured_field,
     _union_output_contracts,
@@ -317,22 +318,37 @@ def _phase_stdlib_lower_run_provider_phase_impl(
     )
     authored_contract["path"] = allocation.concrete_path_template
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-    generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
-        (
-            ("inputs", expr.inputs_expr),
-            (
-                "execution_report_target",
-                PhaseTargetExpr("execution-report", expr.span, expr.form_path, expr.expansion_stack),
-            ),
-            (
-                "progress_report_target",
-                PhaseTargetExpr("progress-report", expr.span, expr.form_path, expr.expansion_stack),
-            ),
-        ),
-        context=context,
-        local_values=local_values,
-        source_expr=expr,
+    provider_call_locator = expr.provider.name if isinstance(expr.provider, NameExpr) else None
+    row_metadata = _typed_prompt_input_row_metadata(
+        context.workflow_name,
+        provider_call_locator,
     )
+    generated_steps: list[dict[str, Any]] = []
+    consumes: list[dict[str, str]] = []
+    prompt_consumes: list[str] = []
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    if not bool((row_metadata or {}).get("preserve_request_record")):
+        (
+            generated_steps,
+            consumes,
+            prompt_consumes,
+            hidden_inputs,
+        ) = _build_phase_stdlib_prompt_input_prelude(
+            (
+                ("inputs", expr.inputs_expr),
+                (
+                    "execution_report_target",
+                    PhaseTargetExpr("execution-report", expr.span, expr.form_path, expr.expansion_stack),
+                ),
+                (
+                    "progress_report_target",
+                    PhaseTargetExpr("progress-report", expr.span, expr.form_path, expr.expansion_stack),
+                ),
+            ),
+            context=context,
+            local_values=local_values,
+            source_expr=expr,
+        )
     typed_prompt_inputs, typed_hidden_inputs = _build_typed_prompt_inputs_for_prompt_specs(
         (
             ("inputs", expr.inputs_expr),
@@ -348,6 +364,7 @@ def _phase_stdlib_lower_run_provider_phase_impl(
         context=context,
         local_values=local_values,
         source_expr=expr,
+        provider_call_locator=provider_call_locator,
     )
     step = {
         "name": step_name,

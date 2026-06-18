@@ -15,6 +15,17 @@
     (progress_ledger ProgressLedger)
     (run_state RunStatePath))
 
+  (defrecord SelectorPromptSubject
+    (steering SteeringDoc)
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (manifest StateFileExisting)
+    (progress_ledger ProgressLedger)
+    (run_state RunStatePath))
+
+  (defrecord SelectorRequest
+    (subject SelectorPromptSubject))
+
   (defrecord SelectorPublicResult
     (selection_status SelectionStatus)
     (selection_bundle_path SelectionBundlePath)
@@ -40,15 +51,21 @@
                :manifest manifest
                :progress_ledger progress_ledger
                :run_state run_state))
+           (subject
+             (record SelectorPromptSubject
+               :steering inputs.steering
+               :target_design inputs.target_design
+               :baseline_design inputs.baseline_design
+               :manifest inputs.manifest
+               :progress_ledger inputs.progress_ledger
+               :run_state inputs.run_state))
+           (request
+             (record SelectorRequest
+               :subject subject))
            (decision
              (provider-result providers.selector
                :prompt prompts.selector.select-next-work
-               :inputs (inputs.steering
-                        inputs.target_design
-                        inputs.baseline_design
-                        inputs.manifest
-                        inputs.progress_ledger
-                        inputs.run_state)
+               :inputs (request)
                :returns SelectorPublicResult))
            (selection-bundle-path
              (provider-bundle-path decision :as SelectionBundlePath)))

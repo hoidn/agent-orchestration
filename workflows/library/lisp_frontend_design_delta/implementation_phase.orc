@@ -3,7 +3,8 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/implementation_phase)
   (import std/phase :only
-    (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop))
+    (BlockerClass ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewReportPath
+      review-revise-loop))
   (import lisp_frontend_design_delta/types :only
     (ArtifactChecksPath ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkPath
       ArtifactWorkTargetPath BaselineDesignDoc CheckCommandsPath ImplementationPhaseResult
@@ -24,9 +25,54 @@
   (defrecord ChecksResult
     (checks_report ArtifactChecksPath))
 
+  (defrecord ImplementationExecutePromptSubject
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (plan_path PlanDoc)
+    (check_commands_path CheckCommandsPath))
+
+  (defrecord ImplementationExecuteProviderTargets
+    (execution_report_target_path ArtifactWorkTargetPath)
+    (progress_report_target_path ArtifactWorkTargetPath)
+    (checks_report_target_path ArtifactChecksTargetPath)
+    (implementation_review_report_target_path ArtifactReviewTargetPath))
+
+  (defrecord ImplementationExecuteRequest
+    (subject ImplementationExecutePromptSubject)
+    (targets ImplementationExecuteProviderTargets))
+
   (defrecord PrivateImplementationReviewSubject
     (execution_report ArtifactWorkTargetPath)
     (checks_report ArtifactChecksPath))
+
+  (defrecord ImplementationReviewPromptSubject
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (plan_path PlanDoc)
+    (execution_report ArtifactWorkTargetPath)
+    (checks_report ArtifactChecksPath))
+
+  (defrecord ImplementationReviewProviderTargets
+    (implementation_review_report_target_path ArtifactReviewTargetPath))
+
+  (defrecord ImplementationReviewRequest
+    (subject ImplementationReviewPromptSubject)
+    (targets ImplementationReviewProviderTargets))
+
+  (defrecord ImplementationFixPromptSubject
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (plan_path PlanDoc)
+    (execution_report ArtifactWorkTargetPath)
+    (checks_report ArtifactChecksPath)
+    (findings_items_path ReviewFindingsJsonPath))
+
+  (defrecord ImplementationFixProviderTargets
+    (execution_report_target_path ArtifactWorkTargetPath))
+
+  (defrecord ImplementationFixRequest
+    (subject ImplementationFixPromptSubject)
+    (targets ImplementationFixProviderTargets))
 
   (defunion ImplementationAttempt
     (COMPLETED
@@ -68,15 +114,24 @@
     -> ReviewDecision
     :effects ((uses-provider providers.implementation.review))
     :lowering inline
-    (provider-result providers.implementation.review
-      :prompt prompts.implementation.review
-      :inputs (inputs.target_design
-               inputs.baseline_design
-               inputs.plan_path
-               completed.execution_report
-               completed.checks_report
-               inputs.implementation_review_report_target_path)
-      :returns ReviewDecision))
+    (let* ((subject
+             (record ImplementationReviewPromptSubject
+               :target_design inputs.target_design
+               :baseline_design inputs.baseline_design
+               :plan_path inputs.plan_path
+               :execution_report completed.execution_report
+               :checks_report completed.checks_report))
+           (targets
+             (record ImplementationReviewProviderTargets
+               :implementation_review_report_target_path inputs.implementation_review_report_target_path))
+           (request
+             (record ImplementationReviewRequest
+               :subject subject
+               :targets targets)))
+      (provider-result providers.implementation.review
+        :prompt prompts.implementation.review
+        :inputs (request)
+        :returns ReviewDecision)))
 
   (defproc fix-implementation
     ((completed PrivateImplementationReviewSubject)
@@ -85,16 +140,25 @@
     -> PrivateImplementationReviewSubject
     :effects ((uses-provider providers.implementation.fix))
     :lowering inline
-    (provider-result providers.implementation.fix
-      :prompt prompts.implementation.fix
-      :inputs (inputs.target_design
-               inputs.baseline_design
-               inputs.plan_path
-               completed.execution_report
-               inputs.execution_report_target_path
-               completed.checks_report
-               findings.items_path)
-      :returns PrivateImplementationReviewSubject))
+    (let* ((subject
+             (record ImplementationFixPromptSubject
+               :target_design inputs.target_design
+               :baseline_design inputs.baseline_design
+               :plan_path inputs.plan_path
+               :execution_report completed.execution_report
+               :checks_report completed.checks_report
+               :findings_items_path findings.items_path))
+           (targets
+             (record ImplementationFixProviderTargets
+               :execution_report_target_path inputs.execution_report_target_path))
+           (request
+             (record ImplementationFixRequest
+               :subject subject
+               :targets targets)))
+      (provider-result providers.implementation.fix
+        :prompt prompts.implementation.fix
+        :inputs (request)
+        :returns PrivateImplementationReviewSubject)))
 
   (defworkflow implementation-phase
     ((phase-ctx PhaseCtx)
@@ -107,17 +171,26 @@
      (checks_report_target_path ArtifactChecksTargetPath)
      (implementation_review_report_target_path ArtifactReviewTargetPath))
     -> ImplementationPhaseResult
-    (let* ((attempt
+    (let* ((execute-subject
+             (record ImplementationExecutePromptSubject
+               :target_design target_design
+               :baseline_design baseline_design
+               :plan_path plan_path
+               :check_commands_path check_commands_path))
+           (execute-targets
+             (record ImplementationExecuteProviderTargets
+               :execution_report_target_path execution_report_target_path
+               :progress_report_target_path progress_report_target_path
+               :checks_report_target_path checks_report_target_path
+               :implementation_review_report_target_path implementation_review_report_target_path))
+           (execute-request
+             (record ImplementationExecuteRequest
+               :subject execute-subject
+               :targets execute-targets))
+           (attempt
              (provider-result providers.implementation.execute
                :prompt prompts.implementation.execute
-               :inputs (target_design
-                        baseline_design
-                        plan_path
-                        check_commands_path
-                        execution_report_target_path
-                        progress_report_target_path
-                        checks_report_target_path
-                        implementation_review_report_target_path)
+               :inputs (execute-request)
                :returns ImplementationAttempt)))
       (match attempt
         ((COMPLETED completed)

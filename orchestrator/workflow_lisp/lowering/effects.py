@@ -15,7 +15,10 @@ from ..type_env import TypeRef
 from . import core as lowering_core
 from .context import _TerminalResult
 from .generated_paths import allocate_generated_result_bundle
-from .phase_scope import _build_typed_prompt_inputs_for_prompt_specs
+from .phase_scope import (
+    _build_typed_prompt_inputs_for_prompt_specs,
+    _typed_prompt_input_row_metadata,
+)
 
 
 _PROVIDER_BUNDLE_NEGATIVE_VALIDATION_CASES = (
@@ -322,6 +325,11 @@ def _lower_provider_result_operation(
             context=context,
             use_active_phase_bundle=use_active_phase_bundle,
         )
+        row_metadata = _typed_prompt_input_row_metadata(
+            context.workflow_name,
+            provider_result.provider_name,
+        )
+        preserve_request_record = bool((row_metadata or {}).get("preserve_request_record"))
         if use_active_phase_bundle:
             allocation = allocate_generated_result_bundle(
                 context=context,
@@ -365,7 +373,7 @@ def _lower_provider_result_operation(
                 "execution_report_target",
                 "progress_report_target",
             ]
-        else:
+        elif not preserve_request_record:
             phase_steps, consumes, prompt_consumes, phase_hidden_inputs = (
                 lowering_core._build_phase_stdlib_prompt_input_prelude(
                     (("inputs", provider_result.inputs),),
@@ -385,6 +393,7 @@ def _lower_provider_result_operation(
             context=context,
             local_values=local_values,
             source_expr=provider_result,
+            provider_call_locator=provider_result.provider_name,
         )
         if typed_prompt_inputs:
             hidden_inputs.update(typed_hidden_inputs)
@@ -414,6 +423,7 @@ def _lower_provider_result_operation(
             context=context,
             local_values=local_values,
             source_expr=provider_result,
+            provider_call_locator=provider_result.provider_name,
         )
         if typed_prompt_inputs:
             provider_step["typed_prompt_inputs"] = typed_prompt_inputs

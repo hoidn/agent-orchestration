@@ -536,10 +536,230 @@ def _contract_isolation(diagnostics: Sequence[Mapping[str, Any]]) -> dict[str, b
     }
 
 
+def _provider_input_slots(slots: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    return [
+        slot
+        for slot in slots
+        if isinstance(slot.get("source_form"), Mapping)
+        and slot["source_form"].get("kind") == "provider_input"
+        and isinstance(slot.get("request_shape"), Mapping)
+    ]
+
+
+def _matching_provider_input_observations(
+    slot: Mapping[str, Any],
+    observations: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    workflow_surface = str(slot.get("workflow_surface", ""))
+    c0_row_id = str(slot.get("c0_row_id", ""))
+    source_form = slot.get("source_form", {})
+    provider_call_locator = (
+        str(source_form.get("provider_call_locator", ""))
+        if isinstance(source_form, Mapping)
+        else ""
+    )
+    matches: list[Mapping[str, Any]] = []
+    for observation in observations:
+        if not isinstance(observation, Mapping):
+            continue
+        if c0_row_id and observation.get("c0_row_id") == c0_row_id:
+            matches.append(observation)
+            continue
+        if workflow_surface and observation.get("workflow_surface") != workflow_surface:
+            continue
+        if provider_call_locator and observation.get("provider_call_locator") != provider_call_locator:
+            continue
+        matches.append(observation)
+    return matches
+
+
+def _provider_input_shape_rows(
+    *,
+    slots: Sequence[Mapping[str, Any]],
+    prerequisite_reports: Mapping[str, Any],
+    provider_input_observations: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    c1 = prerequisite_reports.get("typed_prompt_input_report", {})
+    provider_rows: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
+
+    for slot in _provider_input_slots(slots):
+        c0_row_id = str(slot.get("c0_row_id", ""))
+        request_shape = (
+            dict(slot.get("request_shape", {}))
+            if isinstance(slot.get("request_shape"), Mapping)
+            else {}
+        )
+        expected_request_type = str(request_shape.get("request_type_name", ""))
+        expected_subject_type = str(request_shape.get("subject_type_name", ""))
+        expected_targets_type = str(request_shape.get("targets_type_name", ""))
+        requires_target_split = bool(request_shape.get("requires_target_split"))
+        c1_row = _c1_row(c1, c0_row_id) if isinstance(c1, Mapping) else None
+
+        row = {
+            "workflow_surface": str(slot.get("workflow_surface", "")),
+            "provider_binding": str(
+                slot.get("source_form", {}).get("provider_call_locator", "")
+                if isinstance(slot.get("source_form"), Mapping)
+                else ""
+            ),
+            "provider_step_id": "",
+            "c0_row_id": c0_row_id,
+            "u0_row_id": str(slot.get("u0_row_id", "")),
+            "request_type_name": expected_request_type,
+            "subject_type_name": expected_subject_type,
+            "targets_type_name": expected_targets_type,
+            "semantic_field_count": 0,
+            "write_target_field_count": 0,
+            "binding_names": list(c1_row.get("binding_names", []))
+            if isinstance(c1_row, Mapping)
+            and isinstance(c1_row.get("binding_names"), Sequence)
+            and not isinstance(c1_row.get("binding_names"), (str, bytes))
+            else [],
+            "selected_lane": _selected_lane_label(slot),
+            "status": "pass",
+            "diagnostics": [],
+        }
+
+        matches = _matching_provider_input_observations(slot, provider_input_observations)
+        if len(matches) != 1:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_request_record_missing",
+                str(slot.get("slot_id", "")),
+                "provider-input slot could not be matched to exactly one compiled observation",
+                c0_row_id=c0_row_id,
+                workflow_surface=row["workflow_surface"],
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+            row["status"] = "fail"
+            provider_rows.append(row)
+            continue
+
+        observation = matches[0]
+        observed_binding_names = observation.get("binding_names")
+        if isinstance(observed_binding_names, Sequence) and not isinstance(
+            observed_binding_names, (str, bytes)
+        ):
+            row["binding_names"] = [str(name) for name in observed_binding_names]
+        row["provider_step_id"] = str(observation.get("provider_step_id", ""))
+        observed_request_type = str(observation.get("value_type_name", ""))
+        if observed_request_type:
+            row["request_type_name"] = observed_request_type
+        request_fields = (
+            dict(observation.get("request_fields", {}))
+            if isinstance(observation.get("request_fields"), Mapping)
+            else {}
+        )
+        observed_subject_type = str(request_fields.get("subject_type_name", ""))
+        observed_targets_type = str(request_fields.get("targets_type_name", ""))
+        if observed_subject_type:
+            row["subject_type_name"] = observed_subject_type
+        if observed_targets_type:
+            row["targets_type_name"] = observed_targets_type
+        row["semantic_field_count"] = int(request_fields.get("semantic_field_count", 0) or 0)
+        row["write_target_field_count"] = int(
+            request_fields.get("write_target_field_count", 0) or 0
+        )
+
+        binding_count = observation.get("binding_count")
+        if binding_count != 1:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_flat_input_list_nontrivial",
+                str(slot.get("slot_id", "")),
+                "provider-input slot still lowers multiple bindings instead of one request record",
+                c0_row_id=c0_row_id,
+                binding_count=binding_count,
+                binding_names=row["binding_names"],
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+
+        if expected_request_type and observed_request_type != expected_request_type:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_request_record_missing",
+                str(slot.get("slot_id", "")),
+                "provider-input slot lowered an unexpected request type",
+                c0_row_id=c0_row_id,
+                expected_request_type=expected_request_type,
+                observed_request_type=observed_request_type,
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+
+        if expected_subject_type and observed_subject_type != expected_subject_type:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_request_record_missing",
+                str(slot.get("slot_id", "")),
+                "provider-input slot lowered an unexpected nested `subject` type",
+                c0_row_id=c0_row_id,
+                expected_subject_type=expected_subject_type,
+                observed_subject_type=observed_subject_type,
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+
+        if expected_targets_type and observed_targets_type != expected_targets_type:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_write_target_unclassified",
+                str(slot.get("slot_id", "")),
+                "provider-input slot lowered an unexpected nested `targets` type",
+                c0_row_id=c0_row_id,
+                expected_targets_type=expected_targets_type,
+                observed_targets_type=observed_targets_type,
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+
+        field_names = {
+            str(name)
+            for name in request_fields.get("field_names", [])
+            if isinstance(name, str)
+        }
+        has_subject = (
+            bool(request_fields.get("has_subject"))
+            or "subject" in field_names
+            or bool(observed_subject_type)
+        )
+        has_targets = (
+            bool(request_fields.get("has_targets"))
+            or "targets" in field_names
+            or bool(observed_targets_type)
+        )
+        unexpected_fields = sorted(field_names - {"subject", "targets"})
+        if not has_subject or unexpected_fields:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_request_subject_mixed_with_targets",
+                str(slot.get("slot_id", "")),
+                "provider request must isolate semantic prompt facts under `subject`",
+                c0_row_id=c0_row_id,
+                unexpected_fields=unexpected_fields,
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+
+        if requires_target_split and not has_targets:
+            row_diag = _diagnostic(
+                "rendering_ergonomics_provider_write_target_unclassified",
+                str(slot.get("slot_id", "")),
+                "provider request is missing the required `targets` split for write destinations",
+                c0_row_id=c0_row_id,
+            )
+            row["diagnostics"].append(row_diag)
+            diagnostics.append(row_diag)
+
+        if row["diagnostics"]:
+            row["status"] = "fail"
+        provider_rows.append(row)
+
+    return provider_rows, diagnostics
+
+
 def build_rendering_ergonomics_report(
     *,
     policy: Mapping[str, Any],
     prerequisite_reports: Mapping[str, Any],
+    provider_input_observations: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Join C0-C5 evidence and validate every author-facing consumer slot."""
 
@@ -595,6 +815,12 @@ def build_rendering_ergonomics_report(
         diagnostics.extend(resolution["diagnostics"])
         renderer_resolutions.append(resolution)
 
+    provider_input_shapes, provider_input_diagnostics = _provider_input_shape_rows(
+        slots=slots,
+        prerequisite_reports=prerequisite_reports,
+        provider_input_observations=provider_input_observations,
+    )
+    diagnostics.extend(provider_input_diagnostics)
     diagnostics.sort(key=lambda d: (str(d.get("code", "")), str(d.get("c0_row_id", d.get("slot_id", "")))))
     return {
         "schema_version": RENDERING_ERGONOMICS_REPORT_SCHEMA_VERSION,
@@ -605,6 +831,7 @@ def build_rendering_ergonomics_report(
         "prerequisite_reports": _prerequisite_summaries(prerequisite_reports),
         "consumer_slots": [dict(s) for s in slots],
         "renderer_resolutions": renderer_resolutions,
+        "provider_input_shapes": provider_input_shapes,
         "body_render_lints": body_render_lints,
         "contract_isolation": _contract_isolation(diagnostics),
         "diagnostics": diagnostics,

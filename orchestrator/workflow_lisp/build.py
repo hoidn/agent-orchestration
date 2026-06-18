@@ -76,7 +76,10 @@ from . import lexical_checkpoint_default_resume
 from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
-from .typed_prompt_inputs import build_typed_prompt_input_report
+from .typed_prompt_inputs import (
+    build_typed_prompt_input_report,
+    normalize_typed_prompt_input_entry,
+)
 from .rendering_cleanup import (
     build_rendering_cleanup_report,
     load_rendering_cleanup_manifest,
@@ -958,6 +961,12 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                     )
                 )
                 if rendering_ergonomics_policy is not None:
+                    provider_input_observations = (
+                        _collect_provider_input_shape_observations(
+                            validated_bundles_by_name=compile_result.validated_bundles_by_name,
+                            rendering_ergonomics_policy=rendering_ergonomics_policy,
+                        )
+                    )
                     rendering_ergonomics_report_payload = (
                         build_rendering_ergonomics_report(
                             policy=rendering_ergonomics_policy,
@@ -969,6 +978,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                                 "compatibility_bridge_report": compatibility_bridge_report_payload,
                                 "rendering_cleanup_report": rendering_cleanup_report_payload,
                             },
+                            provider_input_observations=provider_input_observations,
                         )
                     )
                     if rendering_ergonomics_report_payload.get("status") != "pass":
@@ -2427,6 +2437,157 @@ def _collect_materialize_view_effects(
                 seen_effect_ids.add(effect_id)
             collected.append(effect)
     return collected
+
+
+def _bundle_index_by_surface_name(
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+) -> dict[str, LoadedWorkflowBundle]:
+    indexed: dict[str, LoadedWorkflowBundle] = {}
+    visited_bundle_ids: set[int] = set()
+
+    def visit(bundle: LoadedWorkflowBundle) -> None:
+        bundle_id = id(bundle)
+        if bundle_id in visited_bundle_ids:
+            return
+        visited_bundle_ids.add(bundle_id)
+
+        surface_name = getattr(bundle.surface, "name", None)
+        if isinstance(surface_name, str) and surface_name:
+            indexed.setdefault(surface_name, bundle)
+
+        for imported_bundle in bundle.imports.values():
+            visit(imported_bundle)
+
+    for bundle in validated_bundles_by_name.values():
+        visit(bundle)
+    return indexed
+
+
+def _iter_surface_steps(steps: Sequence[SurfaceStep]) -> Sequence[SurfaceStep]:
+    flat_steps: list[SurfaceStep] = []
+
+    def visit(step: SurfaceStep) -> None:
+        flat_steps.append(step)
+
+        repeat_until = getattr(step, "repeat_until", None)
+        if repeat_until is not None:
+            for child in getattr(repeat_until, "steps", ()) or ():
+                visit(child)
+
+        then_branch = getattr(step, "then_branch", None)
+        if then_branch is not None:
+            for child in getattr(then_branch, "steps", ()) or ():
+                visit(child)
+
+        else_branch = getattr(step, "else_branch", None)
+        if else_branch is not None:
+            for child in getattr(else_branch, "steps", ()) or ():
+                visit(child)
+
+        for child in getattr(step, "for_each_steps", ()) or ():
+            visit(child)
+
+        match_cases = getattr(step, "match_cases", None)
+        if isinstance(match_cases, Mapping):
+            for case in match_cases.values():
+                for child in getattr(case, "steps", ()) or ():
+                    visit(child)
+
+    for step in steps:
+        visit(step)
+    return flat_steps
+
+
+def _provider_request_field_observation(
+    entry: Mapping[str, Any],
+) -> dict[str, Any]:
+    value_source = entry.get("value_source")
+    if not isinstance(value_source, Mapping):
+        return {}
+    binding = value_source.get("binding")
+    if not isinstance(binding, Mapping):
+        return {}
+    compiled_request_fields = (
+        dict(entry.get("request_fields", {}))
+        if isinstance(entry.get("request_fields"), Mapping)
+        else {}
+    )
+    field_names = [str(name) for name in binding if isinstance(name, str)]
+    subject = binding.get("subject")
+    targets = binding.get("targets")
+    observation = {
+        "field_names": sorted(field_names),
+        "has_subject": "subject" in binding,
+        "has_targets": "targets" in binding,
+        "semantic_field_count": len(subject) if isinstance(subject, Mapping) else 0,
+        "write_target_field_count": len(targets) if isinstance(targets, Mapping) else 0,
+    }
+    for nested_type_key in ("subject_type_name", "targets_type_name"):
+        nested_type_name = compiled_request_fields.get(nested_type_key)
+        if isinstance(nested_type_name, str) and nested_type_name:
+            observation[nested_type_key] = nested_type_name
+    return observation
+
+
+def _collect_provider_input_shape_observations(
+    *,
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    rendering_ergonomics_policy: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    slots = [
+        slot
+        for slot in rendering_ergonomics_policy.get("consumer_slots", [])
+        if isinstance(slot, Mapping)
+        and isinstance(slot.get("source_form"), Mapping)
+        and slot["source_form"].get("kind") == "provider_input"
+    ]
+    if not slots:
+        return []
+
+    bundle_index = _bundle_index_by_surface_name(validated_bundles_by_name)
+    observations: list[dict[str, Any]] = []
+    for slot in slots:
+        workflow_surface = str(slot.get("workflow_surface", ""))
+        c0_row_id = str(slot.get("c0_row_id", ""))
+        if not workflow_surface or not c0_row_id:
+            continue
+        bundle = bundle_index.get(workflow_surface)
+        if bundle is None:
+            continue
+        provider_call_locator = str(slot["source_form"].get("provider_call_locator", ""))
+        for step in _iter_surface_steps(bundle.surface.steps):
+            if getattr(step, "kind", None) is not SurfaceStepKind.PROVIDER:
+                continue
+            normalized_entries: list[dict[str, Any]] = []
+            for entry in getattr(step, "typed_prompt_inputs", ()) or ():
+                if not isinstance(entry, Mapping):
+                    continue
+                try:
+                    normalized_entries.append(normalize_typed_prompt_input_entry(entry))
+                except ValueError:
+                    continue
+            row_entries = [
+                entry for entry in normalized_entries if entry.get("c0_row_id") == c0_row_id
+            ]
+            if not row_entries:
+                continue
+            observations.append(
+                {
+                    "workflow_surface": workflow_surface,
+                    "provider_call_locator": provider_call_locator,
+                    "provider_step_id": str(getattr(step, "step_id", "")),
+                    "c0_row_id": c0_row_id,
+                    "binding_names": [
+                        str(entry.get("binding_name", "")) for entry in row_entries
+                    ],
+                    "binding_count": len(row_entries),
+                    "value_type_name": str(row_entries[0].get("value_type_name", "")),
+                    "request_fields": _provider_request_field_observation(row_entries[0])
+                    if len(row_entries) == 1
+                    else {},
+                }
+            )
+    return observations
 
 
 def _materialize_design_delta_compatibility_bridge_bundles(

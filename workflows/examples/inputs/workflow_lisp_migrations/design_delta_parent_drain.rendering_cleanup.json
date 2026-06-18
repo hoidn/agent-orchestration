@@ -29,6 +29,10 @@
       "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
+      "c0_row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
       "c0_row_id": "c0.drain_summary_report_target_final_summary_view",
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
@@ -37,7 +41,15 @@
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
+      "c0_row_id": "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
       "c0_row_id": "c0.implementation_phase_materialized_return_execution_report",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_materialized_return_execution_report_compiled_boundary",
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
@@ -45,7 +57,15 @@
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
+      "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
       "c0_row_id": "c0.implementation_phase_materialized_return_progress_report",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_materialized_return_progress_report_compiled_boundary",
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
@@ -53,7 +73,15 @@
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
+      "c0_row_id": "c0.plan_phase_materialized_return_approved_plan_review_report_path_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
       "c0_row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path_compiled_boundary",
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
@@ -61,7 +89,15 @@
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
+      "c0_row_id": "c0.plan_phase_materialized_return_last_plan_review_report_path_compiled_boundary",
+      "decision": "RETIRED_TO_OBSERVABILITY"
+    },
+    {
       "c0_row_id": "c0.work_item_summary_summary_path",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
       "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
@@ -69,7 +105,15 @@
       "decision": "BLOCKED"
     },
     {
+      "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
+      "decision": "BLOCKED"
+    },
+    {
       "c0_row_id": "c0.plan_phase_output_approved_plan_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_output_approved_plan_path_compiled_boundary",
       "decision": "BLOCKED"
     },
     {
@@ -77,7 +121,15 @@
       "decision": "BLOCKED"
     },
     {
+      "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
+      "decision": "BLOCKED"
+    },
+    {
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
       "decision": "BLOCKED"
     },
     {
@@ -85,7 +137,15 @@
       "decision": "BLOCKED"
     },
     {
+      "c0_row_id": "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
+      "decision": "BLOCKED"
+    },
+    {
       "c0_row_id": "c0.selector_output_return_selection_bundle_path",
+      "decision": "BLOCKED"
+    },
+    {
+      "c0_row_id": "c0.selector_output_return_selection_bundle_path_compiled_boundary",
       "decision": "BLOCKED"
     },
     {
@@ -93,7 +153,15 @@
       "decision": "BLOCKED"
     },
     {
+      "c0_row_id": "c0.drain_output_return_run_state_compiled_boundary",
+      "decision": "BLOCKED"
+    },
+    {
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.drain_bridge_architecture_bundle_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
@@ -101,7 +169,15 @@
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
+      "c0_row_id": "c0.drain_bridge_manifest_path_compiled_boundary",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
       "c0_row_id": "c0.drain_bridge_progress_ledger_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.drain_bridge_progress_ledger_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
@@ -109,7 +185,15 @@
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
+      "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
       "c0_row_id": "c0.work_item_bridge_manifest_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_bridge_manifest_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
@@ -117,12 +201,52 @@
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
+      "c0_row_id": "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
       "c0_row_id": "c0.work_item_pointer_selection_bundle_path",
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
       "c0_row_id": "c0.work_item_command_selection_bundle_path",
       "decision": "KEPT_BLOCKED_COMPATIBILITY"
+    },
+    {
+      "c0_row_id": "c0.design_gap_architect_prompt_draft",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_prompt_execute",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_prompt_review",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.implementation_phase_prompt_fix",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_prompt_review",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_prompt_fix",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",
+      "decision": "KEEP_TYPED"
+    },
+    {
+      "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
+      "decision": "KEEP_TYPED"
     }
   ]
 }

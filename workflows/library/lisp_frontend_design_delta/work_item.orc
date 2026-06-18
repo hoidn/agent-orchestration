@@ -10,11 +10,12 @@
     (BlockedRecoveryOutcomeRequest TerminalWorkItemRequest drain-run-state
       record-blocked-recovery-outcome record-terminal-work-item))
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc BlockedRecoveryReason BlockedRecoveryRoute CheckCommandsPath
-      ImplementationPhaseResult ImplementationReviewDecision ImplementationState PlanDoc
-      PlanReviewDecision ProgressLedger ResolvedWorkItemInputs RunStatePath SelectionBundlePath
-      StateFile StateFileExisting SteeringDoc TargetDesignDoc WorkItemResult WorkItemSource
-      WorkItemSummaryValue WorkItemTerminalDecision WorkReport WorkReportTarget))
+    (ArtifactWorkTargetPath BaselineDesignDoc BlockedRecoveryReason BlockedRecoveryRoute
+      CheckCommandsPath ImplementationPhaseResult ImplementationReviewDecision
+      ImplementationState PlanDoc PlanReviewDecision ProgressLedger ResolvedWorkItemInputs
+      RunStatePath SelectionBundlePath StateFile StateFileExisting SteeringDoc TargetDesignDoc
+      WorkItemResult WorkItemSource WorkItemSummaryValue WorkItemTerminalDecision WorkReport
+      WorkReportTarget))
   (export
     BlockedImplementationRecoveryClassification
     BlockedRecoveryClassification
@@ -38,10 +39,31 @@
     (reason BlockedRecoveryReason)
     (summary String))
 
+  (defrecord BlockedImplementationRecoveryPromptSubject
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (work_item_context WorkReport)
+    (approved_plan PlanDoc)
+    (implementation_state_bundle WorkReport)
+    (progress_report WorkReport))
+
+  (defrecord BlockedImplementationRecoveryRequest
+    (subject BlockedImplementationRecoveryPromptSubject))
+
   (defrecord BlockedImplementationRecoveryClassification
     (blocked_recovery_route BlockedRecoveryRoute)
     (reason BlockedRecoveryReason)
     (summary String))
+
+  (defrecord BlockedRecoveryStatePromptSubject
+    (target_design_path TargetDesignDoc)
+    (baseline_design_path BaselineDesignDoc)
+    (work_item_context_path WorkReport)
+    (approved_plan_path PlanDoc)
+    (progress_report ArtifactWorkTargetPath))
+
+  (defrecord BlockedRecoveryStateRequest
+    (subject BlockedRecoveryStatePromptSubject))
 
   (defrecord WorkItemSummary
     (summary WorkReport))
@@ -69,15 +91,21 @@
      (implementation_state_bundle WorkReport)
      (progress_report WorkReport))
     -> BlockedImplementationRecoveryClassification
-    (provider-result providers.work-item.recovery-classifier
-      :prompt prompts.work-item.classify-blocked-recovery
-      :inputs (target_design
-               baseline_design
-               work_item_context
-               approved_plan
-               implementation_state_bundle
-               progress_report)
-      :returns BlockedImplementationRecoveryClassification))
+    (let* ((subject
+             (record BlockedImplementationRecoveryPromptSubject
+               :target_design target_design
+               :baseline_design baseline_design
+               :work_item_context work_item_context
+               :approved_plan approved_plan
+               :implementation_state_bundle implementation_state_bundle
+               :progress_report progress_report))
+           (request
+             (record BlockedImplementationRecoveryRequest
+               :subject subject)))
+      (provider-result providers.work-item.recovery-classifier
+        :prompt prompts.work-item.classify-blocked-recovery
+        :inputs (request)
+        :returns BlockedImplementationRecoveryClassification)))
 
   (defproc classify-blocked-implementation-recovery-state
     ((target_design_path TargetDesignDoc)
@@ -88,14 +116,20 @@
     -> BlockedRecoveryClassification
     :effects ((uses-provider providers.work-item.recovery-classifier))
     :lowering inline
-    (provider-result providers.work-item.recovery-classifier
-      :prompt prompts.work-item.classify-blocked-recovery
-      :inputs (target_design_path
-               baseline_design_path
-               work_item_context_path
-               approved_plan_path
-               implementation_phase_result.progress-report)
-      :returns BlockedRecoveryClassification))
+    (let* ((subject
+             (record BlockedRecoveryStatePromptSubject
+               :target_design_path target_design_path
+               :baseline_design_path baseline_design_path
+               :work_item_context_path work_item_context_path
+               :approved_plan_path approved_plan_path
+               :progress_report implementation_phase_result.progress-report))
+           (request
+             (record BlockedRecoveryStateRequest
+               :subject subject)))
+      (provider-result providers.work-item.recovery-classifier
+        :prompt prompts.work-item.classify-blocked-recovery
+        :inputs (request)
+        :returns BlockedRecoveryClassification)))
 
   (defproc finalize-terminal-work-item
     ((work_item_id String)

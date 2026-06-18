@@ -50,7 +50,7 @@ from ..expressions import (
 from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
-from ..spans import SourceSpan
+from ..spans import SourcePosition, SourceSpan
 from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
@@ -1291,32 +1291,93 @@ def _phase_prompt_inputs_are_direct(
 
 
 _C1_TYPED_PROMPT_INPUT_ROWS = {
-    "typed_prompt_input_phase::run-typed-prompt-phase-demo": {
+    ("typed_prompt_input_phase::run-typed-prompt-phase-demo", "providers.execute"): {
         "c0_row_id": "c0.fixture.prompt_context",
         "u0_row_id": "u0.fixture.prompt_context",
+        "preserve_request_record": False,
     },
-    "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
+    ("typed_prompt_input_local_request_record::run-local-request-record-demo", "providers.execute"): {
+        "c0_row_id": "c0.fixture.local_request_record",
+        "u0_row_id": "u0.fixture.local_request_record",
+        "preserve_request_record": True,
+    },
+    ("lisp_frontend_design_delta/plan_phase::run-plan-phase", "providers.plan.draft"): {
         "c0_row_id": "c0.plan_phase_prompt_draft",
         "u0_row_id": "plan_phase.prompt.draft",
+        "preserve_request_record": True,
     },
-    "lisp_frontend_design_delta/selector::select-next-work": {
+    ("%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1", "providers.plan.review"): {
+        "c0_row_id": "c0.plan_phase_prompt_review",
+        "u0_row_id": "plan_phase.prompt.review",
+        "preserve_request_record": True,
+    },
+    ("%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1", "providers.plan.fix"): {
+        "c0_row_id": "c0.plan_phase_prompt_fix",
+        "u0_row_id": "plan_phase.prompt.fix",
+        "preserve_request_record": True,
+    },
+    ("lisp_frontend_design_delta/implementation_phase::implementation-phase", "providers.implementation.execute"): {
+        "c0_row_id": "c0.implementation_phase_prompt_execute",
+        "u0_row_id": "implementation_phase.prompt.execute",
+        "preserve_request_record": True,
+    },
+    ("%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1", "providers.implementation.review"): {
+        "c0_row_id": "c0.implementation_phase_prompt_review",
+        "u0_row_id": "implementation_phase.prompt.review",
+        "preserve_request_record": True,
+    },
+    ("%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1", "providers.implementation.fix"): {
+        "c0_row_id": "c0.implementation_phase_prompt_fix",
+        "u0_row_id": "implementation_phase.prompt.fix",
+        "preserve_request_record": True,
+    },
+    ("lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture", "providers.architect.draft"): {
+        "c0_row_id": "c0.design_gap_architect_prompt_draft",
+        "u0_row_id": "design_gap_architect.prompt.draft",
+        "preserve_request_record": True,
+    },
+    ("lisp_frontend_design_delta/selector::select-next-work", "providers.selector"): {
         "c0_row_id": "c0.selector_prompt_select_next_work",
         "u0_row_id": "selector.prompt.select_next_work",
+        "preserve_request_record": True,
+    },
+    ("lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery", "providers.work-item.recovery-classifier"): {
+        "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",
+        "u0_row_id": "work_item.prompt.classify_blocked_recovery",
+        "preserve_request_record": True,
+    },
+    ("lisp_frontend_design_delta/work_item::route-blocked-implementation", "providers.work-item.recovery-classifier"): {
+        "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
+        "u0_row_id": "work_item.prompt.classify_blocked_recovery_state",
+        "preserve_request_record": True,
     },
 }
 
 
 def _typed_prompt_input_row_metadata(
     workflow_name: str,
+    provider_call_locator: str | None = None,
 ) -> dict[str, str] | None:
-    return _C1_TYPED_PROMPT_INPUT_ROWS.get(workflow_name)
+    if provider_call_locator is not None:
+        row = _C1_TYPED_PROMPT_INPUT_ROWS.get((workflow_name, provider_call_locator))
+        if isinstance(row, Mapping):
+            return dict(row)
+    row = _C1_TYPED_PROMPT_INPUT_ROWS.get(workflow_name)
+    if isinstance(row, Mapping):
+        return dict(row)
+    return None
 
 
 def _value_type_name_for_prompt_input(expr: Any, *, context: _LoweringContext) -> str:
+    type_ref = _type_ref_for_prompt_input(expr, context=context)
+    if type_ref is not None:
+        return _type_ref_display_name(type_ref)
+    return expr.__class__.__name__
+
+
+def _type_ref_for_prompt_input(expr: Any, *, context: _LoweringContext) -> TypeRef | None:
     if isinstance(expr, NameExpr):
-        type_ref = context.local_type_bindings.get(expr.name)
-        if type_ref is not None:
-            return getattr(type_ref.definition, "name", type_ref.__class__.__name__)
+        return context.local_type_bindings.get(expr.name)
     if isinstance(expr, FieldAccessExpr):
         type_ref = context.local_type_bindings.get(expr.base.name)
         current = type_ref
@@ -1326,9 +1387,45 @@ def _value_type_name_for_prompt_input(expr: Any, *, context: _LoweringContext) -
             else:
                 current = None
                 break
-        if current is not None:
-            return getattr(current.definition, "name", current.__class__.__name__)
-    return expr.__class__.__name__
+        return current
+    return None
+
+
+def _type_ref_display_name(type_ref: TypeRef) -> str:
+    return getattr(type_ref.definition, "name", type_ref.__class__.__name__)
+
+
+def _request_field_metadata_for_prompt_input(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+) -> dict[str, Any]:
+    type_ref = _type_ref_for_prompt_input(expr, context=context)
+    if not isinstance(type_ref, RecordTypeRef):
+        return {}
+
+    field_names = sorted(str(name) for name in type_ref.field_types)
+    metadata: dict[str, Any] = {
+        "field_names": field_names,
+        "has_subject": "subject" in type_ref.field_types,
+        "has_targets": "targets" in type_ref.field_types,
+        "semantic_field_count": 0,
+        "write_target_field_count": 0,
+    }
+
+    subject_type = type_ref.field_types.get("subject")
+    if subject_type is not None:
+        metadata["subject_type_name"] = _type_ref_display_name(subject_type)
+        if isinstance(subject_type, RecordTypeRef):
+            metadata["semantic_field_count"] = len(subject_type.field_types)
+
+    targets_type = type_ref.field_types.get("targets")
+    if targets_type is not None:
+        metadata["targets_type_name"] = _type_ref_display_name(targets_type)
+        if isinstance(targets_type, RecordTypeRef):
+            metadata["write_target_field_count"] = len(targets_type.field_types)
+
+    return metadata
 
 
 def _typed_prompt_input_source_from_inline_value(
@@ -1364,16 +1461,190 @@ def _typed_prompt_input_source_from_inline_value(
     )
 
 
+def _typed_prompt_input_value_source_from_materialized_source(
+    raw_source_node: Mapping[str, Any],
+) -> Any:
+    input_name = raw_source_node.get("input")
+    if isinstance(input_name, str):
+        return {"ref": f"inputs.{input_name}"}
+    ref = raw_source_node.get("ref")
+    if isinstance(ref, str):
+        return {"ref": ref}
+    if "literal" in raw_source_node:
+        return raw_source_node["literal"]
+    return dict(raw_source_node)
+
+
+def _resolve_preserved_typed_prompt_input_binding(
+    expr: Any,
+    *,
+    binding_name: str,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[Any, dict[str, LoweringOrigin]]:
+    if isinstance(expr, NameExpr):
+        bound_value = local_values.get(expr.name)
+        if bound_value is not None:
+            return _resolve_preserved_typed_prompt_input_binding(
+                bound_value,
+                binding_name=binding_name,
+                context=context,
+                local_values=local_values,
+            )
+
+    if isinstance(expr, RecordExpr):
+        value: dict[str, Any] = {}
+        hidden_inputs: dict[str, LoweringOrigin] = {}
+        for field_name, field_expr in expr.fields:
+            field_value, field_hidden_inputs = _resolve_preserved_typed_prompt_input_binding(
+                field_expr,
+                binding_name=f"{binding_name}__{field_name}",
+                context=context,
+                local_values=local_values,
+            )
+            value[field_name] = field_value
+            hidden_inputs.update(field_hidden_inputs)
+        return value, hidden_inputs
+
+    if isinstance(expr, Mapping):
+        value: dict[str, Any] = {}
+        hidden_inputs: dict[str, LoweringOrigin] = {}
+        for field_name, field_expr in expr.items():
+            field_value, field_hidden_inputs = _resolve_preserved_typed_prompt_input_binding(
+                field_expr,
+                binding_name=f"{binding_name}__{field_name}",
+                context=context,
+                local_values=local_values,
+            )
+            value[str(field_name)] = field_value
+            hidden_inputs.update(field_hidden_inputs)
+        return value, hidden_inputs
+
+    if isinstance(expr, tuple):
+        values: list[Any] = []
+        hidden_inputs: dict[str, LoweringOrigin] = {}
+        for index, item in enumerate(expr):
+            item_value, item_hidden_inputs = _resolve_preserved_typed_prompt_input_binding(
+                item,
+                binding_name=f"{binding_name}__{index}",
+                context=context,
+                local_values=local_values,
+            )
+            values.append(item_value)
+            hidden_inputs.update(item_hidden_inputs)
+        return values, hidden_inputs
+
+    inline_value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if inline_value is not expr and isinstance(inline_value, (Mapping, RecordExpr, tuple)):
+        return _resolve_preserved_typed_prompt_input_binding(
+            inline_value,
+            binding_name=binding_name,
+            context=context,
+            local_values=local_values,
+        )
+    if isinstance(inline_value, str):
+        if inline_value.startswith("inputs.") or inline_value.startswith("root.steps."):
+            return {"ref": inline_value}, {}
+        return inline_value, {}
+    if isinstance(inline_value, (bool, int, float)) or inline_value is None:
+        return inline_value, {}
+    if isinstance(inline_value, LiteralExpr):
+        fallback_span = SourceSpan(
+            SourcePosition("<generated>", 0, 0, 0),
+            SourcePosition("<generated>", 0, 0, 0),
+        )
+        return (
+            _typed_prompt_input_source_from_inline_value(
+                inline_value,
+                span=getattr(expr, "span", fallback_span),
+                form_path=getattr(expr, "form_path", ("typed_prompt_input", binding_name)),
+            ),
+            {},
+        )
+
+    raw_source_node, hidden_inputs = _resolve_phase_prompt_input_source(
+        expr,
+        artifact_name=binding_name,
+        context=context,
+        local_values=local_values,
+    )
+    if hidden_inputs:
+        for hidden_input_name in hidden_inputs:
+            context.internal_generated_input_reasons.setdefault(
+                hidden_input_name,
+                "phase_prompt_transport",
+            )
+    return (
+        _typed_prompt_input_value_source_from_materialized_source(raw_source_node),
+        hidden_inputs,
+    )
+
+
 def _build_typed_prompt_inputs_for_prompt_specs(
     prompt_input_specs: tuple[tuple[str, Any], ...],
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
     source_expr: Any,
+    provider_call_locator: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, LoweringOrigin]]:
-    row_metadata = _typed_prompt_input_row_metadata(context.workflow_name)
+    row_metadata = _typed_prompt_input_row_metadata(
+        context.workflow_name,
+        provider_call_locator,
+    )
     if row_metadata is None:
         return [], {}
+
+    typed_prompt_inputs: list[dict[str, Any]] = []
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    preserve_request_record = bool(row_metadata.get("preserve_request_record"))
+    if preserve_request_record:
+        base_name, input_expr = prompt_input_specs[0]
+        if isinstance(input_expr, tuple) and len(input_expr) == 1:
+            input_expr = input_expr[0]
+        binding_name = (
+            input_expr.name
+            if isinstance(input_expr, NameExpr)
+            else base_name
+        )
+        value_source, extra_hidden_inputs = _resolve_preserved_typed_prompt_input_binding(
+            input_expr,
+            binding_name=binding_name,
+            context=context,
+            local_values=local_values,
+        )
+        hidden_inputs.update(extra_hidden_inputs)
+        typed_prompt_inputs.append(
+            normalize_typed_prompt_input_entry(
+                {
+                    "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                    "binding_name": binding_name,
+                    "renderer": {
+                        "renderer_id": "canonical-json"
+                        if not isinstance(value_source, str)
+                        else "posix-path-line",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value"
+                        if not isinstance(value_source, str)
+                        else "path_value",
+                    },
+                    "value_source": {"kind": "typed_binding_ref", "binding": value_source},
+                    "value_type_name": _value_type_name_for_prompt_input(
+                        input_expr,
+                        context=context,
+                    ),
+                    "source_map_origin_key": context.workflow_name,
+                    "u0_row_id": row_metadata["u0_row_id"],
+                    "c0_row_id": row_metadata["c0_row_id"],
+                    "injection_order": 0,
+                    "request_fields": _request_field_metadata_for_prompt_input(
+                        input_expr,
+                        context=context,
+                    ),
+                }
+            )
+        )
+        return typed_prompt_inputs, hidden_inputs
 
     flattened_inputs: list[tuple[str, Any]] = []
     for base_name, prompt_input in prompt_input_specs:
@@ -1385,8 +1656,6 @@ def _build_typed_prompt_inputs_for_prompt_specs(
             )
         )
 
-    typed_prompt_inputs: list[dict[str, Any]] = []
-    hidden_inputs: dict[str, LoweringOrigin] = {}
     for injection_order, (binding_name, input_expr) in enumerate(flattened_inputs):
         raw_source_node, extra_hidden_inputs = _resolve_phase_prompt_input_source(
             input_expr,

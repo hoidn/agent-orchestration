@@ -45,6 +45,27 @@
     (check_commands_path WorkReportTarget)
     (plan_target_path PlanDocTarget))
 
+  (defrecord DesignGapArchitecturePromptSubject
+    (steering SteeringDoc)
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (command_adapter_contract_doc String)
+    (progress_ledger SelectionBundlePath)
+    (selection_bundle SelectionBundlePath)
+    (design_gap_id String)
+    (existing_architecture_index WorkReport))
+
+  (defrecord DesignGapArchitectureProviderTargets
+    (architecture_path ArchitectureDocTarget)
+    (work_item_context_path WorkReportTarget)
+    (check_commands_path WorkReportTarget)
+    (plan_target_path PlanDocTarget)
+    (draft_bundle_path String))
+
+  (defrecord DesignGapArchitectureRequest
+    (subject DesignGapArchitecturePromptSubject)
+    (targets DesignGapArchitectureProviderTargets))
+
   (defrecord DraftArchitectureDecision
     (draft_status String))
 
@@ -61,21 +82,31 @@
      (architecture_targets ArchitectureTargets)
      (existing_architecture_index WorkReport))
     -> DraftArchitectureDecision
-    (provider-result providers.architect.draft
-      :prompt prompts.architect.draft
-      :inputs (steering
-               target_design
-               baseline_design
-               "docs/design/workflow_command_adapter_contract.md"
-               progress_ledger
-               selection_bundle
-               architecture_targets.architecture_path
-               architecture_targets.work_item_context_path
-               architecture_targets.check_commands_path
-               architecture_targets.plan_target_path
-               existing_architecture_index
-               "artifacts/work/draft_architecture_bundle.json")
-      :returns DraftArchitectureDecision))
+    (let* ((subject
+             (record DesignGapArchitecturePromptSubject
+               :steering steering
+               :target_design target_design
+               :baseline_design baseline_design
+               :command_adapter_contract_doc "docs/design/workflow_command_adapter_contract.md"
+               :progress_ledger progress_ledger
+               :selection_bundle selection_bundle
+               :design_gap_id architecture_targets.design_gap_id
+               :existing_architecture_index existing_architecture_index))
+           (targets
+             (record DesignGapArchitectureProviderTargets
+               :architecture_path architecture_targets.architecture_path
+               :work_item_context_path architecture_targets.work_item_context_path
+               :check_commands_path architecture_targets.check_commands_path
+               :plan_target_path architecture_targets.plan_target_path
+               :draft_bundle_path "artifacts/work/draft_architecture_bundle.json"))
+           (request
+             (record DesignGapArchitectureRequest
+               :subject subject
+               :targets targets)))
+      (provider-result providers.architect.draft
+        :prompt prompts.architect.draft
+        :inputs (request)
+        :returns DraftArchitectureDecision)))
 
   (defworkflow validate-design-gap-architecture
     ((architecture_targets_bundle SelectionBundlePath))

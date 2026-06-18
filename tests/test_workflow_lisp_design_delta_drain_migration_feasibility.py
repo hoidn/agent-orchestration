@@ -833,6 +833,59 @@ def _run_design_delta_runtime_transition_fixture_cli(tmp_path: Path) -> subproce
     )
 
 
+def _run_design_delta_parent_drain_public_input_only_cli_dry_run(
+    tmp_path: Path,
+) -> subprocess.CompletedProcess[str]:
+    _write_design_delta_work_item_runtime_inputs(tmp_path, work_item_source="BACKLOG_ITEM")
+    args = [
+        sys.executable,
+        "-m",
+        "orchestrator",
+        "run",
+        str(REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"),
+        "--entry-workflow",
+        "lisp_frontend_design_delta/drain::drain",
+        "--source-root",
+        str(REPO_ROOT / "workflows" / "library"),
+        "--provider-externs-file",
+        str(
+            REPO_ROOT
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.providers.json"
+        ),
+        "--prompt-externs-file",
+        str(
+            REPO_ROOT
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.prompts.json"
+        ),
+        "--command-boundaries-file",
+        str(DESIGN_DELTA_PARENT_DRAIN_COMMANDS),
+        "--dry-run",
+    ]
+    for input_name, value in _design_delta_parent_drain_bound_inputs().items():
+        args.extend(["--input", f"{input_name}={value}"])
+    return subprocess.run(
+        args,
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join(
+                [str(REPO_ROOT), *filter(None, [os.environ.get("PYTHONPATH")])]
+            ),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def _assert_design_delta_work_item_advances_past_private_workflow_ifexpr_export_blocker(
     tmp_path: Path,
 ):
@@ -3337,6 +3390,18 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
         for step in _walk_lowered_steps(lowered["steps"])
     ]
     assert any("repeat_until" in step for step in parent_family_steps)
+
+
+def test_design_delta_parent_drain_public_input_only_cli_dry_run_still_fails_without_runtime_owned_hidden_bindings(
+    tmp_path: Path,
+) -> None:
+    result = _run_design_delta_parent_drain_public_input_only_cli_dry_run(tmp_path)
+
+    assert result.returncode != 0
+    assert (
+        "kind: validation" in result.stderr
+        or "Workflow input binding failed" in result.stderr
+    )
 
 
 def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume_artifact(

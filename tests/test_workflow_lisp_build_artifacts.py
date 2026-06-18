@@ -4851,8 +4851,16 @@ def test_design_delta_parent_drain_build_emits_typed_prompt_input_report_artifac
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
     assert {row["c0_row_id"] for row in payload["selected_rows"]} == {
+        "c0.design_gap_architect_prompt_draft",
+        "c0.implementation_phase_prompt_execute",
+        "c0.implementation_phase_prompt_fix",
+        "c0.implementation_phase_prompt_review",
         "c0.plan_phase_prompt_draft",
+        "c0.plan_phase_prompt_fix",
+        "c0.plan_phase_prompt_review",
         "c0.selector_prompt_select_next_work",
+        "c0.work_item_prompt_classify_blocked_recovery",
+        "c0.work_item_prompt_classify_blocked_recovery_state",
     }
 
 
@@ -4909,7 +4917,9 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     ]
     assert payload["surviving_body_materialization_row_ids"] == [
         "c0.drain_materialized_drain_summary",
+        "c0.drain_materialized_drain_summary_compiled_boundary",
         "c0.work_item_summary_summary_path",
+        "c0.work_item_summary_summary_path_compiled_boundary",
     ]
     cleanup_rows = {row["c0_row_id"]: row for row in payload["cleanup_decisions"]}
     assert cleanup_rows["c0.drain_summary_report_target_final_summary_view"][
@@ -4948,7 +4958,31 @@ def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artif
     assert payload["schema_version"] == "workflow_lisp_rendering_ergonomics_report.v1"
     assert payload["status"] == "pass"
     assert payload["target_family"] == "lisp_frontend_design_delta_parent_drain"
-    assert len(payload["consumer_slots"]) == 27
+    assert len(payload["consumer_slots"]) == 58
+    provider_shapes = {row["c0_row_id"]: row for row in payload["provider_input_shapes"]}
+    assert set(provider_shapes) == {
+        "c0.design_gap_architect_prompt_draft",
+        "c0.implementation_phase_prompt_execute",
+        "c0.implementation_phase_prompt_fix",
+        "c0.implementation_phase_prompt_review",
+        "c0.plan_phase_prompt_draft",
+        "c0.plan_phase_prompt_fix",
+        "c0.plan_phase_prompt_review",
+        "c0.selector_prompt_select_next_work",
+        "c0.work_item_prompt_classify_blocked_recovery",
+        "c0.work_item_prompt_classify_blocked_recovery_state",
+    }
+    assert provider_shapes["c0.plan_phase_prompt_review"]["request_type_name"] == (
+        "PlanReviewRequest"
+    )
+    assert provider_shapes["c0.plan_phase_prompt_review"]["subject_type_name"] == (
+        "PlanReviewPromptSubject"
+    )
+    assert provider_shapes["c0.plan_phase_prompt_review"]["targets_type_name"] == (
+        "PlanReviewProviderTargets"
+    )
+    assert provider_shapes["c0.plan_phase_prompt_review"]["binding_names"] == ["request"]
+    assert provider_shapes["c0.plan_phase_prompt_review"]["status"] == "pass"
     # Every C0 rendering row resolves to exactly one slot and owning lane.
     assert all(payload["contract_isolation"].values())
     assert not payload["diagnostics"]

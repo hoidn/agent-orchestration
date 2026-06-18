@@ -3,7 +3,8 @@
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/plan_phase)
   (import std/phase :only
-    (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop with-phase))
+    (BlockerClass ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewReportPath
+      review-revise-loop with-phase))
   (import lisp_frontend_design_delta/types :only
     (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanReviewDecision
       ProgressLedger SteeringDoc TargetDesignDoc WorkReport))
@@ -31,6 +32,47 @@
 
   (defrecord PlanDraftResult
     (plan_path PlanDoc))
+
+  (defrecord PlanDraftPromptSubject
+    (steering SteeringDoc)
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (work_item_context WorkReport)
+    (progress_ledger ProgressLedger))
+
+  (defrecord PlanDraftProviderTargets
+    (plan_target_path PlanDocTarget))
+
+  (defrecord PlanDraftRequest
+    (subject PlanDraftPromptSubject)
+    (targets PlanDraftProviderTargets))
+
+  (defrecord PlanReviewPromptSubject
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (work_item_context WorkReport)
+    (plan_path PlanDoc))
+
+  (defrecord PlanReviewProviderTargets
+    (plan_review_report_target_path ArtifactReviewTargetPath))
+
+  (defrecord PlanReviewRequest
+    (subject PlanReviewPromptSubject)
+    (targets PlanReviewProviderTargets))
+
+  (defrecord PlanFixPromptSubject
+    (target_design TargetDesignDoc)
+    (baseline_design BaselineDesignDoc)
+    (work_item_context WorkReport)
+    (plan_path PlanDoc)
+    (findings_items_path ReviewFindingsJsonPath))
+
+  (defrecord PlanFixProviderTargets
+    (plan_target_path PlanDocTarget))
+
+  (defrecord PlanFixRequest
+    (subject PlanFixPromptSubject)
+    (targets PlanFixProviderTargets))
 
   (defrecord PlanPhaseInputs
     (steering SteeringDoc)
@@ -64,14 +106,23 @@
     -> ReviewDecision
     :effects ((uses-provider providers.plan.review))
     :lowering inline
-    (provider-result providers.plan.review
-      :prompt prompts.plan.review
-      :inputs (inputs.target_design
-               inputs.baseline_design
-               inputs.work_item_context
-               completed.plan_path
-               inputs.plan_review_report_target_path)
-      :returns ReviewDecision))
+    (let* ((subject
+             (record PlanReviewPromptSubject
+               :target_design inputs.target_design
+               :baseline_design inputs.baseline_design
+               :work_item_context inputs.work_item_context
+               :plan_path completed.plan_path))
+           (targets
+             (record PlanReviewProviderTargets
+               :plan_review_report_target_path inputs.plan_review_report_target_path))
+           (request
+             (record PlanReviewRequest
+               :subject subject
+               :targets targets)))
+      (provider-result providers.plan.review
+        :prompt prompts.plan.review
+        :inputs (request)
+        :returns ReviewDecision)))
 
   (defproc revise-plan
     ((completed PlanSubject)
@@ -80,15 +131,24 @@
     -> PlanSubject
     :effects ((uses-provider providers.plan.fix))
     :lowering inline
-    (let* ((draft
+    (let* ((subject
+             (record PlanFixPromptSubject
+               :target_design inputs.target_design
+               :baseline_design inputs.baseline_design
+               :work_item_context inputs.work_item_context
+               :plan_path completed.plan_path
+               :findings_items_path findings.items_path))
+           (targets
+             (record PlanFixProviderTargets
+               :plan_target_path inputs.plan_target_path))
+           (request
+             (record PlanFixRequest
+               :subject subject
+               :targets targets))
+           (draft
              (provider-result providers.plan.fix
                :prompt prompts.plan.fix
-               :inputs (inputs.target_design
-                        inputs.baseline_design
-                        inputs.work_item_context
-                        completed.plan_path
-                        findings.items_path
-                        inputs.plan_target_path)
+               :inputs (request)
                :returns PlanDraftResult)))
       (record PlanSubject
         :plan_path draft.plan_path)))
@@ -104,15 +164,24 @@
      (plan_review_report_target_path ArtifactReviewTargetPath))
     -> DesignDeltaPlanPhaseResult
     (with-phase phase-ctx plan
-        (let* ((draft
+        (let* ((draft-subject
+                 (record PlanDraftPromptSubject
+                   :steering steering
+                   :target_design target_design
+                   :baseline_design baseline_design
+                   :work_item_context work_item_context
+                   :progress_ledger progress_ledger))
+               (draft-targets
+                 (record PlanDraftProviderTargets
+                   :plan_target_path plan_target_path))
+               (draft-request
+                 (record PlanDraftRequest
+                   :subject draft-subject
+                   :targets draft-targets))
+               (draft
                  (provider-result providers.plan.draft
                    :prompt prompts.plan.draft
-                   :inputs (steering
-                            target_design
-                            baseline_design
-                            work_item_context
-                            progress_ledger
-                            plan_target_path)
+                   :inputs (draft-request)
                  :returns PlanDraftResult))
              (completed
                (record PlanSubject

@@ -171,12 +171,19 @@ def test_select_compatibility_bridge_rows_uses_checked_c0_inventory() -> None:
 
     assert {row["row_id"] for row in selected} == {
         "c0.drain_bridge_architecture_bundle_path",
+        "c0.drain_bridge_architecture_bundle_path_compiled_boundary",
         "c0.drain_bridge_manifest_path",
+        "c0.drain_bridge_manifest_path_compiled_boundary",
         "c0.drain_bridge_progress_ledger_path",
+        "c0.drain_bridge_progress_ledger_path_compiled_boundary",
         "c0.work_item_bridge_architecture_bundle_path",
+        "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
         "c0.work_item_bridge_manifest_path",
+        "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",
+        "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
         "c0.work_item_pointer_selection_bundle_path",
+        "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
         "c0.work_item_command_selection_bundle_path",
     }
 

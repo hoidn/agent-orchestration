@@ -183,6 +183,61 @@
       "notes": "Materialized view output remains a representation for human consumption."
     },
     {
+      "row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "drain_status": "DONE",
+          "drain_status_reason": "finished",
+          "run_state_path": "state/run_state.json",
+          "summary_target": "artifacts/work/drain_summary.json",
+          "state_version": "lisp_frontend_autonomous_drain_run_state/v1"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/proof/drain_summary.render_a.json",
+          "artifacts/proof/drain_summary.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "view_dual_run_vectors",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_view_dual_run_vectors.json",
+          "adapter_name": "finalize_lisp_frontend_drain_summary"
+        },
+        {
+          "kind": "view_dual_run_report",
+          "path": "artifacts/work/LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN/migration-parity/design_delta_parent_drain_view_dual_run_report.json",
+          "artifact_id": "view_dual_run_report"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Materialized view output remains a representation for human consumption. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.drain_summary_report_target_final_summary_view",
       "u0_row_id": "drain.summary_report_target.final_summary_view",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
@@ -266,6 +321,48 @@
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
     },
     {
+      "row_id": "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__checks-report",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "checks",
+          "path": "artifacts/work/checks_report.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/checks_report.json",
+          "artifacts/work/archive/checks_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.implementation_phase_materialized_return_execution_report",
       "u0_row_id": "implementation_phase.materialized.return_execution_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
@@ -302,6 +399,48 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
+    },
+    {
+      "row_id": "c0.implementation_phase_materialized_return_execution_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__execution-report",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "execution",
+          "path": "artifacts/work/execution_report.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/execution_report.json",
+          "artifacts/work/archive/execution_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.implementation_phase_materialized_return_implementation_review_report",
@@ -342,6 +481,48 @@
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
     },
     {
+      "row_id": "c0.implementation_phase_materialized_return_implementation_review_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__implementation-review-report",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "implementation_review",
+          "path": "artifacts/review/implementation_review.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/implementation_review.json",
+          "artifacts/work/archive/implementation_review.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.implementation_phase_materialized_return_progress_report",
       "u0_row_id": "implementation_phase.materialized.return_progress_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
@@ -378,6 +559,48 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
+    },
+    {
+      "row_id": "c0.implementation_phase_materialized_return_progress_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__progress-report",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "progress",
+          "path": "artifacts/work/progress_report.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/progress_report.json",
+          "artifacts/work/archive/progress_report.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_materialized_return_approved_plan_review_report_path",
@@ -418,6 +641,48 @@
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
     },
     {
+      "row_id": "c0.plan_phase_materialized_return_approved_plan_review_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__approved_plan_review_report_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "approved_plan_review",
+          "path": "artifacts/review/approved_plan_review.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/approved_plan_review.json",
+          "artifacts/work/archive/approved_plan_review.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path",
       "u0_row_id": "plan_phase.materialized.return_blocked_plan_review_report_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -456,6 +721,48 @@
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
     },
     {
+      "row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__blocked_plan_review_report_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "blocked_plan_review",
+          "path": "artifacts/review/blocked_plan_review.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/blocked_plan_review.json",
+          "artifacts/work/archive/blocked_plan_review.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.plan_phase_materialized_return_last_plan_review_report_path",
       "u0_row_id": "plan_phase.materialized.return_last_plan_review_report_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -492,6 +799,48 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / materialized_view."
+    },
+    {
+      "row_id": "c0.plan_phase_materialized_return_last_plan_review_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__last_plan_review_report_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "retirement_candidate",
+      "durability": "ephemeral",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "last_plan_review",
+          "path": "artifacts/review/last_plan_review.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/last_plan_review.json",
+          "artifacts/work/archive/last_plan_review.json"
+        ]
+      },
+      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.work_item_summary_summary_path",
@@ -537,6 +886,50 @@
       "notes": "Summary path is retained as a rendering seam rather than semantic authority."
     },
     {
+      "row_id": "c0.work_item_summary_summary_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "work_item_id": "gap-1",
+          "work_item_source": "DESIGN_GAP",
+          "terminal_route": "completed",
+          "reason": "finished"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/work_item_summary.json",
+          "artifacts/work/archive/work_item_summary.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Summary path is retained as a rendering seam rather than semantic authority. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path",
       "u0_row_id": "design_gap_architect_validate.output.work_item_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
@@ -557,6 +950,32 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Validated work-item bundle path is still a published artifact boundary."
+    },
+    {
+      "row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::return__work_item_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Validated work-item bundle path is still a published artifact boundary. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_output_approved_plan_path",
@@ -581,6 +1000,32 @@
       "notes": "Approved plan publication remains an explicit consumer-facing artifact boundary."
     },
     {
+      "row_id": "c0.plan_phase_output_approved_plan_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__approved_plan_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Approved plan publication remains an explicit consumer-facing artifact boundary. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.plan_phase_output_return_blocked_plan_path",
       "u0_row_id": "plan_phase.output.return_blocked_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -601,6 +1046,32 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
+    },
+    {
+      "row_id": "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__blocked_plan_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_output_return_exhausted_plan_path",
@@ -625,6 +1096,32 @@
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
     },
     {
+      "row_id": "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__exhausted_plan_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.plan_phase_output_return_findings_items_path",
       "u0_row_id": "plan_phase.output.return_findings_items_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -645,6 +1142,32 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
+    },
+    {
+      "row_id": "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__findings__items_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.selector_output_return_selection_bundle_path",
@@ -669,6 +1192,32 @@
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
     },
     {
+      "row_id": "c0.selector_output_return_selection_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/selector::select-next-work::return__selection_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.drain_output_return_run_state",
       "u0_row_id": "drain.output.return_run_state",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
@@ -689,6 +1238,32 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Checked boundary inventory row from flattened_output / public_artifact."
+    },
+    {
+      "row_id": "c0.drain_output_return_run_state_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__run-state",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.drain_bridge_architecture_bundle_path",
@@ -718,6 +1293,37 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
     },
     {
+      "row_id": "c0.drain_bridge_architecture_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::architecture_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track R/C private bootstrap revision",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/drain",
+        "consumer": "legacy_bootstrap",
+        "file_shape": "compatibility_file",
+        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
+      },
+      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.drain_bridge_manifest_path",
       "u0_row_id": "drain.bridge.manifest_path",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
@@ -743,6 +1349,37 @@
         "retirement_condition": "remove when private bootstrap and typed value transport retire manifest-path threading"
       },
       "notes": "Checked compatibility bridge for current work-item bootstrap."
+    },
+    {
+      "row_id": "c0.drain_bridge_manifest_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::manifest_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track R/C private bootstrap revision",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/drain",
+        "consumer": "work_item_bootstrap",
+        "file_shape": "json_manifest_bundle",
+        "retirement_condition": "remove when private bootstrap and typed value transport retire manifest-path threading"
+      },
+      "notes": "Checked compatibility bridge for current work-item bootstrap. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.drain_bridge_progress_ledger_path",
@@ -772,6 +1409,37 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
     },
     {
+      "row_id": "c0.drain_bridge_progress_ledger_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::progress_ledger_path",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track R/C private bootstrap revision",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/drain",
+        "consumer": "legacy_bootstrap",
+        "file_shape": "report_path",
+        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
+      },
+      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.work_item_bridge_architecture_bundle_path",
       "u0_row_id": "work_item.bridge.architecture_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
@@ -797,6 +1465,37 @@
         "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
       },
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
+    },
+    {
+      "row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::architecture_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track R/C private bootstrap revision",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "legacy_bootstrap",
+        "file_shape": "compatibility_file",
+        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
+      },
+      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.work_item_bridge_manifest_path",
@@ -826,6 +1525,37 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
     },
     {
+      "row_id": "c0.work_item_bridge_manifest_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::manifest_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track R/C private bootstrap revision",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "legacy_bootstrap",
+        "file_shape": "json_manifest_bundle",
+        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
+      },
+      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.work_item_bridge_progress_ledger_path",
       "u0_row_id": "work_item.bridge.progress_ledger_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
@@ -853,6 +1583,37 @@
       "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge."
     },
     {
+      "row_id": "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::progress_ledger_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track R/C private bootstrap revision",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "legacy_bootstrap",
+        "file_shape": "report_path",
+        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
+      },
+      "notes": "Checked boundary inventory row from compatibility_bridge_input / compatibility_bridge. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
       "row_id": "c0.work_item_pointer_selection_bundle_path",
       "u0_row_id": "work_item.pointer.selection_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
@@ -878,6 +1639,37 @@
         "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
       },
       "notes": "Pointer file must remain representation-only and never become semantic authority."
+    },
+    {
+      "row_id": "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::selection_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "pointer_path",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track C typed value transport",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "materialize_lisp_frontend_work_item_inputs",
+        "file_shape": "pointer_file",
+        "retirement_condition": "remove when typed selection state replaces pointer-based work-item bootstrap"
+      },
+      "notes": "Pointer file must remain representation-only and never become semantic authority. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.work_item_command_selection_bundle_path",
@@ -913,6 +1705,390 @@
         "retirement_condition": "remove when typed work-item bootstrap replaces command-bound selection-bundle path transport"
       },
       "notes": "Adapter boundary row for the checked selection-bundle path crossing."
+    },
+    {
+      "row_id": "c0.design_gap_architect_prompt_draft",
+      "u0_row_id": "design_gap_architect.prompt.draft",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "design_gap_architect.draft",
+          "phase": "architecture"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/design_gap_architect_prompt_a.json",
+          "artifacts/work/c0/design_gap_architect_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.architect.draft"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.architect.draft"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Prompt file stays explicit until architecture drafting can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.implementation_phase_prompt_execute",
+      "u0_row_id": "implementation_phase.prompt.execute",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "implementation_phase.execute",
+          "phase": "implementation"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/implementation_execute_prompt_a.json",
+          "artifacts/work/c0/implementation_execute_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.implementation.execute"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.implementation.execute"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Execution prompt file stays explicit until implementation execution can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.implementation_phase_prompt_review",
+      "u0_row_id": "implementation_phase.prompt.review",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "implementation_phase.review",
+          "phase": "implementation"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/implementation_review_prompt_a.json",
+          "artifacts/work/c0/implementation_review_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.implementation.review"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.implementation.review"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Review prompt file stays explicit until implementation review can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.implementation_phase_prompt_fix",
+      "u0_row_id": "implementation_phase.prompt.fix",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "implementation_phase.fix",
+          "phase": "implementation"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/implementation_fix_prompt_a.json",
+          "artifacts/work/c0/implementation_fix_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.implementation.fix"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.implementation.fix"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Fix prompt file stays explicit until implementation revision can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.plan_phase_prompt_review",
+      "u0_row_id": "plan_phase.prompt.review",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "plan_phase.review",
+          "phase": "plan"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/plan_review_prompt_a.json",
+          "artifacts/work/c0/plan_review_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.plan.review"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.plan.review"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Review prompt file stays explicit until plan review can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.plan_phase_prompt_fix",
+      "u0_row_id": "plan_phase.prompt.fix",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "plan_phase.fix",
+          "phase": "plan"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/plan_fix_prompt_a.json",
+          "artifacts/work/c0/plan_fix_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.plan.fix"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.plan.fix"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Revision prompt file stays explicit until plan revision can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.work_item_prompt_classify_blocked_recovery",
+      "u0_row_id": "work_item.prompt.classify_blocked_recovery",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "work_item.classify_blocked_recovery",
+          "phase": "work_item"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/work_item_blocked_recovery_prompt_a.json",
+          "artifacts/work/c0/work_item_blocked_recovery_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.work-item.classify-blocked-recovery"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.work-item.recovery-classifier"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Blocked-recovery classifier prompt stays explicit until recovery routing can consume typed request values directly."
+    },
+    {
+      "row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
+      "u0_row_id": "work_item.prompt.classify_blocked_recovery_state",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+      "source_kind": "prompt_input_file",
+      "consumer_lane": "prompt_injection",
+      "durability": "none",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "prompt": "work_item.classify_blocked_recovery_state",
+          "phase": "work_item"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/c0/work_item_blocked_recovery_state_prompt_a.json",
+          "artifacts/work/c0/work_item_blocked_recovery_state_prompt_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json",
+          "binding_name": "prompts.work-item.classify-blocked-recovery"
+        },
+        {
+          "kind": "provider_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json",
+          "binding_name": "providers.work-item.recovery-classifier"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Blocked-recovery-state classifier prompt stays explicit until recovery routing can consume typed request values directly."
     }
   ]
 }

@@ -50,6 +50,38 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "design_gap_architect_validate.output.work_item_bundle_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
+        "form_path": [
+          "design_gap_architect_validate",
+          "output",
+          "work_item_bundle_path"
+        ]
+      },
+      "value": {
+        "type_name": "work_item_bundle_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::return__work_item_bundle_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "drain.bridge.architecture_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
       "source_form": {
@@ -69,6 +101,38 @@
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
       "u0_row_id": "drain.bridge.architecture_bundle_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "drain.bridge.architecture_bundle_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_form": {
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
+        "form_path": [
+          "drain",
+          "bridge",
+          "architecture_bundle_path"
+        ]
+      },
+      "value": {
+        "type_name": "architecture_bundle_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.drain_bridge_architecture_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::architecture_bundle_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -114,6 +178,38 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "drain.bridge.manifest_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_form": {
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
+        "form_path": [
+          "drain",
+          "bridge",
+          "manifest_path"
+        ]
+      },
+      "value": {
+        "type_name": "manifest_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.drain_bridge_manifest_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::manifest_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "drain.bridge.progress_ledger_path",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
       "source_form": {
@@ -133,6 +229,38 @@
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.drain_bridge_progress_ledger_path",
       "u0_row_id": "drain.bridge.progress_ledger_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "drain.bridge.progress_ledger_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_form": {
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
+        "form_path": [
+          "drain",
+          "bridge",
+          "progress_ledger_path"
+        ]
+      },
+      "value": {
+        "type_name": "progress_ledger_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.drain_bridge_progress_ledger_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::progress_ledger_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -178,6 +306,38 @@
       "body_rendering_policy": "allow_timed"
     },
     {
+      "slot_id": "drain.materialized.drain_summary.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
+        "form_path": [
+          "drain",
+          "materialized",
+          "drain_summary"
+        ]
+      },
+      "value": {
+        "type_name": "drain_summary",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
       "slot_id": "drain.output.return_run_state",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
       "source_form": {
@@ -197,6 +357,38 @@
       "expected_track_c_lane": "C3",
       "c0_row_id": "c0.drain_output_return_run_state",
       "u0_row_id": "drain.output.return_run_state",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "drain.output.return_run_state.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
+        "form_path": [
+          "drain",
+          "output",
+          "return_run_state"
+        ]
+      },
+      "value": {
+        "type_name": "return_run_state",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.drain_output_return_run_state_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__run-state",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -264,6 +456,33 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "implementation_phase.materialized.return_checks_report.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "form_path": [
+          "implementation_phase",
+          "materialized",
+          "return_checks_report"
+        ]
+      },
+      "value": {
+        "type_name": "return_checks_report",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__checks-report",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "implementation_phase.materialized.return_execution_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_form": {
@@ -283,6 +502,33 @@
       "expected_track_c_lane": "C2",
       "c0_row_id": "c0.implementation_phase_materialized_return_execution_report",
       "u0_row_id": "implementation_phase.materialized.return_execution_report",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "implementation_phase.materialized.return_execution_report.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "form_path": [
+          "implementation_phase",
+          "materialized",
+          "return_execution_report"
+        ]
+      },
+      "value": {
+        "type_name": "return_execution_report",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.implementation_phase_materialized_return_execution_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__execution-report",
       "renderer_selection": {
         "mode": "none",
         "allowed_renderers": [],
@@ -318,6 +564,33 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "implementation_phase.materialized.return_implementation_review_report.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "form_path": [
+          "implementation_phase",
+          "materialized",
+          "return_implementation_review_report"
+        ]
+      },
+      "value": {
+        "type_name": "return_implementation_review_report",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__implementation-review-report",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "implementation_phase.materialized.return_progress_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_form": {
@@ -337,6 +610,33 @@
       "expected_track_c_lane": "C2",
       "c0_row_id": "c0.implementation_phase_materialized_return_progress_report",
       "u0_row_id": "implementation_phase.materialized.return_progress_report",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "implementation_phase.materialized.return_progress_report.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "form_path": [
+          "implementation_phase",
+          "materialized",
+          "return_progress_report"
+        ]
+      },
+      "value": {
+        "type_name": "return_progress_report",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.implementation_phase_materialized_return_progress_report_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__progress-report",
       "renderer_selection": {
         "mode": "none",
         "allowed_renderers": [],
@@ -372,6 +672,33 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "plan_phase.materialized.return_approved_plan_review_report_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "materialized",
+          "return_approved_plan_review_report_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_approved_plan_review_report_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.plan_phase_materialized_return_approved_plan_review_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__approved_plan_review_report_path",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "plan_phase.materialized.return_blocked_plan_review_report_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_form": {
@@ -391,6 +718,33 @@
       "expected_track_c_lane": "C2",
       "c0_row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path",
       "u0_row_id": "plan_phase.materialized.return_blocked_plan_review_report_path",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "plan_phase.materialized.return_blocked_plan_review_report_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "materialized",
+          "return_blocked_plan_review_report_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_blocked_plan_review_report_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.plan_phase_materialized_return_blocked_plan_review_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__blocked_plan_review_report_path",
       "renderer_selection": {
         "mode": "none",
         "allowed_renderers": [],
@@ -426,6 +780,33 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "plan_phase.materialized.return_last_plan_review_report_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "materialized",
+          "return_last_plan_review_report_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_last_plan_review_report_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "observability",
+      "expected_track_c_lane": "C2",
+      "c0_row_id": "c0.plan_phase_materialized_return_last_plan_review_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__last_plan_review_report_path",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "plan_phase.output.approved_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_form": {
@@ -445,6 +826,38 @@
       "expected_track_c_lane": "C3",
       "c0_row_id": "c0.plan_phase_output_approved_plan_path",
       "u0_row_id": "plan_phase.output.approved_plan_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "plan_phase.output.approved_plan_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "output",
+          "approved_plan_path"
+        ]
+      },
+      "value": {
+        "type_name": "approved_plan_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.plan_phase_output_approved_plan_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__approved_plan_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -490,6 +903,38 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "plan_phase.output.return_blocked_plan_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "output",
+          "return_blocked_plan_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_blocked_plan_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__blocked_plan_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "plan_phase.output.return_exhausted_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_form": {
@@ -509,6 +954,38 @@
       "expected_track_c_lane": "C3",
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path",
       "u0_row_id": "plan_phase.output.return_exhausted_plan_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "plan_phase.output.return_exhausted_plan_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "output",
+          "return_exhausted_plan_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_exhausted_plan_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__exhausted_plan_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -554,11 +1031,44 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "plan_phase.output.return_findings_items_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "output",
+          "return_findings_items_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_findings_items_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__findings__items_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "plan_phase.prompt.draft",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_form": {
-        "kind": "prompt_input_file",
+        "kind": "provider_input",
         "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "provider_call_locator": "providers.plan.draft",
         "form_path": [
           "plan_phase",
           "prompt",
@@ -566,7 +1076,7 @@
         ]
       },
       "value": {
-        "type_name": "draft",
+        "type_name": "PlanDraftRequest",
         "authority": "typed_value"
       },
       "consumer_lane": "prompt_input",
@@ -582,6 +1092,13 @@
           }
         ],
         "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "PlanDraftRequest",
+        "subject_type_name": "PlanDraftPromptSubject",
+        "targets_type_name": "PlanDraftProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
       },
       "body_rendering_policy": "forbid"
     },
@@ -618,11 +1135,44 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "selector.output.return_selection_bundle_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
+        "form_path": [
+          "selector",
+          "output",
+          "return_selection_bundle_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_selection_bundle_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
+      "c0_row_id": "c0.selector_output_return_selection_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/selector::select-next-work::return__selection_bundle_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "selector.prompt.select_next_work",
       "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
       "source_form": {
-        "kind": "prompt_input_file",
+        "kind": "provider_input",
         "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
+        "provider_call_locator": "providers.selector",
         "form_path": [
           "selector",
           "prompt",
@@ -630,7 +1180,7 @@
         ]
       },
       "value": {
-        "type_name": "select_next_work",
+        "type_name": "SelectorRequest",
         "authority": "typed_value"
       },
       "consumer_lane": "prompt_input",
@@ -646,6 +1196,12 @@
           }
         ],
         "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "SelectorRequest",
+        "subject_type_name": "SelectorPromptSubject",
+        "requires_request_record": true,
+        "requires_target_split": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -669,6 +1225,38 @@
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_bridge_architecture_bundle_path",
       "u0_row_id": "work_item.bridge.architecture_bundle_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "work_item.bridge.architecture_bundle_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "bridge",
+          "architecture_bundle_path"
+        ]
+      },
+      "value": {
+        "type_name": "architecture_bundle_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::architecture_bundle_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -714,6 +1302,38 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "work_item.bridge.manifest_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "bridge",
+          "manifest_path"
+        ]
+      },
+      "value": {
+        "type_name": "manifest_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.work_item_bridge_manifest_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::manifest_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "work_item.bridge.progress_ledger_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {
@@ -733,6 +1353,38 @@
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_bridge_progress_ledger_path",
       "u0_row_id": "work_item.bridge.progress_ledger_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "work_item.bridge.progress_ledger_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "bridge_file",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "bridge",
+          "progress_ledger_path"
+        ]
+      },
+      "value": {
+        "type_name": "progress_ledger_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::progress_ledger_path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -811,6 +1463,38 @@
       "body_rendering_policy": "forbid"
     },
     {
+      "slot_id": "work_item.pointer.selection_bundle_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "pointer_path",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "pointer",
+          "selection_bundle_path"
+        ]
+      },
+      "value": {
+        "type_name": "selection_bundle_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
+      "c0_row_id": "c0.work_item_pointer_selection_bundle_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::selection_bundle_path",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
       "slot_id": "work_item.summary.summary_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {
@@ -841,6 +1525,356 @@
         "override_allowed": true
       },
       "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "work_item.summary.summary_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "summary",
+          "summary_path"
+        ]
+      },
+      "value": {
+        "type_name": "summary_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "design_gap_architect.prompt.draft",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
+        "provider_call_locator": "providers.architect.draft",
+        "form_path": [
+          "design_gap_architect",
+          "prompt",
+          "draft"
+        ]
+      },
+      "value": {
+        "type_name": "DesignGapArchitectureRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.design_gap_architect_prompt_draft",
+      "u0_row_id": "design_gap_architect.prompt.draft",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "DesignGapArchitectureRequest",
+        "subject_type_name": "DesignGapArchitecturePromptSubject",
+        "targets_type_name": "DesignGapArchitectureProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "implementation_phase.prompt.execute",
+      "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "provider_call_locator": "providers.implementation.execute",
+        "form_path": [
+          "implementation_phase",
+          "prompt",
+          "execute"
+        ]
+      },
+      "value": {
+        "type_name": "ImplementationExecuteRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.implementation_phase_prompt_execute",
+      "u0_row_id": "implementation_phase.prompt.execute",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "ImplementationExecuteRequest",
+        "subject_type_name": "ImplementationExecutePromptSubject",
+        "targets_type_name": "ImplementationExecuteProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "implementation_phase.prompt.review",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1",
+        "provider_call_locator": "providers.implementation.review",
+        "form_path": [
+          "implementation_phase",
+          "prompt",
+          "review"
+        ]
+      },
+      "value": {
+        "type_name": "ImplementationReviewRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.implementation_phase_prompt_review",
+      "u0_row_id": "implementation_phase.prompt.review",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "ImplementationReviewRequest",
+        "subject_type_name": "ImplementationReviewPromptSubject",
+        "targets_type_name": "ImplementationReviewProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "implementation_phase.prompt.fix",
+      "workflow_surface": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1",
+        "provider_call_locator": "providers.implementation.fix",
+        "form_path": [
+          "implementation_phase",
+          "prompt",
+          "fix"
+        ]
+      },
+      "value": {
+        "type_name": "ImplementationFixRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.implementation_phase_prompt_fix",
+      "u0_row_id": "implementation_phase.prompt.fix",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "ImplementationFixRequest",
+        "subject_type_name": "ImplementationFixPromptSubject",
+        "targets_type_name": "ImplementationFixProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "plan_phase.prompt.review",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+        "provider_call_locator": "providers.plan.review",
+        "form_path": [
+          "plan_phase",
+          "prompt",
+          "review"
+        ]
+      },
+      "value": {
+        "type_name": "PlanReviewRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.plan_phase_prompt_review",
+      "u0_row_id": "plan_phase.prompt.review",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "PlanReviewRequest",
+        "subject_type_name": "PlanReviewPromptSubject",
+        "targets_type_name": "PlanReviewProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "plan_phase.prompt.fix",
+      "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1",
+        "provider_call_locator": "providers.plan.fix",
+        "form_path": [
+          "plan_phase",
+          "prompt",
+          "fix"
+        ]
+      },
+      "value": {
+        "type_name": "PlanFixRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.plan_phase_prompt_fix",
+      "u0_row_id": "plan_phase.prompt.fix",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "PlanFixRequest",
+        "subject_type_name": "PlanFixPromptSubject",
+        "targets_type_name": "PlanFixProviderTargets",
+        "requires_request_record": true,
+        "requires_target_split": true
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "work_item.prompt.classify_blocked_recovery",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
+        "provider_call_locator": "providers.work-item.recovery-classifier",
+        "form_path": [
+          "work_item",
+          "prompt",
+          "classify_blocked_recovery"
+        ]
+      },
+      "value": {
+        "type_name": "BlockedImplementationRecoveryRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",
+      "u0_row_id": "work_item.prompt.classify_blocked_recovery",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "BlockedImplementationRecoveryRequest",
+        "subject_type_name": "BlockedImplementationRecoveryPromptSubject",
+        "requires_request_record": true,
+        "requires_target_split": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "work_item.prompt.classify_blocked_recovery_state",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+      "source_form": {
+        "kind": "provider_input",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::route-blocked-implementation",
+        "provider_call_locator": "providers.work-item.recovery-classifier",
+        "form_path": [
+          "work_item",
+          "prompt",
+          "classify_blocked_recovery_state"
+        ]
+      },
+      "value": {
+        "type_name": "BlockedRecoveryStateRequest",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "prompt_input",
+      "expected_track_c_lane": "C1",
+      "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
+      "u0_row_id": "work_item.prompt.classify_blocked_recovery_state",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "request_shape": {
+        "request_type_name": "BlockedRecoveryStateRequest",
+        "subject_type_name": "BlockedRecoveryStatePromptSubject",
+        "requires_request_record": true,
+        "requires_target_split": false
+      },
+      "body_rendering_policy": "forbid"
     }
   ]
 }

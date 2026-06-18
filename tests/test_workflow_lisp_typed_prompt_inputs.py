@@ -241,6 +241,91 @@ def test_render_typed_prompt_inputs_rejects_non_json_like_value() -> None:
         )
 
 
+def test_build_typed_prompt_input_report_indexes_imported_private_surfaces() -> None:
+    module = _typed_prompt_inputs_module()
+    imported_bundle = SimpleNamespace(
+        surface=SimpleNamespace(
+            name="%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+            steps=(
+                SimpleNamespace(
+                    kind=SurfaceStepKind.PROVIDER,
+                    step_id="root.review-plan__result",
+                    typed_prompt_inputs=(
+                        {
+                            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                            "binding_name": "request",
+                            "renderer": {
+                                "renderer_id": "canonical-json",
+                                "renderer_version": 1,
+                                "accepted_shape": "any_pure_value",
+                            },
+                            "value_source": {
+                                "kind": "typed_binding_ref",
+                                "binding": {"ref": "inputs.request"},
+                            },
+                            "value_type_name": "PlanReviewRequest",
+                            "source_map_origin_key": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+                            "u0_row_id": "plan_phase.prompt.review",
+                            "c0_row_id": "c0.plan_phase_prompt_review",
+                            "injection_order": 0,
+                        },
+                    ),
+                ),
+            ),
+        ),
+        imports={},
+    )
+    top_level_bundle = SimpleNamespace(
+        surface=SimpleNamespace(name="lisp_frontend_design_delta/plan_phase::run-plan-phase", steps=()),
+        imports={imported_bundle.surface.name: imported_bundle},
+    )
+
+    report = module.build_typed_prompt_input_report(
+        workflow_family="design_delta_parent_drain",
+        checked_manifest={
+            "rows": [
+                {
+                    "row_id": "c0.plan_phase_prompt_review",
+                    "u0_row_id": "plan_phase.prompt.review",
+                    "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "KEEP_TYPED",
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                }
+            ]
+        },
+        checked_manifest_path="checked.json",
+        checked_manifest_sha256="sha256:test",
+        validated_bundles_by_name={
+            top_level_bundle.surface.name: top_level_bundle,
+        },
+    )
+
+    assert report["status"] == "pass"
+    assert report["missing_rows"] == []
+    assert report["selected_rows"] == [
+        {
+            "workflow_surface": "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1",
+            "provider_step_id": "root.review-plan__result",
+            "c0_row_id": "c0.plan_phase_prompt_review",
+            "u0_row_id": "plan_phase.prompt.review",
+            "binding_names": ["request"],
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "source_map_origin_keys": [
+                "%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1"
+            ],
+        }
+    ]
+
+
 def test_runtime_smoke_renders_typed_prompt_inputs_without_prompt_materialization(
     tmp_path: Path,
 ) -> None:
