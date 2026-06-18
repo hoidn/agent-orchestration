@@ -1,0 +1,59 @@
+{
+  "schema_version": "workflow_lisp_transition_authoring.v1",
+  "workflow_family": "design_delta_parent_drain",
+  "allowed_origins": [
+    {
+      "row_id": "low_level.emit_drain_status_transition_audit",
+      "classification": "low_level_library",
+      "workflow_name": "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit",
+      "module_name": "lisp_frontend_design_delta/transitions",
+      "step_kind": "resource_transition",
+      "step_id_contains": "lisp_frontend_design_delta_transitions_emit_drain_status_transition_audit"
+    },
+    {
+      "row_id": "low_level.apply_drain_status_transition",
+      "classification": "low_level_library",
+      "workflow_name": "lisp_frontend_design_delta/transitions::apply-drain-status-transition",
+      "module_name": "lisp_frontend_design_delta/transitions",
+      "step_kind": "resource_transition",
+      "step_id_contains": "lisp_frontend_design_delta_transitions_apply_drain_status_transition"
+    },
+    {
+      "row_id": "low_level.record_drain_terminal_outcome",
+      "classification": "low_level_library",
+      "module_name": "lisp_frontend_design_delta/transitions",
+      "step_kind": "resource_transition",
+      "step_id_contains": "lisp_frontend_design_delta_transitions_record_drain_terminal_outcome"
+    },
+    {
+      "row_id": "low_level.record_work_item_terminal_outcome",
+      "classification": "low_level_library",
+      "module_name": "lisp_frontend_design_delta/transitions",
+      "step_id_contains": "lisp_frontend_design_delta_transitions_record_work_item_terminal_outcome"
+    },
+    {
+      "row_id": "low_level.record_work_item_blocked_recovery_summary",
+      "classification": "low_level_library",
+      "module_name": "lisp_frontend_design_delta/transitions",
+      "step_id_contains": "lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary"
+    }
+  ],
+  "source_shape_assertions": [
+    {
+      "module_name": "lisp_frontend_design_delta/drain",
+      "forbidden_substrings": [
+        "DrainStatusRequest",
+        "write-drain-status"
+      ]
+    },
+    {
+      "module_name": "lisp_frontend_design_delta/work_item",
+      "forbidden_substrings": [
+        "TerminalWorkItemRequest",
+        "BlockedRecoveryOutcomeRequest",
+        "record-terminal-work-item",
+        "record-blocked-recovery-outcome"
+      ]
+    }
+  ]
+}

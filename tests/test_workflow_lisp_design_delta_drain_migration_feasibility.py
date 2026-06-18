@@ -36,11 +36,13 @@ from orchestrator.workflow_lisp.command_boundaries import (
 )
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
+    _display_workflow_name,
     _parse_command_boundaries_manifest,
     build_frontend_bundle,
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -3863,19 +3865,52 @@ def test_design_delta_parent_drain_runtime_fixture_mirror_stays_aligned_after_r5
 def test_design_delta_parent_drain_preserves_runtime_native_transition_calls_after_r5_cleanup(
     tmp_path: Path,
 ) -> None:
-    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
     drain_steps = list(
         _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
     )
     drain_calls = {
         step.get("call") for step in drain_steps if isinstance(step.get("call"), str)
     }
+    source_map = build_source_map_document(
+        result,
+        selected_name="lisp_frontend_design_delta/drain::drain",
+        display_name_resolver=_display_workflow_name,
+    )
+    imported_transition_markers = (
+        "lisp_frontend_design_delta_transitions_record_drain_terminal_outcome",
+        "lisp_frontend_design_delta_transitions_record_work_item_terminal_outcome",
+        "lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary",
+    )
+    raw_resource_transition_modules = {
+        row.workflow_origin.module_name
+        for row in source_map.workflows.values()
+        for node in row.core_nodes
+        if node.step_kind == "resource_transition"
+        and not any(marker in node.step_id for marker in imported_transition_markers)
+    }
 
     assert "lisp_frontend_design_delta/work_item::run-work-item" in drain_calls
     assert any("repeat_until" in step for step in drain_steps)
-    lowered_drain = repr(lowered_by_name["lisp_frontend_design_delta/drain::drain"])
-    assert "write-drain-status" in lowered_drain
-    assert "drain-run-state" in lowered_drain
+    assert "lisp_frontend_design_delta/transitions" in raw_resource_transition_modules
+    assert "lisp_frontend_design_delta/drain" not in raw_resource_transition_modules
+    assert "lisp_frontend_design_delta/work_item" not in raw_resource_transition_modules
+
+
+def test_design_delta_parent_drain_high_level_modules_stop_importing_or_constructing_low_level_transition_requests() -> None:
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+
+    assert "DrainStatusRequest" not in drain_source
+    assert "write-drain-status" not in drain_source
+    assert "TerminalWorkItemRequest" not in work_item_source
+    assert "BlockedRecoveryOutcomeRequest" not in work_item_source
+    assert "record-terminal-work-item" not in work_item_source
+    assert "record-blocked-recovery-outcome" not in work_item_source
 
 
 def test_design_delta_projection_runtime_fixture_compiles(

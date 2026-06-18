@@ -394,6 +394,12 @@ def run_parity_target(
         build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
         repo_root=repo_root,
     )
+    transition_authoring_report = _load_compile_artifact_json(
+        artifact_name="transition_authoring_report",
+        build_manifest=build_manifest,
+        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
+        repo_root=repo_root,
+    )
     g8_deletion_evidence = _load_compile_artifact_json(
         artifact_name="g8_deletion_evidence",
         build_manifest=build_manifest,
@@ -418,6 +424,8 @@ def run_parity_target(
         report["compatibility_bridge_report"] = dict(compatibility_bridge_report)
     if isinstance(rendering_cleanup_report, Mapping):
         report["rendering_cleanup_report"] = dict(rendering_cleanup_report)
+    if isinstance(transition_authoring_report, Mapping):
+        report["transition_authoring_report"] = dict(transition_authoring_report)
     if isinstance(g8_deletion_evidence, Mapping):
         report["g8_deletion_evidence"] = dict(g8_deletion_evidence)
     if target.required_family_evidence_roles:
@@ -2582,6 +2590,15 @@ def _compile_artifact_report(
                 repo_root=repo_root,
             )
             continue
+        if artifact_name == "transition_authoring_report":
+            required[artifact_name] = _transition_authoring_artifact_status(
+                target=target,
+                path=path,
+                build_root=build_root,
+                build_manifest=build_manifest,
+                repo_root=repo_root,
+            )
+            continue
         raw_status = _artifact_raw_status(
             artifact_name,
             path=path,
@@ -2983,6 +3000,55 @@ def _rendering_cleanup_artifact_status(
     for forbidden_key in ("track_r_status", "track_c_status", "track_completion"):
         if forbidden_key in payload:
             reasons.append(f"forbidden track completion field `{forbidden_key}` present")
+    return {
+        "status": "fail" if reasons else "pass",
+        "path": path,
+        **({"reason": "; ".join(reasons)} if reasons else {}),
+    }
+
+
+def _transition_authoring_artifact_status(
+    *,
+    target: ParityTarget,
+    path: str | None,
+    build_root: Path | None,
+    build_manifest: Mapping[str, Any] | None,
+    repo_root: Path,
+) -> dict[str, object]:
+    if path is None:
+        return {"status": "missing", "path": None}
+    payload = _load_compile_artifact_json(
+        artifact_name="transition_authoring_report",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if payload is None:
+        return {
+            "status": "missing",
+            "path": path,
+            "reason": "transition_authoring_report is unreadable or absent",
+        }
+    reasons: list[str] = []
+    if payload.get("workflow_family") != target.workflow_family:
+        reasons.append("workflow_family mismatch")
+    if payload.get("status") != "pass":
+        reasons.append("transition authoring report status is not pass")
+    compiled_origins = payload.get("compiled_origins")
+    if not isinstance(compiled_origins, list) or not compiled_origins:
+        reasons.append("compiled_origins missing")
+    for field_name in (
+        "ordinary_body_violations",
+        "extra_origins",
+        "stale_allowed_origins",
+        "invalid_allowed_origins",
+        "source_shape_violations",
+    ):
+        field_value = payload.get(field_name)
+        if not isinstance(field_value, list):
+            reasons.append(f"{field_name} missing")
+        elif field_value:
+            reasons.append(f"{field_name} is not empty")
     return {
         "status": "fail" if reasons else "pass",
         "path": path,

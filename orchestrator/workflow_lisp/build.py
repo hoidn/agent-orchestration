@@ -88,6 +88,10 @@ from .rendering_ergonomics import (
     build_rendering_ergonomics_report,
     load_rendering_ergonomics_policy,
 )
+from .transition_authoring import (
+    build_transition_authoring_report,
+    load_transition_authoring_manifest,
+)
 from .type_env import UnionTypeRef
 from .value_flow_census import (
     load_value_flow_census,
@@ -157,6 +161,14 @@ DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.rendering_ergonomics.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.transition_authoring.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
     Path(__file__).resolve().parents[2]
@@ -532,6 +544,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     compatibility_bridge_generated_steps: list[dict[str, Any]] = []
     rendering_cleanup_report_payload = None
     rendering_ergonomics_report_payload = None
+    transition_authoring_report_payload = None
     resume_plumbing_retirement_report_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
@@ -551,6 +564,43 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             command_boundary_manifest=command_boundary_manifest,
             source_map_payload=source_map_payload,
         )
+        transition_authoring_manifest = _maybe_load_design_delta_transition_authoring_manifest(
+            entry_workflow=entry_selection.canonical_name,
+        )
+        if transition_authoring_manifest is not None:
+            transition_authoring_report_payload = build_transition_authoring_report(
+                workflow_family="design_delta_parent_drain",
+                checked_manifest=transition_authoring_manifest,
+                source_map_payload=source_map_payload,
+            )
+            if transition_authoring_report_payload.get("status") != "pass":
+                reasons: list[str] = []
+                for bucket_name in (
+                    "ordinary_body_violations",
+                    "extra_origins",
+                    "stale_allowed_origins",
+                    "invalid_allowed_origins",
+                    "source_shape_violations",
+                ):
+                    bucket = transition_authoring_report_payload.get(bucket_name)
+                    if isinstance(bucket, list) and bucket:
+                        reasons.append(bucket_name)
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="transition_authoring_invalid",
+                            message=(
+                                "design-delta transition authoring report failed: "
+                                + ", ".join(reasons or ("unknown_failure",))
+                            ),
+                            path=DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH,
+                        ),
+                    )
+                )
+            transition_authoring_report_payload = _with_report_path(
+                transition_authoring_report_payload,
+                str(build_root / "transition_authoring_report.json"),
+            )
         boundary_authority_report_payload = _serialize_design_delta_boundary_authority_report(
             boundary_projection_payload=workflow_boundary_projection_payload,
             boundary_authority_registry=boundary_authority_registry,
@@ -1178,6 +1228,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         compatibility_bridge_generated_steps=compatibility_bridge_generated_steps,
         rendering_cleanup_report_payload=rendering_cleanup_report_payload,
         rendering_ergonomics_report_payload=rendering_ergonomics_report_payload,
+        transition_authoring_report_payload=transition_authoring_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
@@ -2188,6 +2239,28 @@ def _maybe_load_design_delta_value_flow_census(
         "__census_path__": str(DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH),
         "__census_sha256__": _sha256_path(DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH),
     }
+
+
+def _maybe_load_design_delta_transition_authoring_manifest(
+    *,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        return load_transition_authoring_manifest(
+            DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH
+        )
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="transition_authoring_manifest_invalid",
+                    message=f"design-delta transition authoring manifest is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH,
+                ),
+            )
+        ) from exc
 
 
 def _maybe_load_design_delta_consumer_rendering_census(
@@ -3998,6 +4071,7 @@ def _write_build_artifacts(
     compatibility_bridge_generated_steps: Sequence[Mapping[str, object]],
     rendering_cleanup_report_payload: Mapping[str, object] | None,
     rendering_ergonomics_report_payload: Mapping[str, object] | None,
+    transition_authoring_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
@@ -4053,6 +4127,10 @@ def _write_build_artifacts(
     if rendering_ergonomics_report_payload is not None:
         artifact_paths["rendering_ergonomics_report"] = (
             build_root / "rendering_ergonomics_report.json"
+        )
+    if transition_authoring_report_payload is not None:
+        artifact_paths["transition_authoring_report"] = (
+            build_root / "transition_authoring_report.json"
         )
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
@@ -4124,6 +4202,10 @@ def _write_build_artifacts(
     if rendering_ergonomics_report_payload is not None:
         payloads["rendering_ergonomics_report"] = _json_data(
             rendering_ergonomics_report_payload
+        )
+    if transition_authoring_report_payload is not None:
+        payloads["transition_authoring_report"] = _json_data(
+            transition_authoring_report_payload
         )
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(

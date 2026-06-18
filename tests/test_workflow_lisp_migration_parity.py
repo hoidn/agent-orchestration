@@ -391,6 +391,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                     "entry_publication_report",
                     "compatibility_bridge_report",
                     "rendering_cleanup_report",
+                    "transition_authoring_report",
                     "g8_deletion_evidence",
                 ],
                 "optional": ["expanded_debug_yaml"],
@@ -403,6 +404,24 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                         "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
                     ),
                     "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+                    "resource_kind": "drain-run-state",
+                },
+                {
+                    "artifact_id": "terminal_work_item_transition_audit",
+                    "path": (
+                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+                    ),
+                    "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
+                    "resource_kind": "drain-run-state",
+                },
+                {
+                    "artifact_id": "blocked_recovery_transition_audit",
+                    "path": (
+                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+                    ),
+                    "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
                     "resource_kind": "drain-run-state",
                 }
             ],
@@ -1041,6 +1060,24 @@ def test_load_parity_targets_preserves_runtime_audit_artifacts(tmp_path: Path) -
                 "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
             ),
             "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "resource_kind": "drain-run-state",
+        },
+        {
+            "artifact_id": "terminal_work_item_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
+            "resource_kind": "drain-run-state",
+        },
+        {
+            "artifact_id": "blocked_recovery_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
             "resource_kind": "drain-run-state",
         },
     )
@@ -2496,6 +2533,7 @@ def _write_design_delta_g0_build_manifest(
     include_entry_publication_report: bool = True,
     include_compatibility_bridge_report: bool = True,
     include_rendering_cleanup_report: bool = True,
+    include_transition_authoring_report: bool = True,
     include_g8_deletion_evidence: bool = True,
     g8_removed_manifest_rows: list[str] | None = None,
     boundary_unclassified: list[str] | None = None,
@@ -2954,6 +2992,32 @@ def _write_design_delta_g0_build_manifest(
                 "diagnostics": [],
             },
         )
+    if include_transition_authoring_report:
+        _write_json(
+            build_root / "transition_authoring_report.json",
+            {
+                "schema_version": "workflow_lisp_transition_authoring_report.v1",
+                "workflow_family": "design_delta_parent_drain",
+                "status": "pass",
+                "compiled_origins": [
+                    {
+                        "workflow_name": "lisp_frontend_design_delta/transitions::emit-drain-status-transition-audit",
+                        "module_name": "lisp_frontend_design_delta/transitions",
+                        "step_kind": "resource_transition",
+                        "step_id": (
+                            "lisp_frontend_design_delta_transitions_emit_drain_status_transition_audit"
+                        ),
+                        "classification": "low_level_library",
+                        "matched_row_id": "low_level.emit_drain_status_transition_audit",
+                    }
+                ],
+                "ordinary_body_violations": [],
+                "extra_origins": [],
+                "stale_allowed_origins": [],
+                "invalid_allowed_origins": [],
+                "source_shape_violations": [],
+            },
+        )
     if include_g8_deletion_evidence:
         _write_json(
             build_root / "g8_deletion_evidence.json",
@@ -3011,6 +3075,11 @@ def _write_design_delta_g0_build_manifest(
             build_root / "rendering_cleanup_report.json"
         )
         artifact_status["rendering_cleanup_report"] = "emitted"
+    if include_transition_authoring_report:
+        artifact_paths["transition_authoring_report"] = str(
+            build_root / "transition_authoring_report.json"
+        )
+        artifact_status["transition_authoring_report"] = "emitted"
     if include_g8_deletion_evidence:
         artifact_paths["g8_deletion_evidence"] = str(build_root / "g8_deletion_evidence.json")
         artifact_status["g8_deletion_evidence"] = "emitted"
@@ -3388,6 +3457,70 @@ def test_design_delta_parent_drain_target_requires_rendering_cleanup_compile_art
     )
 
     assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
+
+
+def test_design_delta_parent_drain_target_requires_transition_authoring_compile_artifact() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert "transition_authoring_report" in target["compile_artifacts"]["required"]
+
+
+def test_design_delta_parent_drain_target_declares_all_selected_runtime_audit_artifacts() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "parity_targets.json"
+        ).read_text(encoding="utf-8")
+    )
+    target = next(
+        entry for entry in payload["targets"] if entry["workflow_family"] == "design_delta_parent_drain"
+    )
+
+    assert target["runtime_audit_artifacts"] == [
+        {
+            "artifact_id": "drain_status_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "resource_kind": "drain-run-state",
+        },
+        {
+            "artifact_id": "terminal_work_item_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
+            "resource_kind": "drain-run-state",
+        },
+        {
+            "artifact_id": "blocked_recovery_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+            "resource_kind": "drain-run-state",
+        },
+    ]
 
 
 def test_design_delta_parent_drain_target_requires_rendering_ergonomics_compile_artifact() -> None:

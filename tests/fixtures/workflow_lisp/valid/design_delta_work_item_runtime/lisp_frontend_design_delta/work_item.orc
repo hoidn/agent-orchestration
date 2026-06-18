@@ -8,18 +8,16 @@
   (import lisp_frontend_design_delta/projections :only
     (classify-work-item-terminal normalize-blocked-recovery-route))
   (import lisp_frontend_design_delta/transitions :only
-    (BlockedRecoveryOutcomeRequest TerminalWorkItemRequest drain-run-state
-      record-blocked-recovery-outcome record-terminal-work-item))
+    (record-work-item-blocked-recovery-summary record-work-item-terminal-outcome))
   (import lisp_frontend_design_delta/types :only
     (ArtifactWorkTargetPath BaselineDesignDoc BlockedRecoveryReason BlockedRecoveryRoute
       ImplementationPhaseResult ItemCtx PlanDoc PlanReviewDecision ProgressLedger
-      ResolvedWorkItemInputs SelectionCtx StateFile SteeringDoc TargetDesignDoc
-      WorkItemBootstrapSeed WorkItemContextValue WorkItemResult WorkItemSource
-      WorkItemSummaryValue WorkItemTerminalDecision WorkReport WorkReportTarget))
+      ResolvedWorkItemInputs SelectionCtx SteeringDoc TargetDesignDoc WorkItemBootstrapSeed
+      WorkItemContextValue WorkItemResult WorkItemSource WorkItemTerminalDecision
+      WorkItemTerminalReason WorkItemTerminalRoute WorkReport))
   (export
     BlockedImplementationRecoveryClassification
     BlockedRecoveryClassification
-    WorkItemSummary
     classify-blocked-implementation-recovery
     run-work-item)
 
@@ -55,9 +53,6 @@
     (reason BlockedRecoveryReason)
     (summary String))
 
-  (defrecord WorkItemSummary
-    (summary WorkReport))
-
   (defworkflow classify-blocked-implementation-recovery
     ((target_design TargetDesignDoc)
      (baseline_design BaselineDesignDoc)
@@ -82,95 +77,6 @@
         :inputs (request)
         :returns BlockedImplementationRecoveryClassification)))
 
-  (defproc finalize-terminal-work-item
-    ((work_item_id String)
-     (work_item_source WorkItemSource)
-     (reason String)
-     (item_summary_target_path WorkReportTarget)
-     (item_summary_pointer_path WorkReportTarget)
-     (drain_status_path StateFile)
-     (terminal_route String))
-    -> WorkItemSummary
-    :effects ((uses-command apply_resource_transition)
-              (writes work-item-terminal-summary-view))
-    :lowering inline
-    (let* ((transition-result
-             (resource-transition
-               :transition record-terminal-work-item
-               :resource drain-run-state
-               :request (record TerminalWorkItemRequest
-                 :work_item_id work_item_id
-                 :work_item_source work_item_source
-                 :reason reason
-                 :item_summary_target_path item_summary_target_path
-                 :item_summary_pointer_path item_summary_pointer_path
-                 :drain_status_path drain_status_path)))
-           (rendered-summary
-             (materialize-view work-item-terminal-summary-view
-               :value (record WorkItemSummaryValue
-                        :work_item_id work_item_id
-                        :work_item_source work_item_source
-                        :terminal_route terminal_route
-                        :reason reason)
-               :renderer canonical-json
-               :renderer-version 1
-               :target transition-result.summary_path
-               :returns WorkReport)))
-      (record WorkItemSummary
-        :summary rendered-summary)))
-
-  (defproc finalize-blocked-recovery-outcome
-    ((work_item_id String)
-     (work_item_source WorkItemSource)
-     (resolved_inputs ResolvedWorkItemInputs)
-     (implementation_phase_result ImplementationPhaseResult)
-     (recovery_route BlockedRecoveryRoute)
-     (reason BlockedRecoveryReason)
-     (summary_reason String))
-    -> WorkItemSummary
-    :effects ((uses-command apply_resource_transition)
-              (writes work-item-blocked-recovery-summary-view)
-              (writes work-item-context-view))
-    :lowering inline
-    (let* ((work-item-context-view
-             (materialize-view work-item-context-view
-               :value resolved_inputs.work_item_context
-               :renderer canonical-json
-               :renderer-version 1
-               :target resolved_inputs.work_item_context_view_target_path
-               :returns WorkReport))
-           (transition-result
-             (resource-transition
-               :transition record-blocked-recovery-outcome
-               :resource drain-run-state
-               :request (record BlockedRecoveryOutcomeRequest
-                 :work_item_id work_item_id
-                 :work_item_source work_item_source
-                 :recovery_route recovery_route
-                 :reason reason
-                 :target_design_review_decision "APPROVE"
-                 :terminal_action "continue"
-                 :summary_path resolved_inputs.item_summary_target_path
-                 :summary_pointer_path resolved_inputs.item_summary_pointer_path
-                 :drain_status_path resolved_inputs.drain_status_path
-                 :progress_report_path implementation_phase_result.progress-report
-                 :implementation_state_path implementation_phase_result.execution-report
-                 :work_item_context_path work-item-context-view
-                 :plan_path resolved_inputs.plan_target_path)))
-           (rendered-summary
-             (materialize-view work-item-blocked-recovery-summary-view
-               :value (record WorkItemSummaryValue
-                        :work_item_id work_item_id
-                        :work_item_source work_item_source
-                        :terminal_route "BLOCKED_RECOVERY"
-                        :reason summary_reason)
-               :renderer canonical-json
-               :renderer-version 1
-               :target transition-result.summary_path
-               :returns WorkReport)))
-      (record WorkItemSummary
-        :summary rendered-summary)))
-
   (defworkflow route-blocked-implementation
     ((target_design_path TargetDesignDoc)
      (baseline_design_path BaselineDesignDoc)
@@ -194,53 +100,56 @@
       (match decision
         ((TERMINAL_BLOCKED terminal)
          (let* ((recorded
-                  (finalize-terminal-work-item
+                  (record-work-item-terminal-outcome
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
+                    WorkItemTerminalRoute.IMPLEMENTATION_BLOCKED
+                    WorkItemTerminalReason.implementation_blocked
+                    "TERMINAL_BLOCKED"
                     "implementation_blocked"
-                    resolved_inputs.item_summary_target_path
-                    resolved_inputs.item_summary_pointer_path
-                    resolved_inputs.drain_status_path
-                    "TERMINAL_BLOCKED")))
+                    resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult TERMINAL_BLOCKED
              :reason "implementation_blocked"
              :summary recorded.summary)))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
-                  (finalize-blocked-recovery-outcome
+                  (record-work-item-blocked-recovery-summary
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
-                    resolved_inputs
-                    implementation_phase_result
+                    resolved_inputs.work_item_context
+                    resolved_inputs.work_item_context_view_target_path
                     BlockedRecoveryRoute.GAP_DESIGN_REVISION_REQUIRED
                     recovery.reason
-                    "gap_design_revision_required")))
+                    "gap_design_revision_required"
+                    resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult BLOCKED_RECOVERY
              :reason "gap_design_revision_required"
              :summary recorded.summary)))
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
-                  (finalize-blocked-recovery-outcome
+                  (record-work-item-blocked-recovery-summary
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
-                    resolved_inputs
-                    implementation_phase_result
+                    resolved_inputs.work_item_context
+                    resolved_inputs.work_item_context_view_target_path
                     BlockedRecoveryRoute.TARGET_DESIGN_REVISION_REQUIRED
                     recovery.reason
-                    "target_design_revision_required")))
+                    "target_design_revision_required"
+                    resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult BLOCKED_RECOVERY
              :reason "target_design_revision_required"
              :summary recorded.summary)))
         ((PREREQUISITE_GAP_REQUIRED recovery)
          (let* ((recorded
-                  (finalize-blocked-recovery-outcome
+                  (record-work-item-blocked-recovery-summary
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
-                    resolved_inputs
-                    implementation_phase_result
+                    resolved_inputs.work_item_context
+                    resolved_inputs.work_item_context_view_target_path
                     BlockedRecoveryRoute.PREREQUISITE_GAP_REQUIRED
                     recovery.reason
-                    "prerequisite_gap_required")))
+                    "prerequisite_gap_required"
+                    resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult BLOCKED_RECOVERY
              :reason "prerequisite_gap_required"
              :summary recorded.summary))))))
@@ -308,66 +217,66 @@
                 :implementation_phase_result implementation))
              ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
               (let* ((recorded
-                       (finalize-terminal-work-item
+                       (record-work-item-terminal-outcome
                          resolved.work_item_id
                          resolved.work_item_source
+                         WorkItemTerminalRoute.PLAN_REVIEW_EXHAUSTED
+                         WorkItemTerminalReason.plan_review_exhausted
+                         "TERMINAL_BLOCKED"
                          "plan_review_exhausted"
-                         resolved.item_summary_target_path
-                         resolved.item_summary_pointer_path
-                         resolved.drain_status_path
-                         "TERMINAL_BLOCKED")))
+                         resolved.item_summary_target_path)))
                 (variant WorkItemResult TERMINAL_BLOCKED
                   :reason "plan_review_exhausted"
                   :summary recorded.summary)))
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
               (let* ((recorded
-                       (finalize-terminal-work-item
+                       (record-work-item-terminal-outcome
                          resolved.work_item_id
                          resolved.work_item_source
+                         WorkItemTerminalRoute.IMPLEMENTATION_REVIEW_EXHAUSTED
+                         WorkItemTerminalReason.implementation_review_exhausted
+                         "TERMINAL_BLOCKED"
                          "implementation_review_exhausted"
-                         resolved.item_summary_target_path
-                         resolved.item_summary_pointer_path
-                         resolved.drain_status_path
-                         "TERMINAL_BLOCKED")))
+                         resolved.item_summary_target_path)))
                 (variant WorkItemResult TERMINAL_BLOCKED
                   :reason "implementation_review_exhausted"
                   :summary recorded.summary)))
              ((COMPLETE complete)
               (let* ((recorded
-                       (finalize-terminal-work-item
+                       (record-work-item-terminal-outcome
                          resolved.work_item_id
                          resolved.work_item_source
+                         WorkItemTerminalRoute.COMPLETE
+                         WorkItemTerminalReason.completed
+                         "COMPLETED"
                          "complete"
-                         resolved.item_summary_target_path
-                         resolved.item_summary_pointer_path
-                         resolved.drain_status_path
-                         "COMPLETED")))
+                         resolved.item_summary_target_path)))
                 (variant WorkItemResult COMPLETED
                   :reason ""
                   :summary recorded.summary))))))
         ((BLOCKED blocked)
          (let* ((recorded
-                  (finalize-terminal-work-item
+                  (record-work-item-terminal-outcome
                     resolved.work_item_id
                     resolved.work_item_source
+                    WorkItemTerminalRoute.PLAN_BLOCKED
+                    WorkItemTerminalReason.plan_blocked
+                    "TERMINAL_BLOCKED"
                     "plan_blocked"
-                    resolved.item_summary_target_path
-                    resolved.item_summary_pointer_path
-                    resolved.drain_status_path
-                    "TERMINAL_BLOCKED")))
+                    resolved.item_summary_target_path)))
            (variant WorkItemResult TERMINAL_BLOCKED
              :reason "plan_blocked"
              :summary recorded.summary)))
         ((EXHAUSTED exhausted)
          (let* ((recorded
-                  (finalize-terminal-work-item
+                  (record-work-item-terminal-outcome
                     resolved.work_item_id
                     resolved.work_item_source
+                    WorkItemTerminalRoute.PLAN_REVIEW_EXHAUSTED
+                    WorkItemTerminalReason.plan_review_exhausted
+                    "TERMINAL_BLOCKED"
                     "plan_review_exhausted"
-                    resolved.item_summary_target_path
-                    resolved.item_summary_pointer_path
-                    resolved.drain_status_path
-                    "TERMINAL_BLOCKED")))
+                    resolved.item_summary_target_path)))
            (variant WorkItemResult TERMINAL_BLOCKED
              :reason "plan_review_exhausted"
              :summary recorded.summary)))))))

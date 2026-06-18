@@ -6070,6 +6070,34 @@ def test_design_delta_parent_drain_default_resume_report_keeps_track_c_rows_out_
     )
 
 
+def test_design_delta_parent_drain_build_emits_transition_authoring_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "transition_authoring_report" in result.artifact_paths
+    assert result.manifest.artifact_status["transition_authoring_report"] == "emitted"
+    payload = json.loads(
+        result.artifact_paths["transition_authoring_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_version"] == "workflow_lisp_transition_authoring_report.v1"
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+    assert all(
+        row["module_name"] == "lisp_frontend_design_delta/transitions"
+        for row in payload["compiled_origins"]
+    )
+    assert payload["ordinary_body_violations"] == []
+    assert payload["extra_origins"] == []
+
+
 def test_build_emits_lexical_checkpoint_points_artifact(tmp_path: Path) -> None:
     result = _build_lexical_checkpoint_fixture(tmp_path)
 

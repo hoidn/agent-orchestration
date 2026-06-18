@@ -151,6 +151,7 @@
     NOT_APPLICABLE)
 
   (defenum WorkItemTerminalReason
+    completed
     plan_blocked
     plan_review_exhausted
     implementation_blocked
@@ -158,6 +159,7 @@
 
   (defenum WorkItemTerminalRoute
     COMPLETE
+    PLAN_BLOCKED
     PLAN_REVIEW_EXHAUSTED
     IMPLEMENTATION_BLOCKED
     IMPLEMENTATION_REVIEW_EXHAUSTED)
