@@ -61,6 +61,9 @@ IMPORTED_STDLIB_HELPER_ENTRY = (
 PURE_EXPR_SELECTOR_FIXTURE = FIXTURES / "valid" / "pure_expr_selector_action_projection.orc"
 MATERIALIZE_VIEW_ALLOCATED_TARGET_FIXTURE = FIXTURES / "valid" / "materialize_view_allocated_target.orc"
 ENTRY_PUBLICATION_RUNTIME_FIXTURE = FIXTURES / "valid" / "entry_publication_runtime.orc"
+ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
+    FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
+)
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
@@ -232,6 +235,24 @@ def _build_entry_publication_fixture(tmp_path: Path):
             prompt_externs_path=None,
             imported_workflow_bundles_path=None,
             command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
+def _build_item_ctx_child_phase_reuse_fixture(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
+            source_roots=(FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+            entry_workflow="design_delta_item_ctx_child_phase_reuse::run-entry",
+            provider_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.providers.json",
+            prompt_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.prompts.json",
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json",
             emit_debug_yaml=False,
             workspace_root=tmp_path,
         )
@@ -3044,6 +3065,137 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
     assert workflow_projection["boundary"]["pure_projection_classification"] == {
         "structural": True
     }
+
+
+def test_design_delta_item_ctx_child_phase_reuse_build_artifacts_record_derived_child_phase_binding(
+    tmp_path: Path,
+) -> None:
+    built = _build_item_ctx_child_phase_reuse_fixture(tmp_path)
+    bundle = built.compile_result.validated_bundles_by_name[
+        "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first"
+    ]
+    boundary = _workflow_boundary_projection(bundle)
+    workflow_projection = next(
+        item
+        for item in json.loads(
+            built.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+        )["workflows"]
+        if item["workflow_name"] == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first"
+    )
+
+    public_inputs = set(_workflow_public_input_contracts(bundle))
+    assert "phase-ctx__phase-name" not in public_inputs
+    assert "phase-ctx__state-root" not in public_inputs
+    assert "phase-ctx__artifact-root" not in public_inputs
+    assert len(boundary.private_runtime_context_bindings) == 2
+    assert {
+        binding.derived_phase_identity
+        for binding in boundary.private_runtime_context_bindings
+    } == {"plan", "implementation"}
+    assert {
+        (
+            binding.binding_id,
+            binding.source_param_name,
+            binding.context_family,
+            binding.bridge_class,
+            binding.derived_phase_identity,
+            tuple(sorted(binding.generated_input_names)),
+        )
+        for binding in boundary.private_runtime_context_bindings
+    } == {
+        (
+            "phase-ctx__implementation",
+            "item-ctx",
+            "PhaseCtx",
+            "derived_private_child_context",
+            "implementation",
+            (
+                "phase-ctx__implementation__artifact-root",
+                "phase-ctx__implementation__phase-name",
+                "phase-ctx__implementation__run__artifact-root",
+                "phase-ctx__implementation__run__run-id",
+                "phase-ctx__implementation__run__state-root",
+                "phase-ctx__implementation__state-root",
+            ),
+        ),
+        (
+            "phase-ctx__plan",
+            "item-ctx",
+            "PhaseCtx",
+            "derived_private_child_context",
+            "plan",
+            (
+                "phase-ctx__plan__artifact-root",
+                "phase-ctx__plan__phase-name",
+                "phase-ctx__plan__run__artifact-root",
+                "phase-ctx__plan__run__run-id",
+                "phase-ctx__plan__run__state-root",
+                "phase-ctx__plan__state-root",
+            ),
+        ),
+    }
+
+    assert {
+        (
+            binding["binding_id"],
+            binding["source_param_name"],
+            binding["bridge_class"],
+            binding["derived_phase_identity"],
+            tuple(binding["generated_input_names"]),
+        )
+        for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
+    } == {
+        (
+            "phase-ctx__implementation",
+            "item-ctx",
+            "derived_private_child_context",
+            "implementation",
+            (
+                "phase-ctx__implementation__artifact-root",
+                "phase-ctx__implementation__phase-name",
+                "phase-ctx__implementation__run__artifact-root",
+                "phase-ctx__implementation__run__run-id",
+                "phase-ctx__implementation__run__state-root",
+                "phase-ctx__implementation__state-root",
+            ),
+        ),
+        (
+            "phase-ctx__plan",
+            "item-ctx",
+            "derived_private_child_context",
+            "plan",
+            (
+                "phase-ctx__plan__artifact-root",
+                "phase-ctx__plan__phase-name",
+                "phase-ctx__plan__run__artifact-root",
+                "phase-ctx__plan__run__run-id",
+                "phase-ctx__plan__run__state-root",
+                "phase-ctx__plan__state-root",
+            ),
+        ),
+    }
+    expected_source_provenance = {
+        binding.binding_id: json.loads(json.dumps(dict(binding.source_provenance)))
+        for binding in boundary.private_runtime_context_bindings
+    }
+    assert expected_source_provenance == {
+        "phase-ctx__implementation": {
+            "workflow_name": "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first",
+            "path": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
+            "line": expected_source_provenance["phase-ctx__implementation"]["line"],
+            "form_path": expected_source_provenance["phase-ctx__implementation"]["form_path"],
+        },
+        "phase-ctx__plan": {
+            "workflow_name": "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first",
+            "path": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
+            "line": expected_source_provenance["phase-ctx__plan"]["line"],
+            "form_path": expected_source_provenance["phase-ctx__plan"]["form_path"],
+        },
+    }
+    assert {
+        binding["binding_id"]: binding["source_provenance"]
+        for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
+    } == expected_source_provenance
 
 
 def test_boundary_projection_serializer_uses_typed_bundle_compatibility_split(

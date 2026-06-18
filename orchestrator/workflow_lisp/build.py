@@ -4789,6 +4789,7 @@ def _serialize_workflow_boundary_projection(
                             "bridge_class": binding.bridge_class,
                             "derived_phase_identity": binding.derived_phase_identity,
                             "generated_input_names": sorted(binding.generated_input_names),
+                            "source_provenance": _json_data(binding.source_provenance),
                         }
                         for binding in boundary.private_runtime_context_bindings
                     ],
@@ -4827,6 +4828,7 @@ def _serialize_workflow_boundary_projection(
                             "bridge_class": binding.bridge_class,
                             "derived_phase_identity": binding.derived_phase_identity,
                             "generated_input_names": sorted(binding.generated_input_names),
+                            "source_provenance": _json_data(binding.source_provenance),
                         }
                         for binding in lowered.private_exec_context_bindings
                     ],
