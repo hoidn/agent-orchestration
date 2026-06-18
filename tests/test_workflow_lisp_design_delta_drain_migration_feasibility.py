@@ -3793,6 +3793,24 @@ def test_design_delta_parent_drain_entrypoint_owns_loop_control(
     )
 
 
+def test_design_delta_parent_drain_current_route_stays_handwritten_pending_family_adoption_slice(
+) -> None:
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+
+    assert "(loop/recur" in drain_source
+    assert "(call project-selector-action" in drain_source
+    assert "record-drain-terminal-outcome" in drain_source
+    assert "(backlog-drain" not in drain_source
+    assert "record-work-item-terminal-outcome" in work_item_source
+    assert "record-work-item-blocked-recovery-summary" in work_item_source
+    assert "finalize-selected-item" not in work_item_source
+
+
 def test_design_delta_parent_drain_removes_run_state_from_authored_loop_state(
     tmp_path: Path,
 ) -> None:

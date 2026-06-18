@@ -11,6 +11,7 @@
           DrainResult
           DrainTerminalKind
           DrainLoopTerminal
+          DrainLoopState
           empty-drain-result-proc
           blocked-drain-result-proc
           completed-drain-result-proc
@@ -27,7 +28,10 @@
     (GAP
       (gap GapPayload))
     (SELECTED
-      (selection SelectionPayload)))
+      (selection SelectionPayload))
+    (BLOCKED
+      (reason String)
+      (run-state StateExisting)))
   (defunion GapResult
     (CONTINUE
       (run-state StateExisting))
@@ -67,6 +71,10 @@
       (run_state StateExisting)
       (progress_report_path WorkReport)
       (blocker_class BlockerClass)))
+  (defrecord DrainLoopState
+    (items-processed Int)
+    (run-state StateExisting)
+    (progress-report-path WorkReport))
   (defrecord DrainOutcomeState
     (variant String)
     (items_processed Int)
@@ -290,10 +298,10 @@
            (terminal
              (loop/recur
                :max max
-               :state (loop-state
-                        (items-processed Int 0)
-                        (run-state std/resource/StateExisting initial-run-state)
-                        (progress-report-path std/resource/WorkReport progress-report-target))
+               :state (record std/drain/DrainLoopState
+                        :items-processed 0
+                        :run-state initial-run-state
+                        :progress-report-path progress-report-target)
                :on-exhausted
                (variant std/drain/DrainLoopTerminal EXHAUSTED
                  :items_processed state.items-processed
@@ -306,11 +314,17 @@
                             :ctx ctx)))
                    (match selection-result
                      ((EMPTY empty)
-                      (done
-                        (variant std/drain/DrainLoopTerminal EMPTY
-                          :items_processed state.items-processed
-                          :run_state state.run-state
-                          :progress_report_path state.progress-report-path)))
+                      (if (= state.items-processed 0)
+                        (done
+                          (variant std/drain/DrainLoopTerminal EMPTY
+                            :items_processed state.items-processed
+                            :run_state state.run-state
+                            :progress_report_path state.progress-report-path))
+                        (done
+                          (variant std/drain/DrainLoopTerminal COMPLETED
+                            :items_processed state.items-processed
+                            :run_state state.run-state
+                            :progress_report_path state.progress-report-path))))
                      ((GAP gap_case)
                       (let* ((gap-result
                                (call gap-drafter
@@ -319,8 +333,10 @@
                         (match gap-result
                           ((CONTINUE continued)
                            (continue
-                             (loop-state :like state
-                               :run-state continued.run-state)))
+                             (record std/drain/DrainLoopState
+                               :items-processed state.items-processed
+                               :run-state continued.run-state
+                               :progress-report-path state.progress-report-path)))
                           ((BLOCKED blocked)
                            (done
                              (variant std/drain/DrainLoopTerminal BLOCKED
@@ -344,18 +360,25 @@
                                  :selection selection-payload)))
                         (match selected-result
                           ((CONTINUE continued)
-                           (done
-                             (variant std/drain/DrainLoopTerminal COMPLETED
-                               :items_processed 1
-                               :run_state continued.run-state
-                               :progress_report_path continued.summary-path)))
+                           (continue
+                             (record std/drain/DrainLoopState
+                               :items-processed (+ state.items-processed 1)
+                               :run-state continued.run-state
+                               :progress-report-path continued.summary-path)))
                           ((BLOCKED blocked)
                            (done
                              (variant std/drain/DrainLoopTerminal BLOCKED
-                               :items_processed 1
+                               :items_processed state.items-processed
                                :run_state blocked.run-state
                                :progress_report_path blocked.summary-path
-                               :blocker_class blocked.blocker-class)))))))))))
+                               :blocker_class blocked.blocker-class))))))
+                     ((BLOCKED blocked)
+                      (done
+                        (variant std/drain/DrainLoopTerminal BLOCKED
+                          :items_processed state.items-processed
+                          :run_state blocked.run-state
+                          :progress_report_path state.progress-report-path
+                          :blocker_class std/resource/BlockerClass.user_decision_required))))))))
            (result
              (std/drain/finalize-drain-terminal terminal)))
       result))

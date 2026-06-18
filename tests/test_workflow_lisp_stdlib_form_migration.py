@@ -34,14 +34,18 @@ def _control_dispatch_module():
     return importlib.import_module("orchestrator.workflow_lisp.lowering.control_dispatch")
 
 
-def _command_boundary_environment(*, gap_output_type_name: str = "GapResult") -> CommandBoundaryEnvironment:
+def _command_boundary_environment(
+    *,
+    gap_output_type_name: str = "GapResult",
+    selector_output_type_name: str = "SelectionResult",
+) -> CommandBoundaryEnvironment:
     return build_command_boundary_environment(
         {
             "select_next_item": CertifiedAdapterBinding(
                 name="select_next_item",
                 stable_command=("python", "scripts/select_next_item.py"),
                 input_contract={"type": "object"},
-                output_type_name="SelectionResult",
+                output_type_name=selector_output_type_name,
                 effects=("structured_result",),
                 path_safety={"kind": "workspace_relpath"},
                 source_map_behavior="step",
@@ -272,6 +276,18 @@ def test_imported_binding_precedence_prefers_stdlib_form_routes_over_intrinsic_h
     _compile_module_fixture(DRAIN_STDLIB_FIXTURE, tmp_path=tmp_path / "drain")
 
     assert read_counts() == {}
+
+
+def test_finalize_selected_item_stdlib_vector_compiles_on_promoted_route(tmp_path: Path) -> None:
+    result = _compile_module_fixture(RESOURCE_STDLIB_FIXTURE, tmp_path=tmp_path / "resource_finalize_selected_item")
+
+    assert result.entry_result.typed_workflows
+
+
+def test_backlog_drain_stdlib_vector_compiles_on_promoted_route(tmp_path: Path) -> None:
+    result = _compile_module_fixture(DRAIN_STDLIB_FIXTURE, tmp_path=tmp_path / "drain_backlog_drain")
+
+    assert result.entry_result.typed_workflows
 
 
 @pytest.mark.parametrize(

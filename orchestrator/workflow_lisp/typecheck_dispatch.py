@@ -3146,6 +3146,22 @@ def _validate_selector_workflow_ref(
         span=span,
         form_path=form_path,
     )
+    _require_union_variant_exact_type(
+        signature.return_type_ref,
+        "BLOCKED",
+        "reason",
+        expected_type=PrimitiveTypeRef(name="String"),
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "BLOCKED",
+        "run-state",
+        expected_under="state",
+        span=span,
+        form_path=form_path,
+    )
     return selected_payload_type, gap_payload_type
 
 

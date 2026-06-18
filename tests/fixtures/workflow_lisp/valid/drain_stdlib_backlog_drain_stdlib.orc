@@ -24,10 +24,6 @@
     :kind relpath
     :under "state"
     :must-exist false)
-  (defpath StateExisting
-    :kind relpath
-    :under "state"
-    :must-exist true)
   (defworkflow selector-run
     ((ctx DrainCtx))
     -> SelectionResult

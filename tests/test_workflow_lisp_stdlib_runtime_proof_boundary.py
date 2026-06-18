@@ -104,8 +104,9 @@ def test_shared_callable_profile_keeps_generated_structured_branch_guard_active(
 
     diagnostics = [diag for diag in excinfo.value.diagnostics if diag.code == "workflow_boundary_type_invalid"]
 
-    assert len(diagnostics) == 2
+    assert len(diagnostics) == 3
     assert all("structured if/else is only supported on top-level steps in v2.2" in diag.message for diag in diagnostics)
+    assert any("__terminal__body__empty" in diag.message for diag in diagnostics)
     assert any("__terminal__body__gap" in diag.message for diag in diagnostics)
     assert any("__terminal__body__selected" in diag.message for diag in diagnostics)
 
@@ -136,9 +137,11 @@ def test_runtime_proof_profile_records_non_promotable_boundary_evidence_and_sour
 
     assert any(diag.code == "low_level_state_path_in_high_level_module" for diag in retained)
     structured = [diag for diag in retained if diag.code == "workflow_boundary_type_invalid"]
-    assert len(structured) == 2
+    assert len(structured) == 3
+    assert any("__terminal__body__empty" in diag.message for diag in structured)
     assert any("__terminal__body__gap" in diag.message for diag in structured)
     assert any("__terminal__body__selected" in diag.message for diag in structured)
+    assert any("__terminal__body__empty" in step_id for step_id in lowered.origin_map.step_spans)
     assert any("__terminal__body__gap" in step_id for step_id in lowered.origin_map.step_spans)
     assert any("__terminal__body__selected" in step_id for step_id in lowered.origin_map.step_spans)
     assert any("materialize-view__drain-summary" in step_id for step_id in lowered.origin_map.step_spans)

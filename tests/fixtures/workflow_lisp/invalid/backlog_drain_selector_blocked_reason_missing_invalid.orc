@@ -40,8 +40,6 @@
     (item-state-root StateFile))
   (defrecord GapPayload
     (gap-id String))
-  (defrecord WrongSelectionPayload
-    (item-id String))
   (defunion SelectionResult
     (EMPTY
       (run-state StateExisting))
@@ -50,7 +48,6 @@
     (SELECTED
       (selection SelectionPayload))
     (BLOCKED
-      (reason String)
       (run-state StateExisting)))
   (defunion SelectedItemResult
     (CONTINUE
@@ -83,7 +80,7 @@
       :returns SelectionResult))
   (defworkflow run-selected-item
     ((item-ctx ItemCtx)
-     (selection WrongSelectionPayload))
+     (selection SelectionPayload))
     -> SelectedItemResult
     (command-result execute_selected_item
       :argv ("python" "scripts/execute_selected_item.py" selection.item-id)
