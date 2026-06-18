@@ -521,6 +521,14 @@ artifacts, resource-transition evidence, resume/reuse behavior, and accepted
 compatibility bridges. It must not treat successful compile, dry-run, or a
 rendered summary as primary-surface promotion.
 
+Parity is behavioral and contractual, not mechanical. It must not require the
+`.orc` implementation to reproduce the YAML workflow's internal state-machine
+mechanics, queue-file choreography, helper-script boundaries, checkpoint file
+layout, or path-by-path update order. A different implementation shape is valid
+when it preserves the public contract, typed terminal outcomes, declared
+resource-transition semantics, artifact/public-output obligations, resume/reuse
+contract, and accepted compatibility surfaces.
+
 ## 9. Dependencies And Sequencing
 
 This target consumes the existing WCC route and post-foundation composition
@@ -861,12 +869,16 @@ Expected result:
   to typed transitions or certified transition adapters;
 - public summaries and legacy bundles are produced by publication policy or
   bridge metadata; and
-- the run produces parity-comparable terminal state and artifacts.
+- the run produces parity-comparable terminal state and artifacts without
+  requiring exact replication of YAML's internal state-machine mechanics.
 
 Forbidden result:
 
 - the `.orc` source succeeds only by passing many raw paths through provider
   inputs and call signatures;
+- parity requires the `.orc` family to preserve YAML's internal helper-script
+  boundaries, queue-file choreography, checkpoint paths, or state update order
+  instead of comparing the public contract and declared semantic effects;
 - a Python helper performs unclassified deterministic routing or summary
   shaping;
 - a rendered report, pointer file, stdout payload, or debug YAML projection
@@ -907,8 +919,9 @@ This target succeeds when:
   generated private context, projection, rendering, bridge, and transition
   effects; and
 - migration parity can evaluate the `.orc` family without treating rendered
-  files or reports as semantic authority. YAML-primary replacement remains owned
-  by the separate migration parity and promotion gates.
+  files, reports, or exact YAML state-machine implementation mechanics as
+  semantic authority. YAML-primary replacement remains owned by the separate
+  migration parity and promotion gates.
 
 ## 16. Stop Or Revise Criteria
 
