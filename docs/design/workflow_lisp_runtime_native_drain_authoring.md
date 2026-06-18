@@ -701,6 +701,49 @@ If a compiler/runtime hook remains after this target is claimed complete, its
 contract must be generic enough to serve other workflow families without naming
 phase, item, drain, selection, recovery, or Design Delta concepts.
 
+### 12.2 Phase/Drain Stdlib Conversion Path
+
+The current phase/drain lowering path should be converted by moving domain
+contracts upward into stdlib or family `.orc` modules and narrowing compiler
+support downward to generic linking, typing, effects, and runtime contracts.
+
+The target ownership split is:
+
+| Concern | Final owner |
+| --- | --- |
+| `RunCtx`, resource identity/version, transition commit, resume identity, path safety | runtime and generic frontend substrate |
+| `Resource<TState>`, `Transition<TRequest, TResult>`, effect summaries, private binding | generic Workflow Lisp contracts |
+| `PhaseCtx`, `ItemCtx`, `DrainCtx`, `SelectionResult`, `SelectedItemResult`, `GapResult` | `std/context`, `std/resource`, `std/drain`, or family modules |
+| `backlog-drain`, `finalize-selected-item`, `complete-work-item`, selection/gap/item routing helpers | imported `.orc` stdlib/family procedures |
+| Design Delta selector, architect, work-item, recovery, and terminal result shapes | `lisp_frontend_design_delta/*` modules |
+
+Conversion should proceed in this order:
+
+1. Define the stdlib/family records, unions, and procedures in `.orc` modules
+   with ordinary exported signatures. The source of truth for drain behavior
+   becomes imported code, not Python lowering helpers.
+2. Replace frontend checks that name `DrainCtx`, `ItemCtx`, selected-item
+   variants, or gap variants with generic capability checks: workflow-ref
+   signature compatibility, closed union/record types, required effects,
+   declared transition contracts, and private-context availability.
+3. Lower `backlog-drain` and `finalize-selected-item` through the ordinary
+   import/specialization/WCC path. Any ergonomic surface may be a macro or
+   stdlib wrapper, but it must expand to ordinary calls, `match`, loops,
+   projections, and `resource-transition` operations.
+4. Keep any intrinsic lowering branch only as a schema-1 or compatibility
+   route while dual-compile evidence proves the stdlib route preserves the
+   public contract and declared semantic effects.
+5. Delete or quarantine Design-Delta-specific assumptions from compiler
+   modules once the stdlib route passes compile, shared validation,
+   source-map/Semantic IR inspection, smoke or dry-run, and behavioral parity
+   evidence.
+
+The final stdlib route may still use compiler support for generic features such
+as imported workflow refs, WCC control lowering, hidden private bindings,
+source-map frames, typed resource transitions, and materialized-view kernels.
+It must not require a compiler branch that understands "the Design Delta drain"
+or exact YAML state-machine mechanics.
+
 ## 13. Verification Strategy
 
 ### 13.1 Static And Compile-Time Checks
