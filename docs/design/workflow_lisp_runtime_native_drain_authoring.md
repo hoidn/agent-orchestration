@@ -556,6 +556,52 @@ Work that should wait for substrate evidence:
 - deleting certified adapters whose runtime-native replacement has not passed
   positive and negative fixtures.
 
+### 9.1 Shared Parent-Loop Prerequisite
+
+For any parent-callable family that intends to replace a handwritten
+select/run/gap/repeat loop with imported `std/drain/backlog-drain`, the shared
+stdlib owner lane must already prove the parent's required routing semantics.
+The minimum contract is:
+
+- `SelectedItemResult.CONTINUE` may re-enter selection instead of forcing
+  immediate terminal completion;
+- direct selector-blocked outcomes are representable as typed terminal routing;
+- gap work or blocked-recovery work may return control to selection when the
+  family semantics require it; and
+- typed iteration/accounting remains valid across repeated selected-item passes
+  and authored exhaustion.
+
+Until that shared contract exists, a family may still adopt request-record,
+projection, transition, publication, and bridge cleanup slices, but it must not
+claim imported `backlog-drain` adoption by re-implementing missing parent-loop
+behavior in family-local adapters or handwritten compatibility wrappers.
+
+### 9.2 Shared Phase-Family Boundary Prerequisite
+
+For any parent-callable family that intends to simplify ordinary work-item
+authoring to an `item-ctx` plus typed-selection surface while still reusing
+existing child phase workflows, the shared post-foundation phase-family
+boundary lane must already prove hidden private-context transport and
+matched-union validation on the WCC route. The minimum contract is:
+
+- internal reusable-call binding supplies phase/item context without exposing
+  synthetic `PhaseCtx`, state roots, generated write roots, or checkpoint
+  paths as public authored inputs;
+- a high-level work-item workflow may `match` imported child-workflow union
+  results and project them into family or stdlib terminal unions without
+  `workflow_boundary_type_invalid` or lost `requires_variant` provenance;
+- any generated helper/private workflow boundaries preserve producing-step
+  identity, source maps, and private/compatibility boundary labeling needed by
+  shared validation; and
+- the route does not regain path-heavy `phase-ctx`-first signatures, bundle
+  rereads, or family-local wrapper shapes whose only purpose is to bypass
+  missing proof/context transport.
+
+Until that shared contract exists, a family may still adopt request-record,
+projection, transition, publication, bridge, and shared parent-loop cleanup
+slices, but it must not claim the simplified internal-signature plus
+imported-child stdlib route for ordinary work-item composition.
+
 ## 10. Invariants And Failure Modes
 
 - Typed values are semantic authority.
@@ -620,6 +666,32 @@ parent drain code:
 - durable mutation should move to resource transitions; and
 - raw command boundaries should remain only for external tools or certified
   legacy behavior.
+
+### 12.1 Transitional Surface Retirement
+
+Compatibility bridges and family-specific compiler checks are acceptable only
+as migration scaffolding. They may prove that the `.orc` family can run before
+the final authoring shape is complete, but they are not themselves completion
+evidence for this target.
+
+Full target completion requires a retirement pass that proves:
+
+- compatibility bridges needed only for YAML-era files have either been removed
+  or are isolated at declared public/legacy boundaries with owner, consumer,
+  schema, and retirement evidence;
+- body code no longer constructs compatibility paths, pointer files, or summary
+  files by hand;
+- `PhaseCtx`, `ItemCtx`, `DrainCtx`, selection, and recovery records are
+  library/domain records backed by generic `RunCtx`, resource, transition, and
+  `StateLayout` mechanics rather than privileged runtime scope categories; and
+- `backlog-drain`, `finalize-selected-item`, and related phase/drain behavior
+  are owned by `std/*` or family library modules through ordinary imported
+  `.orc` composition, signature/effect checking, and typed transitions, not by
+  Design-Delta-specific lowering or typecheck branches.
+
+If a compiler/runtime hook remains after this target is claimed complete, its
+contract must be generic enough to serve other workflow families without naming
+phase, item, drain, selection, recovery, or Design Delta concepts.
 
 ## 13. Verification Strategy
 
@@ -694,10 +766,20 @@ ladder:
 - named domain-transition fixture proving a helper such as
   `complete-work-item` lowers to a declared `resource-transition` contract;
 - public/private boundary fixture proving `RunCtx`, generated write roots,
-  checkpoint paths, and generated targets stay off public authored inputs; and
+  checkpoint paths, and generated targets stay off public authored inputs;
 - attached or generated source-shape summary for the reference family covering
   public/private inputs, provider flat lists, body `materialize-view`, raw
-  command adapters, and raw transitions; and
+  command adapters, and raw transitions;
+- shared stdlib parent-loop proof, when the family intends to use imported
+  `backlog-drain`, showing the owner lane preserves any required repeated
+  selected-item routing, direct selector-blocked termination,
+  gap/recovery-to-selector re-entry, and authored exhaustion without
+  family-local loop emulation;
+- shared phase-family boundary proof, when the family intends to combine
+  simplified `item-ctx` authoring with reused child phase workflows, showing
+  hidden private-context bindings and matched child-workflow unions clear
+  shared validation on the WCC route without public `PhaseCtx` inputs or
+  `workflow_boundary_type_invalid`; and
 - parent-callable smoke or dry-run fixture for the Design Delta family route.
 
 The target is complete only when the Design Delta Drain `.orc` family:
@@ -705,6 +787,13 @@ The target is complete only when the Design Delta Drain `.orc` family:
 - compiles through the WCC route;
 - passes shared validation;
 - can be dry-run or smoke-run as a parent-callable workflow family;
+- uses imported `backlog-drain` only where the shared stdlib parent-loop
+  contract already preserves the selected family's required routing semantics
+  without handwritten family loop reimplementation;
+- uses simplified internal work-item signatures only where the shared
+  phase-family boundary contract already preserves hidden private-context
+  transport and matched child-workflow proof on the WCC route, without
+  validator-driven fallback to path-heavy `phase-ctx` surfaces;
 - uses typed provider request records for plan, implementation, selector,
   architect, review, fix, and recovery-classifier provider calls where the
   input is nontrivial;
@@ -721,6 +810,12 @@ The target is complete only when the Design Delta Drain `.orc` family:
   publications or low-level compatibility fixtures;
 - keeps remaining Python helpers only as certified adapters with fixtures and
   source-map/effect evidence;
+- retires transitional compatibility bridges that are not required for public
+  parity or legacy consumers, and keeps any retained bridge isolated at a
+  declared boundary with retirement evidence;
+- represents phase, item, drain, selection, and recovery behavior through
+  library/domain records and imported stdlib/family modules over the generic
+  resource/context core, not through family-specific compiler branches;
 - produces the same public terminal outputs expected by the selected parity
   target; and
 - records migration evidence that distinguishes working parent-callable `.orc`
@@ -802,6 +897,12 @@ This target succeeds when:
   adapters;
 - remaining Python helpers are certified external/legacy boundaries, not
   hidden semantic glue;
+- transitional compatibility bridges are retired or isolated at declared
+  public/legacy boundaries with owner, consumer, schema, and retirement
+  evidence;
+- phase/drain/item/recovery behavior is implemented as ordinary stdlib or
+  family-library Workflow Lisp over generic context/resource mechanics rather
+  than as family-specific compiler lowering;
 - source maps, Semantic IR, build reports, and migration evidence expose the
   generated private context, projection, rendering, bridge, and transition
   effects; and
@@ -819,6 +920,10 @@ Revise this target if implementation requires:
 - treating rendered files as semantic authority;
 - weakening provider/command structured-output validation;
 - hiding resource mutation in uncertified adapters;
+- emulating missing shared `backlog-drain` parent-loop behavior in family-local
+  adapters instead of proving the owner-lane contract;
+- preserving compatibility bridge scaffolding or Design-Delta-specific
+  phase/drain compiler hooks as the final implementation shape;
 - making consumer rendering invisible in Semantic IR or source maps; or
 - depending on a special-case drain compiler branch instead of WCC and ordinary
   stdlib composition.
