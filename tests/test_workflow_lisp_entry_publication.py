@@ -52,6 +52,8 @@ def test_entry_publication_helpers_select_only_c3_rows_from_checked_census() -> 
     selected_row_ids = {row["row_id"] for row in selected_rows}
 
     assert selected_row_ids == {
+        "c0.drain_materialized_drain_summary",
+        "c0.drain_materialized_drain_summary_compiled_boundary",
         "c0.drain_output_return_run_state",
         "c0.drain_output_return_run_state_compiled_boundary",
         "c0.plan_phase_output_approved_plan_path",
@@ -65,6 +67,21 @@ def test_entry_publication_helpers_select_only_c3_rows_from_checked_census() -> 
         "c0.selector_output_return_selection_bundle_path",
         "c0.selector_output_return_selection_bundle_path_compiled_boundary",
     }
+
+
+def test_checked_design_delta_entry_publication_rows_include_real_drain_summary_candidates() -> None:
+    module = _entry_publication_module()
+    selector = getattr(module, "select_entry_publication_rows")
+
+    selected_rows = selector(_load_json(ENTRY_PUBLICATION_CENSUS_PATH))
+    selected_row_ids = {row["row_id"] for row in selected_rows}
+
+    assert "c0.drain_materialized_drain_summary" in selected_row_ids
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" in selected_row_ids
+    assert "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary" not in selected_row_ids
+    assert "c0.drain_output_return_drain_summary_summary_target_compiled_boundary" not in selected_row_ids
+    assert "c0.work_item_summary_summary_path" not in selected_row_ids
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in selected_row_ids
 
 
 def test_entry_publication_helpers_classify_legal_and_compatibility_only_rows() -> None:
@@ -245,3 +262,109 @@ def test_compile_stage3_rejects_publish_on_exported_non_selected_helper(tmp_path
         )
 
     assert excinfo.value.diagnostics[0].code == "entry_publication_not_entrypoint"
+
+
+def test_entry_publication_role_metadata_can_drive_exact_target_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entry_publication = _entry_publication_module()
+    defunctionalize = importlib.import_module(
+        "orchestrator.workflow_lisp.wcc.defunctionalize"
+    )
+
+    role_registry = {
+        "custom-summary": {
+            "role": "custom-summary",
+            "renderer_id": "canonical-json",
+            "renderer_version": 1,
+            "output_contract": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            },
+            "authority_class": "public_artifact",
+            "path_template": "artifacts/work/custom_summary.json",
+        }
+    }
+    monkeypatch.setattr(
+        entry_publication,
+        "resolve_publication_role_registry",
+        lambda: role_registry,
+    )
+    monkeypatch.setattr(
+        defunctionalize,
+        "resolve_publication_role_registry",
+        lambda: role_registry,
+    )
+
+    source_path = tmp_path / "custom_entry_publication.orc"
+    source_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule custom_entry_publication)",
+                "  (export publish-result)",
+                "  (defrecord CustomSummary",
+                "    (message String))",
+                "  (defunion PublishResult",
+                "    (DONE",
+                "      (custom-summary CustomSummary)))",
+                "  (defworkflow publish-result",
+                "    ()",
+                "    -> PublishResult",
+                "    (:publish",
+                "      ((DONE :as custom-summary)))",
+                "    (variant PublishResult DONE",
+                "      :custom-summary (record CustomSummary",
+                '        :message "done"))))',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        source_path,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered = next(
+        workflow
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == "custom_entry_publication::publish-result"
+    )
+    publish_boundary = next(
+        step
+        for step in lowered.authored_mapping["steps"]
+        if step["id"].endswith("__publish_boundary")
+    )
+    done_steps = publish_boundary["match"]["cases"]["DONE"]["steps"]
+    materialize_step = next(step for step in done_steps if "materialize_view" in step)
+
+    assert materialize_step["materialize_view"]["target_path"] == (
+        "artifacts/work/custom_summary.json"
+    )
+    generated_allocations = [
+        {
+            "allocation_id": allocation.allocation_id,
+            "concrete_path_template": allocation.concrete_path_template,
+        }
+        for allocation in lowered.generated_path_allocations
+    ]
+    publish_allocation = next(
+        allocation
+        for allocation in generated_allocations
+        if allocation["allocation_id"]
+        == materialize_step["materialize_view"]["target_allocation_id"]
+    )
+    assert publish_allocation["concrete_path_template"] == "artifacts/work/custom_summary.json"

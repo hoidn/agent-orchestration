@@ -896,14 +896,31 @@ def _entry_publication_materialize_step(
         form_path=row.form_path,
         expansion_stack=row.expansion_stack,
     )
-    allocation = allocate_materialized_value_view(
-        context=context,
-        source_expr=source,
-        path_template=(
+    target_field_name = role_descriptor.get("runtime_target_field")
+    target_output_ref = (
+        terminal.output_refs.get(f"return__{row.role}__{target_field_name}")
+        if isinstance(target_field_name, str)
+        and row.role in variant_field_names
+        else None
+    )
+    descriptor_path_template = role_descriptor.get("path_template")
+    target_path_template = (
+        str(descriptor_path_template)
+        if isinstance(descriptor_path_template, str)
+        and descriptor_path_template
+        else (
             f"artifacts/work/workflow_lisp_entry_publication/"
             f"{_publication_slug(typed_workflow.definition.name)}/"
             f"{row.variant.lower()}-{_publication_slug(row.role)}{renderer.file_extension}"
-        ),
+        )
+    )
+    runtime_target_path: Any = target_path_template
+    if isinstance(target_output_ref, str):
+        runtime_target_path = {"ref": target_output_ref}
+    allocation = allocate_materialized_value_view(
+        context=context,
+        source_expr=source,
+        path_template=target_path_template,
         stable_target=f"entry-publication-{row.variant.lower()}-{_publication_slug(row.role)}",
         privacy=GeneratedPathPrivacy.PUBLIC_ARTIFACT,
     )
@@ -961,7 +978,7 @@ def _entry_publication_materialize_step(
                 "fields": list(variant_field_names),
             },
             "value_document": value_document,
-            "target_path": allocation.concrete_path_template,
+            "target_path": runtime_target_path,
             "target_allocation_id": allocation.allocation_id,
             "authority_class": "public_artifact",
             "output_contracts": {"return": dict(role_descriptor["output_contract"])},

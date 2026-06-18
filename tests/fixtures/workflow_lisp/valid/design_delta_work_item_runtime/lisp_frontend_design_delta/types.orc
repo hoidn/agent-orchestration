@@ -415,13 +415,13 @@
   (defunion WorkItemResult
     (COMPLETED
       (reason String)
-      (summary WorkReport))
+      (summary WorkItemSummaryValue))
     (TERMINAL_BLOCKED
       (reason String)
-      (summary WorkReport))
+      (summary WorkItemSummaryValue))
     (BLOCKED_RECOVERY
       (reason String)
-      (summary WorkReport)))
+      (summary WorkItemSummaryValue)))
 
   (defrecord DrainState
     (iteration-count Int)
@@ -439,8 +439,6 @@
   (defrecord DrainSummaryValue
     (drain_status DrainTerminalStatus)
     (drain_status_reason String)
-    (run_state_path RunStatePath)
-    (summary_target WorkReportTarget)
     (state_version String))
 
   (defrecord WorkItemSummaryValue
@@ -482,12 +480,12 @@
   (defunion DrainResult
     (DONE
       (run-state RunStatePath)
-      (drain-summary WorkReport))
+      (drain-summary DrainSummaryValue))
     (BLOCKED
       (reason String)
       (run-state RunStatePath)
-      (drain-summary WorkReport))
+      (drain-summary DrainSummaryValue))
     (EXHAUSTED
       (reason String)
       (run-state RunStatePath)
-      (drain-summary WorkReport))))
+      (drain-summary DrainSummaryValue))))

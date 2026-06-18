@@ -3,7 +3,7 @@
   "target_family": "lisp_frontend_design_delta_parent_drain",
   "source_census": {
     "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
-    "fingerprint": "sha256:3cf0628c1f7d1950e73988608e7cbc9024a7c367c2b293992f82d33b4295e2bc"
+    "fingerprint": "sha256:8c87509a348c809fd13fe50f3b8361ca95f7342eb65fc6b5647b003bfae5247c"
   },
   "decisions": [
     {

@@ -84,6 +84,32 @@ def test_load_policy_accepts_checked_manifest():
     }
 
 
+def test_checked_design_delta_summary_slots_use_entry_publication_and_bridge_lanes():
+    policy = load_rendering_ergonomics_policy(POLICY_PATH)
+    slots_by_row = {slot["c0_row_id"]: slot for slot in policy["consumer_slots"]}
+
+    assert (
+        slots_by_row["c0.drain_materialized_drain_summary"]["consumer_lane"]
+        == "entry_publication"
+    )
+    assert (
+        slots_by_row["c0.drain_materialized_drain_summary_compiled_boundary"][
+            "consumer_lane"
+        ]
+        == "entry_publication"
+    )
+    assert (
+        slots_by_row["c0.work_item_summary_summary_path"]["consumer_lane"]
+        == "compatibility_bridge"
+    )
+    assert (
+        slots_by_row["c0.work_item_summary_summary_path_compiled_boundary"][
+            "consumer_lane"
+        ]
+        == "compatibility_bridge"
+    )
+
+
 def test_load_policy_rejects_wrong_schema_version(tmp_path):
     bad = json.loads(POLICY_PATH.read_text())
     bad["schema_version"] = "workflow_lisp_rendering_ergonomics_policy.v0"

@@ -14,7 +14,7 @@
       ImplementationPhaseResult ItemCtx PlanDoc PlanReviewDecision ProgressLedger
       ResolvedWorkItemInputs SelectionCtx SteeringDoc TargetDesignDoc WorkItemBootstrapSeed
       WorkItemContextValue WorkItemResult WorkItemSource WorkItemTerminalDecision
-      WorkItemTerminalReason WorkItemTerminalRoute WorkReport))
+      WorkItemTerminalReason WorkItemTerminalRoute))
   (export
     BlockedImplementationRecoveryClassification
     BlockedRecoveryClassification
@@ -110,7 +110,11 @@
                     resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult TERMINAL_BLOCKED
              :reason "implementation_blocked"
-             :summary recorded.summary)))
+             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                        :work_item_id recorded.work_item_id
+                        :work_item_source recorded.work_item_source
+                        :terminal_route recorded.terminal_route
+                        :reason recorded.reason))))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
@@ -124,7 +128,11 @@
                     resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult BLOCKED_RECOVERY
              :reason "gap_design_revision_required"
-             :summary recorded.summary)))
+             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                        :work_item_id recorded.work_item_id
+                        :work_item_source recorded.work_item_source
+                        :terminal_route recorded.terminal_route
+                        :reason recorded.reason))))
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
@@ -138,7 +146,11 @@
                     resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult BLOCKED_RECOVERY
              :reason "target_design_revision_required"
-             :summary recorded.summary)))
+             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                        :work_item_id recorded.work_item_id
+                        :work_item_source recorded.work_item_source
+                        :terminal_route recorded.terminal_route
+                        :reason recorded.reason))))
         ((PREREQUISITE_GAP_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
@@ -152,7 +164,11 @@
                     resolved_inputs.item_summary_target_path)))
            (variant WorkItemResult BLOCKED_RECOVERY
              :reason "prerequisite_gap_required"
-             :summary recorded.summary))))))
+             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                        :work_item_id recorded.work_item_id
+                        :work_item_source recorded.work_item_source
+                        :terminal_route recorded.terminal_route
+                        :reason recorded.reason)))))))
 
   (defworkflow run-work-item
     ((phase-ctx PhaseCtx)
@@ -227,7 +243,11 @@
                          resolved.item_summary_target_path)))
                 (variant WorkItemResult TERMINAL_BLOCKED
                   :reason "plan_review_exhausted"
-                  :summary recorded.summary)))
+                  :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                             :work_item_id recorded.work_item_id
+                             :work_item_source recorded.work_item_source
+                             :terminal_route recorded.terminal_route
+                             :reason recorded.reason))))
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
               (let* ((recorded
                        (record-work-item-terminal-outcome
@@ -240,7 +260,11 @@
                          resolved.item_summary_target_path)))
                 (variant WorkItemResult TERMINAL_BLOCKED
                   :reason "implementation_review_exhausted"
-                  :summary recorded.summary)))
+                  :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                             :work_item_id recorded.work_item_id
+                             :work_item_source recorded.work_item_source
+                             :terminal_route recorded.terminal_route
+                             :reason recorded.reason))))
              ((COMPLETE complete)
               (let* ((recorded
                        (record-work-item-terminal-outcome
@@ -253,7 +277,11 @@
                          resolved.item_summary_target_path)))
                 (variant WorkItemResult COMPLETED
                   :reason ""
-                  :summary recorded.summary))))))
+                  :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                             :work_item_id recorded.work_item_id
+                             :work_item_source recorded.work_item_source
+                             :terminal_route recorded.terminal_route
+                             :reason recorded.reason)))))))
         ((BLOCKED blocked)
          (let* ((recorded
                   (record-work-item-terminal-outcome
@@ -266,7 +294,11 @@
                     resolved.item_summary_target_path)))
            (variant WorkItemResult TERMINAL_BLOCKED
              :reason "plan_blocked"
-             :summary recorded.summary)))
+             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                        :work_item_id recorded.work_item_id
+                        :work_item_source recorded.work_item_source
+                        :terminal_route recorded.terminal_route
+                        :reason recorded.reason))))
         ((EXHAUSTED exhausted)
          (let* ((recorded
                   (record-work-item-terminal-outcome
@@ -279,4 +311,8 @@
                     resolved.item_summary_target_path)))
            (variant WorkItemResult TERMINAL_BLOCKED
              :reason "plan_review_exhausted"
-             :summary recorded.summary)))))))
+             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                        :work_item_id recorded.work_item_id
+                        :work_item_source recorded.work_item_source
+                        :terminal_route recorded.terminal_route
+                        :reason recorded.reason))))))))

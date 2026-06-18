@@ -3459,6 +3459,37 @@ def test_design_delta_parent_drain_target_requires_rendering_cleanup_compile_art
     assert "rendering_cleanup_report" in target["compile_artifacts"]["required"]
 
 
+def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed_summary_rows() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.consumer_rendering_census.json"
+        ).read_text(encoding="utf-8")
+    )
+    summary_rows = {
+        row["row_id"]: row
+        for row in payload["rows"]
+        if row["row_id"]
+        in {
+            "c0.drain_materialized_drain_summary",
+            "c0.drain_materialized_drain_summary_compiled_boundary",
+            "c0.work_item_summary_summary_path",
+            "c0.work_item_summary_summary_path_compiled_boundary",
+        }
+    }
+
+    assert summary_rows["c0.drain_materialized_drain_summary"]["track_c_decision"] == (
+        "RETIRE_TO_ENTRY_PUBLICATION"
+    )
+    assert summary_rows["c0.work_item_summary_summary_path"]["track_c_decision"] == (
+        "RETIRE_TO_BRIDGE_METADATA"
+    )
+
+
 def test_design_delta_parent_drain_target_requires_transition_authoring_compile_artifact() -> None:
     payload = json.loads(
         (

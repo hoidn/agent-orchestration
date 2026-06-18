@@ -173,6 +173,8 @@ def test_select_compatibility_bridge_rows_uses_checked_c0_inventory() -> None:
         "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",
         "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
+        "c0.work_item_summary_summary_path",
+        "c0.work_item_summary_summary_path_compiled_boundary",
     }
 
 
@@ -298,6 +300,31 @@ def test_checked_design_delta_compatibility_bridge_manifest_removes_selection_bu
         row["bridge_id"] != "bridge.work_item.pointer.selection_bundle.compiled_boundary"
         for row in payload["bridges"]
     )
+
+
+def test_checked_design_delta_compatibility_bridge_manifest_adopts_canonical_item_summary_surface(
+) -> None:
+    payload = _load_json(COMPATIBILITY_BRIDGES_PATH)
+    bridge_row_ids = {row["c0_row_id"] for row in payload["bridges"]}
+
+    assert "c0.work_item_summary_summary_path" in bridge_row_ids
+    assert "c0.work_item_summary_summary_path_compiled_boundary" in bridge_row_ids
+
+    consumer_rows = {
+        row["row_id"]: row
+        for row in _load_json(CONSUMER_RENDERING_CENSUS_PATH)["rows"]
+        if row["row_id"]
+        in {
+            "c0.work_item_summary_summary_path",
+            "c0.work_item_summary_summary_path_compiled_boundary",
+        }
+    }
+    assert consumer_rows["c0.work_item_summary_summary_path"]["target_binding"][
+        "target_labels"
+    ] == [
+        "artifacts/work/item_summary.json",
+        "artifacts/work/archive/item_summary.json",
+    ]
 
 
 def test_load_compatibility_bridge_manifest_requires_metadata_for_every_selected_c0_row(
@@ -532,6 +559,8 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
         "c0.work_item_bridge_manifest_path_compiled_boundary",
         "c0.work_item_bridge_progress_ledger_path",
         "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
+        "c0.work_item_summary_summary_path",
+        "c0.work_item_summary_summary_path_compiled_boundary",
     }
     assert {
         (diagnostic["code"], diagnostic["c0_row_id"])

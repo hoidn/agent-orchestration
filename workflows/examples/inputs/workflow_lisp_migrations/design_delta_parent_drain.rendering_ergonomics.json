@@ -265,7 +265,7 @@
       "slot_id": "drain.materialized.drain_summary",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
       "source_form": {
-        "kind": "materialized_output",
+        "kind": "public_output",
         "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
         "form_path": [
           "drain",
@@ -277,8 +277,8 @@
         "type_name": "drain_summary",
         "authority": "typed_value"
       },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
       "c0_row_id": "c0.drain_materialized_drain_summary",
       "u0_row_id": "drain.materialized.drain_summary",
       "renderer_selection": {
@@ -291,13 +291,13 @@
         ],
         "override_allowed": true
       },
-      "body_rendering_policy": "allow_timed"
+      "body_rendering_policy": "forbid"
     },
     {
       "slot_id": "drain.materialized.drain_summary.compiled_boundary",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
       "source_form": {
-        "kind": "materialized_output",
+        "kind": "public_output",
         "source_map_origin_key": "lisp_frontend_design_delta/drain::drain",
         "form_path": [
           "drain",
@@ -309,8 +309,8 @@
         "type_name": "drain_summary",
         "authority": "typed_value"
       },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
+      "consumer_lane": "entry_publication",
+      "expected_track_c_lane": "C3",
       "c0_row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
       "renderer_selection": {
@@ -323,7 +323,7 @@
         ],
         "override_allowed": true
       },
-      "body_rendering_policy": "allow_timed"
+      "body_rendering_policy": "forbid"
     },
     {
       "slot_id": "drain.output.return_run_state",
@@ -1325,7 +1325,7 @@
       "slot_id": "work_item.summary.summary_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {
-        "kind": "materialized_output",
+        "kind": "bridge_file",
         "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
         "form_path": [
           "work_item",
@@ -1334,11 +1334,11 @@
         ]
       },
       "value": {
-        "type_name": "summary_path",
+        "type_name": "work_item_summary",
         "authority": "typed_value"
       },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_summary_summary_path",
       "u0_row_id": "work_item.summary.summary_path",
       "renderer_selection": {
@@ -1351,13 +1351,13 @@
         ],
         "override_allowed": true
       },
-      "body_rendering_policy": "allow_timed"
+      "body_rendering_policy": "forbid"
     },
     {
       "slot_id": "work_item.summary.summary_path.compiled_boundary",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {
-        "kind": "materialized_output",
+        "kind": "bridge_file",
         "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
         "form_path": [
           "work_item",
@@ -1366,11 +1366,11 @@
         ]
       },
       "value": {
-        "type_name": "summary_path",
+        "type_name": "work_item_summary",
         "authority": "typed_value"
       },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
+      "consumer_lane": "compatibility_bridge",
+      "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary",
       "renderer_selection": {
@@ -1383,7 +1383,7 @@
         ],
         "override_allowed": true
       },
-      "body_rendering_policy": "allow_timed"
+      "body_rendering_policy": "forbid"
     },
     {
       "slot_id": "design_gap_architect.prompt.draft",

@@ -291,6 +291,36 @@ def test_checked_design_delta_value_flow_census_removes_selection_bundle_from_ar
     )
 
 
+def test_checked_design_delta_value_flow_census_reclassifies_summary_authority() -> None:
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / "design_delta_parent_drain.value_flow_census.json"
+        ).read_text(encoding="utf-8")
+    )
+    rows = {row["row_id"]: row for row in payload["rows"]}
+
+    assert rows[
+        "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary"
+    ]["plumbing_class"] == "entry_publication"
+    assert rows[
+        "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary"
+    ]["boundary_authority_class"] == "public_artifact"
+    assert rows["compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary"][
+        "plumbing_class"
+    ] == "compatibility_bridge"
+    assert rows["compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary"][
+        "boundary_authority_class"
+    ] == "compatibility_bridge"
+    assert rows["work_item.summary.summary_path"]["path_or_contract"] == (
+        "artifacts/work/item_summary.json"
+    )
+
+
 def test_select_resume_plumbing_retirement_candidates_returns_only_runtime_resume_rows() -> None:
     module = _module()
     census = _valid_payload(

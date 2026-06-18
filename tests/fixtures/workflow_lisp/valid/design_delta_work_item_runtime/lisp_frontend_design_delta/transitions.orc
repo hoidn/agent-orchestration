@@ -80,9 +80,6 @@
     (reason BlockedRecoveryReason)
     (summary_path WorkReportTarget))
 
-  (defrecord RenderedSummary
-    (summary WorkReport))
-
   (defresource drain-run-state
     :state-type lisp_frontend_design_delta/transitions/DrainRunStateRecord
     :backing (bridge run_state_path))
@@ -191,34 +188,27 @@
   (defproc record-drain-terminal-outcome
     ((run_state_path RunStatePath)
      (status DrainTerminalStatus)
-     (reason String)
-     (summary_path WorkReportTarget))
-    -> RenderedSummary
-    :effects ((uses-command apply_resource_transition)
-              (writes drain-summary-view))
+     (reason String))
+    -> DrainSummaryValue
+    :effects ((uses-command apply_resource_transition))
     :lowering inline
-    (let* ((transition-result
+    (let* ((summary-target
+             (__generated-relpath-seed__
+               WorkReportTarget
+               "artifacts/work/drain_summary.json"
+               "design_delta_parent_drain_summary"))
+           (transition-result
              (resource-transition
                :transition write-drain-status
                :resource drain-run-state
                :request (record lisp_frontend_design_delta/transitions/DrainStatusRequest
                  :status status
                  :reason reason
-                 :summary_path summary_path)))
-           (rendered-summary
-             (materialize-view drain-summary-view
-               :value (record DrainSummaryValue
-                        :drain_status status
-                        :drain_status_reason reason
-                        :run_state_path run_state_path
-                        :summary_target summary_path
-                        :state_version "lisp_frontend_autonomous_drain_run_state/v1")
-               :renderer canonical-json
-               :renderer-version 1
-               :target transition-result.summary_path
-               :returns WorkReport)))
-      (record RenderedSummary
-        :summary rendered-summary)))
+                 :summary_path summary-target))))
+      (record DrainSummaryValue
+        :drain_status status
+        :drain_status_reason reason
+        :state_version "lisp_frontend_autonomous_drain_run_state/v1")))
 
   (defproc record-work-item-terminal-outcome
     ((work_item_id String)
@@ -228,9 +218,8 @@
      (summary_route String)
      (summary_reason String)
      (summary_path WorkReportTarget))
-    -> RenderedSummary
-    :effects ((uses-command apply_resource_transition)
-              (writes work-item-terminal-summary-view))
+    -> WorkItemSummaryValue
+    :effects ((uses-command apply_resource_transition))
     :lowering inline
     (let* ((transition-result
              (resource-transition
@@ -242,19 +231,12 @@
                  :terminal_route terminal_route
                  :reason reason
                  :summary_path summary_path)))
-           (rendered-summary
-             (materialize-view work-item-terminal-summary-view
-               :value (record WorkItemSummaryValue
-                        :work_item_id work_item_id
-                        :work_item_source work_item_source
-                        :terminal_route summary_route
-                        :reason summary_reason)
-               :renderer canonical-json
-               :renderer-version 1
-               :target transition-result.summary_path
-               :returns WorkReport)))
-      (record RenderedSummary
-        :summary rendered-summary)))
+           (ignored transition-result))
+      (record WorkItemSummaryValue
+        :work_item_id work_item_id
+        :work_item_source work_item_source
+        :terminal_route summary_route
+        :reason summary_reason)))
 
   (defproc record-work-item-blocked-recovery-summary
     ((work_item_id String)
@@ -265,9 +247,8 @@
      (reason BlockedRecoveryReason)
      (summary_reason String)
      (summary_path WorkReportTarget))
-    -> RenderedSummary
+    -> WorkItemSummaryValue
     :effects ((uses-command apply_resource_transition)
-              (writes work-item-blocked-recovery-summary-view)
               (writes work-item-context-view))
     :lowering inline
     (let* ((work-item-context-view
@@ -287,17 +268,10 @@
                  :recovery_route recovery_route
                  :reason reason
                  :summary_path summary_path)))
-           (rendered-summary
-             (materialize-view work-item-blocked-recovery-summary-view
-               :value (record WorkItemSummaryValue
-                        :work_item_id work_item_id
-                        :work_item_source work_item_source
-                        :terminal_route "BLOCKED_RECOVERY"
-                        :reason summary_reason)
-               :renderer canonical-json
-               :renderer-version 1
-               :target transition-result.summary_path
-               :returns WorkReport)))
-      (record RenderedSummary
-        :summary rendered-summary)))
+           (ignored transition-result))
+      (record WorkItemSummaryValue
+        :work_item_id work_item_id
+        :work_item_source work_item_source
+        :terminal_route "BLOCKED_RECOVERY"
+        :reason summary_reason)))
 )

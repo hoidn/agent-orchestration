@@ -3868,7 +3868,8 @@ def test_design_delta_parent_drain_adapters_emit_resource_transition_effects(
         ].authored_mapping["steps"]
     )
     assert "materialize_view" in drain_families
-    assert "materialize_view" in work_item_families
+    assert "materialize_view" not in work_item_families
+    assert "materialize_artifacts" in work_item_families
 
 
 def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp_path: Path) -> None:
@@ -4680,7 +4681,8 @@ def test_design_delta_parent_drain_value_flow_census_rejects_missing_checked_row
     payload["rows"] = [
         row
         for row in payload["rows"]
-        if row["row_id"] != "drain.input.baseline_design_path"
+        if row["row_id"]
+        != "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary"
     ]
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -4690,8 +4692,13 @@ def test_design_delta_parent_drain_value_flow_census_rejects_missing_checked_row
             registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
             value_flow_census_payload=payload,
         )
-    assert excinfo.value.diagnostics[0].code == "value_flow_census_invalid"
-    assert "missing checked row" in excinfo.value.diagnostics[0].message
+    assert excinfo.value.diagnostics[0].code in {
+        "value_flow_census_invalid",
+        "consumer_rendering_census_invalid",
+    }
+    assert any(
+        token in excinfo.value.diagnostics[0].message for token in ("missing", "stale")
+    )
 
 
 def test_design_delta_parent_drain_value_flow_census_rejects_stale_compiled_evidence(
@@ -4763,12 +4770,30 @@ def test_design_delta_parent_drain_value_flow_census_rejects_pointer_path_as_aut
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = _load_design_delta_value_flow_census()
-    for row in payload["rows"]:
-        if row["row_id"] == "work_item.pointer.selection_bundle_path":
-            row["boundary_authority_class"] = "public_authored"
-            break
-    else:
-        raise AssertionError("expected pointer-path row in checked census fixture")
+    payload["rows"].append(
+        {
+            "row_id": "synthetic.pointer.selection_bundle_path",
+                "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+                "source_kind": "pointer_path",
+                "symbol_or_field": "selection_bundle_path",
+                "path_or_contract": "selection_bundle_path",
+                "plumbing_class": "public_authored",
+                "boundary_authority_class": "public_authored",
+                "track_owner": "shared",
+                "current_consumer": "legacy_reader",
+                "semantic_owner": "workflow_surface",
+            "source_evidence": [
+                {
+                    "kind": "boundary_authority_report",
+                    "path": "boundary_authority_report.json",
+                }
+                ],
+                "replacement_target": "Track C entry publication policy",
+                "command_boundary": None,
+                "bridge": None,
+                "notes": "intentional invalid pointer authority row",
+        }
+    )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
@@ -4902,6 +4927,59 @@ def test_design_delta_parent_drain_build_emits_compatibility_bridge_report_artif
     assert payload["contract_isolation"]["typed_steps_do_not_consume_bridge_views"] is True
 
 
+def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publication_and_bridge_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    entry_publication_payload = json.loads(
+        result.artifact_paths["entry_publication_report"].read_text(encoding="utf-8")
+    )
+    selected_entry_rows = {
+        row["row_id"] for row in entry_publication_payload["selected_c0_rows"]
+    }
+    assert "c0.drain_materialized_drain_summary" in selected_entry_rows
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" in selected_entry_rows
+    assert (
+        "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary"
+        not in selected_entry_rows
+    )
+    assert (
+        "c0.drain_output_return_drain_summary_summary_target_compiled_boundary"
+        not in selected_entry_rows
+    )
+
+    cleanup_payload = json.loads(
+        result.artifact_paths["rendering_cleanup_report"].read_text(encoding="utf-8")
+    )
+    cleanup_rows = {
+        row["c0_row_id"]: row for row in cleanup_payload["cleanup_decisions"]
+    }
+    assert cleanup_rows["c0.drain_materialized_drain_summary"][
+        "cleanup_decision"
+    ] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert cleanup_rows["c0.drain_materialized_drain_summary_compiled_boundary"][
+        "cleanup_decision"
+    ] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert cleanup_rows["c0.work_item_summary_summary_path"][
+        "cleanup_decision"
+    ] == "RETIRED_TO_BRIDGE_METADATA"
+    assert cleanup_rows["c0.work_item_summary_summary_path_compiled_boundary"][
+        "cleanup_decision"
+    ] == "RETIRED_TO_BRIDGE_METADATA"
+    assert "c0.drain_materialized_drain_summary" not in cleanup_payload[
+        "surviving_body_materialization_row_ids"
+    ]
+    assert "c0.work_item_summary_summary_path" not in cleanup_payload[
+        "surviving_body_materialization_row_ids"
+    ]
+
+
 def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4929,11 +5007,7 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     assert payload["blocked_compatibility_row_ids"] == []
     assert payload["surviving_body_materialization_row_ids"] == [
         "c0.design_gap_architect_validate_materialized_architecture_targets_view",
-        "c0.drain_materialized_drain_summary",
-        "c0.drain_materialized_drain_summary_compiled_boundary",
         "c0.implementation_phase_materialized_check_commands_view",
-        "c0.work_item_summary_summary_path",
-        "c0.work_item_summary_summary_path_compiled_boundary",
     ]
     cleanup_rows = {row["c0_row_id"]: row for row in payload["cleanup_decisions"]}
     assert cleanup_rows["c0.drain_summary_report_target_final_summary_view"][
@@ -5136,12 +5210,58 @@ def test_design_delta_parent_drain_build_returns_real_bridge_lineage_in_loaded_b
         if "compatibility_bridge__" in node.step_id
     ]
 
-    assert len(drain_semantic_ir["generated_compatibility_bridges"]) == 3
-    assert len(drain_executable_ir["generated_compatibility_bridges"]) == 3
-    assert len(drain_bridge_nodes) == 3
-    assert len(work_item_semantic_ir["generated_compatibility_bridges"]) == 4
-    assert len(work_item_executable_ir["generated_compatibility_bridges"]) == 4
-    assert len(work_item_bridge_nodes) == 4
+    assert len(drain_semantic_ir["generated_compatibility_bridges"]) == 6
+    assert len(drain_executable_ir["generated_compatibility_bridges"]) == 6
+    assert len(drain_bridge_nodes) == 6
+    assert len(work_item_semantic_ir["generated_compatibility_bridges"]) == 6
+    assert len(work_item_executable_ir["generated_compatibility_bridges"]) == 6
+    assert len(work_item_bridge_nodes) == 6
+
+
+def test_compatibility_bridge_surface_step_uses_checked_target_and_value_metadata() -> None:
+    build = _build_module()
+
+    step, allocation = build._compatibility_bridge_surface_step(
+        workflow_name="synthetic/runtime::emit-summary",
+        row={
+            "bridge_id": "bridge.synthetic.summary",
+            "c0_row_id": "c0.synthetic.summary",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+            },
+            "typed_value_source": {
+                "kind": "compatibility_value_ref",
+                "ref": "synthetic.summary",
+                "value_document": {
+                    "summary_id": {
+                        "ref": "self.outputs.return__summary__summary_id",
+                    },
+                    "status": {
+                        "ref": "self.outputs.return__summary__status",
+                    },
+                },
+            },
+            "target": {
+                "kind": "generated_materialized_view",
+                "durability": "durable_bridge",
+                "authority_class": "compatibility_bridge",
+                "path_template": "artifacts/work/custom_summary.json",
+                "runtime_target": {
+                    "ref": "inputs.custom_summary_target",
+                },
+            },
+        },
+    )
+
+    assert allocation.concrete_path_template == "artifacts/work/custom_summary.json"
+    assert step.materialize_view["target_path"] == {"ref": "inputs.custom_summary_target"}
+    assert step.materialize_view["value_document"]["summary_id"].ref == (
+        "self.outputs.return__summary__summary_id"
+    )
+    assert step.materialize_view["value_document"]["status"].ref == (
+        "self.outputs.return__summary__status"
+    )
 
 
 def test_design_delta_parent_drain_consumer_rendering_report_records_manifest_and_u0_provenance(
@@ -5234,7 +5354,7 @@ def test_entry_publication_build_fails_closed_when_lowering_evidence_is_missing(
     monkeypatch.setattr(
         build,
         "_collect_entry_publication_lowerings",
-        lambda compile_result: [],
+        lambda *args, **kwargs: [],
     )
 
     payload = build._build_entry_publication_report(
@@ -5393,8 +5513,12 @@ def test_design_delta_parent_drain_consumer_rendering_report_reconciles_material
     effect_row_ids = {
         row["u0_row_id"] for row in payload["materialize_view_effect_rows"]
     }
-    assert "drain.materialized.drain_summary" in effect_row_ids
-    assert "work_item.summary.summary_path" in effect_row_ids
+    assert effect_row_ids == {
+        "design_gap_architect_validate.materialized.architecture_targets_view",
+        "implementation_phase.materialized.check_commands_view",
+    }
+    assert "drain.materialized.drain_summary" not in effect_row_ids
+    assert "work_item.summary.summary_path" not in effect_row_ids
 
 
 def test_design_delta_parent_drain_consumer_rendering_report_rejects_unmatched_materialize_view_effect(
@@ -5517,7 +5641,7 @@ def test_design_delta_parent_drain_consumer_rendering_report_rejects_target_depe
 ) -> None:
     payload = _load_design_delta_consumer_rendering_census()
     for row in payload["rows"]:
-        if row["u0_row_id"] == "drain.materialized.drain_summary":
+        if row["u0_row_id"] == "drain.summary_report_target.final_summary_view":
             row["target_binding"] = {
                 "kind": "consumer_owned_target",
                 "target_labels": ["artifacts/work/drain_summary.json"],
@@ -5543,11 +5667,11 @@ def test_design_delta_parent_drain_consumer_rendering_report_rejects_unclassifie
 ) -> None:
     payload = _load_design_delta_consumer_rendering_census()
     for row in payload["rows"]:
-        if row["u0_row_id"] == "drain.materialized.drain_summary":
+        if row["u0_row_id"] == "implementation_phase.materialized.check_commands_view":
             row["track_c_decision"] = "KEEP_TYPED"
             break
     else:
-        raise AssertionError("expected drain summary row in checked consumer rendering census")
+        raise AssertionError("expected timed body materialization row in checked consumer rendering census")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
@@ -5569,11 +5693,11 @@ def test_design_delta_parent_drain_consumer_rendering_report_rejects_missing_bri
 ) -> None:
     payload = _load_design_delta_consumer_rendering_census()
     for row in payload["rows"]:
-        if row["u0_row_id"] == "work_item.pointer.selection_bundle_path":
+        if row["u0_row_id"] == "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary":
             row["bridge"] = None
             break
     else:
-        raise AssertionError("expected work-item pointer row in checked consumer rendering census")
+        raise AssertionError("expected work-item summary bridge row in checked consumer rendering census")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(

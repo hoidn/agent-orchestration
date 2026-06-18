@@ -58,11 +58,11 @@
     },
     {
       "c0_row_id": "c0.drain_materialized_drain_summary",
-      "decision": "KEEP_TIMED_PUBLICATION"
+      "decision": "RETIRED_TO_ENTRY_PUBLICATION"
     },
     {
       "c0_row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
-      "decision": "KEEP_TIMED_PUBLICATION"
+      "decision": "RETIRED_TO_ENTRY_PUBLICATION"
     },
     {
       "c0_row_id": "c0.drain_output_return_run_state",
@@ -226,11 +226,11 @@
     },
     {
       "c0_row_id": "c0.work_item_summary_summary_path",
-      "decision": "KEEP_TIMED_PUBLICATION"
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
       "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
-      "decision": "KEEP_TIMED_PUBLICATION"
+      "decision": "RETIRED_TO_BRIDGE_METADATA"
     }
   ]
 }

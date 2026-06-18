@@ -11,7 +11,7 @@
   (import lisp_frontend_design_delta/types :only
     (BaselineDesignDoc DesignDeltaDrainAction DrainLoopTerminal DrainResult DrainState
       DrainSummaryValue DrainTerminalStatus ProgressLedger RunStatePath StateFile
-      StateFileExisting SteeringDoc TargetDesignDoc WorkReport WorkReportTarget))
+      StateFileExisting SteeringDoc TargetDesignDoc WorkReport))
   (import lisp_frontend_design_delta/work_item :only (run-work-item))
   (export drain)
 
@@ -38,12 +38,11 @@
      (architecture_targets ArchitectureTargets)
      (existing_architecture_index_path WorkReport))
     -> DrainResult
-    (let* ((drain-summary-path
-             (__generated-relpath-seed__
-               WorkReportTarget
-               "artifacts/work/drain_summary.json"
-               "design_delta_parent_drain_summary"))
-           (terminal
+    (:publish
+      ((DONE :as drain-summary)
+       (BLOCKED :as drain-summary)
+       (EXHAUSTED :as drain-summary)))
+    (let* ((terminal
              (loop/recur
                :max 3
                :state (record DrainState
@@ -115,41 +114,49 @@
                   (record-drain-terminal-outcome
                     run_state_path
                     DrainTerminalStatus.DONE
-                    ""
-                    drain-summary-path)))
+                    "")))
            (variant DrainResult DONE
              :run-state run_state_path
-             :drain-summary recorded.summary)))
+             :drain-summary (record lisp_frontend_design_delta/types/DrainSummaryValue
+                              :drain_status recorded.drain_status
+                              :drain_status_reason recorded.drain_status_reason
+                              :state_version recorded.state_version))))
         ((BLOCKED blocked)
          (let* ((recorded
                   (record-drain-terminal-outcome
                     run_state_path
                     DrainTerminalStatus.BLOCKED
-                    blocked.reason
-                    drain-summary-path)))
+                    blocked.reason)))
            (variant DrainResult BLOCKED
              :reason blocked.reason
              :run-state run_state_path
-             :drain-summary recorded.summary)))
+             :drain-summary (record lisp_frontend_design_delta/types/DrainSummaryValue
+                              :drain_status recorded.drain_status
+                              :drain_status_reason recorded.drain_status_reason
+                              :state_version recorded.state_version))))
         ((BLOCKED_RECOVERY recovery)
          (let* ((recorded
                   (record-drain-terminal-outcome
                     run_state_path
                     DrainTerminalStatus.BLOCKED
-                    recovery.reason
-                    drain-summary-path)))
+                    recovery.reason)))
            (variant DrainResult BLOCKED
              :reason recovery.reason
              :run-state run_state_path
-             :drain-summary recorded.summary)))
+             :drain-summary (record lisp_frontend_design_delta/types/DrainSummaryValue
+                              :drain_status recorded.drain_status
+                              :drain_status_reason recorded.drain_status_reason
+                              :state_version recorded.state_version))))
         ((EXHAUSTED exhausted)
          (let* ((recorded
                   (record-drain-terminal-outcome
                     run_state_path
                     DrainTerminalStatus.EXHAUSTED
-                    exhausted.reason
-                    drain-summary-path)))
+                    exhausted.reason)))
            (variant DrainResult EXHAUSTED
              :reason exhausted.reason
              :run-state run_state_path
-             :drain-summary recorded.summary)))))))
+             :drain-summary (record lisp_frontend_design_delta/types/DrainSummaryValue
+                              :drain_status recorded.drain_status
+                              :drain_status_reason recorded.drain_status_reason
+                              :state_version recorded.state_version))))))))

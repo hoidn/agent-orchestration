@@ -47,6 +47,7 @@ _PUBLICATION_ROLE_REGISTRY = {
             "role": "drain-summary",
             "renderer_id": "canonical-json",
             "renderer_version": 1,
+            "path_template": "artifacts/work/drain_summary.json",
             "output_contract": {
                 "kind": "relpath",
                 "type": "relpath",

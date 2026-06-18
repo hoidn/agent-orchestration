@@ -132,36 +132,14 @@
       "row_id": "c0.drain_materialized_drain_summary",
       "u0_row_id": "drain.materialized.drain_summary",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
-      "source_kind": "materialized_output",
-      "consumer_lane": "timed_body_materialization",
-      "durability": "durable_timed_body",
-      "renderer": {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value"
-      },
-      "compiled_effect_match": {
-        "step_id_suffix": "__materialize_view__drain_summary_view"
-      },
-      "typed_value_source": {
-        "kind": "sample_value_document",
-        "value_document": {
-          "drain_status": "DONE",
-          "drain_status_reason": "finished",
-          "run_state_path": "state/run_state.json",
-          "summary_target": "artifacts/work/drain_summary.json",
-          "state_version": "lisp_frontend_autonomous_drain_run_state/v1"
-        }
-      },
-      "target_binding": {
-        "kind": "consumer_owned_target",
-        "target_labels": [
-          "artifacts/proof/drain_summary.render_a.json",
-          "artifacts/proof/drain_summary.render_b.json"
-        ]
-      },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
-      "replacement_target": "Track C consumer-side rendering",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -180,39 +158,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Materialized view output remains a representation for human consumption."
+      "notes": "Typed drain summary now publishes through the entry boundary rather than a timed body view."
     },
     {
       "row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
-      "source_kind": "materialized_output",
-      "consumer_lane": "timed_body_materialization",
-      "durability": "durable_timed_body",
-      "renderer": {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value"
-      },
-      "typed_value_source": {
-        "kind": "sample_value_document",
-        "value_document": {
-          "drain_status": "DONE",
-          "drain_status_reason": "finished",
-          "run_state_path": "state/run_state.json",
-          "summary_target": "artifacts/work/drain_summary.json",
-          "state_version": "lisp_frontend_autonomous_drain_run_state/v1"
-        }
-      },
-      "target_binding": {
-        "kind": "consumer_owned_target",
-        "target_labels": [
-          "artifacts/proof/drain_summary.render_a.json",
-          "artifacts/proof/drain_summary.render_b.json"
-        ]
-      },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
-      "replacement_target": "Track C consumer-side rendering",
+      "source_kind": "public_output",
+      "consumer_lane": "entry_publication",
+      "durability": "durable_publication",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
+      "replacement_target": "Track C entry publication policy",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -235,7 +194,7 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Materialized view output remains a representation for human consumption. Compiled boundary inventory mirror of the same consumer surface."
+      "notes": "Typed drain summary now publishes through the entry boundary rather than a timed body view."
     },
     {
       "row_id": "c0.drain_summary_report_target_final_summary_view",
@@ -846,16 +805,13 @@
       "row_id": "c0.work_item_summary_summary_path",
       "u0_row_id": "work_item.summary.summary_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "materialized_output",
-      "consumer_lane": "timed_body_materialization",
-      "durability": "durable_timed_body",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
         "accepted_shape": "any_pure_value"
-      },
-      "compiled_effect_match": {
-        "step_id_suffix": "__materialize_view__work_item_terminal_summary_view"
       },
       "typed_value_source": {
         "kind": "sample_value_document",
@@ -869,12 +825,12 @@
       "target_binding": {
         "kind": "consumer_owned_target",
         "target_labels": [
-          "artifacts/work/work_item_summary.json",
-          "artifacts/work/archive/work_item_summary.json"
+          "artifacts/work/item_summary.json",
+          "artifacts/work/archive/item_summary.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
-      "replacement_target": "Track C consumer-side rendering",
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track C exact-path summary bridge retirement",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -882,16 +838,21 @@
         }
       ],
       "command_boundary": null,
-      "bridge": null,
-      "notes": "Summary path is retained as a rendering seam rather than semantic authority."
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "standalone_summary_reader",
+        "file_shape": "compatibility_file",
+        "retirement_condition": "remove after typed boundary consumers stop requiring the canonical item summary file"
+      },
+      "notes": "Canonical item summary durability is retained through checked bridge metadata rather than body rendering."
     },
     {
       "row_id": "c0.work_item_summary_summary_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "materialized_output",
-      "consumer_lane": "timed_body_materialization",
-      "durability": "durable_timed_body",
+      "source_kind": "bridge_file",
+      "consumer_lane": "compatibility_bridge",
+      "durability": "durable_bridge",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -909,12 +870,12 @@
       "target_binding": {
         "kind": "consumer_owned_target",
         "target_labels": [
-          "artifacts/work/work_item_summary.json",
-          "artifacts/work/archive/work_item_summary.json"
+          "artifacts/work/item_summary.json",
+          "artifacts/work/archive/item_summary.json"
         ]
       },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
-      "replacement_target": "Track C consumer-side rendering",
+      "track_c_decision": "RETIRE_TO_BRIDGE_METADATA",
+      "replacement_target": "Track C exact-path summary bridge retirement",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -926,8 +887,13 @@
         }
       ],
       "command_boundary": null,
-      "bridge": null,
-      "notes": "Summary path is retained as a rendering seam rather than semantic authority. Compiled boundary inventory mirror of the same consumer surface."
+      "bridge": {
+        "bridge_owner": "lisp_frontend_design_delta/work_item",
+        "consumer": "standalone_summary_reader",
+        "file_shape": "compatibility_file",
+        "retirement_condition": "remove after typed boundary consumers stop requiring the canonical item summary file"
+      },
+      "notes": "Canonical item summary durability is retained through checked bridge metadata rather than body rendering."
     },
     {
       "row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path",
