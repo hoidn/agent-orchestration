@@ -679,6 +679,65 @@ projection, transition, publication, and bridge cleanup slices, but it must not
 claim imported `backlog-drain` adoption by re-implementing missing parent-loop
 behavior in family-local adapters or handwritten compatibility wrappers.
 
+#### 9.1.0 Callable-Child Value Return Over Imported `backlog-drain`
+
+For families whose promoted route preserves imported `std/drain::backlog-drain`
+as a callable owner boundary, the shared parent/drain owner lane must first
+prove ordinary typed child value return. A simple call to imported
+`backlog-drain` should return `DrainResult<TSummary>` to the parent without
+requiring terminal publication, summary materialization, compatibility bridge
+writing, run-state-file mutation, or drain-outcome recording as part of value
+return.
+
+The minimum contract is:
+
+- the parent workflow may preserve loop delegation as one call to imported
+  `backlog-drain` while the child owner boundary still owns the `repeat_until`
+  loop and its typed accumulator;
+- the child route may materialize terminal classification from carried loop
+  state and return the typed terminal `DrainResult` without falling back
+  to stale direct `EmitDrain*`-style normalization or caller-owned terminal
+  fan-in;
+- optional terminal effects such as `record-drain-outcome`, public
+  publication, YAML compatibility bridge writing, audit projection, or
+  external resource mutation are expressed as explicit boundary/resource forms
+  outside the core `backlog-drain` value-return contract;
+- shared validation accepts the loop-frame refs, nested-step refs, and
+  exhaustion-carried terminal fields required by that route, with authored
+  exhaustion staying within the accepted `repeat_until` output constraints
+  rather than reopening ad hoc non-scalar terminal overrides; and
+- the route does not depend on family-local wrappers, same-file-only special
+  cases, compiler-name allowlists, rereading compatibility bundles, or
+  compatibility-only marker steps to manufacture the returned value.
+
+The minimum owner-lane proof for this contract is:
+
+- one compile/shared-validation fixture where the parent route lowers to one
+  call to imported `backlog-drain` and the child owner boundary both owns the
+  loop and returns a typed `DrainResult`;
+- one runtime or smoke fixture showing that empty, completed, blocked, and
+  exhausted callable-child terminals return the same typed result shape through
+  ordinary child-call value return; and
+- positive evidence that the accepted route works for both imported and
+  same-file promoted-callable `backlog-drain` authoring shapes without
+  reopening handwritten terminal normalization.
+
+If a family still needs durable terminal effects, those effects are separate
+evidence:
+
+- `:publish` or bridge metadata materializes public/legacy terminal summaries
+  from the returned typed value;
+- a named domain transition records external resource state when there is a
+  real external resource to mutate; and
+- compatibility helpers such as `record-drain-outcome` remain library or bridge
+  helpers, not prerequisites for returning `DrainResult<TSummary>`.
+
+Until that proof exists, a family may still adopt request-record, projection,
+transition, publication, and bridge cleanup slices, but it must not claim full
+imported `backlog-drain` adoption on the callable owner-boundary route when the
+child terminal value path still depends on compatibility-only normalization,
+run-state-file side effects, or family-local repair wrappers.
+
 #### 9.1.1 Parent Terminal Reprojection Over Imported `backlog-drain`
 
 For families whose public or parity-constrained terminal boundary still differs
@@ -1177,6 +1236,11 @@ ladder:
   selected-item routing, direct selector-blocked termination,
   gap/recovery-to-selector re-entry, and authored exhaustion without
   family-local loop emulation;
+- shared callable-child value-return proof, when the promoted route
+  preserves imported `backlog-drain` as a callable owner boundary, showing the
+  child route returns `DrainResult<TSummary>` through ordinary child-call value
+  return with valid loop-frame and exhaustion-carried terminal state instead of
+  stale direct terminal normalization or terminal side-effect machinery;
 - shared gap-drafter callable-boundary proof, when the family intends to reach
   imported `backlog-drain`'s selector `GAP` branch, showing the fixed
   `DrainCtx + gap payload` `gap-drafter` boundary accepts typed gap payload
@@ -1212,6 +1276,8 @@ The target is complete only when the Design Delta Drain `.orc` family:
 - can be dry-run or smoke-run as a parent-callable workflow family;
 - uses imported `backlog-drain` only where the shared stdlib parent-loop
   contract already preserves the selected family's required routing semantics,
+  where any promoted callable owner-boundary route already satisfies the
+  shared child value-return contract,
   where any reachable selector `GAP` lane already satisfies the fixed
   `gap-drafter` callable-boundary contract, and, when needed, the shared
   parent terminal reprojection contract already allows typed terminal
@@ -1319,6 +1385,11 @@ This target succeeds when:
   discoverable;
 - the Design Delta Drain `.orc` family has a working parent-callable
   translation following this design;
+- when the promoted route preserves imported `backlog-drain` as a callable
+  owner boundary, the child owner workflow returns typed terminal
+  `DrainResult<TSummary>` values with carried loop-state terminal data rather
+  than through compatibility-only direct terminal normalization or mandatory
+  terminal side-effect machinery;
 - when the reference family reaches the imported `backlog-drain` selector
   `GAP` branch, that route passes through the fixed stdlib `gap-drafter`
   callable boundary via shared owner-lane support, with generic carriage of
@@ -1386,6 +1457,12 @@ Revise this target if implementation requires:
 - hiding resource mutation in uncertified adapters;
 - emulating missing shared `backlog-drain` parent-loop behavior in family-local
   adapters instead of proving the owner-lane contract;
+- working around missing shared callable-child value-return support by
+  restoring direct `EmitDrain*`-style terminal normalization, family-local
+  finalizer wrappers, same-file-only terminal special cases, or ad hoc
+  exhaustion overrides, or by making `record-drain-outcome`/publication/bridge
+  side effects prerequisites for simple `DrainResult<TSummary>` return instead
+  of landing the separate prerequisite gap in Section 9.1.0;
 - working around missing shared `gap-drafter` callable-boundary support by
   widening the imported `gap-drafter` workflow-ref shape, flattening typed gap
   payloads into public or path-heavy parameters, rereading compatibility
