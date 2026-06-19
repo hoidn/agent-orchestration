@@ -1505,11 +1505,20 @@ def _phase_stdlib_lower_backlog_drain_impl(
         f"return__{field_name}": dict(contract)
         for field_name, contract in context.return_output_contracts.items()
     }
+    terminal_status_contract = {
+        "kind": "scalar",
+        "type": "enum",
+        "allowed": ["EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED"],
+    }
 
     def _lower_terminal_finalizer_case(
         *,
         case_name: str,
         terminal_variant: str,
+        terminal_items_ref: str,
+        terminal_run_state_ref: str,
+        terminal_progress_ref: str,
+        terminal_blocker_ref: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         case_context = _copy_context_with_step_prefix(
             context,
@@ -1542,35 +1551,145 @@ def _phase_stdlib_lower_backlog_drain_impl(
     normalize_step_name = f"{step_name}__normalize_result"
     normalize_step_id = _normalize_generated_step_id(normalize_step_name)
     _record_step_origin(context, step_name=normalize_step_name, step_id=normalize_step_id, source=expr)
-    terminal_items_ref = f"root.steps.{step_name}.artifacts.acc__items-processed"
-    terminal_run_state_ref = f"root.steps.{step_name}.artifacts.acc__run-state"
-    terminal_progress_ref = f"root.steps.{step_name}.artifacts.acc__progress-report-path"
-    terminal_blocker_ref = f"root.steps.{step_name}.artifacts.acc__blocker-class"
+    accumulator_items_ref = f"root.steps.{step_name}.artifacts.acc__items-processed"
+    accumulator_run_state_ref = f"root.steps.{step_name}.artifacts.acc__run-state"
+    accumulator_progress_ref = f"root.steps.{step_name}.artifacts.acc__progress-report-path"
+    accumulator_blocker_ref = f"root.steps.{step_name}.artifacts.acc__blocker-class"
+    terminal_carrier_step_name = f"{step_name}__terminal_carrier"
+    terminal_carrier_step_id = _normalize_generated_step_id(terminal_carrier_step_name)
+    terminal_items_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__items-processed"
+    terminal_run_state_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__run-state"
+    terminal_progress_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__progress-report-path"
+    terminal_blocker_ref = f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__blocker-class"
+
+    def _terminal_carrier_case(*, source_status: str, terminal_status: str) -> dict[str, Any]:
+        case_step_name = f"{terminal_carrier_step_name}__{source_status.lower()}"
+        case_step_id = _normalize_generated_step_id(case_step_name)
+        materialize_step_name = f"{case_step_name}__materialize"
+        materialize_step_id = _normalize_generated_step_id(materialize_step_name)
+        outputs = {
+            "terminal__variant": {
+                **terminal_status_contract,
+                "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__variant"},
+            },
+            "terminal__items-processed": {
+                **dict(items_processed_contract),
+                "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__items-processed"},
+            },
+            "terminal__run-state": {
+                **dict(accumulator_run_state_contract),
+                "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__run-state"},
+            },
+            "terminal__progress-report-path": {
+                **dict(accumulator_progress_contract),
+                "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__progress-report-path"},
+            },
+            "terminal__blocker-class": {
+                **dict(accumulator_blocker_contract),
+                "from": {"ref": f"self.steps.{materialize_step_name}.artifacts.terminal__blocker-class"},
+            },
+        }
+        return {
+            "id": case_step_id,
+            "outputs": outputs,
+            "steps": [
+                _materialize_outputs_step(
+                    name=materialize_step_name,
+                    step_id_value=materialize_step_id,
+                    values=[
+                        {
+                            "name": "terminal__variant",
+                            "source": {"literal": terminal_status},
+                            "contract": dict(terminal_status_contract),
+                        },
+                        {
+                            "name": "terminal__items-processed",
+                            "source": {"ref": accumulator_items_ref},
+                            "contract": dict(items_processed_contract),
+                        },
+                        {
+                            "name": "terminal__run-state",
+                            "source": {"ref": accumulator_run_state_ref},
+                            "contract": dict(accumulator_run_state_contract),
+                        },
+                        {
+                            "name": "terminal__progress-report-path",
+                            "source": {"ref": accumulator_progress_ref},
+                            "contract": dict(accumulator_progress_contract),
+                        },
+                        {
+                            "name": "terminal__blocker-class",
+                            "source": {"ref": accumulator_blocker_ref},
+                            "contract": dict(accumulator_blocker_contract),
+                        },
+                    ],
+                )
+            ],
+        }
+
+    terminal_carrier_step = {
+        "name": terminal_carrier_step_name,
+        "id": terminal_carrier_step_id,
+        "match": {
+            "ref": f"root.steps.{step_name}.artifacts.acc__loop-status",
+            "cases": {
+                "EMPTY": _terminal_carrier_case(source_status="EMPTY", terminal_status="EMPTY"),
+                "COMPLETED": _terminal_carrier_case(source_status="COMPLETED", terminal_status="COMPLETED"),
+                "BLOCKED": _terminal_carrier_case(source_status="BLOCKED", terminal_status="BLOCKED"),
+                "EXHAUSTED": _terminal_carrier_case(source_status="EXHAUSTED", terminal_status="EXHAUSTED"),
+                # Shared validation cannot infer the repeat_until exit predicate,
+                # so keep an explicit exhaustive fallback while still narrowing
+                # the helper-owned lane to terminal-only statuses.
+                "CONTINUE": _terminal_carrier_case(source_status="CONTINUE", terminal_status="EXHAUSTED"),
+            },
+        },
+    }
+    _record_step_origin(
+        context,
+        step_name=terminal_carrier_step_name,
+        step_id=terminal_carrier_step_id,
+        source=expr,
+    )
     empty_steps, empty_outputs = _lower_terminal_finalizer_case(
         case_name="empty",
         terminal_variant="EMPTY",
+        terminal_items_ref=terminal_items_ref,
+        terminal_run_state_ref=terminal_run_state_ref,
+        terminal_progress_ref=terminal_progress_ref,
+        terminal_blocker_ref=terminal_blocker_ref,
     )
     completed_steps, completed_outputs = _lower_terminal_finalizer_case(
         case_name="completed",
         terminal_variant="COMPLETED",
+        terminal_items_ref=terminal_items_ref,
+        terminal_run_state_ref=terminal_run_state_ref,
+        terminal_progress_ref=terminal_progress_ref,
+        terminal_blocker_ref=terminal_blocker_ref,
     )
     blocked_steps, blocked_outputs = _lower_terminal_finalizer_case(
         case_name="blocked",
         terminal_variant="BLOCKED",
+        terminal_items_ref=terminal_items_ref,
+        terminal_run_state_ref=terminal_run_state_ref,
+        terminal_progress_ref=terminal_progress_ref,
+        terminal_blocker_ref=terminal_blocker_ref,
     )
     exhausted_steps, exhausted_outputs = _lower_terminal_finalizer_case(
         case_name="exhausted",
         terminal_variant="EXHAUSTED",
+        terminal_items_ref=terminal_items_ref,
+        terminal_run_state_ref=terminal_run_state_ref,
+        terminal_progress_ref=terminal_progress_ref,
+        terminal_blocker_ref=terminal_blocker_ref,
     )
-    continue_steps, continue_outputs = _lower_terminal_finalizer_case(
-        case_name="continue",
-        terminal_variant="EXHAUSTED",
-    )
+    # The loop owns non-terminal CONTINUE carriage. Once repeat_until exits, the
+    # accumulator must already represent one canonical terminal carrier, and the
+    # shared helper owns all terminal side effects from that point onward.
     normalize_step = {
         "name": normalize_step_name,
         "id": normalize_step_id,
         "match": {
-            "ref": f"root.steps.{step_name}.artifacts.acc__loop-status",
+            "ref": f"root.steps.{terminal_carrier_step_name}.artifacts.terminal__variant",
             "cases": {
                 "EMPTY": {
                     "id": _normalize_generated_step_id(f"{normalize_step_name}__empty"),
@@ -1592,20 +1711,15 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     "outputs": exhausted_outputs,
                     "steps": exhausted_steps,
                 },
-                "CONTINUE": {
-                    "id": _normalize_generated_step_id(f"{normalize_step_name}__continue"),
-                    "outputs": continue_outputs,
-                    "steps": continue_steps,
-                },
             },
         },
     }
     _record_missing_step_origins(
         context,
-        [seed_items_processed_step, loop_state_seed_step, repeat_step, normalize_step],
+        [seed_items_processed_step, loop_state_seed_step, repeat_step, terminal_carrier_step, normalize_step],
         source=expr,
     )
-    return [seed_items_processed_step, loop_state_seed_step, repeat_step, normalize_step], _TerminalResult(
+    return [seed_items_processed_step, loop_state_seed_step, repeat_step, terminal_carrier_step, normalize_step], _TerminalResult(
         step_name=normalize_step_name,
         step_id=normalize_step_id,
         output_refs={

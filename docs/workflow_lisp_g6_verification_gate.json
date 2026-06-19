@@ -29,7 +29,7 @@
     {
       "suite": "tests/test_workflow_lisp_drain_stdlib.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Landed intrinsic backlog-drain route that later hook-redundancy evidence compares against."
+      "reason": "Promoted callable std/drain owner-boundary proof covering parent-to-child delegation, child-owned repeat_until structure, and shared terminal-finalization parity."
     },
     {
       "suite": "tests/test_workflow_lisp_resource_stdlib.py",
