@@ -755,6 +755,12 @@ separates four lanes:
   declared resource effects, artifacts, resume/reuse behavior, and accepted
   bridges without becoming internal authoring semantics.
 
+Pure helpers, effectful procedures, and workflow entrypoints share the same
+typed return-value model. A `defworkflow` is special because it is an
+executable/resumable boundary with declared effects and runtime evidence, not
+because return values are transported through publication, bridge, or
+terminal-finalization machinery.
+
 Any proposed `record-drain-outcome`-style helper must first answer which
 consumer it serves:
 
@@ -772,7 +778,10 @@ not be required for `DrainResult<TSummary>` return.
 
 For families whose public or parity-constrained terminal boundary still differs
 from stdlib `DrainResult`, the shared parent-loop lane must also prove one
-accepted terminal reprojection route. The minimum contract is:
+accepted terminal reprojection route. When the family/public boundary also
+omits or renames a child terminal field that exists on the imported stdlib
+result, Section 9.1.1.1 is a separate narrower prerequisite inside this lane.
+The minimum contract is:
 
 - a parent workflow may place imported `backlog-drain` either as the terminal
   workflow body expression or as the input to one ordinary typed terminal
@@ -803,6 +812,50 @@ Until that proof exists, a family may still adopt request-record, projection,
 transition, publication, and bridge cleanup slices, but it must not claim full
 imported `backlog-drain` adoption when the only remaining route depends on
 unsupported local-control nesting or a restored handwritten terminal fan-in.
+
+##### 9.1.1.1 Branch-Local Terminal Contract Alignment
+
+For families whose public or parity-constrained terminal boundary omits,
+renames, or otherwise does not preserve every imported stdlib terminal field
+verbatim, the shared parent/drain owner lane must also prove one accepted
+branch-local contract-alignment route before the broader parent terminal
+reprojection claim counts as satisfied.
+
+The minimum contract is:
+
+- a parent workflow may `match` the imported stdlib `DrainResult`, consume a
+  branch-local child field such as `blocker-class`, carried evidence, or a
+  stdlib-only classification payload, and then construct the family/public
+  terminal result without re-exporting that field verbatim;
+- the family/public terminal union does not need to mirror every stdlib child
+  field name or carry every child-only field as a public output, provided the
+  projection uses those fields through ordinary typed/proved bindings while the
+  imported variant scope is still active;
+- source maps, `requires_variant` provenance, executable contract lineage, and
+  boundary-authority labeling remain attached from the imported stdlib result
+  through that branch-local field consumption and into the projected terminal
+  value or boundary publication; and
+- the accepted route does not depend on widening the family/public boundary
+  solely to echo stdlib child fields, on same-file-only terminal
+  normalization, on family-local wrapper workflows, on handwritten
+  drain-terminal fan-in, or on compatibility-bundle rereads to recover a
+  dropped field.
+
+The minimum owner-lane proof for this contract is:
+
+- one compile/shared-validation fixture where imported `backlog-drain` reaches
+  a nontrivial terminal variant whose payload includes at least one field not
+  preserved verbatim by the family/public boundary;
+- one ordinary typed `match` route where the parent consumes that field and
+  produces the family/public terminal union or publication policy result
+  without adding the child field to the public boundary just for transport; and
+- preserved source-map and boundary-authority evidence for both the imported
+  child result and the projected parent terminal value.
+
+Until that proof exists, a family may not treat a simpler terminal
+reprojection fixture as sufficient when its actual public/parity boundary still
+depends on consuming a stdlib child field that is omitted or renamed at the
+family boundary.
 
 #### 9.1.2 Gap-Drafter Callable-Boundary Over Imported `backlog-drain`
 
@@ -1286,6 +1339,11 @@ ladder:
   including generic record-leaf carriage for richer multi-field payloads,
   without widened arity, public path threading, compatibility-bundle rereads,
   or family-local payload-smuggling wrappers;
+- shared branch-local terminal contract-alignment proof, when the
+  family/public boundary omits or renames a stdlib child terminal field such
+  as `blocker-class`, showing the parent may consume that field inside the
+  imported-variant proof scope and still project to the family/public boundary
+  without widening that boundary just for field transport;
 - shared parent terminal reprojection proof, when the family/public boundary
   still differs from stdlib `DrainResult`, showing the imported
   `backlog-drain` result can reach the family terminal boundary through one
@@ -1317,7 +1375,11 @@ The target is complete only when the Design Delta Drain `.orc` family:
   where any promoted callable owner-boundary route already satisfies the
   shared child value-return contract,
   where any reachable selector `GAP` lane already satisfies the fixed
-  `gap-drafter` callable-boundary contract, and, when needed, the shared
+  `gap-drafter` callable-boundary contract,
+  where, when needed, the shared branch-local terminal contract-alignment
+  contract already allows parent reprojection to consume stdlib child terminal
+  fields that are omitted or renamed at the family/public boundary,
+  and, when needed, the shared
   parent terminal reprojection contract already allows typed terminal
   projection to the family/public boundary without unsupported local-control
   nesting or handwritten family loop/fan-in reimplementation;
@@ -1436,6 +1498,13 @@ This target succeeds when:
 - when the family/public terminal boundary differs from stdlib `DrainResult`,
   that difference is resolved through a shared typed terminal reprojection lane
   rather than family-local control nesting around imported `backlog-drain`;
+- when that differing family/public boundary omits or renames a stdlib child
+  terminal field such as `blocker-class`, the parent may still consume that
+  field through a shared branch-local contract-alignment lane rather than by
+  widening the family boundary or introducing wrapper transport;
+- parent composition consumes child workflow results as ordinary typed values;
+  publication, bridge generation, resource transitions, and adapter calls are
+  declared effects over those values, not prerequisites for returning them;
 - the common drain body uses named domain operations rather than exposing
   routine runtime bookkeeping;
 - typed provider request records replace long positional provider input lists
@@ -1514,6 +1583,12 @@ Revise this target if implementation requires:
 - working around missing shared parent terminal reprojection support by nesting
   imported `backlog-drain` under family-local post-projection control wrappers
   or by restoring handwritten drain-terminal fan-in instead of landing the
+  separate prerequisite gap;
+- working around missing shared branch-local terminal contract alignment by
+  widening the family/public terminal union just to mirror stdlib child fields
+  such as `blocker-class`, or by adding same-file-only reprojection hooks,
+  wrapper workflows, or compatibility-bundle rereads whose only purpose is to
+  preserve those fields across the parent boundary instead of landing the
   separate prerequisite gap;
 - widening the imported `backlog-drain` `run-item` workflow-ref shape or
   depending on proof-fixture-specific child-phase caller allowlists instead of
