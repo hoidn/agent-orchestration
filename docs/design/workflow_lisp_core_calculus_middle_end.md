@@ -385,8 +385,10 @@ Notes:
 - Every construct carries a type and an effect row. `atom` and `inject` are
   pure. `perform` and `call` carry rows from their declarations. `let`,
   `case`, `join`, and `jump` propagate rows by union.
-- `case` arm bodies typecheck with the arm's variant proof in scope; field
-  access on the scrutinee outside a proving arm is a type error.
+- `case` arm bodies typecheck with refined arm bindings plus the arm's variant
+  proof in metadata. In surface terms, `((BLOCKED blocked) ...)` binds
+  `blocked` as the `BLOCKED` payload; field access on the scrutinee outside a
+  proving arm remains a type error.
 - A branch returning union type `T` must end in `inject T.V {...}`, a `jump`
   to a join point whose parameters carry `T`, a `call` returning `T`, or
   `halt`. The returned `inject` (or the called procedure's returns) decides

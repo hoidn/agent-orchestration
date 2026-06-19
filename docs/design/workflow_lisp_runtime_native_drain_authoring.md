@@ -708,6 +708,9 @@ The shared phase-family route must also support the ordinary work-item branch
 shape that imported `backlog-drain` families actually need after the fixed
 `run-item` entrypoint is in place. The minimum contract is:
 
+- the authored surface is ordinary refined pattern matching: inside
+  `((BLOCKED blocked) ...)`, `blocked` has the `BLOCKED` payload type; authors
+  should not need to reason about explicit proof tokens except in diagnostics;
 - a work-item workflow may call an imported child phase workflow, bind the
   returned union result, and immediately `match` that binding on the ordinary
   WCC/schema-2 route;
@@ -738,6 +741,17 @@ Until that proof exists, a family may still adopt the parent-loop, request-
 record, projection, transition, publication, and bridge slices that do not
 depend on this branching shape, but it must not claim completion of the
 simplified item-context-first child-phase reuse route.
+
+Feasibility: this does not require a new language feature beyond the accepted
+WCC route. Surface `match` already elaborates to WCC `case`, `case` opens the
+variant/refinement scope, and join parameters are the normal way for branch
+results to leave that scope. The implementation work is to make the existing
+refined match-binder model complete for called-workflow results, nested
+finalizers, and terminal reprojection, with source maps and shared-validation
+proof metadata generated from those lexical bindings. A fix that exposes proof
+tokens as authored values, adds caller-name-specific proof allowlists, or
+requires branch-local bundle rereads is a compatibility workaround, not the
+target shape.
 
 ### 9.3 Shared `std/phase` Owner-Lane Self-Hosting Prerequisite
 
