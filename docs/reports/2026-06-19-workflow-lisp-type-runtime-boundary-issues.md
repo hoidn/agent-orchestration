@@ -260,6 +260,37 @@ Implication: design docs should separate the author-facing model from
 compiler/runtime implementation obligations. The surface should be small even
 when the implementation evidence is detailed.
 
+### 9. Workflow and function semantics should share typed return values
+
+Separating typed return values from publication weakens the old reason for
+treating workflows as a different semantic universe from ordinary functions.
+A workflow body should evaluate to a typed value the same way a pure helper or
+effectful procedure does. Publication, bridge generation, resource mutation,
+adapter execution, and audit emission are external effects attached to a
+boundary or explicit effect form, not the mechanism that makes return work.
+
+The remaining distinction is operational, not value-semantic:
+
+- a pure helper has an empty effect set and can be checked as deterministic
+  typed expression/projection logic;
+- an effectful procedure may call providers, commands, child workflows,
+  transitions, or publications and must expose those effects to WCC, shared
+  validation, Semantic IR, source maps, and runtime validators; and
+- a workflow entrypoint is a resumable/public executable boundary with runtime
+  context, checkpointing, observability, artifact lineage, failure policy, and
+  declared publication/bridge/resource effects.
+
+This means `(publish result)` can remain a low-level or timed/intermediate
+effect form, but ordinary terminal publication should usually be boundary
+policy over the returned value. A parent workflow should not need a publication
+or `record-drain-outcome`-style side effect merely to receive a typed child
+result.
+
+Implication: the final authoring model should converge toward one expression
+language with typed return semantics and tracked effects. `defworkflow`,
+`defproc`, and pure helpers should differ mainly by effect set, resumability,
+exported boundary metadata, and runtime evidence obligations.
+
 ## Root Cause Interpretation
 
 The root cause is an impedance mismatch between a typed, lexical, expression
@@ -336,6 +367,14 @@ type definitions and refined WCC bindings
    - make a stdlib drain projection pass only through name-specific compiler
      handling and confirm the generic route catches it.
 
+9. Keep typed return semantics common across pure helpers, procedures, and
+   workflows.
+
+   Workflows should be special because they are effectful, resumable,
+   observable executable boundaries, not because they return values through a
+   different mechanism. Publication and bridge effects should consume returned
+   typed values; they should not be required for parent composition.
+
 ## Open Questions
 
 - How much of the executable output contract can be generated directly from
@@ -350,6 +389,10 @@ type definitions and refined WCC bindings
 - Should the frontend spec explicitly rename author-facing "proof-gated field
   access" to "refined match binders" while retaining proof terminology for
   internal metadata?
+- Should the frontend spec make the effect-set distinction explicit enough
+  that pure helpers, effectful procedures, and workflow entrypoints share one
+  return-value model while differing by resumability and runtime boundary
+  obligations?
 
 ## Bottom Line
 
