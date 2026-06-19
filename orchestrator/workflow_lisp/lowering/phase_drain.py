@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
+from types import SimpleNamespace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -39,7 +41,6 @@ from ..expressions import (
     ProduceOneOfExpr,
     ProviderResultExpr,
     RecordExpr,
-    ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
@@ -53,7 +54,16 @@ from ..spans import SourceSpan
 from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
-from ..workflows import CertifiedAdapterBinding, PromptExtern, ProviderExtern, analyze_workflow_boundary_type
+from ..workflows import (
+    CertifiedAdapterBinding,
+    PromptExtern,
+    ProviderExtern,
+    WorkflowDef,
+    WorkflowParam,
+    WorkflowSignature,
+    TypedWorkflowDef,
+    analyze_workflow_boundary_type,
+)
 from . import core as lowering_core
 from .context import (
     _ActivePhaseScope,
@@ -63,6 +73,7 @@ from .context import (
     _TerminalResult,
 )
 from .effects import _lower_provider_result
+from .drain_terminal import lower_shared_drain_terminal_result
 from .origins import LoweringOrigin, _rekey_origin_map
 from .phase_flow import _build_match_projection_anchor_step, _provider_metadata_names
 from .phase_scope import (
@@ -72,7 +83,12 @@ from .phase_scope import (
     _render_repeat_until_max_iterations,
     _same_file_workflow_provider_requirements,
 )
-from .values import _assign_nested_local_value, _render_existing_output_ref, _resolve_inline_expr_value
+from .values import (
+    _assign_nested_local_value,
+    _build_output_step_local_value,
+    _render_existing_output_ref,
+    _resolve_inline_expr_value,
+)
 
 
 def _compile_error(*args, **kwargs):
@@ -159,6 +175,205 @@ def _join_ref_path(*args, **kwargs):
 
 def _resolve_nested_local_value(*args, **kwargs):
     return lowering_core._resolve_nested_local_value(*args, **kwargs)
+
+
+def _runtime_proof_generated_source(source: object) -> object:
+    if getattr(source, "expansion_stack", ()):
+        return source
+    return SimpleNamespace(
+        span=getattr(source, "span"),
+        form_path=getattr(source, "form_path", ()),
+        expansion_stack=(object(),),
+    )
+
+
+def _record_compatibility_backlog_drain_hit() -> None:
+    from .control_dispatch import record_intrinsic_form_lowering
+
+    record_intrinsic_form_lowering("backlog-drain")
+
+
+def _callable_backlog_drain_enabled(
+    *,
+    expr: BacklogDrainExpr,
+    context: _LoweringContext,
+) -> bool:
+    return bool(expr.spec.preserve_owner_boundary and context.lowering_schema_version not in (None, 1))
+
+
+def _callable_backlog_drain_workflow_name() -> str:
+    return "std/drain::backlog-drain"
+
+
+def _semantic_specialization_identity(value: object) -> str:
+    if is_dataclass(value):
+        return (
+            f"{type(value).__name__}("
+            + ",".join(
+                f"{field.name}={_semantic_specialization_identity(getattr(value, field.name))}"
+                for field in fields(value)
+                if field.name not in {"span", "form_path", "expansion_stack"}
+            )
+            + ")"
+        )
+    if isinstance(value, tuple):
+        return "(" + ",".join(_semantic_specialization_identity(item) for item in value) + ")"
+    if isinstance(value, list):
+        return "[" + ",".join(_semantic_specialization_identity(item) for item in value) + "]"
+    if isinstance(value, Mapping):
+        return (
+            "{"
+            + ",".join(
+                f"{_semantic_specialization_identity(key)}:{_semantic_specialization_identity(value[key])}"
+                for key in sorted(value, key=repr)
+            )
+            + "}"
+        )
+    if isinstance(value, frozenset):
+        return "frozenset(" + ",".join(sorted(_semantic_specialization_identity(item) for item in value)) + ")"
+    return repr(value)
+
+
+def _callable_backlog_drain_specialization_key(
+    *,
+    ctx_type: TypeRef,
+    return_type: TypeRef,
+    selector_call_target: str,
+    run_item_call_target: str,
+    gap_drafter_call_target: str,
+    max_iterations_expr: object,
+) -> tuple[object, ...]:
+    return (
+        getattr(ctx_type, "name", None),
+        getattr(return_type, "name", None),
+        selector_call_target,
+        run_item_call_target,
+        gap_drafter_call_target,
+        _semantic_specialization_identity(max_iterations_expr),
+    )
+
+
+def _generated_callable_backlog_drain_matches_specialization(
+    workflow: TypedWorkflowDef | None,
+    *,
+    specialization_key: tuple[object, ...],
+) -> bool:
+    if workflow is None:
+        return False
+    typed_body_expr = getattr(workflow.typed_body, "expr", None)
+    if not isinstance(typed_body_expr, BacklogDrainExpr):
+        return False
+    return _callable_backlog_drain_specialization_key(
+        ctx_type=workflow.signature.params[0][1],
+        return_type=workflow.signature.return_type_ref,
+        selector_call_target=typed_body_expr.spec.selector_name,
+        run_item_call_target=typed_body_expr.spec.run_item_name,
+        gap_drafter_call_target=typed_body_expr.spec.gap_drafter_name,
+        max_iterations_expr=typed_body_expr.spec.max_iterations_expr,
+    ) == specialization_key
+
+
+def _specialized_callable_backlog_drain_workflow_name(
+    specialization_key: tuple[object, ...],
+) -> str:
+    digest = hashlib.sha1(repr(specialization_key).encode("utf-8")).hexdigest()[:12]
+    return f"{_callable_backlog_drain_workflow_name()}__{digest}"
+
+
+def _is_generated_callable_backlog_drain_workflow(workflow_name: str) -> bool:
+    base_name = _callable_backlog_drain_workflow_name()
+    return workflow_name == base_name or workflow_name.startswith(f"{base_name}__")
+
+
+def _compatibility_backlog_drain_accounting_enabled(*, context: _LoweringContext) -> bool:
+    return not _is_generated_callable_backlog_drain_workflow(context.workflow_name)
+
+
+def _ensure_callable_backlog_drain_workflow(
+    *,
+    typed_expr: TypedExpr,
+    context: _LoweringContext,
+    ctx_type: TypeRef,
+    selector_call_target: str,
+    run_item_call_target: str,
+    gap_drafter_call_target: str,
+) -> str:
+    expr = typed_expr.expr
+    assert isinstance(expr, BacklogDrainExpr)
+    specialization_key = _callable_backlog_drain_specialization_key(
+        ctx_type=ctx_type,
+        return_type=typed_expr.type_ref,
+        selector_call_target=selector_call_target,
+        run_item_call_target=run_item_call_target,
+        gap_drafter_call_target=gap_drafter_call_target,
+        max_iterations_expr=expr.spec.max_iterations_expr,
+    )
+    workflow_name = _callable_backlog_drain_workflow_name()
+    existing_shared_workflow = context.workflows_by_name.get(workflow_name)
+    if _generated_callable_backlog_drain_matches_specialization(
+        existing_shared_workflow,
+        specialization_key=specialization_key,
+    ):
+        return workflow_name
+    if existing_shared_workflow is not None:
+        workflow_name = _specialized_callable_backlog_drain_workflow_name(specialization_key)
+        if context.workflows_by_name.get(workflow_name) is not None:
+            return workflow_name
+
+    child_expr = BacklogDrainExpr(
+        spec=replace(
+            expr.spec,
+            ctx_expr=NameExpr(
+                name="ctx",
+                span=expr.spec.ctx_expr.span,
+                form_path=expr.spec.ctx_expr.form_path,
+                expansion_stack=expr.spec.ctx_expr.expansion_stack,
+            ),
+            selector_name=selector_call_target,
+            run_item_name=run_item_call_target,
+            gap_drafter_name=gap_drafter_call_target,
+            providers_expr=expr.spec.providers_expr,
+            preserve_owner_boundary=False,
+        ),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    child_workflow = TypedWorkflowDef(
+        definition=WorkflowDef(
+            name=workflow_name,
+            params=(
+                WorkflowParam(
+                    name="ctx",
+                    type_name=getattr(ctx_type, "name", "DrainCtx"),
+                    span=expr.spec.ctx_expr.span,
+                    form_path=expr.spec.ctx_expr.form_path,
+                    expansion_stack=expr.spec.ctx_expr.expansion_stack,
+                ),
+            ),
+            return_type_name=getattr(typed_expr.type_ref, "name", "DrainResult"),
+            body=child_expr,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        signature=WorkflowSignature(
+            name=workflow_name,
+            params=(("ctx", ctx_type),),
+            return_type_ref=typed_expr.type_ref,
+            span=expr.span,
+            form_path=expr.form_path,
+        ),
+        typed_body=replace(typed_expr, expr=child_expr),
+        effect_summary=typed_expr.effect_summary,
+    )
+    if isinstance(context.workflows_by_name, dict):
+        context.workflows_by_name[workflow_name] = child_workflow
+    if isinstance(context.workflow_catalog.signatures_by_name, dict):
+        context.workflow_catalog.signatures_by_name[workflow_name] = child_workflow.signature
+    if isinstance(context.workflow_catalog.definitions_by_name, dict):
+        context.workflow_catalog.definitions_by_name[workflow_name] = child_workflow.definition
+    return workflow_name
 
 
 
@@ -268,12 +483,9 @@ def _phase_stdlib_lower_backlog_drain_impl(
         expr,
         context=context,
         local_values=local_values,
-        selector_workflow=selector_callee.typed_workflow if selector_callee is not None else None,
-        run_item_workflow=run_item_callee.typed_workflow if run_item_callee is not None else None,
-        gap_drafter_workflow=gap_drafter_callee.typed_workflow if gap_drafter_callee is not None else None,
-        selector_imported=selector_imported,
-        run_item_imported=run_item_imported,
-        gap_drafter_imported=gap_drafter_imported,
+        selector_resolved_ref=selector_ref,
+        run_item_resolved_ref=run_item_ref,
+        gap_drafter_resolved_ref=gap_drafter_ref,
     )
     selector_call_target = _specialize_backlog_drain_call_target(
         resolved_ref=selector_ref,
@@ -296,6 +508,32 @@ def _phase_stdlib_lower_backlog_drain_impl(
         context=context,
         local_values=local_values,
     )
+    if _callable_backlog_drain_enabled(expr=expr, context=context):
+        callable_workflow_name = _ensure_callable_backlog_drain_workflow(
+            typed_expr=typed_expr,
+            context=context,
+            ctx_type=selector_signature.params[0][1],
+            selector_call_target=selector_call_target,
+            run_item_call_target=run_item_call_target,
+            gap_drafter_call_target=gap_drafter_call_target,
+        )
+        context.ensure_workflow_lowered(callable_workflow_name)
+        return _lower_call_expr(
+            replace(
+                typed_expr,
+                expr=CallExpr(
+                    callee_name=callable_workflow_name,
+                    bindings=(("ctx", expr.spec.ctx_expr),),
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            ),
+            context=context,
+            local_values=local_values,
+        )
+    if _compatibility_backlog_drain_accounting_enabled(context=context):
+        _record_compatibility_backlog_drain_hit()
     selection_payload_type = run_item_signature.params[1][1]
     if not isinstance(selection_payload_type, RecordTypeRef):
         raise _compile_error(
@@ -384,7 +622,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
     accumulator_status_contract = {
         "kind": "scalar",
         "type": "enum",
-        "allowed": ["CONTINUE", "EMPTY", "COMPLETED", "BLOCKED"],
+        "allowed": ["CONTINUE", "EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED"],
     }
     accumulator_run_state_contract = {
         "kind": "relpath",
@@ -399,7 +637,10 @@ def _phase_stdlib_lower_backlog_drain_impl(
         "must_exist_target": False,
     }
     accumulator_blocker_contract = dict(_return_contract("blocker-class"))
-    placeholder_run_state_ref = "inputs.ctx__manifest"
+    accumulator_blocker_contract.pop("projection", None)
+    selector_blocked_compatibility_blocker = "user_decision_required"
+    seed_run_state_literal = "state/drain-run-state.json"
+    seed_progress_literal = "artifacts/work/drain-progress-report.md"
     placeholder_progress_ref = f"artifacts/work/.orchestrate/workflow_lisp/{step_name}/unused_progress_report.md"
     placeholder_blocker_value = accumulator_blocker_contract["allowed"][0]
     hidden_inputs: dict[str, LoweringOrigin] = {}
@@ -463,7 +704,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
         with_bindings: Mapping[str, Any],
         lowered_callee: LoweredWorkflow | None,
         imported_bundle: LoadedWorkflowBundle | None,
-    ) -> dict[str, Any]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         step = {
             "name": generated_name,
             "id": _normalize_generated_step_id(generated_name),
@@ -476,19 +717,67 @@ def _phase_stdlib_lower_backlog_drain_impl(
             span=expr.span,
             form_path=expr.form_path,
         )
-        step["with"].update(
-            _managed_write_root_bindings(
+        prepare_steps: list[dict[str, Any]] = []
+        if managed_inputs:
+            bundle_input_name = f"__write_root__{step['id']}__managed_write_roots_bundle"
+            hidden_inputs[bundle_input_name] = _origin_from_context_source(context, expr)
+            prepare_step_name = f"{generated_name}__managed_write_roots"
+            prepare_step_id = _normalize_generated_step_id(prepare_step_name)
+            binding_values = _managed_write_root_bindings(
                 caller_workflow_name=context.workflow_name,
                 call_step_name=generated_name,
                 callee_name=call_target,
                 managed_inputs=managed_inputs,
                 iteration_scope="${loop.index}",
             )
-        )
+            command = [
+                "python",
+                "-c",
+                (
+                    "import json, pathlib, sys; "
+                    "out = pathlib.Path(sys.argv[1]); "
+                    "out.parent.mkdir(parents=True, exist_ok=True); "
+                    "args = sys.argv[2:]; "
+                    "payload = {args[i]: args[i + 1] for i in range(0, len(args), 2)}; "
+                    "out.write_text(json.dumps(payload, sort_keys=True) + '\\n', encoding='utf-8')"
+                ),
+                f"${{inputs.{bundle_input_name}}}",
+            ]
+            for managed_input, value in binding_values.items():
+                command.extend((managed_input, value))
+            prepare_steps = [
+                {
+                    "name": prepare_step_name,
+                    "id": prepare_step_id,
+                    "command": command,
+                    "output_bundle": {
+                        "path": f"${{inputs.{bundle_input_name}}}",
+                        "fields": [
+                            {
+                                "name": managed_input,
+                                "json_pointer": f"/{managed_input}",
+                                "type": "relpath",
+                            }
+                            for managed_input in sorted(managed_inputs)
+                        ],
+                    },
+                }
+            ]
+            _record_step_origin(
+                context,
+                step_name=prepare_step_name,
+                step_id=prepare_step_id,
+                source=expr,
+            )
+            managed_bindings = {
+                managed_input: {"ref": f"self.steps.{prepare_step_name}.artifacts.{managed_input}"}
+                for managed_input in sorted(managed_inputs)
+            }
+            step["with"].update(managed_bindings)
         for managed_input in managed_inputs:
             hidden_inputs[managed_input] = _origin_from_context_source(context, expr)
         _record_step_origin(context, step_name=generated_name, step_id=step["id"], source=expr)
-        return step
+        return prepare_steps, step
 
     def _accumulator_marker_step(
         *,
@@ -498,7 +787,15 @@ def _phase_stdlib_lower_backlog_drain_impl(
         run_state_ref: str,
         progress_ref: str | None = None,
         blocker_ref: str | None = None,
+        blocker_literal: str | None = None,
     ) -> dict[str, Any]:
+        blocker_source: dict[str, str]
+        if blocker_ref is not None:
+            blocker_source = {"ref": blocker_ref}
+        elif blocker_literal is not None:
+            blocker_source = {"literal": blocker_literal}
+        else:
+            blocker_source = {"literal": placeholder_blocker_value}
         return _materialize_outputs_step(
             name=name,
             step_id_value=step_id_value,
@@ -520,7 +817,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
                 },
                 {
                     "name": "acc__blocker-class",
-                    "source": {"ref": blocker_ref} if blocker_ref is not None else {"literal": placeholder_blocker_value},
+                    "source": blocker_source,
                     "contract": dict(accumulator_blocker_contract),
                 },
             ],
@@ -554,14 +851,153 @@ def _phase_stdlib_lower_backlog_drain_impl(
             },
         }
 
-    selector_call_step = _managed_call_step(
+    loop_state_seed_step_name = f"{step_name}__seed_loop_state"
+    loop_state_seed_step = _materialize_outputs_step(
+        name=loop_state_seed_step_name,
+        step_id_value=_normalize_generated_step_id(loop_state_seed_step_name),
+        values=[
+            {
+                "name": "acc__run-state",
+                "source": {"literal": seed_run_state_literal},
+                "contract": dict(accumulator_run_state_contract),
+            },
+            {
+                "name": "acc__progress-report-path",
+                "source": {"literal": seed_progress_literal},
+                "contract": dict(accumulator_progress_contract),
+            },
+            {
+                "name": "acc__blocker-class",
+                "source": {"literal": placeholder_blocker_value},
+                "contract": dict(accumulator_blocker_contract),
+            },
+        ],
+    )
+
+    current_loop_state_seed_marker_name = f"{step_name}__current_loop_state__seed_marker"
+    current_loop_state_seed_marker_step = _materialize_outputs_step(
+        name=current_loop_state_seed_marker_name,
+        step_id_value=_normalize_generated_step_id(current_loop_state_seed_marker_name),
+        values=[
+            {
+                "name": "seed_iteration",
+                "source": {"literal": "seed"},
+                "contract": {"kind": "scalar", "type": "string"},
+            }
+        ],
+    )
+    current_loop_state_seed_marker_step["when"] = {
+        "equals": {
+            "left": "${loop.index}",
+            "right": "0",
+        }
+    }
+
+    current_loop_state_name = f"{step_name}__current_loop_state"
+    current_loop_state_use_carried_name = f"{current_loop_state_name}__use_carried_state"
+    current_loop_state_use_seed_name = f"{current_loop_state_name}__use_seed_state"
+    current_loop_state_step = {
+        "name": current_loop_state_name,
+        "id": _normalize_generated_step_id(current_loop_state_name),
+        "if": {
+            "compare": {
+                "left": {"ref": f"self.steps.{current_loop_state_seed_marker_name}.outcome.class"},
+                "op": "eq",
+                "right": "skipped",
+            }
+        },
+        "then": {
+            "id": _normalize_generated_step_id(f"{current_loop_state_name}__carry"),
+            "outputs": {
+                "acc__run-state": {
+                    **dict(accumulator_run_state_contract),
+                    "from": {"ref": f"self.steps.{current_loop_state_use_carried_name}.artifacts.acc__run-state"},
+                },
+                "acc__progress-report-path": {
+                    **dict(accumulator_progress_contract),
+                    "from": {"ref": f"self.steps.{current_loop_state_use_carried_name}.artifacts.acc__progress-report-path"},
+                },
+                "acc__blocker-class": {
+                    **dict(accumulator_blocker_contract),
+                    "from": {"ref": f"self.steps.{current_loop_state_use_carried_name}.artifacts.acc__blocker-class"},
+                },
+            },
+            "steps": [
+                _materialize_outputs_step(
+                    name=current_loop_state_use_carried_name,
+                    step_id_value=_normalize_generated_step_id(current_loop_state_use_carried_name),
+                    values=[
+                        {
+                            "name": "acc__run-state",
+                            "source": {"ref": f"root.steps.{step_name}.artifacts.acc__run-state"},
+                            "contract": dict(accumulator_run_state_contract),
+                        },
+                        {
+                            "name": "acc__progress-report-path",
+                            "source": {"ref": f"root.steps.{step_name}.artifacts.acc__progress-report-path"},
+                            "contract": dict(accumulator_progress_contract),
+                        },
+                        {
+                            "name": "acc__blocker-class",
+                            "source": {"ref": f"root.steps.{step_name}.artifacts.acc__blocker-class"},
+                            "contract": dict(accumulator_blocker_contract),
+                        },
+                    ],
+                )
+            ],
+        },
+        "else": {
+            "id": _normalize_generated_step_id(f"{current_loop_state_name}__seed"),
+            "outputs": {
+                "acc__run-state": {
+                    **dict(accumulator_run_state_contract),
+                    "from": {"ref": f"self.steps.{current_loop_state_use_seed_name}.artifacts.acc__run-state"},
+                },
+                "acc__progress-report-path": {
+                    **dict(accumulator_progress_contract),
+                    "from": {"ref": f"self.steps.{current_loop_state_use_seed_name}.artifacts.acc__progress-report-path"},
+                },
+                "acc__blocker-class": {
+                    **dict(accumulator_blocker_contract),
+                    "from": {"ref": f"self.steps.{current_loop_state_use_seed_name}.artifacts.acc__blocker-class"},
+                },
+            },
+            "steps": [
+                _materialize_outputs_step(
+                    name=current_loop_state_use_seed_name,
+                    step_id_value=_normalize_generated_step_id(current_loop_state_use_seed_name),
+                    values=[
+                        {
+                            "name": "acc__run-state",
+                            "source": {"ref": f"root.steps.{loop_state_seed_step_name}.artifacts.acc__run-state"},
+                            "contract": dict(accumulator_run_state_contract),
+                        },
+                        {
+                            "name": "acc__progress-report-path",
+                            "source": {"ref": f"root.steps.{loop_state_seed_step_name}.artifacts.acc__progress-report-path"},
+                            "contract": dict(accumulator_progress_contract),
+                        },
+                        {
+                            "name": "acc__blocker-class",
+                            "source": {"ref": f"root.steps.{loop_state_seed_step_name}.artifacts.acc__blocker-class"},
+                            "contract": dict(accumulator_blocker_contract),
+                        },
+                    ],
+                )
+            ],
+        },
+    }
+    current_run_state_ref = f"parent.steps.{current_loop_state_name}.artifacts.acc__run-state"
+    current_progress_ref = f"parent.steps.{current_loop_state_name}.artifacts.acc__progress-report-path"
+
+    selector_prepare_steps, selector_call_step = _managed_call_step(
         generated_name=selector_call_name,
         call_target=selector_call_target,
         with_bindings=selector_with,
         lowered_callee=selector_callee,
         imported_bundle=selector_imported,
     )
-    gap_drafter_call_step = _managed_call_step(
+    gap_prepare_steps, gap_drafter_call_step = _managed_call_step(
         generated_name=gap_drafter_call_name,
         call_target=gap_drafter_call_target,
         with_bindings=gap_drafter_with,
@@ -575,7 +1011,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "right": "GAP",
         }
     }
-    run_item_call_step = _managed_call_step(
+    run_item_prepare_steps, run_item_call_step = _managed_call_step(
         generated_name=run_item_call_name,
         call_target=run_item_call_target,
         with_bindings=run_item_with,
@@ -631,7 +1067,8 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=empty_marker_name,
                     step_id_value="mark_empty_selection",
                     loop_status="EMPTY",
-                    run_state_ref=f"parent.steps.{selector_call_name}.artifacts.return__run-state",
+                    run_state_ref=current_run_state_ref,
+                    progress_ref=current_progress_ref,
                 )
             ],
         },
@@ -646,7 +1083,8 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     name=completed_marker_name,
                     step_id_value="mark_completed_selection",
                     loop_status="COMPLETED",
-                    run_state_ref=f"parent.steps.{selector_call_name}.artifacts.return__run-state",
+                    run_state_ref=current_run_state_ref,
+                    progress_ref=current_progress_ref,
                 )
             ],
         },
@@ -726,14 +1164,15 @@ def _phase_stdlib_lower_backlog_drain_impl(
                             items_processed_ref=parent_current_items_ref,
                         ),
                         "steps": [
-                            _accumulator_marker_step(
-                                name=gap_continue_marker_name,
-                                step_id_value="mark_gap_continue",
-                                loop_status="CONTINUE",
-                                run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
-                            )
-                        ],
-                    },
+                        _accumulator_marker_step(
+                            name=gap_continue_marker_name,
+                            step_id_value="mark_gap_continue",
+                            loop_status="CONTINUE",
+                            run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
+                            progress_ref=current_progress_ref,
+                        )
+                    ],
+                },
                     "BLOCKED": {
                         "id": _normalize_generated_step_id(f"{gap_route_step_name}__blocked"),
                         "outputs": _accumulator_outputs(
@@ -745,7 +1184,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
                                 name=gap_blocked_marker_name,
                                 step_id_value="mark_gap_blocked",
                                 loop_status="BLOCKED",
-                                run_state_ref=placeholder_run_state_ref,
+                                run_state_ref=current_run_state_ref,
                                 progress_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__progress-report-path",
                                 blocker_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__blocker-class",
                             )
@@ -792,6 +1231,7 @@ def _phase_stdlib_lower_backlog_drain_impl(
                             step_id_value="mark_selected_continue",
                             loop_status="CONTINUE",
                             run_state_ref=f"parent.steps.{run_item_call_name}.artifacts.return__run-state",
+                            progress_ref=f"parent.steps.{run_item_call_name}.artifacts.return__summary-path",
                         ),
                     ],
                 },
@@ -813,6 +1253,61 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     ],
                 },
             },
+        },
+    }
+
+    selector_blocked_route_step_name = f"{step_name}__route_selector_blocked"
+    selector_blocked_marker_name = "MarkSelectorBlocked"
+    selector_blocked_route_step = {
+        "name": selector_blocked_route_step_name,
+        "id": _normalize_generated_step_id(selector_blocked_route_step_name),
+        "when": {
+            "compare": {
+                "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+                "op": "eq",
+                "right": "BLOCKED",
+            }
+        },
+        "if": {
+            "compare": {
+                "left": 1,
+                "op": "eq",
+                "right": 1,
+            }
+        },
+        "then": {
+            "id": _normalize_generated_step_id(f"{selector_blocked_route_step_name}__blocked"),
+            "outputs": _accumulator_outputs(
+                marker_step_name=selector_blocked_marker_name,
+                items_processed_ref=parent_current_items_ref,
+            ),
+            "steps": [
+                _accumulator_marker_step(
+                    name=selector_blocked_marker_name,
+                    step_id_value="mark_selector_blocked",
+                    loop_status="BLOCKED",
+                    run_state_ref=current_run_state_ref,
+                    progress_ref=current_progress_ref,
+                    blocker_literal=selector_blocked_compatibility_blocker,
+                )
+            ],
+        },
+        "else": {
+            "id": _normalize_generated_step_id(f"{selector_blocked_route_step_name}__blocked_else"),
+            "outputs": _accumulator_outputs(
+                marker_step_name=selector_blocked_marker_name,
+                items_processed_ref=parent_current_items_ref,
+            ),
+            "steps": [
+                _accumulator_marker_step(
+                    name=selector_blocked_marker_name,
+                    step_id_value="mark_selector_blocked_else",
+                    loop_status="BLOCKED",
+                    run_state_ref=current_run_state_ref,
+                    progress_ref=current_progress_ref,
+                    blocker_literal=selector_blocked_compatibility_blocker,
+                )
+            ],
         },
     }
 
@@ -872,6 +1367,19 @@ def _phase_stdlib_lower_backlog_drain_impl(
                         )
                     ],
                 },
+                "BLOCKED": {
+                    "id": _normalize_generated_step_id(f"{route_selection_step_name}__blocked"),
+                    "outputs": _forward_accumulator_outputs(selector_blocked_route_step_name),
+                    "steps": [
+                        _build_match_projection_anchor_step(
+                            match_step_name=route_selection_step_name,
+                            variant_name="BLOCKED",
+                            case_outputs=_forward_accumulator_outputs(selector_blocked_route_step_name),
+                            context=context,
+                            span=expr.span,
+                        )
+                    ],
+                },
             },
         },
     }
@@ -890,11 +1398,66 @@ def _phase_stdlib_lower_backlog_drain_impl(
         source=expr,
     )
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    _record_step_origin(
+        context,
+        step_name=current_loop_state_seed_marker_name,
+        step_id=current_loop_state_seed_marker_step["id"],
+        source=expr,
+    )
+    runtime_proof_source = _runtime_proof_generated_source(expr)
+    _record_step_origin(
+        context,
+        step_name=current_loop_state_name,
+        step_id=current_loop_state_step["id"],
+        source=runtime_proof_source,
+    )
+    _record_step_origin(
+        context,
+        step_name=current_loop_state_use_carried_name,
+        step_id=_normalize_generated_step_id(current_loop_state_use_carried_name),
+        source=runtime_proof_source,
+    )
+    _record_step_origin(
+        context,
+        step_name=current_loop_state_use_seed_name,
+        step_id=_normalize_generated_step_id(current_loop_state_use_seed_name),
+        source=runtime_proof_source,
+    )
     _record_step_origin(context, step_name=current_items_step_name, step_id=current_items_step["id"], source=expr)
-    _record_step_origin(context, step_name=empty_route_step_name, step_id=empty_route_step["id"], source=expr)
-    _record_step_origin(context, step_name=gap_route_step_name, step_id=gap_route_step["id"], source=expr)
-    _record_step_origin(context, step_name=selected_route_step_name, step_id=selected_route_step["id"], source=expr)
-    _record_step_origin(context, step_name=route_selection_step_name, step_id=route_selection_step["id"], source=expr)
+    _record_step_origin(context, step_name=empty_marker_name, step_id="mark_empty_selection", source=expr)
+    _record_step_origin(context, step_name=completed_marker_name, step_id="mark_completed_selection", source=expr)
+    _record_step_origin(
+        context,
+        step_name=empty_route_step_name,
+        step_id=empty_route_step["id"],
+        source=runtime_proof_source,
+    )
+    _record_step_origin(
+        context,
+        step_name=gap_route_step_name,
+        step_id=gap_route_step["id"],
+        source=runtime_proof_source,
+    )
+    _record_step_origin(
+        context,
+        step_name=selected_route_step_name,
+        step_id=selected_route_step["id"],
+        source=runtime_proof_source,
+    )
+    _record_step_origin(context, step_name=selector_blocked_marker_name, step_id="mark_selector_blocked", source=expr)
+    _record_step_origin(context, step_name=selector_blocked_marker_name, step_id="mark_selector_blocked_else", source=expr)
+    _record_step_origin(
+        context,
+        step_name=selector_blocked_route_step_name,
+        step_id=selector_blocked_route_step["id"],
+        source=runtime_proof_source,
+    )
+    _record_step_origin(
+        context,
+        step_name=route_selection_step_name,
+        step_id=route_selection_step["id"],
+        source=runtime_proof_source,
+    )
 
     repeat_step = {
         "name": step_name,
@@ -906,13 +1469,19 @@ def _phase_stdlib_lower_backlog_drain_impl(
                 local_values=local_values,
             ),
             "steps": [
+                current_loop_state_seed_marker_step,
+                current_loop_state_step,
+                *selector_prepare_steps,
                 selector_call_step,
                 current_items_step,
                 empty_route_step,
+                *gap_prepare_steps,
                 gap_drafter_call_step,
                 gap_route_step,
+                *run_item_prepare_steps,
                 run_item_call_step,
                 selected_route_step,
+                selector_blocked_route_step,
                 route_selection_step,
             ],
             "outputs": loop_outputs,
@@ -923,6 +1492,12 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     "right": "CONTINUE",
                 }
             },
+            "on_exhausted": {
+                "outputs": {
+                    "acc__loop-status": "EXHAUSTED",
+                    "acc__blocker-class": "unrecoverable_after_fix_attempt",
+                }
+            },
         },
     }
 
@@ -931,60 +1506,66 @@ def _phase_stdlib_lower_backlog_drain_impl(
         for field_name, contract in context.return_output_contracts.items()
     }
 
-    def _return_marker_step(
+    def _lower_terminal_finalizer_case(
         *,
-        name: str,
-        step_id_value: str,
-        variant: str,
-        run_state_ref: str,
-        items_processed_ref: str,
-        progress_ref: str,
-        blocker_ref: str,
-    ) -> dict[str, Any]:
-        return _materialize_outputs_step(
-            name=name,
-            step_id_value=step_id_value,
-            values=[
-                {
-                    "name": "return__variant",
-                    "source": {"literal": variant},
-                    "contract": dict(result_output_definitions["return__variant"]),
-                },
-                {
-                    "name": "return__run-state",
-                    "source": {"ref": run_state_ref},
-                    "contract": dict(result_output_definitions["return__run-state"]),
-                },
-                {
-                    "name": "return__items-processed",
-                    "source": {"ref": items_processed_ref},
-                    "contract": dict(result_output_definitions["return__items-processed"]),
-                },
-                {
-                    "name": "return__progress-report-path",
-                    "source": {"ref": progress_ref},
-                    "contract": dict(result_output_definitions["return__progress-report-path"]),
-                },
-                {
-                    "name": "return__blocker-class",
-                    "source": {"ref": blocker_ref},
-                    "contract": dict(result_output_definitions["return__blocker-class"]),
-                },
-            ],
+        case_name: str,
+        terminal_variant: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        case_context = _copy_context_with_step_prefix(
+            context,
+            step_name_prefix=f"{normalize_step_name}__{case_name}",
         )
-
-    def _forward_return_outputs(source_step_name: str) -> dict[str, Any]:
-        return {
-            name: {
-                **definition,
-                "from": {"ref": f"self.steps.{source_step_name}.artifacts.{name}"},
+        helper_terminal_steps, helper_terminal = lower_shared_drain_terminal_result(
+            context=case_context,
+            source_expr=expr,
+            step_name_prefix=case_context.step_name_prefix,
+            terminal_variant=terminal_variant,
+            terminal_items_ref=terminal_items_ref,
+            terminal_run_state_ref=terminal_run_state_ref,
+            terminal_progress_ref=terminal_progress_ref,
+            terminal_blocker_ref=terminal_blocker_ref,
+            result_output_contracts=result_output_definitions,
+            accumulator_run_state_contract=accumulator_run_state_contract,
+            accumulator_progress_contract=accumulator_progress_contract,
+            accumulator_blocker_contract=accumulator_blocker_contract,
+            placeholder_blocker_value=placeholder_blocker_value,
+        )
+        hidden_inputs.update(helper_terminal.hidden_inputs)
+        return helper_terminal_steps, {
+            output_name: {
+                **result_output_definitions[output_name],
+                "from": {"ref": helper_terminal.output_refs[output_name]},
             }
-            for name, definition in result_output_definitions.items()
+            for output_name in result_output_definitions
         }
 
     normalize_step_name = f"{step_name}__normalize_result"
     normalize_step_id = _normalize_generated_step_id(normalize_step_name)
     _record_step_origin(context, step_name=normalize_step_name, step_id=normalize_step_id, source=expr)
+    terminal_items_ref = f"root.steps.{step_name}.artifacts.acc__items-processed"
+    terminal_run_state_ref = f"root.steps.{step_name}.artifacts.acc__run-state"
+    terminal_progress_ref = f"root.steps.{step_name}.artifacts.acc__progress-report-path"
+    terminal_blocker_ref = f"root.steps.{step_name}.artifacts.acc__blocker-class"
+    empty_steps, empty_outputs = _lower_terminal_finalizer_case(
+        case_name="empty",
+        terminal_variant="EMPTY",
+    )
+    completed_steps, completed_outputs = _lower_terminal_finalizer_case(
+        case_name="completed",
+        terminal_variant="COMPLETED",
+    )
+    blocked_steps, blocked_outputs = _lower_terminal_finalizer_case(
+        case_name="blocked",
+        terminal_variant="BLOCKED",
+    )
+    exhausted_steps, exhausted_outputs = _lower_terminal_finalizer_case(
+        case_name="exhausted",
+        terminal_variant="EXHAUSTED",
+    )
+    continue_steps, continue_outputs = _lower_terminal_finalizer_case(
+        case_name="continue",
+        terminal_variant="EXHAUSTED",
+    )
     normalize_step = {
         "name": normalize_step_name,
         "id": normalize_step_id,
@@ -993,69 +1574,38 @@ def _phase_stdlib_lower_backlog_drain_impl(
             "cases": {
                 "EMPTY": {
                     "id": _normalize_generated_step_id(f"{normalize_step_name}__empty"),
-                    "outputs": _forward_return_outputs("EmitDrainEmpty"),
-                    "steps": [
-                        _return_marker_step(
-                            name="EmitDrainEmpty",
-                            step_id_value="emit_drain_empty",
-                            variant="EMPTY",
-                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
-                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
-                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
-                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
-                        )
-                    ],
+                    "outputs": empty_outputs,
+                    "steps": empty_steps,
                 },
                 "COMPLETED": {
                     "id": _normalize_generated_step_id(f"{normalize_step_name}__completed"),
-                    "outputs": _forward_return_outputs("EmitDrainCompleted"),
-                    "steps": [
-                        _return_marker_step(
-                            name="EmitDrainCompleted",
-                            step_id_value="emit_drain_completed",
-                            variant="COMPLETED",
-                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
-                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
-                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
-                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
-                        )
-                    ],
+                    "outputs": completed_outputs,
+                    "steps": completed_steps,
                 },
                 "BLOCKED": {
                     "id": _normalize_generated_step_id(f"{normalize_step_name}__blocked"),
-                    "outputs": _forward_return_outputs("EmitDrainBlocked"),
-                    "steps": [
-                        _return_marker_step(
-                            name="EmitDrainBlocked",
-                            step_id_value="emit_drain_blocked",
-                            variant="BLOCKED",
-                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
-                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
-                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
-                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
-                        )
-                    ],
+                    "outputs": blocked_outputs,
+                    "steps": blocked_steps,
+                },
+                "EXHAUSTED": {
+                    "id": _normalize_generated_step_id(f"{normalize_step_name}__exhausted"),
+                    "outputs": exhausted_outputs,
+                    "steps": exhausted_steps,
                 },
                 "CONTINUE": {
                     "id": _normalize_generated_step_id(f"{normalize_step_name}__continue"),
-                    "outputs": _forward_return_outputs("EmitDrainContinue"),
-                    "steps": [
-                        _return_marker_step(
-                            name="EmitDrainContinue",
-                            step_id_value="emit_drain_continue",
-                            variant="BLOCKED",
-                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
-                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
-                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
-                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
-                        )
-                    ],
+                    "outputs": continue_outputs,
+                    "steps": continue_steps,
                 },
             },
         },
     }
-    _record_missing_step_origins(context, [seed_items_processed_step, repeat_step, normalize_step], source=expr)
-    return [seed_items_processed_step, repeat_step, normalize_step], _TerminalResult(
+    _record_missing_step_origins(
+        context,
+        [seed_items_processed_step, loop_state_seed_step, repeat_step, normalize_step],
+        source=expr,
+    )
+    return [seed_items_processed_step, loop_state_seed_step, repeat_step, normalize_step], _TerminalResult(
         step_name=normalize_step_name,
         step_id=normalize_step_id,
         output_refs={
@@ -1096,39 +1646,22 @@ def _validate_backlog_drain_provider_metadata(
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
-    selector_workflow: TypedWorkflowDef | None,
-    run_item_workflow: TypedWorkflowDef | None,
-    gap_drafter_workflow: TypedWorkflowDef | None,
-    selector_imported: LoadedWorkflowBundle | None,
-    run_item_imported: LoadedWorkflowBundle | None,
-    gap_drafter_imported: LoadedWorkflowBundle | None,
+    selector_resolved_ref: ResolvedWorkflowRef,
+    run_item_resolved_ref: ResolvedWorkflowRef,
+    gap_drafter_resolved_ref: ResolvedWorkflowRef,
 ) -> None:
     """Verify backlog-drain provider metadata covers callee requirements."""
 
     required_provider_names = set()
     required_prompt_names = set()
-    for role_name, workflow in (
-        ("selector", selector_workflow),
-        ("run-item", run_item_workflow),
-        ("gap-drafter", gap_drafter_workflow),
+    for role_name, resolved_ref in (
+        ("selector", selector_resolved_ref),
+        ("run-item", run_item_resolved_ref),
+        ("gap-drafter", gap_drafter_resolved_ref),
     ):
-        provider_count, prompt_count = _same_file_workflow_provider_requirements(
-            workflow,
-            typed_procedures=context.typed_procedures,
-        )
-        if provider_count:
+        if resolved_ref.extern_rebinding_plan.provider_bindings:
             required_provider_names.add(f"providers.{role_name}")
-        if prompt_count:
-            required_prompt_names.add(f"prompts.{role_name}")
-    for role_name, imported_bundle in (
-        ("selector", selector_imported),
-        ("run-item", run_item_imported),
-        ("gap-drafter", gap_drafter_imported),
-    ):
-        provider_count, prompt_count = _imported_bundle_provider_requirements(imported_bundle)
-        if provider_count:
-            required_provider_names.add(f"providers.{role_name}")
-        if prompt_count:
+        if resolved_ref.extern_rebinding_plan.prompt_bindings:
             required_prompt_names.add(f"prompts.{role_name}")
 
     if not required_provider_names and not required_prompt_names:
@@ -1244,6 +1777,13 @@ def _specialize_backlog_drain_call_target(
         mutable_imports = context.imported_workflow_bundles
         if isinstance(mutable_imports, dict):
             mutable_imports[specialized_name] = specialized_bundle
+        catalog_imports = context.workflow_catalog.imported_bundles_by_name
+        if isinstance(catalog_imports, dict):
+            catalog_imports[specialized_name] = specialized_bundle
+        catalog_signatures = context.workflow_catalog.signatures_by_name
+        base_signature = catalog_signatures.get(workflow_name)
+        if isinstance(catalog_signatures, dict) and base_signature is not None:
+            catalog_signatures[specialized_name] = replace(base_signature, name=specialized_name)
     if same_file_callee is not None:
         specialized_workflow = _specialize_same_file_lowered_workflow_provider_metadata(
             same_file_callee,
@@ -1254,6 +1794,15 @@ def _specialize_backlog_drain_call_target(
         mutable_callees = context.lowered_callees
         if isinstance(mutable_callees, dict):
             mutable_callees[specialized_name] = specialized_workflow
+        catalog_signatures = context.workflow_catalog.signatures_by_name
+        if isinstance(catalog_signatures, dict):
+            catalog_signatures[specialized_name] = specialized_workflow.typed_workflow.signature
+        catalog_definitions = context.workflow_catalog.definitions_by_name
+        if isinstance(catalog_definitions, dict):
+            catalog_definitions[specialized_name] = specialized_workflow.typed_workflow.definition
+        mutable_workflows = context.workflows_by_name
+        if isinstance(mutable_workflows, dict):
+            mutable_workflows[specialized_name] = specialized_workflow.typed_workflow
     return specialized_name
 
 

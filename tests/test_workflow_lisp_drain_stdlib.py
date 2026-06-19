@@ -39,7 +39,9 @@ from tests.workflow_bundle_helpers import bundle_context_dict
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain.orc"
-VALID_STDLIB_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain_stdlib.orc"
+VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE = (
+    FIXTURES / "valid" / "drain_stdlib_backlog_drain_callable_boundary.orc"
+)
 INVALID_SIGNATURE_FIXTURE = FIXTURES / "invalid" / "backlog_drain_workflow_ref_signature_invalid.orc"
 INVALID_SELECTOR_BLOCKED_REASON_MISSING_FIXTURE = (
     FIXTURES / "invalid" / "backlog_drain_selector_blocked_reason_missing_invalid.orc"
@@ -159,6 +161,7 @@ def _compile_linked_stdlib_fixture(
     tmp_path: Path,
     validation_profile: str | None = None,
     validate_shared: bool = False,
+    lowering_route: LoweringRoute | None = None,
 ):
     source = path.read_text(encoding="utf-8")
     module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
@@ -172,6 +175,8 @@ def _compile_linked_stdlib_fixture(
         "command_boundaries": _command_boundaries(gap_output_type_name="GapResult").bindings_by_name,
         "workspace_root": tmp_path,
     }
+    if lowering_route is not None:
+        compile_kwargs["lowering_route"] = lowering_route
     if validation_profile is not None:
         compile_kwargs["validation_profile"] = validation_profile
     else:
@@ -400,6 +405,26 @@ def _write_drain_runtime_scripts(
         gap_payloads,
         _collect_relpaths(gap_payloads),
     )
+
+
+def _child_backlog_drain_workflow(result):
+    return next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+
+
+def _drain_transition_audit_rows(workspace: Path) -> list[dict[str, object]]:
+    audit_paths = sorted((workspace / "state" / "workflow_lisp").rglob("*-record-drain-outcome.jsonl"))
+    rows: list[dict[str, object]] = []
+    for audit_path in audit_paths:
+        rows.extend(
+            json.loads(line)
+            for line in audit_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+    return rows
 
 
 def _compile_imported_selector_bundle(tmp_path: Path):
@@ -671,16 +696,34 @@ def test_workflow_ref_union_call_boundary_projection_rejects_unproved_variant_ac
 
 
 def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_path: Path) -> None:
-    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
-    authored = next(
-        workflow.authored_mapping
-        for workflow in result.lowered_workflows
-        if workflow.typed_workflow.definition.name == "drain"
+    _workflow_path, entry_result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
+        tmp_path=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+        validate_shared=False,
     )
+    parent = next(
+        workflow
+        for workflow in entry_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::drain")
+    )
+    child = next(
+        workflow
+        for workflow in entry_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    parent_call = next(
+        step
+        for step in _iter_nested_steps(parent.authored_mapping["steps"])
+        if step.get("call") == "std/drain::backlog-drain"
+    )
+    authored = child.authored_mapping
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
     call_targets = {step.get("call") for step in body_steps if isinstance(step.get("call"), str)}
 
+    assert not any("repeat_until" in step for step in parent.authored_mapping["steps"])
+    assert parent_call["id"] in parent.origin_map.step_spans
     assert repeat_step["repeat_until"]["steps"]
     assert any(target and target.endswith("selector-run") for target in call_targets)
     assert any(target and target.endswith("run-selected-item") for target in call_targets)
@@ -688,27 +731,9 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
     selector_call = next(step for step in body_steps if step.get("call", "").endswith("selector-run"))
     run_item_call = next(step for step in body_steps if step.get("call", "").endswith("run-selected-item"))
     gap_drafter_call = next(step for step in body_steps if step.get("call", "").endswith("gap-draft"))
-    selector_bindings = _managed_write_root_bindings(
-        caller_workflow_name="drain",
-        call_step_name=selector_call["name"],
-        callee_name="selector-run",
-        managed_inputs=("__write_root__selector_run__select_next_item__result_bundle",),
-        iteration_scope="${loop.index}",
-    )
-    run_item_bindings = _managed_write_root_bindings(
-        caller_workflow_name="drain",
-        call_step_name=run_item_call["name"],
-        callee_name="run-selected-item",
-        managed_inputs=("__write_root__run_selected_item__execute_selected_item__result_bundle",),
-        iteration_scope="${loop.index}",
-    )
-    gap_drafter_bindings = _managed_write_root_bindings(
-        caller_workflow_name="drain",
-        call_step_name=gap_drafter_call["name"],
-        callee_name="gap-draft",
-        managed_inputs=("__write_root__gap_draft__draft_gap_item__result_bundle",),
-        iteration_scope="${loop.index}",
-    )
+    selector_write_root_name = next(name for name in selector_call["with"] if name.startswith("__write_root__"))
+    run_item_write_root_name = next(name for name in run_item_call["with"] if name.startswith("__write_root__"))
+    gap_write_root_name = next(name for name in gap_drafter_call["with"] if name.startswith("__write_root__"))
 
     assert selector_call["with"] == {
         "ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
@@ -717,23 +742,29 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "ctx__state-root": {"ref": "inputs.ctx__state-root"},
         "ctx__manifest": {"ref": "inputs.ctx__manifest"},
         "ctx__ledger": {"ref": "inputs.ctx__ledger"},
-        "__write_root__selector_run__select_next_item__result_bundle": selector_bindings[
-            "__write_root__selector_run__select_next_item__result_bundle"
-        ],
+        selector_write_root_name: {
+            "ref": (
+                "self.steps.std/drain::backlog-drain__selector__managed_write_roots.artifacts."
+                f"{selector_write_root_name}"
+            )
+        },
     }
     assert run_item_call["with"] == {
         "item-ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
         "item-ctx__run__state-root": {"ref": "inputs.ctx__run__state-root"},
         "item-ctx__run__artifact-root": {"ref": "inputs.ctx__run__artifact-root"},
-        "item-ctx__item-id": {"ref": "self.steps.drain__selector.artifacts.return__selection__item-id"},
-        "item-ctx__state-root": {"ref": "self.steps.drain__selector.artifacts.return__selection__item-state-root"},
+        "item-ctx__item-id": {"ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__selection__item-id"},
+        "item-ctx__state-root": {"ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__selection__item-state-root"},
         "item-ctx__artifact-root": {"ref": "inputs.ctx__run__artifact-root"},
         "item-ctx__ledger": {"ref": "inputs.ctx__ledger"},
-        "selection__item-id": {"ref": "self.steps.drain__selector.artifacts.return__selection__item-id"},
-        "selection__item-state-root": {"ref": "self.steps.drain__selector.artifacts.return__selection__item-state-root"},
-        "__write_root__run_selected_item__execute_selected_item__result_bundle": run_item_bindings[
-            "__write_root__run_selected_item__execute_selected_item__result_bundle"
-        ],
+        "selection__item-id": {"ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__selection__item-id"},
+        "selection__item-state-root": {"ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__selection__item-state-root"},
+        run_item_write_root_name: {
+            "ref": (
+                "self.steps.std/drain::backlog-drain__run_item__managed_write_roots.artifacts."
+                f"{run_item_write_root_name}"
+            )
+        },
     }
     assert gap_drafter_call["with"] == {
         "ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
@@ -742,10 +773,13 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "ctx__state-root": {"ref": "inputs.ctx__state-root"},
         "ctx__manifest": {"ref": "inputs.ctx__manifest"},
         "ctx__ledger": {"ref": "inputs.ctx__ledger"},
-        "gap__gap-id": {"ref": "self.steps.drain__selector.artifacts.return__gap__gap-id"},
-        "__write_root__gap_draft__draft_gap_item__result_bundle": gap_drafter_bindings[
-            "__write_root__gap_draft__draft_gap_item__result_bundle"
-        ],
+        "gap__gap-id": {"ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__gap-id"},
+        gap_write_root_name: {
+            "ref": (
+                "self.steps.std/drain::backlog-drain__gap_drafter__managed_write_roots.artifacts."
+                f"{gap_write_root_name}"
+            )
+        },
     }
     assert repeat_step["repeat_until"]["condition"] == {
         "compare": {
@@ -771,13 +805,13 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
     )
 
 
-def test_compile_stage3_module_validates_imported_backlog_drain_through_frontend_surface(
+def test_compile_stage3_module_preserves_imported_backlog_drain_as_callable_boundary(
     tmp_path: Path,
 ) -> None:
     _workflow_path, result = _compile_linked_stdlib_fixture(
-        VALID_STDLIB_DRAIN_FIXTURE,
+        VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
         tmp_path=tmp_path,
-        validate_shared=False,
+        validate_shared=True,
     )
 
     drain = next(
@@ -785,9 +819,248 @@ def test_compile_stage3_module_validates_imported_backlog_drain_through_frontend
         for workflow in result.entry_result.lowered_workflows
         if workflow.typed_workflow.definition.name.endswith("::drain")
     )
-    repeat_step = next(step for step in drain.authored_mapping["steps"] if "repeat_until" in step)
+    authored = drain.authored_mapping
+    call_steps = [
+        step
+        for step in _iter_nested_steps(authored["steps"])
+        if isinstance(step.get("call"), str)
+    ]
+    stdlib_call = next(step for step in call_steps if step.get("call") == "std/drain::backlog-drain")
+    stdlib_boundary = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    repeat_step = next(step for step in stdlib_boundary.authored_mapping["steps"] if "repeat_until" in step)
+    boundary_step_ids = {
+        step_id
+        for step in _iter_nested_steps(stdlib_boundary.authored_mapping["steps"])
+        if isinstance((step_id := step.get("id")), str)
+    }
 
+    assert not any("repeat_until" in step for step in authored["steps"])
+    assert stdlib_call["id"] in drain.origin_map.step_spans
     assert repeat_step["repeat_until"]["max_iterations"] == 4
+    assert boundary_step_ids
+    assert all(step_id in stdlib_boundary.origin_map.step_spans for step_id in boundary_step_ids)
+    assert not boundary_step_ids.intersection(drain.origin_map.step_spans)
+
+
+def test_callable_boundary_fixture_uses_direct_helper_head() -> None:
+    source = VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE.read_text(encoding="utf-8")
+
+    assert "(backlog-drain-callable-boundary neurips" in source
+
+
+def test_compile_stage3_module_keeps_callable_backlog_drain_specializations_isolated(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "multi_callable_backlog_drain.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule multi_callable_backlog_drain)",
+                "  (import std/context :only (DrainCtx ItemCtx))",
+                "  (import std/resource :only (BlockerClass SelectedItemResult))",
+                "  (import std/drain :only",
+                "    (GapPayload GapResult DrainResult SelectionPayload SelectionResult))",
+                "  (defworkflow selector-a",
+                "    ((ctx DrainCtx))",
+                "    -> SelectionResult",
+                "    (command-result select_next_item",
+                '      :argv ("python" "scripts/select_next_item.py" ctx.manifest)',
+                "      :returns SelectionResult))",
+                "  (defworkflow run-selected-item-a",
+                "    ((item-ctx ItemCtx)",
+                "     (selection SelectionPayload))",
+                "    -> SelectedItemResult",
+                "    (command-result execute_selected_item",
+                '      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)',
+                "      :returns SelectedItemResult))",
+                "  (defworkflow gap-draft-a",
+                "    ((ctx DrainCtx)",
+                "     (gap GapPayload))",
+                "    -> GapResult",
+                "    (command-result draft_gap_item",
+                '      :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)',
+                "      :returns GapResult))",
+                "  (defworkflow selector-b",
+                "    ((ctx DrainCtx))",
+                "    -> SelectionResult",
+                "    (command-result select_next_item",
+                '      :argv ("python" "scripts/select_next_item.py" ctx.manifest)',
+                "      :returns SelectionResult))",
+                "  (defworkflow run-selected-item-b",
+                "    ((item-ctx ItemCtx)",
+                "     (selection SelectionPayload))",
+                "    -> SelectedItemResult",
+                "    (command-result execute_selected_item",
+                '      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)',
+                "      :returns SelectedItemResult))",
+                "  (defworkflow gap-draft-b",
+                "    ((ctx DrainCtx)",
+                "     (gap GapPayload))",
+                "    -> GapResult",
+                "    (command-result draft_gap_item",
+                '      :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)',
+                "      :returns GapResult))",
+                "  (defworkflow drain-a",
+                "    ((ctx DrainCtx))",
+                "    -> DrainResult",
+                "    (backlog-drain-callable-boundary neurips",
+                "      :ctx ctx",
+                "      :selector selector-a",
+                "      :run-item run-selected-item-a",
+                "      :gap-drafter gap-draft-a",
+                "      :max-iterations 1))",
+                "  (defworkflow drain-b",
+                "    ((ctx DrainCtx))",
+                "    -> DrainResult",
+                "    (backlog-drain-callable-boundary neurips",
+                "      :ctx ctx",
+                "      :selector selector-b",
+                "      :run-item run-selected-item-b",
+                "      :gap-drafter gap-draft-b",
+                "      :max-iterations 4))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_command_boundaries(gap_output_type_name="GapResult").bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow
+        for workflow in result.lowered_workflows
+    }
+
+    for workflow_name, selector_name, run_item_name, gap_name, expected_max in (
+        ("multi_callable_backlog_drain::drain-a", "selector-a", "run-selected-item-a", "gap-draft-a", 1),
+        ("multi_callable_backlog_drain::drain-b", "selector-b", "run-selected-item-b", "gap-draft-b", 4),
+    ):
+        parent = lowered_by_name[workflow_name]
+        parent_call = next(
+            step
+            for step in _iter_nested_steps(parent.authored_mapping["steps"])
+            if isinstance(step.get("call"), str)
+        )
+        child = lowered_by_name[parent_call["call"]]
+        repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
+        body_calls = {
+            step.get("call")
+            for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"])
+            if isinstance(step.get("call"), str)
+        }
+
+        assert repeat_step["repeat_until"]["max_iterations"] == expected_max
+        assert any(target.endswith(selector_name) for target in body_calls)
+        assert any(target.endswith(run_item_name) for target in body_calls)
+        assert any(target.endswith(gap_name) for target in body_calls)
+
+
+def test_compile_stage3_module_reuses_canonical_callable_backlog_drain_for_identical_specializations(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "identical_callable_backlog_drain.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule identical_callable_backlog_drain)",
+                "  (import std/context :only (DrainCtx ItemCtx))",
+                "  (import std/resource :only (BlockerClass SelectedItemResult))",
+                "  (import std/drain :only",
+                "    (GapPayload GapResult DrainResult SelectionPayload SelectionResult))",
+                "  (defworkflow selector",
+                "    ((ctx DrainCtx))",
+                "    -> SelectionResult",
+                "    (command-result select_next_item",
+                '      :argv ("python" "scripts/select_next_item.py" ctx.manifest)',
+                "      :returns SelectionResult))",
+                "  (defworkflow run-selected-item",
+                "    ((item-ctx ItemCtx)",
+                "     (selection SelectionPayload))",
+                "    -> SelectedItemResult",
+                "    (command-result execute_selected_item",
+                '      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)',
+                "      :returns SelectedItemResult))",
+                "  (defworkflow gap-draft",
+                "    ((ctx DrainCtx)",
+                "     (gap GapPayload))",
+                "    -> GapResult",
+                "    (command-result draft_gap_item",
+                '      :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)',
+                "      :returns GapResult))",
+                "  (defworkflow drain-a",
+                "    ((ctx DrainCtx))",
+                "    -> DrainResult",
+                "    (backlog-drain-callable-boundary neurips",
+                "      :ctx ctx",
+                "      :selector selector",
+                "      :run-item run-selected-item",
+                "      :gap-drafter gap-draft",
+                "      :max-iterations 4))",
+                "  (defworkflow drain-b",
+                "    ((ctx DrainCtx))",
+                "    -> DrainResult",
+                "    (backlog-drain-callable-boundary neurips",
+                "      :ctx ctx",
+                "      :selector selector",
+                "      :run-item run-selected-item",
+                "      :gap-drafter gap-draft",
+                "      :max-iterations 4))",
+                ")",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_command_boundaries(gap_output_type_name="GapResult").bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow
+        for workflow in result.lowered_workflows
+    }
+
+    parent_targets = []
+    for workflow_name in (
+        "identical_callable_backlog_drain::drain-a",
+        "identical_callable_backlog_drain::drain-b",
+    ):
+        parent = lowered_by_name[workflow_name]
+        parent_call = next(
+            step
+            for step in _iter_nested_steps(parent.authored_mapping["steps"])
+            if isinstance(step.get("call"), str)
+        )
+        parent_targets.append(parent_call["call"])
+
+    generated_children = sorted(
+        workflow_name
+        for workflow_name in lowered_by_name
+        if workflow_name.startswith("std/drain::backlog-drain")
+    )
+
+    assert parent_targets == ["std/drain::backlog-drain", "std/drain::backlog-drain"]
+    assert generated_children == ["std/drain::backlog-drain"]
 
 
 def test_command_result_contract_accepts_certified_adapter_backends_without_hiding_command_boundary(
@@ -846,18 +1119,30 @@ def test_compile_stage3_module_supports_record_gap_drafter_returns(tmp_path: Pat
 
 def test_backlog_drain_contract_inventory_matches_promoted_stdlib_route(tmp_path: Path) -> None:
     _workflow_path, result = _compile_linked_stdlib_fixture(
-        VALID_STDLIB_DRAIN_FIXTURE,
+        VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
         tmp_path=tmp_path,
         validation_profile="DEDICATED_RUNTIME_PROOF",
     )
     contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["backlog-drain"]
+    parent = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::drain")
+    )
     lowered = next(
-        workflow for workflow in result.entry_result.lowered_workflows if workflow.typed_workflow.definition.name.endswith("::drain")
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
     )
     authored = lowered.authored_mapping
     repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
     workflow_calls = [step for step in body_steps if isinstance(step.get("call"), str)]
+    parent_call = next(
+        step
+        for step in _iter_nested_steps(parent.authored_mapping["steps"])
+        if step.get("call") == "std/drain::backlog-drain"
+    )
     assert contract.family == "resource_finalize_drain"
     assert contract.backend_kinds == ("workflow_call", "runtime_native")
     assert contract.required_statement_families == (
@@ -882,10 +1167,40 @@ def test_backlog_drain_contract_inventory_matches_promoted_stdlib_route(tmp_path
         "generated_hidden_input_span",
         "generated_hidden_path_span",
     )
+    normalize_step = next(
+        step for step in authored["steps"] if step.get("name") == "std/drain::backlog-drain__normalize_result"
+    )
     _assert_contract_matches_observed_families(contract, steps=authored["steps"])
+    assert not any("repeat_until" in step for step in parent.authored_mapping["steps"])
+    assert parent_call["id"] in parent.origin_map.step_spans
     assert workflow_calls
     assert any(any(name.startswith("__write_root__") for name in step.get("with", {})) for step in workflow_calls)
-    validate_executable_workflow(result.entry_result.validated_bundles["drain_stdlib_backlog_drain_stdlib::drain"].ir)
+    for case_name in ("EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED", "CONTINUE"):
+        case_steps = normalize_step["match"]["cases"][case_name]["steps"]
+        transition_step = next(step for step in case_steps if "resource_transition" in step)
+        assert "shared_drain_result" in transition_step["name"]
+        request_bindings = transition_step["resource_transition"]["request_bindings"]
+        assert request_bindings["items_processed"] == {
+            "ref": "root.steps.std/drain::backlog-drain.artifacts.acc__items-processed"
+        }
+        assert request_bindings["run_state"] == {
+            "ref": "root.steps.std/drain::backlog-drain.artifacts.acc__run-state"
+        }
+        assert request_bindings["progress_report_path"] == {
+            "ref": "root.steps.std/drain::backlog-drain.artifacts.acc__progress-report-path"
+        }
+    hidden_inputs = set(lowered.origin_map.internal_input_spans)
+    assert any("shared_drain_result" in input_name for input_name in hidden_inputs)
+    generated_paths = set(lowered.origin_map.generated_path_spans)
+    assert any(path.endswith("shared-drain-result-drain-run-state.json") for path in generated_paths)
+    assert any(path.endswith("shared-drain-result-record-drain-outcome.jsonl") for path in generated_paths)
+    validate_executable_workflow(
+        next(
+            bundle.ir
+            for workflow_name, bundle in result.entry_result.validated_bundles.items()
+            if workflow_name.endswith("::drain")
+        )
+    )
     for step in _iter_nested_steps(authored["steps"]):
         step_id = step.get("id")
         if isinstance(step_id, str):
@@ -955,7 +1270,14 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
 
 
 @pytest.mark.parametrize(
-    ("selection_payload", "run_item_payload", "gap_payload", "max_iterations", "expected_outputs"),
+    (
+        "selection_payload",
+        "run_item_payload",
+        "gap_payload",
+        "max_iterations",
+        "expected_outputs",
+        "expected_terminal_run_state",
+    ),
     (
         (
             {"variant": "EMPTY", "run-state": "state/empty-queue.json"},
@@ -967,6 +1289,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__run-state": "state/drain-run-state.json",
                 "summary_path": "artifacts/work/drain-progress-report.md",
             },
+            "state/drain-run-state.json",
         ),
         (
             {
@@ -987,6 +1310,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__blocker-class": "roadmap_conflict",
                 "summary_path": "artifacts/work/item-blocked.md",
             },
+            "state/items/item-1/final.json",
         ),
         (
             [
@@ -1011,6 +1335,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__run-state": "state/items/item-1/final.json",
                 "summary_path": "artifacts/work/item-complete.md",
             },
+            "state/items/item-1/final.json",
         ),
         (
             [
@@ -1044,6 +1369,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__run-state": "state/items/item-2/final.json",
                 "summary_path": "artifacts/work/item-2-complete.md",
             },
+            "state/items/item-2/final.json",
         ),
         (
             {
@@ -1059,6 +1385,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__blocker-class": "user_decision_required",
                 "summary_path": "artifacts/work/drain-progress-report.md",
             },
+            "state/drain-run-state.json",
         ),
         (
             [
@@ -1084,6 +1411,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__run-state": "state/items/item-1/final.json",
                 "summary_path": "artifacts/work/item-after-gap.md",
             },
+            "state/items/item-1/final.json",
         ),
         (
             [
@@ -1133,6 +1461,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__blocker-class": "unrecoverable_after_fix_attempt",
                 "summary_path": "artifacts/work/item-4-progress.md",
             },
+            "state/items/item-4/final.json",
         ),
     ),
 )
@@ -1143,13 +1472,18 @@ def test_stdlib_backlog_drain_executes_promoted_route_with_terminal_side_effects
     gap_payload: dict[str, object] | list[dict[str, object]] | None,
     max_iterations: int,
     expected_outputs: dict[str, object],
+    expected_terminal_run_state: str,
 ) -> None:
     workflow_path, result = _compile_linked_stdlib_fixture(
-        VALID_STDLIB_DRAIN_FIXTURE,
+        VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
         tmp_path=tmp_path,
         validation_profile="DEDICATED_RUNTIME_PROOF",
     )
-    bundle = result.entry_result.validated_bundles["drain_stdlib_backlog_drain_stdlib::drain"]
+    bundle = next(
+        bundle
+        for workflow_name, bundle in result.entry_result.validated_bundles.items()
+        if workflow_name.endswith("::drain")
+    )
     _write_drain_runtime_scripts(
         tmp_path,
         selection_payload=selection_payload,
@@ -1191,8 +1525,13 @@ def test_stdlib_backlog_drain_executes_promoted_route_with_terminal_side_effects
             continue
         assert state["workflow_outputs"][key] == value
     assert (tmp_path / expected_outputs["summary_path"]).is_file()
-    assert sorted(tmp_path.rglob("*drain-run-state-state.json"))
-    assert sorted(tmp_path.rglob("*record-drain-outcome-audit.jsonl"))
+    assert sorted((tmp_path / "state" / "workflow_lisp").rglob("*-drain-run-state.json"))
+    assert sorted((tmp_path / "state" / "workflow_lisp").rglob("*-record-drain-outcome.jsonl"))
+    audit_rows = _drain_transition_audit_rows(tmp_path)
+    assert audit_rows
+    committed_row = next(row for row in reversed(audit_rows) if row["outcome_code"] == "committed")
+    assert committed_row["result"]["run_state"] == expected_terminal_run_state
+    assert committed_row["projection"]["run_state"] == expected_terminal_run_state
 
 
 def test_stdlib_backlog_drain_rejects_non_symbol_callee_on_imported_route(tmp_path: Path) -> None:
@@ -1474,12 +1813,22 @@ def test_compile_stage3_module_rebinds_imported_selector_provider_metadata(tmp_p
         imported_workflow_bundles={"selector-run": imported_selector},
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+        lowering_route=LoweringRoute.WCC_M4,
     )
 
     drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
-    repeat_step = next(step for step in drain.authored_mapping["steps"] if "repeat_until" in step)
-    selector_call = repeat_step["repeat_until"]["steps"][0]
+    child = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    assert not any("repeat_until" in step for step in drain.authored_mapping["steps"])
+    repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
+    selector_call = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step.get("call", "").startswith("selector-run")
+    )
 
     assert selector_call["call"] != "selector-run"
     assert selector_call["call"].startswith("selector-run__selector")
@@ -1767,12 +2116,22 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
         command_boundaries=_command_boundaries().bindings_by_name,
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+        lowering_route=LoweringRoute.WCC_M4,
     )
 
     drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
-    repeat_step = next(step for step in drain.authored_mapping["steps"] if "repeat_until" in step)
-    selector_call = repeat_step["repeat_until"]["steps"][0]
+    child = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    assert not any("repeat_until" in step for step in drain.authored_mapping["steps"])
+    repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
+    selector_call = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if step.get("call", "").startswith("selector-run")
+    )
 
     assert selector_call["call"] != "selector-run"
     assert selector_call["call"].startswith("selector-run__selector")
