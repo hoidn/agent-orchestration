@@ -42,6 +42,9 @@ VALID_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain.orc"
 VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE = (
     FIXTURES / "valid" / "drain_stdlib_backlog_drain_callable_boundary.orc"
 )
+VALID_STDLIB_PARENT_TERMINAL_REPROJECTION_FIXTURE = (
+    FIXTURES / "valid" / "drain_stdlib_backlog_drain_parent_terminal_reprojection.orc"
+)
 VALID_STDLIB_CALLABLE_BOUNDARY_RICH_GAP_FIXTURE = (
     FIXTURES / "valid" / "drain_stdlib_backlog_drain_callable_boundary_rich_gap_payload.orc"
 )
@@ -934,6 +937,249 @@ def test_callable_boundary_fixture_uses_direct_helper_head() -> None:
     source = VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE.read_text(encoding="utf-8")
 
     assert "(backlog-drain-callable-boundary neurips" in source
+
+
+def test_compile_stage3_module_preserves_parent_terminal_reprojection_over_imported_backlog_drain(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_PARENT_TERMINAL_REPROJECTION_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    parent = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::drain")
+    )
+    child = _child_backlog_drain_workflow(result)
+    call_step = next(
+        step
+        for step in _iter_nested_steps(parent.authored_mapping["steps"])
+        if step.get("call") == "std/drain::backlog-drain"
+    )
+    projection_step = next(
+        step
+        for step in parent.authored_mapping["steps"]
+        if "project-parent-drain-result" in step.get("name", "")
+    )
+
+    assert parent.typed_workflow.signature.return_type_ref.name == "ParentTerminalResult"
+    assert not any("repeat_until" in step for step in parent.authored_mapping["steps"])
+    assert call_step["id"] in parent.origin_map.step_spans
+    assert projection_step["match"]["ref"] == (
+        "root.steps."
+        "drain_stdlib_backlog_drain_parent_terminal_reprojection::drain__stdlib-result__call_std/drain::backlog-drain."
+        "artifacts.return__variant"
+    )
+    assert tuple(projection_step["match"]["cases"]) == ("EMPTY", "COMPLETED", "BLOCKED")
+    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
+
+
+def test_parent_terminal_reprojection_preserves_imported_call_and_projection_provenance(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_PARENT_TERMINAL_REPROJECTION_FIXTURE,
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+
+    parent = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::drain")
+    )
+    child = _child_backlog_drain_workflow(result)
+    projection_step = next(
+        step
+        for step in parent.authored_mapping["steps"]
+        if "project-parent-drain-result" in step.get("name", "")
+    )
+    case_steps = {
+        case_name: projection_step["match"]["cases"][case_name]["steps"]
+        for case_name in ("EMPTY", "COMPLETED", "BLOCKED")
+    }
+    child_step_ids = {
+        step_id
+        for step in _iter_nested_steps(child.authored_mapping["steps"])
+        if isinstance((step_id := step.get("id")), str)
+    }
+
+    assert projection_step["id"] in parent.origin_map.step_spans
+    assert parent.origin_map.step_spans[projection_step["id"]].origin_key
+    for case_name, steps in case_steps.items():
+        for step in steps:
+            step_id = step.get("id")
+            assert isinstance(step_id, str), case_name
+            assert step_id in parent.origin_map.step_spans
+            assert parent.origin_map.step_spans[step_id].origin_key
+    assert child_step_ids
+    assert all(step_id in child.origin_map.step_spans for step_id in child_step_ids)
+    assert all(child.origin_map.step_spans[step_id].origin_key for step_id in child_step_ids)
+
+
+@pytest.mark.parametrize(
+    (
+        "selection_payload",
+        "run_item_payload",
+        "gap_payload",
+        "max_iterations",
+        "expected_outputs",
+    ),
+    (
+        (
+            {"variant": "EMPTY", "run-state": "state/empty-queue.json"},
+            None,
+            None,
+            4,
+            {
+                "return__variant": "DONE",
+                "return__items-processed": 0,
+                "return__run-state": "state/drain-run-state.json",
+            },
+        ),
+        (
+            [
+                {
+                    "variant": "SELECTED",
+                    "selection": {"item-id": "item-1", "item-state-root": "state/items/item-1"},
+                },
+                {"variant": "EMPTY", "run-state": "state/items/item-1/post-run.json"},
+            ],
+            [
+                {
+                    "variant": "CONTINUE",
+                    "summary-path": "artifacts/work/item-complete.md",
+                    "run-state": "state/items/item-1/final.json",
+                }
+            ],
+            None,
+            4,
+            {
+                "return__variant": "DONE",
+                "return__items-processed": 1,
+                "return__run-state": "state/items/item-1/final.json",
+            },
+        ),
+        (
+            {"variant": "BLOCKED", "reason": "selector_blocked", "run-state": "state/selector-blocked.json"},
+            None,
+            None,
+            4,
+            {
+                "return__variant": "BLOCKED",
+                "return__progress-report-path": "artifacts/work/drain-progress-report.md",
+                "return__blocker-class": "user_decision_required",
+            },
+        ),
+        (
+            [
+                {
+                    "variant": "SELECTED",
+                    "selection": {"item-id": "item-1", "item-state-root": "state/items/item-1"},
+                },
+                {
+                    "variant": "SELECTED",
+                    "selection": {"item-id": "item-2", "item-state-root": "state/items/item-2"},
+                },
+                {
+                    "variant": "SELECTED",
+                    "selection": {"item-id": "item-3", "item-state-root": "state/items/item-3"},
+                },
+                {
+                    "variant": "SELECTED",
+                    "selection": {"item-id": "item-4", "item-state-root": "state/items/item-4"},
+                },
+            ],
+            [
+                {
+                    "variant": "CONTINUE",
+                    "summary-path": "artifacts/work/item-1-progress.md",
+                    "run-state": "state/items/item-1/final.json",
+                },
+                {
+                    "variant": "CONTINUE",
+                    "summary-path": "artifacts/work/item-2-progress.md",
+                    "run-state": "state/items/item-2/final.json",
+                },
+                {
+                    "variant": "CONTINUE",
+                    "summary-path": "artifacts/work/item-3-progress.md",
+                    "run-state": "state/items/item-3/final.json",
+                },
+                {
+                    "variant": "CONTINUE",
+                    "summary-path": "artifacts/work/item-4-progress.md",
+                    "run-state": "state/items/item-4/final.json",
+                },
+            ],
+            None,
+            4,
+            {
+                "return__variant": "BLOCKED",
+                "return__progress-report-path": "artifacts/work/item-4-progress.md",
+                "return__blocker-class": "unrecoverable_after_fix_attempt",
+            },
+        ),
+    ),
+)
+def test_parent_terminal_reprojection_executes_projected_parent_outputs(
+    tmp_path: Path,
+    selection_payload: dict[str, object] | list[dict[str, object]],
+    run_item_payload: dict[str, object] | list[dict[str, object]] | None,
+    gap_payload: dict[str, object] | list[dict[str, object]] | None,
+    max_iterations: int,
+    expected_outputs: dict[str, object],
+) -> None:
+    workflow_path, result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_PARENT_TERMINAL_REPROJECTION_FIXTURE,
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+    bundle = next(
+        bundle
+        for workflow_name, bundle in result.entry_result.validated_bundles.items()
+        if workflow_name.endswith("::drain")
+    )
+    _write_drain_runtime_scripts(
+        tmp_path,
+        selection_payload=selection_payload,
+        run_item_payload=run_item_payload,
+        gap_payload=gap_payload,
+    )
+
+    manifest_path = tmp_path / "state" / "runtime" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("{}\n", encoding="utf-8")
+    initial_run_state = tmp_path / "state" / "drain-run-state.json"
+    initial_run_state.parent.mkdir(parents=True, exist_ok=True)
+    initial_run_state.write_text("{}\n", encoding="utf-8")
+    summary_path = tmp_path / "artifacts" / "work" / "drain-progress-report.md"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text("seed\n", encoding="utf-8")
+    ledger_path = tmp_path / "state" / "runtime" / "ledger.json"
+    ledger_path.write_text("[]\n", encoding="utf-8")
+
+    state = _execute_bundle(
+        bundle,
+        workflow_path=workflow_path,
+        workspace=tmp_path,
+        run_id="drain-parent-reprojection-runtime",
+        inputs={
+            "ctx__run__run-id": "drain-parent-reprojection-runtime",
+            "ctx__run__state-root": "state/runtime",
+            "ctx__run__artifact-root": "artifacts/work",
+            "ctx__state-root": "state/runtime",
+            "ctx__manifest": "state/runtime/manifest.json",
+            "ctx__ledger": "state/runtime/ledger.json",
+            "max-iterations": max_iterations,
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == expected_outputs
 
 
 def test_compile_stage3_module_carries_rich_gap_payload_across_callable_boundary(
