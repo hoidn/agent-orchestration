@@ -318,6 +318,37 @@ Implication: future runtime simplification should move toward evaluating typed
 values directly between effect boundaries, but it should not hide effect
 boundaries inside opaque interpreter state.
 
+### 11. "Workflow" is probably overextended as a reusable-code abstraction
+
+The current migration still tends to model reusable units as workflows calling
+workflows. That is often the wrong abstraction. Many reusable `.orc` units are
+really ordinary Lisp-style functions or procedures: they reshape typed values,
+branch over unions, normalize terminal results, or construct provider request
+records. Forcing those units through workflow-call boundaries makes them inherit
+too much runtime machinery: public inputs, hidden context, generated paths,
+artifact/result projection, compatibility bridges, and parity surfaces.
+
+Provider calls are the more useful notion of "step" here. The authoring model
+should separate:
+
+- regular pure functions for deterministic value computation;
+- effectful functions/procedures for typed composition that may call effects;
+- provider steps with prompt/input/output contracts;
+- command/resource/publish/bridge steps for other explicit external effects;
+  and
+- workflow entrypoints as durable run boundaries.
+
+Under that model, `workflow` is not the default unit of reuse. It is the
+top-level executable boundary that owns run identity, resume/checkpoint policy,
+observability, artifact lineage, operator reporting, and public input/output
+projection. Internal composition should look like normal typed Lisp evaluation
+with explicit effect forms where external work occurs.
+
+Implication: the runtime-native target should not make "workflow call" carry
+all composition semantics. It should converge toward regular function calls
+plus explicit provider/effect steps, with workflow as an operational boundary
+rather than a distinct value-semantic universe.
+
 ## Root Cause Interpretation
 
 The root cause is an impedance mismatch between a typed, lexical, expression
@@ -409,6 +440,13 @@ type definitions and refined WCC bindings
    External work should cross explicit effect boundaries that carry contracts
    for validation, resume, source maps, artifacts, and parity evidence.
 
+11. Shrink workflow to the durable executable boundary.
+
+   Reusable domain logic should be ordinary Lisp-style functions/procedures.
+   Provider calls and other external operations should be explicit steps.
+   Workflow entrypoints should own run/resume/public-boundary obligations, not
+   serve as the default abstraction for every reusable helper.
+
 ## Open Questions
 
 - How much of the executable output contract can be generated directly from
@@ -430,6 +468,9 @@ type definitions and refined WCC bindings
 - Should the runtime roadmap explicitly target interpreter-like evaluation for
   pure/structured regions while keeping providers, commands, child workflow
   calls, transitions, publication, and bridges as compiled effect boundaries?
+- Should the frontend/runtime roadmap demote reusable workflow calls in favor
+  of regular functions plus explicit provider/effect steps, leaving workflow as
+  the durable public run boundary?
 
 ## Bottom Line
 
@@ -441,3 +482,6 @@ that WCC, executable contracts, source maps, runtime validation, and parity
 evidence all preserve the same typed union/record structure. Longer term, the
 runtime should feel interpreter-like for typed values between effect
 boundaries, while keeping those effect boundaries explicit and inspectable.
+In that shape, provider/effect steps are the primary durable step abstraction;
+workflow is the public/resumable execution boundary, not the normal unit of
+internal reuse.
