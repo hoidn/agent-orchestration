@@ -459,6 +459,21 @@ bridge declaration surface is accepted, equivalent manifest or boundary metadata
 is acceptable if it records the typed source value, renderer, schema/version,
 consumer, owner, and retirement condition.
 
+Bridge metadata is a boundary mechanism, not ordinary internal composition.
+Completion requires compatibility bridges to be retired from internal `.orc`
+workflow bodies. Any remaining bridge must be isolated at a declared public or
+legacy boundary with owner, consumer, schema/renderer, authority class, and
+retirement condition or explicit permanence rationale. A bridge must not
+compensate for missing typed projection, private context, resource transition,
+provider target binding, or stdlib composition.
+
+For the Design Delta reference family, this specifically requires retiring
+internal `*-compat` adapter procedures for selected-item, plan, implementation,
+and finalization projection. Work-item routing should call a family-native typed
+finalizer or a generic stdlib finalizer protocol directly. Compatibility
+projections may remain only at public or legacy file/view boundaries, not
+between ordinary `.orc` modules.
+
 ### 7.7 Private Context Parameters In Source
 
 Private context must stay off promoted public entrypoints. Internal reusable
@@ -639,7 +654,7 @@ matched-union validation on the WCC route. The minimum contract is:
   rereads, or family-local wrapper shapes whose only purpose is to bypass
   missing proof/context transport.
 
-This prerequisite decomposes into two shared capability contracts that must be
+This prerequisite decomposes into three shared capability contracts that must be
 proved together for families adopting imported `backlog-drain` plus reused child
 phase workflows:
 
@@ -686,6 +701,43 @@ Until that shared contract exists, a family may still adopt request-record,
 projection, transition, publication, bridge, and shared parent-loop cleanup
 slices, but it must not claim the simplified internal-signature plus
 imported-child stdlib route for ordinary work-item composition.
+
+#### 9.2.3 Called-Workflow Result Branching And Terminal Reprojection
+
+The shared phase-family route must also support the ordinary work-item branch
+shape that imported `backlog-drain` families actually need after the fixed
+`run-item` entrypoint is in place. The minimum contract is:
+
+- a work-item workflow may call an imported child phase workflow, bind the
+  returned union result, and immediately `match` that binding on the ordinary
+  WCC/schema-2 route;
+- inside a proved branch of that child-workflow result, the workflow may call a
+  family or stdlib helper that returns a second union-like terminal or
+  classification result and may `match` that second result without losing the
+  producing-step identity needed by `requires_variant`;
+- nested finalizers such as imported `std/resource/finalize-selected-item`, or
+  equivalent typed family terminal reprojection, may appear under those proved
+  branches without triggering `workflow_boundary_type_invalid` because the
+  compiler retargeted proof at a non-variant wrapper step; and
+- the accepted route remains the shared compiler/runtime path rather than a
+  family-local decomposition into path-heavy wrapper workflows, re-read
+  compatibility bundles, or caller-name-specific validator exemptions.
+
+The minimum owner-lane proof for this contract is a compile/shared-validation
+fixture that exercises this exact shape:
+
+- fixed `run-item` stdlib entry;
+- imported child phase call returning a union;
+- `match` over that call result;
+- branch-local call to a terminal-classification or recovery helper returning a
+  second union; and
+- branch-local call to imported `finalize-selected-item` or an equivalent typed
+  terminal projection.
+
+Until that proof exists, a family may still adopt the parent-loop, request-
+record, projection, transition, publication, and bridge slices that do not
+depend on this branching shape, but it must not claim completion of the
+simplified item-context-first child-phase reuse route.
 
 ### 9.3 Shared `std/phase` Owner-Lane Self-Hosting Prerequisite
 
@@ -939,8 +991,9 @@ ladder:
   hidden private-context bindings and matched child-workflow unions clear
   shared validation on the WCC route without public `PhaseCtx` inputs or
   `workflow_boundary_type_invalid`, while preserving the fixed
-  `backlog-drain` `run-item` workflow-ref shape and avoiding caller-specific
-  proof allowlists;
+  `backlog-drain` `run-item` workflow-ref shape, allowing the called-workflow
+  result branching and terminal-reprojection shape from Section 9.2.3, and
+  avoiding caller-specific proof allowlists;
 - shared `std/phase` owner-lane self-hosting proof, when the family depends on
   imported `review-revise-loop`, `phase-scope`, or related builtin phase
   helpers, showing the builtin module resolves and exports
@@ -961,8 +1014,8 @@ The target is complete only when the Design Delta Drain `.orc` family:
   phase-family boundary contract already preserves hidden private-context
   transport and matched child-workflow proof on the WCC route, without
   validator-driven fallback to path-heavy `phase-ctx` surfaces, widened
-  `run-item` workflow-ref arity, or caller-specific child-phase reuse
-  allowlists;
+  `run-item` workflow-ref arity, family-local wrapper decomposition of called
+  union results, or caller-specific child-phase reuse allowlists;
 - depends on imported `std/phase` review/fix helpers only where the shared
   builtin owner lane already proves those helpers compile and validate on the
   same ordinary imported-stdlib WCC route, rather than discovering missing
@@ -1077,9 +1130,13 @@ This target succeeds when:
   adapters;
 - remaining Python helpers are certified external/legacy boundaries, not
   hidden semantic glue;
-- transitional compatibility bridges are retired or isolated at declared
-  public/legacy boundaries with owner, consumer, schema, and retirement
-  evidence;
+- transitional compatibility bridges are retired from ordinary internal `.orc`
+  composition; any retained bridge is isolated at a declared public or legacy
+  boundary with owner, consumer, schema/renderer, authority class, and
+  retirement condition or explicit permanence rationale;
+- Design Delta selected-item, plan, implementation, and finalization
+  `*-compat` adapter procedures are retired from internal work-item routing in
+  favor of a family-native typed finalizer or generic stdlib finalizer protocol;
 - phase/drain/item/recovery behavior is implemented as ordinary stdlib or
   family-library Workflow Lisp over generic context/resource mechanics rather
   than as family-specific compiler lowering;
@@ -1106,6 +1163,10 @@ Revise this target if implementation requires:
 - widening the imported `backlog-drain` `run-item` workflow-ref shape or
   depending on proof-fixture-specific child-phase caller allowlists instead of
   landing the shared phase-family prerequisite;
+- working around missing called-workflow result branching support by splitting
+  ordinary work-item routing into family-local wrapper workflows, compatibility
+  bundle rereads, or other proof-preserving facsimiles instead of landing the
+  shared prerequisite in Section 9.2.3;
 - patching a missing shared `std/phase` type/export/import-resolution contract
   inside a family migration slice instead of landing a separate owner-lane
   prerequisite gap first;
