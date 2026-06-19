@@ -51,7 +51,7 @@ from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, Phase
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourceSpan
-from ..type_env import PathTypeRef, PrimitiveTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from ..type_env import PathTypeRef, ProcRefTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from ..typecheck import TypedExpr
 from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_literal, resolve_workflow_ref_name, workflow_ref_target_name
 from ..workflows import (
@@ -552,9 +552,24 @@ def _phase_stdlib_lower_backlog_drain_impl(
             field_path,
             f"self.steps.{selector_call_name}.artifacts.return__selection__{'__'.join(field_path)}",
         )
-    gap_value = {
-        "gap-id": f"self.steps.{selector_call_name}.artifacts.return__gap__gap-id",
-    }
+    gap_payload_type = gap_drafter_signature.params[1][1]
+    if not isinstance(gap_payload_type, RecordTypeRef):
+        raise _compile_error(
+            code="workflow_signature_mismatch",
+            message="`backlog-drain :gap-drafter` second parameter must remain a record payload",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    gap_value: dict[str, Any] = {}
+    for _, field_path in _flatten_boundary_leaf_paths(
+        gap_payload_type,
+        generated_name=gap_drafter_signature.params[1][0],
+    ):
+        _assign_nested_local_value(
+            gap_value,
+            field_path,
+            f"self.steps.{selector_call_name}.artifacts.return__gap__{'__'.join(field_path)}",
+        )
     run_mapping = ctx_value.get("run")
     if not isinstance(selection_value, Mapping) or not isinstance(gap_value, Mapping) or not isinstance(run_mapping, Mapping):
         raise _compile_error(

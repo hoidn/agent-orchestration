@@ -29,7 +29,7 @@
     {
       "suite": "tests/test_workflow_lisp_drain_stdlib.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Promoted callable std/drain owner-boundary proof covering parent-to-child delegation, child-owned repeat_until structure, and shared terminal-finalization parity."
+      "reason": "Promoted callable std/drain owner-boundary proof covering parent-to-child delegation, child-owned repeat_until structure, shared terminal-finalization parity, rich gap-drafter payload carriage, and the preserved imported-route record-only second-parameter contract."
     },
     {
       "suite": "tests/test_workflow_lisp_resource_stdlib.py",

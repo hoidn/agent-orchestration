@@ -1,0 +1,95 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defmodule drain_stdlib_backlog_drain_callable_boundary_rich_gap_payload)
+  ; Shared-route fixture that proves imported std/drain backlog-drain can
+  ; carry a richer typed GAP payload across the fixed gap-drafter boundary.
+  (import std/context :only (DrainCtx ItemCtx))
+  (import std/resource :only (BlockerClass SelectedItemResult))
+  (export drain)
+  (defpath WorkReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defpath StateExisting
+    :kind relpath
+    :under "state"
+    :must-exist true)
+  (defpath StateFile
+    :kind relpath
+    :under "state"
+    :must-exist false)
+  (defpath PlanTargetPath
+    :kind relpath
+    :under "docs/plans"
+    :must-exist false)
+  (defpath ArchitecturePath
+    :kind relpath
+    :under "docs/plans"
+    :must-exist false)
+  (defrecord SelectionPayload
+    (item-id String)
+    (item-state-root StateFile))
+  (defrecord GapPayload
+    (work-item-id String)
+    (plan-target-path PlanTargetPath)
+    (architecture-path ArchitecturePath))
+  (defunion SelectionResult
+    (EMPTY
+      (run-state StateExisting))
+    (GAP
+      (gap GapPayload))
+    (SELECTED
+      (selection SelectionPayload))
+    (BLOCKED
+      (reason String)
+      (run-state StateExisting)))
+  (defunion GapResult
+    (CONTINUE
+      (run-state StateExisting))
+    (BLOCKED
+      (progress-report-path WorkReport)
+      (blocker-class BlockerClass)))
+  (defunion DrainResult
+    (EMPTY
+      (run-state StateExisting))
+    (BLOCKED
+      (progress-report-path WorkReport)
+      (blocker-class BlockerClass))
+    (COMPLETED
+      (items-processed Int)
+      (run-state StateExisting)))
+  (defworkflow selector-run
+    ((ctx DrainCtx))
+    -> SelectionResult
+    (command-result select_next_item
+      :argv ("python" "scripts/select_next_item.py" ctx.manifest)
+      :returns SelectionResult))
+  (defworkflow run-selected-item
+    ((item-ctx ItemCtx)
+     (selection SelectionPayload))
+    -> SelectedItemResult
+    (command-result execute_selected_item
+      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)
+      :returns SelectedItemResult))
+  (defworkflow gap-draft
+    ((ctx DrainCtx)
+     (gap GapPayload))
+    -> GapResult
+    (command-result draft_gap_item
+      :argv ("python"
+             "scripts/draft_gap_item.py"
+             gap.work-item-id
+             gap.plan-target-path
+             gap.architecture-path)
+      :returns GapResult))
+  (defworkflow drain
+    ((ctx DrainCtx)
+     (max-iterations Int))
+    -> DrainResult
+    (backlog-drain-callable-boundary neurips
+      :ctx ctx
+      :selector selector-run
+      :run-item run-selected-item
+      :gap-drafter gap-draft
+      :max-iterations 4)))

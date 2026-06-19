@@ -42,6 +42,9 @@ VALID_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain.orc"
 VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE = (
     FIXTURES / "valid" / "drain_stdlib_backlog_drain_callable_boundary.orc"
 )
+VALID_STDLIB_CALLABLE_BOUNDARY_RICH_GAP_FIXTURE = (
+    FIXTURES / "valid" / "drain_stdlib_backlog_drain_callable_boundary_rich_gap_payload.orc"
+)
 INVALID_SIGNATURE_FIXTURE = FIXTURES / "invalid" / "backlog_drain_workflow_ref_signature_invalid.orc"
 INVALID_SELECTOR_BLOCKED_REASON_MISSING_FIXTURE = (
     FIXTURES / "invalid" / "backlog_drain_selector_blocked_reason_missing_invalid.orc"
@@ -50,6 +53,9 @@ INVALID_SELECTOR_BLOCKED_RUN_STATE_MISSING_FIXTURE = (
     FIXTURES / "invalid" / "backlog_drain_selector_blocked_run_state_missing_invalid.orc"
 )
 INVALID_UNION_BOUNDARY_FIXTURE = FIXTURES / "invalid" / "backlog_drain_union_call_boundary_invalid.orc"
+INVALID_GAP_DRAFTER_NON_RECORD_PAYLOAD_FIXTURE = (
+    FIXTURES / "invalid" / "backlog_drain_gap_drafter_non_record_payload_invalid.orc"
+)
 INVALID_STDLIB_DRAIN_NON_SYMBOL_CALLEE_FIXTURE = (
     FIXTURES / "invalid" / "drain_stdlib_backlog_drain_non_symbol_callee.orc"
 )
@@ -747,6 +753,20 @@ def test_workflow_ref_union_call_boundary_projection_rejects_unproved_variant_ac
     assert excinfo.value.diagnostics[0].code == "variant_ref_unproved"
 
 
+def test_workflow_ref_resolution_rejects_gap_drafter_non_record_payload(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_linked_stdlib_fixture(
+            INVALID_GAP_DRAFTER_NON_RECORD_PAYLOAD_FIXTURE,
+            tmp_path=tmp_path,
+            lowering_route=LoweringRoute.WCC_M4,
+            validate_shared=False,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
+
+
 def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_path: Path) -> None:
     _workflow_path, entry_result = _compile_linked_stdlib_fixture(
         VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
@@ -825,7 +845,9 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "ctx__state-root": {"ref": "inputs.ctx__state-root"},
         "ctx__manifest": {"ref": "inputs.ctx__manifest"},
         "ctx__ledger": {"ref": "inputs.ctx__ledger"},
-        "gap__gap-id": {"ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__gap-id"},
+        "gap__gap-id": {
+            "ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__gap-id"
+        },
         gap_write_root_name: {
             "ref": (
                 "self.steps.std/drain::backlog-drain__gap_drafter__managed_write_roots.artifacts."
@@ -902,6 +924,53 @@ def test_callable_boundary_fixture_uses_direct_helper_head() -> None:
     source = VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE.read_text(encoding="utf-8")
 
     assert "(backlog-drain-callable-boundary neurips" in source
+
+
+def test_compile_stage3_module_carries_rich_gap_payload_across_callable_boundary(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, entry_result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_CALLABLE_BOUNDARY_RICH_GAP_FIXTURE,
+        tmp_path=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+        validate_shared=False,
+    )
+    child = next(
+        workflow
+        for workflow in entry_result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
+    body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
+    gap_drafter_call = next(step for step in body_steps if step.get("call", "").endswith("gap-draft"))
+    gap_write_root_name = next(
+        name for name in gap_drafter_call["with"] if name.startswith("__write_root__")
+    )
+
+    assert gap_drafter_call["with"] == {
+        "ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
+        "ctx__run__state-root": {"ref": "inputs.ctx__run__state-root"},
+        "ctx__run__artifact-root": {"ref": "inputs.ctx__run__artifact-root"},
+        "ctx__state-root": {"ref": "inputs.ctx__state-root"},
+        "ctx__manifest": {"ref": "inputs.ctx__manifest"},
+        "ctx__ledger": {"ref": "inputs.ctx__ledger"},
+        "gap__work-item-id": {
+            "ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__work-item-id"
+        },
+        "gap__plan-target-path": {
+            "ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__plan-target-path"
+        },
+        "gap__architecture-path": {
+            "ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__architecture-path"
+        },
+        gap_write_root_name: {
+            "ref": (
+                "self.steps.std/drain::backlog-drain__gap_drafter__managed_write_roots.artifacts."
+                f"{gap_write_root_name}"
+            )
+        },
+    }
+    assert "gap__gap-id" not in gap_drafter_call["with"]
 
 
 def test_compile_stage3_module_keeps_callable_backlog_drain_specializations_isolated(
@@ -1233,18 +1302,32 @@ def test_callable_backlog_drain_keeps_gap_drafter_boundary_narrow(tmp_path: Path
         encoding="utf-8",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            command_boundaries=_command_boundaries(gap_output_type_name="GapDraftResult").bindings_by_name,
-            validate_shared=False,
-            workspace_root=tmp_path,
-            lowering_route=LoweringRoute.WCC_M4,
-        )
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_command_boundaries(gap_output_type_name="GapDraftResult").bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_signature_mismatch"
-    assert "gap.gap-kind" in diagnostic.message
+    child = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    gap_drafter_call = next(
+        step
+        for step in _iter_nested_steps(child.authored_mapping["steps"])
+        if step.get("call") == "gap-draft"
+    )
+
+    assert gap_drafter_call["with"]["gap__gap-id"] == {
+        "ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__gap-id"
+    }
+    assert gap_drafter_call["with"]["gap__gap-kind"] == {
+        "ref": "self.steps.std/drain::backlog-drain__selector.artifacts.return__gap__gap-kind"
+    }
+    assert sum(name.startswith("gap__") for name in gap_drafter_call["with"]) == 2
 
 
 def test_command_result_contract_accepts_certified_adapter_backends_without_hiding_command_boundary(
@@ -1293,7 +1376,12 @@ def test_command_result_contract_accepts_certified_adapter_backends_without_hidi
 
 
 def test_compile_stage3_module_supports_record_gap_drafter_returns(tmp_path: Path) -> None:
-    result = _compile(_record_gap_drafter_fixture(tmp_path), tmp_path=tmp_path, validate_shared=True)
+    result = _compile(
+        _record_gap_drafter_fixture(tmp_path),
+        tmp_path=tmp_path,
+        validate_shared=True,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
 
     drain = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "drain")
     rendered = str(drain.authored_mapping)

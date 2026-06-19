@@ -725,6 +725,24 @@ def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
     return result, lowered_by_name
 
 
+def _compile_design_delta_stdlib_payloads_entrypoint(tmp_path: Path):
+    result = compile_stage3_entrypoint(
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "stdlib_payloads.orc",
+        source_roots=(REPO_ROOT / "workflows" / "library",),
+        provider_externs=_design_delta_parent_drain_provider_externs(),
+        prompt_externs=_design_delta_parent_drain_prompt_externs(),
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return result, lowered_by_name
+
+
 def _compile_design_delta_runtime_transition_fixture_entrypoint(tmp_path: Path):
     result = compile_stage3_entrypoint(
         DESIGN_DELTA_RUNTIME_TRANSITION_FIXTURE,
@@ -4146,30 +4164,18 @@ def test_design_delta_runtime_view_fixture_materializes_summary_and_pointer_view
     ) == 2
 
 
-def test_design_delta_parent_drain_entrypoint_owns_loop_control(
+def test_design_delta_parent_drain_entrypoint_delegates_loop_control_to_stdlib(
     tmp_path: Path,
 ) -> None:
-    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
 
-    assert "lisp_frontend_design_delta/drain::drain-loop-proof" not in lowered_by_name
-    entry_steps = lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"]
-    entry_repeat_steps = [
-        step for step in entry_steps if isinstance(step, dict) and "repeat_until" in step
-    ]
-    assert len(entry_repeat_steps) == 1
-
-    loop_steps = list(_walk_lowered_steps(entry_repeat_steps[0]["repeat_until"]["steps"]))
-    loop_call_targets = {
-        step.get("call") for step in loop_steps if isinstance(step.get("call"), str)
-    }
-    assert "lisp_frontend_design_delta/selector::select-next-work" in loop_call_targets
-    assert "lisp_frontend_design_delta/projections::project-selector-action" in loop_call_targets
-    assert "lisp_frontend_design_delta/selector::select-next-action" not in loop_call_targets
-    assert "lisp_frontend_design_delta/work_item::run-work-item" in loop_call_targets
-    assert (
-        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
-        in loop_call_targets
-    )
+    assert "(backlog-drain design-delta" in drain_source
+    assert ":selector select-next-work-stdlib" in drain_source
+    assert ":run-item run-work-item" in drain_source
+    assert ":gap-drafter draft-design-gap-stdlib" in drain_source
+    assert "(loop/recur" not in drain_source
 
 
 def test_design_delta_parent_drain_current_route_stays_handwritten_pending_family_adoption_slice(
@@ -4512,34 +4518,21 @@ def test_design_delta_selector_action_projection_rejects_inconsistent_status(
 def test_design_delta_parent_drain_routes_design_gap_bundle_from_action(
     tmp_path: Path,
 ) -> None:
-    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
-    loop_steps = list(
-        _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
-    )
-
-    draft_call = next(
-        step
-        for step in loop_steps
-        if step.get("call")
-        == "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture"
-    )
-    validate_call = next(
-        step
-        for step in loop_steps
-        if step.get("call")
-        == "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
-    )
-
-    design_gap_refs = [
-        draft_call["with"]["progress_ledger"]["ref"],
-        draft_call["with"]["design_gap_bootstrap__work_item_id"]["ref"],
-        validate_call["with"]["design_gap_bootstrap__architecture_path"]["ref"],
+    result, lowered_by_name = _compile_design_delta_stdlib_payloads_entrypoint(tmp_path)
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/stdlib_payloads::project-selection-result"
     ]
-    assert design_gap_refs[0] == "inputs.progress_ledger_path"
-    assert all("design_gap_bootstrap" in ref for ref in design_gap_refs[1:])
-    assert all(ref != "inputs.selection_bundle_report_path" for ref in design_gap_refs)
-    assert not any(key.startswith("architecture_targets__") for key in draft_call["with"])
-    assert not any(key.startswith("architecture_targets__") for key in validate_call["with"])
+
+    assert "lisp_frontend_design_delta/stdlib_payloads::project-selection-result" in lowered_by_name
+    assert bundle.surface.outputs["return__gap__work_item_id"].from_ref.member == "return__gap__work_item_id"
+    assert bundle.surface.outputs["return__gap__plan_target_path"].from_ref.member == (
+        "return__gap__plan_target_path"
+    )
+    assert bundle.surface.outputs["return__gap__plan_target_path"].definition["under"] == "docs/plans"
+    assert bundle.surface.outputs["return__gap__architecture_path"].from_ref.member == (
+        "return__gap__architecture_path"
+    )
+    assert bundle.surface.outputs["return__gap__architecture_path"].definition["under"] == "docs/plans"
 
 
 def test_design_delta_design_gap_architect_prompt_contract_removes_selection_bundle_subject_authority(
