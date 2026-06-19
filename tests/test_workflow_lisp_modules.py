@@ -267,6 +267,8 @@ def test_compile_stage1_entrypoint_resolves_builtin_stdlib_imports_without_manua
     result = _compile_stage1_entrypoint(entry_path, source_root=source_root)
 
     assert "std/phase" in result.graph.modules_by_name
+    assert "std/phase" in result.compiled_modules_by_name
+    assert result.compiled_modules_by_name["std/phase"].module_name == "std/phase"
     assert result.graph.modules_by_name["std/phase"].source_root != source_root
 
 def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib(
@@ -293,6 +295,8 @@ def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib
 
     assert "review-revise-loop" in result.graph.export_surfaces_by_name["std/phase"].macros_by_name
     assert "review-revise-loop-proc" in result.graph.export_surfaces_by_name["std/phase"].procedures_by_name
+    assert result.graph.export_surfaces_by_name["std/phase"].binding_for("review-revise-loop") is not None
+    assert result.graph.export_surfaces_by_name["std/phase"].binding_for("review-revise-loop-proc") is not None
 
 
 def test_compile_stage1_entrypoint_rejects_project_local_stdlib_shadowing(tmp_path: Path) -> None:

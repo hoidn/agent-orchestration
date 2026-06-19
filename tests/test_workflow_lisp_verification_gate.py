@@ -314,6 +314,19 @@ def test_checked_in_gate_counted_and_later_tranche_suites_are_disjoint() -> None
     assert counted.isdisjoint(later)
 
 
+def test_checked_in_gate_phase_stdlib_counted_suite_names_owner_lane_self_hosting_proof() -> None:
+    gate_module = _verification_gate_module()
+    gate = gate_module.load_verification_gate(GATE_PATH)
+
+    phase_stdlib_row = next(
+        row for row in gate.counted_suites if row.suite == "tests/test_workflow_lisp_phase_stdlib.py"
+    )
+
+    assert "std/phase" in phase_stdlib_row.reason
+    assert "owner-lane" in phase_stdlib_row.reason
+    assert "self-hosting" in phase_stdlib_row.reason
+
+
 def test_checked_in_gate_declares_allowed_value_classes() -> None:
     gate_module = _verification_gate_module()
     gate = gate_module.load_verification_gate(GATE_PATH)

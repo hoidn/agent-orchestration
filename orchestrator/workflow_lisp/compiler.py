@@ -151,6 +151,7 @@ from .type_env import (
     RecordTypeRef,
     TypeRef,
     UnionTypeRef,
+    VariantCaseTypeRef,
     WorkflowRefTypeRef,
 )
 from .type_expressions import (
@@ -417,6 +418,58 @@ class LinkedStage3CompileResult:
     diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
     validation_profile: Stage3ValidationProfile | None = None
     retained_non_promotable_diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
+
+
+def _linked_module_type_environment(
+    compile_result: LinkedStage1CompileResult | LinkedStage3CompileResult,
+    module_name: str,
+) -> tuple[WorkflowLispModule, ModuleImportScope, FrontendTypeEnvironment]:
+    """Rebuild one linked module's import scope and type environment from compile artifacts."""
+
+    if isinstance(compile_result, LinkedStage1CompileResult):
+        compiled_modules_by_name = dict(compile_result.compiled_modules_by_name)
+    elif isinstance(compile_result, LinkedStage3CompileResult):
+        compiled_modules_by_name = {
+            name: result.module for name, result in compile_result.compiled_results_by_name.items()
+        }
+    else:
+        raise TypeError("linked compile result must be stage1 or stage3")
+
+    export_surfaces = compile_result.graph.export_surfaces_by_name
+    exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
+    exported_resource_defs_by_module: dict[str, dict[str, ResourceDef]] = {}
+    exported_transition_defs_by_module: dict[str, dict[str, TransitionDef]] = {}
+    rebuilt_by_name: dict[str, tuple[WorkflowLispModule, ModuleImportScope, FrontendTypeEnvironment]] = {}
+
+    for current_module_name in compile_result.graph.topological_order:
+        current_module = compiled_modules_by_name[current_module_name]
+        import_scope = build_import_scope(current_module, export_surfaces_by_name=export_surfaces)
+        type_env = FrontendTypeEnvironment.from_module(
+            current_module,
+            import_scope=import_scope,
+            imported_type_refs=_imported_type_refs(import_scope, exported_type_refs_by_module),
+            imported_resource_defs=_imported_resource_defs(import_scope, exported_resource_defs_by_module),
+            imported_transition_defs=_imported_transition_defs(import_scope, exported_transition_defs_by_module),
+        )
+        rebuilt_by_name[current_module_name] = (current_module, import_scope, type_env)
+        exported_type_refs_by_module[current_module_name] = _exported_type_refs(
+            current_module,
+            export_surfaces[current_module_name],
+            type_env,
+        )
+        exported_resource_defs_by_module[current_module_name] = _exported_resource_defs(
+            current_module,
+            export_surfaces[current_module_name],
+        )
+        exported_transition_defs_by_module[current_module_name] = _exported_transition_defs(
+            current_module,
+            export_surfaces[current_module_name],
+        )
+
+    try:
+        return rebuilt_by_name[module_name]
+    except KeyError as exc:
+        raise KeyError(f"module `{module_name}` not present in linked compile result") from exc
 
 
 def compile_stage1_entrypoint(
@@ -1938,6 +1991,7 @@ def _compile_stage3_graph(
         imported_procedure_signatures = _imported_procedure_signatures(
             import_scope,
             exported_procedure_signatures_by_module,
+            exported_type_refs_by_module,
         )
         imported_function_signatures = _imported_function_signatures(
             import_scope,
@@ -2303,140 +2357,6 @@ def _imported_type_refs(
 ) -> dict[str, TypeRef]:
     """Collect concrete type refs made visible by the import scope."""
 
-    def _canonical_export_name(module_name: str, type_name: str, exported_names: frozenset[str]) -> str:
-        if "::" in type_name:
-            return type_name
-        module_prefix = f"{module_name}/"
-        if type_name.startswith(module_prefix):
-            type_name = type_name.removeprefix(module_prefix)
-        if type_name in exported_names:
-            return f"{module_name}::{type_name}"
-        return type_name
-
-    def _canonicalize_nested_type_ref(
-        type_ref: TypeRef,
-        *,
-        module_name: str,
-        exported_names: frozenset[str],
-    ) -> TypeRef:
-        if isinstance(type_ref, PrimitiveTypeRef):
-            if not type_ref.allowed_values:
-                return type_ref
-            canonical_name = _canonical_export_name(module_name, type_ref.name, exported_names)
-            return replace(type_ref, name=canonical_name) if canonical_name != type_ref.name else type_ref
-        if isinstance(type_ref, RecordTypeRef):
-            canonical_name = _canonical_export_name(module_name, type_ref.name, exported_names)
-            return replace(
-                type_ref,
-                name=canonical_name,
-                field_types={
-                    field_name: _canonicalize_nested_type_ref(
-                        field_type,
-                        module_name=module_name,
-                        exported_names=exported_names,
-                    )
-                    for field_name, field_type in type_ref.field_types.items()
-                },
-            )
-        if isinstance(type_ref, UnionTypeRef):
-            canonical_name = _canonical_export_name(module_name, type_ref.name, exported_names)
-            return replace(
-                type_ref,
-                name=canonical_name,
-                variant_field_types={
-                    variant_name: {
-                        field_name: _canonicalize_nested_type_ref(
-                            field_type,
-                            module_name=module_name,
-                            exported_names=exported_names,
-                        )
-                        for field_name, field_type in field_types.items()
-                    }
-                    for variant_name, field_types in type_ref.variant_field_types.items()
-                },
-            )
-        if isinstance(type_ref, WorkflowRefTypeRef):
-            return replace(
-                type_ref,
-                param_type_refs=tuple(
-                    _canonicalize_nested_type_ref(
-                        param_type,
-                        module_name=module_name,
-                        exported_names=exported_names,
-                    )
-                    for param_type in type_ref.param_type_refs
-                ),
-                return_type_ref=_canonicalize_nested_type_ref(
-                    type_ref.return_type_ref,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                ),
-            )
-        if isinstance(type_ref, ProcRefTypeRef):
-            return replace(
-                type_ref,
-                param_type_refs=tuple(
-                    _canonicalize_nested_type_ref(
-                        param_type,
-                        module_name=module_name,
-                        exported_names=exported_names,
-                    )
-                    for param_type in type_ref.param_type_refs
-                ),
-                return_type_ref=_canonicalize_nested_type_ref(
-                    type_ref.return_type_ref,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                ),
-            )
-        if isinstance(type_ref, OptionalTypeRef):
-            return replace(
-                type_ref,
-                item_type_ref=_canonicalize_nested_type_ref(
-                    type_ref.item_type_ref,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                ),
-            )
-        if isinstance(type_ref, ListTypeRef):
-            return replace(
-                type_ref,
-                item_type_ref=_canonicalize_nested_type_ref(
-                    type_ref.item_type_ref,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                ),
-            )
-        if isinstance(type_ref, MapTypeRef):
-            return replace(
-                type_ref,
-                key_type_ref=_canonicalize_nested_type_ref(
-                    type_ref.key_type_ref,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                ),
-                value_type_ref=_canonicalize_nested_type_ref(
-                    type_ref.value_type_ref,
-                    module_name=module_name,
-                    exported_names=exported_names,
-                ),
-            )
-        return type_ref
-
-    def _canonicalize_type_ref(type_ref: TypeRef, *, module_name: str, canonical_name: str) -> TypeRef:
-        exported_names = frozenset(exported_type_refs_by_module.get(module_name, {}))
-        type_ref = _canonicalize_nested_type_ref(
-            type_ref,
-            module_name=module_name,
-            exported_names=exported_names,
-        )
-        if getattr(type_ref, "name", None) == canonical_name:
-            return type_ref
-        try:
-            return replace(type_ref, name=canonical_name)
-        except TypeError:
-            return type_ref
-
     imported: dict[str, TypeRef] = {}
     seen_bindings = {
         **dict(import_scope.type_bindings),
@@ -2445,12 +2365,163 @@ def _imported_type_refs(
     for binding in seen_bindings.values():
         type_ref = exported_type_refs_by_module.get(binding.module_name, {}).get(binding.member_name)
         if type_ref is not None:
-            imported[binding.canonical_name] = _canonicalize_type_ref(
+            imported[binding.canonical_name] = _canonicalize_imported_type_ref(
                 type_ref,
                 module_name=binding.module_name,
+                exported_type_refs_by_module=exported_type_refs_by_module,
                 canonical_name=binding.canonical_name,
             )
     return imported
+
+
+def _canonical_export_type_name(module_name: str, type_name: str, exported_names: frozenset[str]) -> str:
+    if "::" in type_name:
+        return type_name
+    module_prefix = f"{module_name}/"
+    if type_name.startswith(module_prefix):
+        type_name = type_name.removeprefix(module_prefix)
+    if type_name in exported_names:
+        return f"{module_name}::{type_name}"
+    return type_name
+
+
+def _canonicalize_nested_imported_type_ref(
+    type_ref: TypeRef,
+    *,
+    module_name: str,
+    exported_names: frozenset[str],
+) -> TypeRef:
+    if isinstance(type_ref, PrimitiveTypeRef):
+        if not type_ref.allowed_values:
+            return type_ref
+        canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
+        return replace(type_ref, name=canonical_name) if canonical_name != type_ref.name else type_ref
+    if isinstance(type_ref, RecordTypeRef):
+        canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
+        return replace(
+            type_ref,
+            name=canonical_name,
+            field_types={
+                field_name: _canonicalize_nested_imported_type_ref(
+                    field_type,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                )
+                for field_name, field_type in type_ref.field_types.items()
+            },
+        )
+    if isinstance(type_ref, UnionTypeRef):
+        canonical_name = _canonical_export_type_name(module_name, type_ref.name, exported_names)
+        return replace(
+            type_ref,
+            name=canonical_name,
+            variant_field_types={
+                variant_name: {
+                    field_name: _canonicalize_nested_imported_type_ref(
+                        field_type,
+                        module_name=module_name,
+                        exported_names=exported_names,
+                    )
+                    for field_name, field_type in field_types.items()
+                }
+                for variant_name, field_types in type_ref.variant_field_types.items()
+            },
+        )
+    if isinstance(type_ref, VariantCaseTypeRef):
+        canonical_union_name = _canonical_export_type_name(module_name, type_ref.union_name, exported_names)
+        return (
+            replace(type_ref, union_name=canonical_union_name)
+            if canonical_union_name != type_ref.union_name
+            else type_ref
+        )
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        return replace(
+            type_ref,
+            param_type_refs=tuple(
+                _canonicalize_nested_imported_type_ref(
+                    param_type,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                )
+                for param_type in type_ref.param_type_refs
+            ),
+            return_type_ref=_canonicalize_nested_imported_type_ref(
+                type_ref.return_type_ref,
+                module_name=module_name,
+                exported_names=exported_names,
+            ),
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        return replace(
+            type_ref,
+            param_type_refs=tuple(
+                _canonicalize_nested_imported_type_ref(
+                    param_type,
+                    module_name=module_name,
+                    exported_names=exported_names,
+                )
+                for param_type in type_ref.param_type_refs
+            ),
+            return_type_ref=_canonicalize_nested_imported_type_ref(
+                type_ref.return_type_ref,
+                module_name=module_name,
+                exported_names=exported_names,
+            ),
+        )
+    if isinstance(type_ref, OptionalTypeRef):
+        return replace(
+            type_ref,
+            item_type_ref=_canonicalize_nested_imported_type_ref(
+                type_ref.item_type_ref,
+                module_name=module_name,
+                exported_names=exported_names,
+            ),
+        )
+    if isinstance(type_ref, ListTypeRef):
+        return replace(
+            type_ref,
+            item_type_ref=_canonicalize_nested_imported_type_ref(
+                type_ref.item_type_ref,
+                module_name=module_name,
+                exported_names=exported_names,
+            ),
+        )
+    if isinstance(type_ref, MapTypeRef):
+        return replace(
+            type_ref,
+            key_type_ref=_canonicalize_nested_imported_type_ref(
+                type_ref.key_type_ref,
+                module_name=module_name,
+                exported_names=exported_names,
+            ),
+            value_type_ref=_canonicalize_nested_imported_type_ref(
+                type_ref.value_type_ref,
+                module_name=module_name,
+                exported_names=exported_names,
+            ),
+        )
+    return type_ref
+
+
+def _canonicalize_imported_type_ref(
+    type_ref: TypeRef,
+    *,
+    module_name: str,
+    exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+    canonical_name: str | None = None,
+) -> TypeRef:
+    exported_names = frozenset(exported_type_refs_by_module.get(module_name, {}))
+    canonicalized = _canonicalize_nested_imported_type_ref(
+        type_ref,
+        module_name=module_name,
+        exported_names=exported_names,
+    )
+    if canonical_name is None or getattr(canonicalized, "name", None) == canonical_name:
+        return canonicalized
+    try:
+        return replace(canonicalized, name=canonical_name)
+    except TypeError:
+        return canonicalized
 
 
 def _imported_schema_defs(
@@ -2575,6 +2646,7 @@ def _exported_transition_defs(
 def _imported_procedure_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, ProcedureSignature]],
+    exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
 ) -> dict[str, ProcedureSignature]:
     """Collect procedure signatures visible through imports."""
 
@@ -2582,7 +2654,25 @@ def _imported_procedure_signatures(
     for binding in import_scope.procedure_bindings.values():
         signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
         if signature is not None:
-            imported[binding.canonical_name] = signature
+            imported[binding.canonical_name] = replace(
+                signature,
+                params=tuple(
+                    (
+                        param_name,
+                        _canonicalize_imported_type_ref(
+                            param_type,
+                            module_name=binding.module_name,
+                            exported_type_refs_by_module=exported_type_refs_by_module,
+                        ),
+                    )
+                    for param_name, param_type in signature.params
+                ),
+                return_type_ref=_canonicalize_imported_type_ref(
+                    signature.return_type_ref,
+                    module_name=binding.module_name,
+                    exported_type_refs_by_module=exported_type_refs_by_module,
+                ),
+            )
     return imported
 
 

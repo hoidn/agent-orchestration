@@ -123,6 +123,12 @@ def _compile_definition_module(path: Path):
     return module
 
 
+def _linked_module_type_environment_or_fail(linked, module_name: str):
+    helper = getattr(importlib.import_module("orchestrator.workflow_lisp.compiler"), "_linked_module_type_environment", None)
+    assert callable(helper), "_linked_module_type_environment is missing"
+    return helper(linked, module_name)
+
+
 def _write_module(path: Path, body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
@@ -1016,24 +1022,7 @@ def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_
 
     linked = compile_stage1_entrypoint(path, source_roots=(tmp_path,))
     entry_module = linked.compiled_modules_by_name["phase_stdlib_review_loop_alias"]
-    phase_module = linked.compiled_modules_by_name["std/phase"]
-    context_module = linked.compiled_modules_by_name["std/context"]
-    context_env = FrontendTypeEnvironment.from_module(context_module)
-    phase_env = FrontendTypeEnvironment.from_module(
-        phase_module,
-        imported_type_refs={
-            "PhaseCtx": context_env.resolve_type(
-                "PhaseCtx",
-                span=context_module.span,
-                form_path=("workflow-lisp", "defrecord", "PhaseCtx"),
-            ),
-            "std/context/PhaseCtx": context_env.resolve_type(
-                "std/context/PhaseCtx",
-                span=context_module.span,
-                form_path=("workflow-lisp", "defrecord", "PhaseCtx"),
-            ),
-        },
-    )
+    phase_module, _, phase_env = _linked_module_type_environment_or_fail(linked, "std/phase")
     import_scope = build_import_scope(
         entry_module,
         export_surfaces_by_name=linked.graph.export_surfaces_by_name,
@@ -1061,6 +1050,99 @@ def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_
     )
 
     assert is_review_findings_type(resolved)
+
+
+def test_linked_builtin_std_phase_owner_lane_resolves_exported_review_loop_types(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "phase_stdlib_owner_lane.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule phase_stdlib_owner_lane)",
+                "  (import std/phase :as phase :only (",
+                "    ReviewDecision",
+                "    ReviewFindings",
+                "    ReviewFindingsJsonPath",
+                "    ReviewLoopResult",
+                "    PhaseScopeTargets",
+                "  ))",
+                "  (export LocalDecision LocalFindings LocalLoopResult LocalFindingsPath LocalTargets)",
+                "  (defrecord LocalDecision",
+                "    (decision phase.ReviewDecision))",
+                "  (defrecord LocalFindings",
+                "    (findings phase.ReviewFindings))",
+                "  (defrecord LocalLoopResult",
+                "    (result phase.ReviewLoopResult))",
+                "  (defrecord LocalFindingsPath",
+                "    (report phase.ReviewFindingsJsonPath))",
+                "  (defrecord LocalTargets",
+                "    (targets phase.PhaseScopeTargets)))",
+            ]
+        ),
+    )
+
+    linked = compile_stage1_entrypoint(path, source_roots=(tmp_path,))
+    phase_module, phase_import_scope, phase_env = _linked_module_type_environment_or_fail(linked, "std/phase")
+
+    assert "PhaseCtx" in phase_import_scope.unqualified_type_bindings
+    for type_name in (
+        "ReviewDecision",
+        "ReviewFindings",
+        "ReviewLoopResult",
+        "ReviewFindingsJsonPath",
+        "PhaseScopeTargets",
+    ):
+        resolved = phase_env.resolve_type(
+            type_name,
+            span=phase_module.span,
+            form_path=("workflow-lisp", type_name),
+        )
+        assert resolved.name == type_name
+
+    entry_module = linked.compiled_modules_by_name["phase_stdlib_owner_lane"]
+    entry_import_scope = build_import_scope(
+        entry_module,
+        export_surfaces_by_name=linked.graph.export_surfaces_by_name,
+    )
+    entry_type_env = FrontendTypeEnvironment.from_module(
+        entry_module,
+        import_scope=entry_import_scope,
+        imported_type_refs=_imported_type_refs(
+            entry_import_scope,
+            {
+                "std/phase": {
+                    type_name: phase_env.resolve_type(
+                        type_name,
+                        span=phase_module.span,
+                        form_path=("workflow-lisp", type_name),
+                    )
+                    for type_name in (
+                        "ReviewDecision",
+                        "ReviewFindings",
+                        "ReviewFindingsJsonPath",
+                        "ReviewLoopResult",
+                        "PhaseScopeTargets",
+                    )
+                }
+            },
+        ),
+    )
+
+    for qualified_name in (
+        "phase.ReviewDecision",
+        "phase.ReviewFindings",
+        "phase.ReviewFindingsJsonPath",
+        "phase.ReviewLoopResult",
+        "phase.PhaseScopeTargets",
+    ):
+        resolved = entry_type_env.resolve_type(
+            qualified_name,
+            span=entry_module.span,
+            form_path=("workflow-lisp", "defrecord"),
+        )
+        assert resolved.name == f"std/phase::{qualified_name.split('.', 1)[1]}"
 
 
 def test_typecheck_rejects_non_alias_path_type_substitution(tmp_path: Path) -> None:

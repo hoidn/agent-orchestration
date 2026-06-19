@@ -19,7 +19,7 @@
     {
       "suite": "tests/test_workflow_lisp_phase_stdlib.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Landed stdlib review/revise behavior that the later phase-form migration must preserve."
+      "reason": "Landed std/phase review/revise behavior plus the owner-lane self-hosting proof that later phase-form migration and runtime-native drain work consume."
     },
     {
       "suite": "tests/test_workflow_lisp_macros.py",
