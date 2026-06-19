@@ -1118,6 +1118,11 @@ as migration scaffolding. They may prove that the `.orc` family can run before
 the final authoring shape is complete, but they are not themselves completion
 evidence for this target.
 
+This target does not reopen the lexical checkpoint/resume substrate. It
+consumes the private checkpoint route and requires remaining resume-only
+authored drain plumbing to be removed, hidden, or explicitly classified as
+non-semantic compatibility.
+
 Full target completion requires a retirement pass that proves:
 
 - compatibility bridges needed only for YAML-era files have either been removed
