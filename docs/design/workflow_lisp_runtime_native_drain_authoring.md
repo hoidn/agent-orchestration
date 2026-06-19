@@ -235,6 +235,29 @@ Rendering is owned by the consumer that needs bytes:
 The default is no rendering. Rendering is an exception forced by a consumer
 that cannot accept typed values directly.
 
+Provider prompt rendering must support consumed-artifact reference views in
+addition to full content injection. A provider may need to know that a consumed
+artifact exists, where it lives, and what role it plays without paying the
+prompt-token cost of embedding the full file. The target consume rendering
+surface is therefore:
+
+```yaml
+consumes:
+  - artifact: baseline_design
+    prompt:
+      mode: reference
+      label: Baseline design
+      description: Accepted baseline contract for compatibility checks.
+```
+
+Initial prompt modes are `content`, `reference`, and `none`. `content` preserves
+the existing full consumed-artifact injection behavior. `reference` renders a
+small provider-facing block containing the artifact label, resolved path or
+value reference, and optional role metadata, but not the artifact body. `none`
+keeps consume lineage and freshness without prompt rendering. This belongs to
+the consume/prompt composition contract, not to ad hoc prompt prose or
+boilerplate one-off reference artifacts.
+
 ### 6.3 Private Runtime Context
 
 Domain functions should not ask users to provide runtime bookkeeping. The
@@ -302,6 +325,12 @@ Copy-safe current shape:
 The runtime renders `request` at the provider prompt seam. The provider output
 still comes from the declared provider-result contract and runtime-bound
 structured-output bundle.
+
+Large stable reference documents should normally be consumed with prompt mode
+`reference`, not full prompt content. For example, an implementation provider
+can receive the current target design and execution plan as prompt content while
+receiving the baseline design as a labeled path/reference to inspect only when
+compatibility questions require it.
 
 When a provider needs concrete report or bundle targets, those targets belong to
 a provider-result target policy or a separate typed target binding with authority
@@ -476,6 +505,8 @@ The Workflow Lisp frontend must:
 
 - typecheck provider `:inputs` values as typed prompt subjects;
 - support typed prompt-input records without forcing materialized prompt files;
+- support consumed-artifact prompt rendering modes for content, reference, and
+  none;
 - infer consumer-slot rendering where a unique renderer and authority class
   exists;
 - lower publication policy and bridge metadata to materialized-view kernel
@@ -493,6 +524,9 @@ The runtime must:
 - preserve provider and command structured-output authority;
 - provide private execution context needed for generated paths and resume;
 - render typed prompt inputs at provider prompt composition;
+- render consumed artifacts according to their declared prompt mode, including
+  reference-only blocks that expose path and role metadata without embedding the
+  full artifact body;
 - execute or delegate typed resource transitions with version, idempotency,
   conflict, and audit semantics;
 - materialize boundary publications and bridges from typed values; and
@@ -605,10 +639,84 @@ matched-union validation on the WCC route. The minimum contract is:
   rereads, or family-local wrapper shapes whose only purpose is to bypass
   missing proof/context transport.
 
+This prerequisite decomposes into two shared capability contracts that must be
+proved together for families adopting imported `backlog-drain` plus reused child
+phase workflows:
+
+#### 9.2.1 Fixed `run-item` Workflow-Ref Shape
+
+The imported `std/drain/backlog-drain` owner lane keeps the `run-item`
+workflow-reference boundary fixed to the stdlib selected-item call shape:
+
+- `ItemCtx`; and
+- the stdlib selection payload.
+
+If a family still needs additional authored domain inputs to reuse existing
+child phase workflows, those inputs must reach the child workflows through one
+of these shared routes:
+
+- a typed selection/bootstrap payload already carried through that fixed
+  `run-item` boundary; or
+- hidden private reusable-call/context binding derived from `ItemCtx`,
+  `RunCtx`, or other accepted runtime-owned anchors.
+
+The family must not satisfy this prerequisite by widening the imported
+`run-item` workflow-ref arity, by reintroducing public path-threading
+parameters, or by adding family-local wrappers whose only purpose is to smuggle
+extra authored inputs around the fixed stdlib call shape.
+
+#### 9.2.2 Generic Child-Phase Reuse For Item-Context-First Families
+
+The shared phase-family route must support child-phase reuse for general
+item-context-first workflow families, not only for one dedicated proof fixture
+or caller-specific allowlist. The minimum proof for this contract shows that:
+
+- a work-item workflow entered through the fixed `run-item` stdlib shape may
+  derive or reuse child phase workflows without exposing new public `PhaseCtx`
+  or state-root inputs;
+- family-authored typed domain inputs needed by those child phase workflows
+  remain available through the accepted typed payload or hidden private-binding
+  route rather than through reopened path-heavy signatures;
+- matched child-workflow unions still preserve `requires_variant` provenance,
+  source maps, and shared-validation boundary labeling on the WCC route; and
+- the generalized route is owned by shared compiler/runtime contracts rather
+  than by a family-specific proof caller name or one-off Design Delta branch.
+
 Until that shared contract exists, a family may still adopt request-record,
 projection, transition, publication, bridge, and shared parent-loop cleanup
 slices, but it must not claim the simplified internal-signature plus
 imported-child stdlib route for ordinary work-item composition.
+
+### 9.3 Shared `std/phase` Owner-Lane Self-Hosting Prerequisite
+
+For any parent-callable family that reuses child phase workflows through the
+imported `std/phase` lane, the shared stdlib owner lane must already prove that
+`std/phase` compiles and validates as an ordinary imported module on the same
+WCC/schema-2 route the family is using. This is a separate prerequisite from
+the family-specific `item-ctx` and `backlog-drain` wiring above.
+
+The minimum contract is:
+
+- `std/phase` resolves and exports its own authored review/fix types and
+  helpers, including `ReviewDecision`, `ReviewFindings`, and
+  `ReviewLoopResult`, without family-local aliases, copied type declarations,
+  or compiler-name special cases;
+- `review-revise-loop`, `phase-scope`, and any helper procedures they depend on
+  compile through the ordinary imported-stdlib route with the same type
+  environment and source-map visibility expected of other builtin stdlib
+  modules;
+- owner-lane proof includes at least one compile/shared-validation fixture that
+  fails closed on missing local type resolution or builtin-module self-reference
+  drift, rather than relying only on downstream family workflows to discover the
+  failure; and
+- a family does not satisfy this prerequisite by forking `std/phase`,
+  restating the missing types in family modules, or broadening its own design
+  scope to patch shared stdlib/compiler semantics under a family migration gap.
+
+Until that shared contract exists, a family may still adopt request-record,
+projection, transition, publication, bridge, parent-loop, and phase-boundary
+cleanup slices that do not depend on the broken `std/phase` owner lane, but it
+must not claim completion of the imported child-phase/stdlib route.
 
 ## 10. Invariants And Failure Modes
 
@@ -830,7 +938,15 @@ ladder:
   simplified `item-ctx` authoring with reused child phase workflows, showing
   hidden private-context bindings and matched child-workflow unions clear
   shared validation on the WCC route without public `PhaseCtx` inputs or
-  `workflow_boundary_type_invalid`; and
+  `workflow_boundary_type_invalid`, while preserving the fixed
+  `backlog-drain` `run-item` workflow-ref shape and avoiding caller-specific
+  proof allowlists;
+- shared `std/phase` owner-lane self-hosting proof, when the family depends on
+  imported `review-revise-loop`, `phase-scope`, or related builtin phase
+  helpers, showing the builtin module resolves and exports
+  `ReviewDecision` / `ReviewFindings` / `ReviewLoopResult` on the ordinary
+  imported-stdlib WCC route before the family compile/smoke lane is treated as
+  acceptance evidence; and
 - parent-callable smoke or dry-run fixture for the Design Delta family route.
 
 The target is complete only when the Design Delta Drain `.orc` family:
@@ -844,7 +960,13 @@ The target is complete only when the Design Delta Drain `.orc` family:
 - uses simplified internal work-item signatures only where the shared
   phase-family boundary contract already preserves hidden private-context
   transport and matched child-workflow proof on the WCC route, without
-  validator-driven fallback to path-heavy `phase-ctx` surfaces;
+  validator-driven fallback to path-heavy `phase-ctx` surfaces, widened
+  `run-item` workflow-ref arity, or caller-specific child-phase reuse
+  allowlists;
+- depends on imported `std/phase` review/fix helpers only where the shared
+  builtin owner lane already proves those helpers compile and validate on the
+  same ordinary imported-stdlib WCC route, rather than discovering missing
+  `ReviewLoopResult`-style resolution only from the family compile lane;
 - uses typed provider request records for plan, implementation, selector,
   architect, review, fix, and recovery-classifier provider calls where the
   input is nontrivial;
@@ -946,6 +1068,9 @@ This target succeeds when:
   boundaries;
 - consumer-side rendering handles prompt inputs, ordinary public summaries,
   observability views, and compatibility bridges;
+- consumed-artifact prompt rendering supports content, reference-only, and none
+  modes, so large stable references can preserve lineage without full prompt
+  injection;
 - deterministic projection no longer requires Python where the closed
   expression surface is sufficient;
 - durable state/resource updates are typed transitions or certified transition
@@ -978,6 +1103,12 @@ Revise this target if implementation requires:
 - hiding resource mutation in uncertified adapters;
 - emulating missing shared `backlog-drain` parent-loop behavior in family-local
   adapters instead of proving the owner-lane contract;
+- widening the imported `backlog-drain` `run-item` workflow-ref shape or
+  depending on proof-fixture-specific child-phase caller allowlists instead of
+  landing the shared phase-family prerequisite;
+- patching a missing shared `std/phase` type/export/import-resolution contract
+  inside a family migration slice instead of landing a separate owner-lane
+  prerequisite gap first;
 - preserving compatibility bridge scaffolding or Design-Delta-specific
   phase/drain compiler hooks as the final implementation shape;
 - making consumer rendering invisible in Semantic IR or source maps; or
