@@ -816,6 +816,13 @@ def lower_workflow_definitions(
                 hidden_context_requirements=base.signature.hidden_context_requirements,
                 hidden_context_ambiguities=base.signature.hidden_context_ambiguities,
                 allow_hidden_context_binding=base.signature.allow_hidden_context_binding,
+                allow_private_compatibility_bridge_omission=(
+                    base.signature.allow_private_compatibility_bridge_omission
+                ),
+                allowed_hidden_context_callees=base.signature.allowed_hidden_context_callees,
+                allowed_private_compatibility_bridge_callees=(
+                    base.signature.allowed_private_compatibility_bridge_callees
+                ),
             ),
             typed_body=base.typed_body,
             effect_summary=base.effect_summary,

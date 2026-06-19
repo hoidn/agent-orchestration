@@ -348,6 +348,221 @@ def _compile_item_ctx_child_phase_reuse(tmp_path: Path):
     ).entry_result
 
 
+def _compile_item_ctx_child_phase_reuse_branching_terminal_reprojection(tmp_path: Path):
+    return compile_stage3_entrypoint(
+        ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
+        source_roots=(FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+        provider_externs={
+            "providers.plan.draft": "fake-plan-draft",
+            "providers.plan.review": "fake-plan-review",
+            "providers.plan.fix": "fake-plan-fix",
+            "providers.implementation.execute": "fake-implementation-execute",
+            "providers.implementation.review": "fake-implementation-review",
+            "providers.implementation.fix": "fake-implementation-fix",
+        },
+        prompt_externs={
+            "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+            "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
+            "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
+            "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
+            "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
+            "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
+        },
+        command_boundaries={
+            "run_neurips_backlog_checks": ExternalToolBinding(
+                name="run_neurips_backlog_checks",
+                stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
+                retirement_class="genuine_system",
+                retirement_label="keep_certified_system",
+                replacement_surface="bounded repo-local checks",
+                bridge_owner="workflow-lisp",
+                expiry_condition="test-run_neurips_backlog_checks-metadata",
+                evidence_refs=("run_neurips_backlog_checks_evidence",),
+            ),
+        },
+        validate_shared=False,
+        lowering_route=LoweringRoute.WCC_M4.value,
+        workspace_root=tmp_path,
+        entry_workflow="design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection",
+    ).entry_result
+
+
+def _write_item_ctx_child_phase_reuse_leak_probe_module(
+    tmp_path: Path,
+    *,
+    include_unrelated_hidden_context_entry: bool,
+    include_unrelated_bridge_entry: bool,
+    include_wrapper_hidden_context_entry: bool,
+    include_wrapper_bridge_entry: bool,
+) -> Path:
+    source = ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE.read_text(encoding="utf-8").rstrip()
+    source = source.replace(
+        "(defmodule design_delta_item_ctx_child_phase_reuse)",
+        "(defmodule item_ctx_child_phase_reuse_leak_probe)",
+        1,
+    )
+    extra_exports: list[str] = []
+    if include_unrelated_bridge_entry:
+        extra_exports.append("unrelated-entry")
+    if include_unrelated_hidden_context_entry:
+        extra_exports.append("unrelated-phase-entry")
+    if include_wrapper_hidden_context_entry:
+        extra_exports.append("proof-wrapper-phase-entry")
+    if include_wrapper_bridge_entry:
+        extra_exports.append("proof-wrapper-bridge-entry")
+    source = source.replace(
+        "(export run-entry run-entry-branching-terminal-reprojection)",
+        "(export run-entry run-entry-branching-terminal-reprojection"
+        + (" " + " ".join(extra_exports) if extra_exports else "")
+        + ")",
+        1,
+    )
+    extra_forms: list[str] = []
+    if include_unrelated_bridge_entry:
+        extra_forms.extend(
+            [
+                "  (defrecord UnrelatedSelectedOutput",
+                "    (item-id String))",
+                "",
+                "  (defworkflow unrelated-entry",
+                "    ((item-id String))",
+                "    -> UnrelatedSelectedOutput",
+                "    (let* ((selected",
+                "             (call project-selected-compat",
+                "               :item-id item-id)))",
+                "      (record UnrelatedSelectedOutput",
+                "        :item-id selected.item-id)))",
+                "",
+            ]
+        )
+    if include_unrelated_hidden_context_entry:
+        extra_forms.extend(
+            [
+                "  (defrecord UnrelatedInputs",
+                "    (report-path WorkReport))",
+                "",
+                "  (defrecord UnrelatedOutput",
+                "    (report-path WorkReport))",
+                "",
+                "  (defworkflow unrelated-phase-entry",
+                "    ((inputs UnrelatedInputs))",
+                "    -> UnrelatedOutput",
+                "    (call unrelated-helper",
+                "      :inputs inputs))",
+                "",
+                "  (defworkflow unrelated-helper",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs UnrelatedInputs))",
+                "    -> UnrelatedOutput",
+                "    (with-phase phase-ctx unrelated",
+                "      (record UnrelatedOutput",
+                "        :report-path inputs.report-path)))",
+                "",
+            ]
+        )
+    if include_wrapper_hidden_context_entry:
+        extra_forms.extend(
+            [
+                "  (defworkflow proof-wrapper-phase-entry",
+                "    ((work_item_bootstrap WorkItemBootstrapSeed)",
+                "     (steering_path SteeringDoc)",
+                "     (target_design_path TargetDesignDoc)",
+                "     (baseline_design_path BaselineDesignDoc)",
+                "     (progress_ledger_path ProgressLedger))",
+                "    -> SelectedItemResult",
+                "    (let* ((unused",
+                "             (call unrelated-helper",
+                "               :inputs (record UnrelatedInputs",
+                '                 :report-path "artifacts/work/wrapper-phase.md"))))',
+                "      (call run-entry-branching-terminal-reprojection",
+                "        :work_item_bootstrap work_item_bootstrap",
+                "        :steering_path steering_path",
+                "        :target_design_path target_design_path",
+                "        :baseline_design_path baseline_design_path",
+                "        :progress_ledger_path progress_ledger_path)))",
+                "",
+            ]
+        )
+    if include_wrapper_bridge_entry:
+        extra_forms.extend(
+            [
+                "  (defworkflow proof-wrapper-bridge-entry",
+                "    ((work_item_bootstrap WorkItemBootstrapSeed)",
+                "     (steering_path SteeringDoc)",
+                "     (target_design_path TargetDesignDoc)",
+                "     (baseline_design_path BaselineDesignDoc)",
+                "     (progress_ledger_path ProgressLedger))",
+                "    -> SelectedItemResult",
+                "    (let* ((unused",
+                "             (call project-selected-compat",
+                "               :item-id work_item_bootstrap.work_item_id)))",
+                "      (call run-entry-branching-terminal-reprojection",
+                "        :work_item_bootstrap work_item_bootstrap",
+                "        :steering_path steering_path",
+                "        :target_design_path target_design_path",
+                "        :baseline_design_path baseline_design_path",
+                "        :progress_ledger_path progress_ledger_path)))",
+                "",
+            ]
+        )
+    source = source[:-1] + "\n\n" + "\n".join(extra_forms) + ")\n"
+    return _write_module(tmp_path / "item_ctx_child_phase_reuse_leak_probe.orc", source)
+
+
+def _compile_item_ctx_child_phase_reuse_leak_probe(
+    tmp_path: Path,
+    *,
+    entry_workflow: str,
+    include_unrelated_hidden_context_entry: bool,
+    include_unrelated_bridge_entry: bool,
+    include_wrapper_hidden_context_entry: bool = False,
+    include_wrapper_bridge_entry: bool = False,
+):
+    workflow_path = _write_item_ctx_child_phase_reuse_leak_probe_module(
+        tmp_path,
+        include_unrelated_hidden_context_entry=include_unrelated_hidden_context_entry,
+        include_unrelated_bridge_entry=include_unrelated_bridge_entry,
+        include_wrapper_hidden_context_entry=include_wrapper_hidden_context_entry,
+        include_wrapper_bridge_entry=include_wrapper_bridge_entry,
+    )
+    return compile_stage3_entrypoint(
+        workflow_path,
+        source_roots=(tmp_path, FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+        provider_externs={
+            "providers.plan.draft": "fake-plan-draft",
+            "providers.plan.review": "fake-plan-review",
+            "providers.plan.fix": "fake-plan-fix",
+            "providers.implementation.execute": "fake-implementation-execute",
+            "providers.implementation.review": "fake-implementation-review",
+            "providers.implementation.fix": "fake-implementation-fix",
+        },
+        prompt_externs={
+            "prompts.plan.draft": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+            "prompts.plan.review": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/review_plan.md",
+            "prompts.plan.fix": "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/fix_plan.md",
+            "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
+            "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
+            "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
+        },
+        command_boundaries={
+            "run_neurips_backlog_checks": ExternalToolBinding(
+                name="run_neurips_backlog_checks",
+                stable_command=("python", "workflows/library/scripts/run_neurips_backlog_checks.py"),
+                retirement_class="genuine_system",
+                retirement_label="keep_certified_system",
+                replacement_surface="bounded repo-local checks",
+                bridge_owner="workflow-lisp",
+                expiry_condition="test-run_neurips_backlog_checks-metadata",
+                evidence_refs=("run_neurips_backlog_checks_evidence",),
+            ),
+        },
+        validate_shared=False,
+        lowering_route=LoweringRoute.WCC_M4.value,
+        workspace_root=tmp_path,
+        entry_workflow=entry_workflow,
+    )
+
+
 def _walk_lowered_steps(steps: list[dict[str, object]]):
     for step in steps:
         yield step
@@ -4141,6 +4356,76 @@ def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_emits_derived_phas
         assert {name: call_step["with"][name] for name in expected_bindings} == expected_bindings
 
 
+def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_branching_terminal_reprojection_emits_derived_phase_context_bindings_and_nested_finalize_steps(
+    tmp_path: Path,
+) -> None:
+    result = _compile_item_ctx_child_phase_reuse_branching_terminal_reprojection(tmp_path)
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name
+        == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
+    )
+    call_steps = [
+        step
+        for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
+        if step.get("call")
+        in {
+            "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+            "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+            "lisp_frontend_design_delta/projections::classify-work-item-terminal",
+        }
+    ]
+    lowered_step_names = {
+        step.get("name", "")
+        for step in _walk_lowered_steps(lowered.authored_mapping["steps"])
+        if isinstance(step, dict)
+    }
+
+    assert {step["call"] for step in call_steps} == {
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "lisp_frontend_design_delta/projections::classify-work-item-terminal",
+    }
+    expected_bindings_by_call = {
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase": {
+            "phase-ctx__run__run-id": {"ref": "inputs.phase-ctx__plan__run__run-id"},
+            "phase-ctx__run__state-root": {"ref": "inputs.phase-ctx__plan__run__state-root"},
+            "phase-ctx__run__artifact-root": {
+                "ref": "inputs.phase-ctx__plan__run__artifact-root"
+            },
+            "phase-ctx__phase-name": {"ref": "inputs.phase-ctx__plan__phase-name"},
+            "phase-ctx__state-root": {"ref": "inputs.phase-ctx__plan__state-root"},
+            "phase-ctx__artifact-root": {"ref": "inputs.phase-ctx__plan__artifact-root"},
+        },
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase": {
+            "phase-ctx__run__run-id": {
+                "ref": "inputs.phase-ctx__implementation__run__run-id"
+            },
+            "phase-ctx__run__state-root": {
+                "ref": "inputs.phase-ctx__implementation__run__state-root"
+            },
+            "phase-ctx__run__artifact-root": {
+                "ref": "inputs.phase-ctx__implementation__run__artifact-root"
+            },
+            "phase-ctx__phase-name": {
+                "ref": "inputs.phase-ctx__implementation__phase-name"
+            },
+            "phase-ctx__state-root": {
+                "ref": "inputs.phase-ctx__implementation__state-root"
+            },
+            "phase-ctx__artifact-root": {
+                "ref": "inputs.phase-ctx__implementation__artifact-root"
+            },
+        },
+    }
+    for call_step in call_steps:
+        expected_bindings = expected_bindings_by_call.get(call_step["call"])
+        if expected_bindings is not None:
+            assert {name: call_step["with"][name] for name in expected_bindings} == expected_bindings
+    assert any("finalize_selected_item_proc" in name for name in lowered_step_names)
+
+
 def test_compile_stage3_entrypoint_same_file_item_ctx_child_phase_reuse_carries_derived_phase_context_bindings(
     tmp_path: Path,
 ) -> None:
@@ -4426,7 +4711,7 @@ def test_compile_stage3_entrypoint_private_exec_context_records_phase_binding_me
     }
 
 
-def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_selected_entry_workflow(
+def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_exported_workflow(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "src"
@@ -4443,7 +4728,7 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_selec
                 "  (import library/phase_stdlib_resume_or_start_promoted_entry_bootstrap_helper",
                 "    :as bootstrap",
                 "    :only (ResumeInputs PlanGateWrapperSurfaceResult resume-plan-gate-wrapper))",
-                "  (export promoted-entry-resume-plan-gate-wrapper helper-wrapper)",
+                "  (export promoted-entry-resume-plan-gate-wrapper)",
                 "  (defworkflow promoted-entry-resume-plan-gate-wrapper",
                 "    ((inputs bootstrap.ResumeInputs))",
                 "    -> bootstrap.PlanGateWrapperSurfaceResult",
@@ -4475,6 +4760,327 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_selec
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "workflow_signature_mismatch"
     assert "phase-ctx" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unselected_exported_entry_workflow(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "selected_later_exported_entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule selected_later_exported_entry)",
+                "  (import std/phase :only (with-phase))",
+                "  (export first-entry second-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ResumeInputs",
+                "    (report_path WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report_path WorkReport))",
+                "  (defworkflow first-entry",
+                "    ((inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :inputs inputs))",
+                "  (defworkflow second-entry",
+                "    ((inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :inputs inputs))",
+                "  (defworkflow helper",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record WorkflowOutput",
+                "        :report_path inputs.report_path))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(tmp_path,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+            entry_workflow="selected_later_exported_entry::second-entry",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "phase-ctx" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unselected_magic_name_entry_workflow(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "leak_hidden_context.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule leak_hidden_context)",
+                "  (import std/phase :only (with-phase))",
+                "  (export run-entry selected-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ResumeInputs",
+                "    (report_path WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report_path WorkReport))",
+                "  (defworkflow run-entry",
+                "    ((inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :inputs inputs))",
+                "  (defworkflow selected-entry",
+                "    ((inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (call helper",
+                "      :inputs inputs))",
+                "  (defworkflow helper",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs ResumeInputs))",
+                "    -> WorkflowOutput",
+                "    (with-phase phase-ctx plan-gate-wrapper",
+                "      (record WorkflowOutput",
+                "        :report_path inputs.report_path))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            workflow_path,
+            source_roots=(tmp_path,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+            entry_workflow="leak_hidden_context::selected-entry",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "phase-ctx" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_arbitrary_caller(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "lisp_frontend_design_delta").mkdir(parents=True, exist_ok=True)
+    helper_path = _write_module(
+        tmp_path / "lisp_frontend_design_delta" / "minimal_hidden_bridge_helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule lisp_frontend_design_delta/minimal_hidden_bridge_helper)",
+                "  (export SelectedCompat project-selected-compat)",
+                "  (defrecord SelectedCompat",
+                "    (item-id String)",
+                "    (is-active Bool)",
+                "    (final-plan-gate-state Path.state-root))",
+                "  (defworkflow project-selected-compat",
+                "    ((item-id String)",
+                "     (run_state_path Path.state-root))",
+                "    -> SelectedCompat",
+                "    (record SelectedCompat",
+                "      :item-id item-id",
+                "      :is-active false",
+                "      :final-plan-gate-state run_state_path)))",
+            ]
+        ),
+    )
+    caller_path = _write_module(
+        tmp_path / "arbitrary_hidden_bridge_caller.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule arbitrary_hidden_bridge_caller)",
+                "  (import lisp_frontend_design_delta/minimal_hidden_bridge_helper",
+                "    :as helper",
+                "    :only (SelectedCompat project-selected-compat))",
+                "  (export entry)",
+                "  (defworkflow entry",
+                "    ((item-id String))",
+                "    -> helper.SelectedCompat",
+                "    (call helper.project-selected-compat",
+                "      :item-id item-id)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            caller_path,
+            source_roots=(tmp_path, FIXTURES / "valid"),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "run_state_path" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_magic_name_caller(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "lisp_frontend_design_delta").mkdir(parents=True, exist_ok=True)
+    _write_module(
+        tmp_path / "lisp_frontend_design_delta" / "minimal_hidden_bridge_helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule lisp_frontend_design_delta/minimal_hidden_bridge_helper)",
+                "  (export SelectedCompat project-selected-compat)",
+                "  (defrecord SelectedCompat",
+                "    (item-id String)",
+                "    (is-active Bool)",
+                "    (final-plan-gate-state Path.state-root))",
+                "  (defworkflow project-selected-compat",
+                "    ((item-id String)",
+                "     (run_state_path Path.state-root))",
+                "    -> SelectedCompat",
+                "    (record SelectedCompat",
+                "      :item-id item-id",
+                "      :is-active false",
+                "      :final-plan-gate-state run_state_path)))",
+            ]
+        ),
+    )
+    caller_path = _write_module(
+        tmp_path / "leak_bridge.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule leak_bridge)",
+                "  (import lisp_frontend_design_delta/minimal_hidden_bridge_helper",
+                "    :as helper",
+                "    :only (SelectedCompat project-selected-compat))",
+                "  (export run-item-ctx-first-branching-terminal-reprojection)",
+                "  (defworkflow run-item-ctx-first-branching-terminal-reprojection",
+                "    ((item-id String))",
+                "    -> helper.SelectedCompat",
+                "    (call helper.project-selected-compat",
+                "      :item-id item-id)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            caller_path,
+            source_roots=(tmp_path, FIXTURES / "valid"),
+            validate_shared=False,
+            workspace_root=tmp_path,
+            entry_workflow="leak_bridge::run-item-ctx-first-branching-terminal-reprojection",
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "run_state_path" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_item_ctx_child_phase_reuse_leak_probe(
+            tmp_path,
+            entry_workflow="item_ctx_child_phase_reuse_leak_probe::unrelated-phase-entry",
+            include_unrelated_hidden_context_entry=True,
+            include_unrelated_bridge_entry=False,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "phase-ctx" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_unrelated_exported_sibling_in_item_ctx_proof_module(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_item_ctx_child_phase_reuse_leak_probe(
+            tmp_path,
+            entry_workflow="item_ctx_child_phase_reuse_leak_probe::unrelated-entry",
+            include_unrelated_hidden_context_entry=False,
+            include_unrelated_bridge_entry=True,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "run_state_path" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_transitive_proof_wrapper(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_item_ctx_child_phase_reuse_leak_probe(
+            tmp_path,
+            entry_workflow="item_ctx_child_phase_reuse_leak_probe::proof-wrapper-phase-entry",
+            include_unrelated_hidden_context_entry=True,
+            include_unrelated_bridge_entry=False,
+            include_wrapper_hidden_context_entry=True,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "phase-ctx" in diagnostic.message
+
+
+def test_compile_stage3_entrypoint_rejects_private_compatibility_bridge_omission_for_transitive_proof_wrapper(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_item_ctx_child_phase_reuse_leak_probe(
+            tmp_path,
+            entry_workflow="item_ctx_child_phase_reuse_leak_probe::proof-wrapper-bridge-entry",
+            include_unrelated_hidden_context_entry=False,
+            include_unrelated_bridge_entry=False,
+            include_wrapper_bridge_entry=True,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "run_state_path" in diagnostic.message
 
 
 def test_compile_stage3_module_rejects_same_file_call_record_leaf_without_ref(tmp_path: Path) -> None:

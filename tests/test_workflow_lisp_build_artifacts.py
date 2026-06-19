@@ -259,6 +259,26 @@ def _build_item_ctx_child_phase_reuse_fixture(tmp_path: Path):
     )
 
 
+def _build_item_ctx_child_phase_reuse_branching_fixture(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    return build.build_frontend_bundle(
+        request_cls(
+            source_path=ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
+            source_roots=(FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+            entry_workflow=(
+                "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+            ),
+            provider_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.providers.json",
+            prompt_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.prompts.json",
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
 def _build_design_delta_parent_drain(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3196,6 +3216,59 @@ def test_design_delta_item_ctx_child_phase_reuse_build_artifacts_record_derived_
         binding["binding_id"]: binding["source_provenance"]
         for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
     } == expected_source_provenance
+
+
+def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_build_artifacts_record_derived_child_phase_binding(
+    tmp_path: Path,
+) -> None:
+    built = _build_item_ctx_child_phase_reuse_branching_fixture(tmp_path)
+    bundle = built.compile_result.validated_bundles_by_name[
+        "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
+    ]
+    boundary = _workflow_boundary_projection(bundle)
+    workflow_projection = next(
+        item
+        for item in json.loads(
+            built.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+        )["workflows"]
+        if item["workflow_name"]
+        == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
+    )
+
+    assert len(boundary.private_runtime_context_bindings) == 2
+    assert {
+        binding.derived_phase_identity
+        for binding in boundary.private_runtime_context_bindings
+    } == {"plan", "implementation"}
+    assert {
+        (
+            binding["binding_id"],
+            binding["source_param_name"],
+            binding["bridge_class"],
+            binding["derived_phase_identity"],
+        )
+        for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
+    } == {
+        (
+            "phase-ctx__implementation",
+            "item-ctx",
+            "derived_private_child_context",
+            "implementation",
+        ),
+        (
+            "phase-ctx__plan",
+            "item-ctx",
+            "derived_private_child_context",
+            "plan",
+        ),
+    }
+    assert {
+        binding.binding_id: json.loads(json.dumps(dict(binding.source_provenance)))["path"]
+        for binding in boundary.private_runtime_context_bindings
+    } == {
+        "phase-ctx__implementation": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
+        "phase-ctx__plan": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
+    }
 
 
 def test_boundary_projection_serializer_uses_typed_bundle_compatibility_split(

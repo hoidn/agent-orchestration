@@ -39,7 +39,6 @@ from .workflow_refs import (
     workflow_ref_type_from_signature,
 )
 
-
 def hidden_context_omission_allowed(
     *,
     session_state,
@@ -86,7 +85,11 @@ def hidden_context_omission_allowed(
             )
         return True
 
-    if getattr(active_signature, "allow_hidden_context_binding", False) and param_name in ambiguities:
+    allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
+    if callee_signature.name not in allowed_callees:
+        return False
+
+    if param_name in ambiguities:
         phase_names = ambiguities[param_name]
         compat._raise_error(
             (
@@ -98,17 +101,38 @@ def hidden_context_omission_allowed(
             form_path=form_path,
         )
 
-    if getattr(active_signature, "allow_hidden_context_binding", False):
-        if requirement is None:
-            compat._raise_error(
-                f"promoted-entry hidden binding for `{param_name}` is unavailable in this callee",
-                code="promoted_entry_hidden_context_binding_invalid",
-                span=span,
-                form_path=form_path,
-            )
-        return True
+    if requirement is None:
+        compat._raise_error(
+            f"promoted-entry hidden binding for `{param_name}` is unavailable in this callee",
+            code="promoted_entry_hidden_context_binding_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    return True
 
-    return False
+
+def compatibility_bridge_omission_allowed(
+    *,
+    session_state,
+    callee_signature,
+    param_name: str,
+) -> bool:
+    active_signature = session_state.workflow_signature
+    if active_signature is None or callee_signature is None:
+        return False
+    if param_name != "run_state_path":
+        return False
+    if param_name not in getattr(callee_signature, "private_compatibility_bridge_types", {}):
+        return False
+    return callee_signature.name in getattr(
+        active_signature,
+        "allowed_private_compatibility_bridge_callees",
+        frozenset(),
+    )
+
+
+def _shared_proof_compatibility_bridge_eligibility(signature) -> bool:
+    return bool(getattr(signature, "allowed_private_compatibility_bridge_callees", frozenset()))
 
 
 def typecheck_workflow_ref_argument(
@@ -596,6 +620,7 @@ def typecheck_call_expr(
                 form_path=expr.form_path,
             )
         expected_bindings = dict(signature.params)
+        expected_bindings.update(signature.private_compatibility_bridge_types)
         signature_name = signature.name
         return_type = signature.return_type_ref
         ordered_params = signature.params
@@ -688,6 +713,11 @@ def typecheck_call_expr(
             expected_type=expected_type,
             span=expr.span,
             form_path=expr.form_path,
+        )
+        and not compatibility_bridge_omission_allowed(
+            session_state=context.session_state,
+            callee_signature=signature if not isinstance(workflow_ref_type, WorkflowRefTypeRef) else None,
+            param_name=name,
         )
     ]
     if missing_bindings:

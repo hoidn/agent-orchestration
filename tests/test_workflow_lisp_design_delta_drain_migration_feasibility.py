@@ -51,9 +51,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "cli"
 WORKFLOW_LISP_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CHARACTERIZATION_FIXTURES = WORKFLOW_LISP_FIXTURES / "characterization" / "sources"
-# This checked-in candidate remains the authoritative proof source for the
-# imported-child prerequisite until the shipping library module lands its
-# separate parent-callable `run-work-item` export.
+# This checked-in candidate mirrors the shipping library modules for
+# supplemental imported-child prerequisite coverage.
 DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_work_item_runtime"
 )
@@ -1034,12 +1033,40 @@ def _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(tmp_path: Path):
     )
     result = compile_stage3_entrypoint(
         module_path,
-        source_roots=(tmp_path, REPO_ROOT / "workflows" / "library"),
+        source_roots=(
+            tmp_path,
+            WORKFLOW_LISP_FIXTURES / "valid",
+            REPO_ROOT / "workflows" / "library",
+        ),
         provider_externs=_design_delta_work_item_provider_externs(),
         prompt_externs=_design_delta_work_item_prompt_externs(),
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
         validate_shared=True,
         workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
+
+
+def _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_entrypoint(
+    tmp_path: Path,
+):
+    module_path = ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(WORKFLOW_LISP_FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
+        provider_externs=_design_delta_work_item_provider_externs(),
+        prompt_externs=_design_delta_work_item_prompt_externs(),
+        command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
+        validate_shared=True,
+        workspace_root=tmp_path,
+        entry_workflow=(
+            "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+        ),
     )
     lowered_by_name = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -1059,7 +1086,11 @@ def _compile_arbitrary_derived_phase_reuse_entrypoint(tmp_path: Path):
     module_path = _write_module(tmp_path / "arbitrary_derived_phase_reuse.orc", source)
     result = compile_stage3_entrypoint(
         module_path,
-        source_roots=(tmp_path, REPO_ROOT / "workflows" / "library"),
+        source_roots=(
+            tmp_path,
+            WORKFLOW_LISP_FIXTURES / "valid",
+            REPO_ROOT / "workflows" / "library",
+        ),
         provider_externs=_design_delta_work_item_provider_externs(),
         prompt_externs=_design_delta_work_item_prompt_externs(),
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
@@ -1980,6 +2011,14 @@ def _design_delta_item_ctx_child_phase_reuse_bound_inputs() -> dict[str, object]
         "progress_ledger_path": "state/progress_ledger.json",
     }
 
+
+def _design_delta_item_ctx_child_phase_reuse_branching_bound_inputs() -> dict[str, object]:
+    return {
+        **_design_delta_item_ctx_child_phase_reuse_bound_inputs(),
+        "run_state_path": "state/run_state.json",
+    }
+
+
 def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
     return {
         "steering_path": "docs/steering.md",
@@ -2265,12 +2304,8 @@ def _execute_design_delta_work_item_bundle(
                     json.dumps(
                         {
                             "variant": "COMPLETED",
-                            "implementation-state": implementation_state_override,
-                            "implementation-review-decision": "APPROVE",
-                            "execution-report": "artifacts/work/execution_report.md",
-                            "progress-report": "artifacts/work/progress_report.md",
-                            "checks-report": "artifacts/checks/checks_report.md",
-                            "implementation-review-report": "artifacts/review/implementation_review_report.md",
+                            "implementation_state": implementation_state_override,
+                            "execution_report": "artifacts/work/execution_report.md",
                         }
                     )
                     + "\n",
@@ -3426,6 +3461,50 @@ def test_design_delta_item_ctx_child_phase_reuse_compiles(tmp_path: Path) -> Non
     }.issubset(run_item_calls)
 
 
+def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_compiles(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result, lowered_by_name = (
+        _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_entrypoint(
+            tmp_path
+        )
+    )
+    bundle = result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+    ]
+    boundary = workflow_boundary_projection(bundle)
+    public_inputs = set(workflow_public_input_contracts(bundle))
+    run_item_steps = lowered_by_name[
+        "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
+    ]["steps"]
+    run_item_calls = {
+        step["call"]
+        for step in _walk_lowered_steps(run_item_steps)
+        if step.get("call")
+    }
+    lowered_step_names = {
+        step.get("name", "")
+        for step in _walk_lowered_steps(run_item_steps)
+        if isinstance(step, dict)
+    }
+
+    assert "phase-ctx__state-root" not in public_inputs
+    assert "phase-ctx__artifact-root" not in public_inputs
+    assert "phase-ctx__phase-name" not in public_inputs
+    assert "item-ctx__state-root" not in public_inputs
+    assert "item-ctx__artifact-root" not in public_inputs
+    assert "item-ctx__ledger" not in public_inputs
+    assert "run_state_path" not in public_inputs
+    assert "run_state_path" in boundary.private_compatibility_bridge_inputs
+    assert not any(name.startswith("__write_root__") for name in public_inputs)
+    assert {
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "lisp_frontend_design_delta/projections::classify-work-item-terminal",
+    }.issubset(run_item_calls)
+    assert any("finalize_selected_item_proc" in name for name in lowered_step_names)
+
+
 def test_design_delta_item_ctx_child_phase_reuse_smokes_approved_and_plan_blocked_routes(
     tmp_path: Path,
 ) -> None:
@@ -3479,32 +3558,133 @@ def test_design_delta_item_ctx_child_phase_reuse_smokes_approved_and_plan_blocke
     assert not (blocked_workspace / "artifacts" / "work" / "execution_report.md").exists()
 
 
-def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_modules(
+def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_smokes_plan_blocked_complete_and_implementation_blocked(
     tmp_path: Path,
 ) -> None:
-    workflow_path, result, lowered_by_name = _compile_arbitrary_derived_phase_reuse_entrypoint(tmp_path)
-    bundle = result.entry_result.validated_bundles["arbitrary_derived_phase_reuse::run-entry"]
-    workspace, state, provider_calls = _execute_design_delta_work_item_bundle(
-        tmp_path,
-        workflow_path=workflow_path,
-        bundle=bundle,
-        bound_inputs=_design_delta_item_ctx_child_phase_reuse_bound_inputs(),
+    completed_path, completed_result, _lowered_by_name = (
+        _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_entrypoint(
+            tmp_path / "completed"
+        )
+    )
+    completed_bundle = completed_result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+    ]
+    completed_workspace, completed_state, completed_provider_calls = _execute_design_delta_work_item_bundle(
+        tmp_path / "completed",
+        workflow_path=completed_path,
+        bundle=completed_bundle,
+        bound_inputs=_design_delta_item_ctx_child_phase_reuse_branching_bound_inputs(),
         plan_variant="APPROVED",
         implementation_variant="COMPLETED",
         work_item_source="DRAFT_DESIGN_GAP",
     )
 
-    assert "arbitrary_derived_phase_reuse::run-item-ctx-first" in lowered_by_name
-    assert state["status"] == "completed"
-    assert provider_calls == [
+    blocked_path, blocked_result, _lowered_by_name = (
+        _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_entrypoint(
+            tmp_path / "blocked"
+        )
+    )
+    blocked_bundle = blocked_result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+    ]
+    blocked_workspace, blocked_state, blocked_provider_calls = _execute_design_delta_work_item_bundle(
+        tmp_path / "blocked",
+        workflow_path=blocked_path,
+        bundle=blocked_bundle,
+        bound_inputs=_design_delta_item_ctx_child_phase_reuse_branching_bound_inputs(),
+        plan_variant="BLOCKED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+
+    implementation_blocked_path, implementation_blocked_result, _lowered_by_name = (
+        _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection_entrypoint(
+            tmp_path / "implementation-blocked"
+        )
+    )
+    implementation_blocked_bundle = implementation_blocked_result.entry_result.validated_bundles[
+        "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+    ]
+    (
+        implementation_blocked_workspace,
+        implementation_blocked_state,
+        implementation_blocked_provider_calls,
+    ) = _execute_design_delta_work_item_bundle(
+        tmp_path / "implementation-blocked",
+        workflow_path=implementation_blocked_path,
+        bundle=implementation_blocked_bundle,
+        bound_inputs=_design_delta_item_ctx_child_phase_reuse_branching_bound_inputs(),
+        plan_variant="APPROVED",
+        implementation_variant="BLOCKED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+
+    completed_summary = completed_workspace / completed_state["workflow_outputs"]["return__summary-path"]
+    blocked_summary = blocked_workspace / blocked_state["workflow_outputs"]["return__summary-path"]
+    implementation_blocked_summary = (
+        implementation_blocked_workspace
+        / implementation_blocked_state["workflow_outputs"]["return__summary-path"]
+    )
+
+    assert completed_state["status"] == "completed"
+    assert completed_provider_calls == [
         "fake-plan-draft",
         "fake-plan-review",
         "fake-implementation-execute",
         "fake-implementation-review",
     ]
-    assert state["workflow_outputs"]["return__variant"] == "COMPLETED"
-    assert state["workflow_outputs"]["return__implementation_state"] == "COMPLETED"
-    assert (workspace / "artifacts" / "work" / "execution_report.md").is_file()
+    assert completed_state["workflow_outputs"]["return__variant"] == "CONTINUE"
+    assert completed_summary.is_file()
+
+    assert blocked_state["status"] == "completed"
+    assert blocked_provider_calls == ["fake-plan-draft", "fake-plan-review"]
+    assert blocked_state["workflow_outputs"]["return__variant"] == "BLOCKED"
+    assert blocked_state["workflow_outputs"]["return__blocker-class"] == "roadmap_conflict"
+    assert blocked_summary.is_file()
+
+    assert implementation_blocked_state["status"] == "completed"
+    assert implementation_blocked_provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+    ]
+    assert implementation_blocked_state["workflow_outputs"]["return__variant"] == "BLOCKED"
+    assert implementation_blocked_summary.is_file()
+
+
+def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_module_identity(
+    tmp_path: Path,
+) -> None:
+    _workflow_path, result, lowered_by_name = _compile_arbitrary_derived_phase_reuse_entrypoint(
+        tmp_path
+    )
+    bundle = result.entry_result.validated_bundles[
+        "arbitrary_derived_phase_reuse::run-entry"
+    ]
+    branching_bundle = result.entry_result.validated_bundles[
+        "arbitrary_derived_phase_reuse::run-entry-branching-terminal-reprojection"
+    ]
+    public_inputs = set(workflow_public_input_contracts(bundle))
+    branching_boundary = workflow_boundary_projection(branching_bundle)
+    run_item_steps = lowered_by_name[
+        "arbitrary_derived_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
+    ]["steps"]
+    run_item_calls = {
+        step["call"]
+        for step in _walk_lowered_steps(run_item_steps)
+        if step.get("call")
+    }
+
+    assert "phase-ctx__state-root" not in public_inputs
+    assert "phase-ctx__artifact-root" not in public_inputs
+    assert "phase-ctx__phase-name" not in public_inputs
+    assert "run_state_path" not in public_inputs
+    assert "run_state_path" in branching_boundary.private_compatibility_bridge_inputs
+    assert {
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+        "lisp_frontend_design_delta/projections::classify-work-item-terminal",
+    }.issubset(run_item_calls)
 
 
 def test_design_delta_item_ctx_child_phase_reuse_route_rejects_non_item_ctx_root(

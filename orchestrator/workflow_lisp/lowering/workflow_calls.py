@@ -6,7 +6,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
+from orchestrator.workflow.loaded_bundle import (
+    workflow_boundary_projection,
+    workflow_managed_write_root_inputs,
+)
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
 
@@ -32,6 +35,7 @@ from ..type_env import PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, WorkflowRe
 from . import core as lowering_core
 from .context import _TerminalResult
 from .generated_paths import allocate_compatibility_binding_bundle, allocate_reusable_call_write_root
+from .origins import LoweringOrigin
 from .pure_projection import (
     is_pure_projection_expr,
     lower_pure_projection_step,
@@ -56,6 +60,40 @@ class LowerableWorkflowCall:
     expansion_stack: tuple[object, ...] = ()
 
 
+_COMPATIBILITY_BRIDGE_INPUT_CONTRACTS: dict[str, dict[str, Any]] = {
+    "selection_bundle_path": {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": True,
+    },
+    "manifest_path": {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": True,
+    },
+    "architecture_bundle_path": {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": False,
+    },
+    "progress_ledger_path": {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": True,
+    },
+    "run_state_path": {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": True,
+    },
+}
+
+
 def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tuple[str, ...]:
     """Return generated write-root inputs declared by a lowered mapping."""
 
@@ -65,6 +103,72 @@ def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tupl
     return tuple(
         name for name in inputs if isinstance(name, str) and name.startswith("__write_root__")
     )
+
+
+def _compatibility_bridge_omission_allowed(
+    *,
+    context_signature: Any,
+    callee_signature: Any,
+    param_name: str,
+) -> bool:
+    if context_signature is None:
+        return False
+    if param_name != "run_state_path":
+        return False
+    if callee_signature is None:
+        return False
+    return callee_signature.name in getattr(
+        context_signature,
+        "allowed_private_compatibility_bridge_callees",
+        frozenset(),
+    )
+
+
+def _compatibility_bridge_bindings_for_lowered_callee(
+    *,
+    context: Any,
+    lowered_callee: Any,
+    source_expr: Any,
+    local_values: dict[str, Any],
+    already_bound: set[str],
+    allowed_inputs: set[str],
+) -> dict[str, dict[str, str]]:
+    bindings: dict[str, dict[str, str]] = {}
+    for input_name in sorted(getattr(lowered_callee, "compatibility_bridge_inputs", ())):
+        if input_name in already_bound or input_name not in allowed_inputs:
+            continue
+        if input_name not in local_values:
+            contract_definition = _COMPATIBILITY_BRIDGE_INPUT_CONTRACTS.get(input_name)
+            if contract_definition is None:
+                raise lowering_core._compile_error(
+                    code="workflow_call_unknown_compatibility_bridge",
+                    message=f"unknown compatibility bridge input `{input_name}`",
+                    span=source_expr.span,
+                    form_path=source_expr.form_path,
+                )
+            context.internal_generated_input_contracts.setdefault(
+                input_name,
+                dict(contract_definition),
+            )
+            context.internal_generated_input_reasons.setdefault(
+                input_name,
+                "compatibility_bridge",
+            )
+            context.requires_guarded_case_step_hoist = True
+            context.generated_input_spans.setdefault(
+                input_name,
+                LoweringOrigin(
+                    span=source_expr.span,
+                    form_path=source_expr.form_path,
+                    expansion_stack=getattr(source_expr, "expansion_stack", ()),
+                ),
+            )
+            local_values[input_name] = f"inputs.{input_name}"
+        bindings[input_name] = lowering_core._render_call_binding_leaf_ref(
+            local_values[input_name],
+            source_expr=source_expr,
+        )
+    return bindings
 
 
 def _runtime_context_default_value(
@@ -684,10 +788,10 @@ def _lower_workflow_call(
                     )
                 )
                 continue
-            if isinstance(param_type, RecordTypeRef) and getattr(
+            if isinstance(param_type, RecordTypeRef) and canonical_name in getattr(
                 context.signature,
-                "allow_hidden_context_binding",
-                False,
+                "allowed_hidden_context_callees",
+                frozenset(),
             ):
                 if requirement is None and private_exec_context_kind(param_type) is not None:
                     code = "promoted_entry_hidden_context_metadata_missing"
@@ -712,6 +816,12 @@ def _lower_workflow_call(
                     )
                     continue
             if param_name in callee_signature.param_defaults:
+                continue
+            if _compatibility_bridge_omission_allowed(
+                context_signature=context.signature,
+                callee_signature=callee_signature,
+                param_name=param_name,
+            ):
                 continue
             raise lowering_core._compile_error(
                 code="workflow_signature_mismatch",
@@ -765,6 +875,30 @@ def _lower_workflow_call(
                 raise
             projection_binding_steps.append(lowered.step)
             with_bindings[param_name] = {"ref": lowered.output_refs[param_name]}
+    for binding_name, binding_type in getattr(
+        callee_signature,
+        "private_compatibility_bridge_types",
+        {},
+    ).items():
+        if binding_name in with_bindings:
+            continue
+        value_expr = binding_by_name.get(binding_name)
+        if value_expr is None:
+            continue
+        if isinstance(binding_type, RecordTypeRef):
+            with_bindings.update(
+                _render_record_call_bindings(
+                    binding_name,
+                    binding_type,
+                    value_expr,
+                    local_values=local_values,
+                )
+            )
+            continue
+        with_bindings[binding_name] = _render_call_binding_ref(
+            value_expr,
+            local_values=local_values,
+        )
     if callee is not None:
         with_bindings.update(
             {
@@ -791,6 +925,42 @@ def _lower_workflow_call(
         managed_inputs=managed_inputs,
     )
     with_bindings.update(managed_bindings)
+    compatibility_bridge_owner = None
+    if callee is not None:
+        compatibility_bridge_owner = callee
+    elif imported_bundle is not None:
+        compatibility_bridge_owner = type(
+            "ImportedBundleCompatibilityBridgeOwner",
+            (),
+            {
+                "compatibility_bridge_inputs": workflow_boundary_projection(
+                    imported_bundle
+                ).private_compatibility_bridge_inputs
+            },
+        )()
+    omitted_compatibility_bridge_inputs = set()
+    if compatibility_bridge_owner is not None:
+        omitted_compatibility_bridge_inputs = {
+            input_name
+            for input_name in getattr(compatibility_bridge_owner, "compatibility_bridge_inputs", ())
+            if input_name not in with_bindings
+            and _compatibility_bridge_omission_allowed(
+                context_signature=context.signature,
+                callee_signature=callee_signature,
+                param_name=input_name,
+            )
+        }
+    if compatibility_bridge_owner is not None and omitted_compatibility_bridge_inputs:
+        with_bindings.update(
+            _compatibility_bridge_bindings_for_lowered_callee(
+                context=context,
+                lowered_callee=compatibility_bridge_owner,
+                source_expr=expr,
+                local_values=dict(local_values),
+                already_bound=set(with_bindings),
+                allowed_inputs=omitted_compatibility_bridge_inputs,
+            )
+        )
     lowering_core._record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
