@@ -614,8 +614,17 @@ def test_workflow_ref_environment_builds_noop_extern_rebinding_for_provider_free
     assert typed[-1].definition.name == "drain"
 
 
+@pytest.mark.parametrize(
+    "entry_workflow",
+    (
+        None,
+        "entry",
+        "private_exec_context/drain_ctx::entry",
+    ),
+)
 def test_promoted_entry_DrainCtx_hidden_binding_reports_unsupported_private_exec_bootstrap(
     tmp_path: Path,
+    entry_workflow: str | None,
 ) -> None:
     path = tmp_path / "private_exec_context" / "drain_ctx.orc"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -667,6 +676,7 @@ def test_promoted_entry_DrainCtx_hidden_binding_reports_unsupported_private_exec
             source_roots=(tmp_path,),
             validate_shared=False,
             workspace_root=tmp_path,
+            entry_workflow=entry_workflow,
         )
 
     diagnostic = excinfo.value.diagnostics[0]

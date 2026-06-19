@@ -857,6 +857,19 @@ def build_workflow_catalog(
             workflow_defs=workflow_defs,
             signatures_by_name=signatures_by_name,
         )
+        for workflow_name, selected_entry_callees in _selected_entry_hidden_context_omission_callees(
+            module=module,
+            selected_entry_workflow_name=selected_entry_workflow_name,
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
+        ).items():
+            hidden_context_callees_by_workflow = {
+                **hidden_context_callees_by_workflow,
+                workflow_name: frozenset(
+                    set(hidden_context_callees_by_workflow.get(workflow_name, frozenset()))
+                    | set(selected_entry_callees)
+                ),
+            }
         compatibility_bridge_callees_by_workflow = (
             _shared_proof_compatibility_bridge_omission_callees(
                 module=module,
@@ -962,6 +975,49 @@ def _shared_proof_hidden_context_omission_callees(
             )
         if approved_callees:
             allowed[workflow_name] = approved_callees
+    return allowed
+
+
+def _selected_entry_hidden_context_omission_callees(
+    *,
+    module: WorkflowLispModule,
+    selected_entry_workflow_name: str | None,
+    workflow_defs: tuple[WorkflowDef, ...],
+    signatures_by_name: Mapping[str, WorkflowSignature],
+) -> Mapping[str, frozenset[str]]:
+    """Return omitted hidden-context callees for promoted-entry wrappers."""
+
+    omitted_callees_by_workflow = _omitted_private_exec_context_callees_by_workflow(
+        workflow_defs=workflow_defs,
+        signatures_by_name=signatures_by_name,
+    )
+    if not omitted_callees_by_workflow:
+        return {}
+
+    workflow_name_by_local_name = {
+        workflow_def.name.rsplit("::", 1)[-1]: workflow_def.name for workflow_def in workflow_defs
+    }
+    candidate_workflow_names: set[str] = set()
+    if selected_entry_workflow_name is not None:
+        candidate_workflow_names.add(
+            workflow_name_by_local_name.get(
+                selected_entry_workflow_name,
+                selected_entry_workflow_name,
+            )
+        )
+    else:
+        for exported_name in module.exports:
+            if not isinstance(exported_name, str):
+                continue
+            candidate_workflow_names.add(
+                workflow_name_by_local_name.get(exported_name, exported_name)
+            )
+
+    allowed: dict[str, frozenset[str]] = {}
+    for workflow_name in candidate_workflow_names:
+        selected_callees = omitted_callees_by_workflow.get(workflow_name)
+        if selected_callees:
+            allowed[workflow_name] = selected_callees
     return allowed
 
 
