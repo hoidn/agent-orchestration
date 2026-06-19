@@ -212,7 +212,7 @@ steps:
     id: plan_review_loop
     repeat_until:
       id: plan_review_iteration
-      max_iterations: 12
+      max_iterations: 16
       outputs:
         review_decision:
           kind: scalar

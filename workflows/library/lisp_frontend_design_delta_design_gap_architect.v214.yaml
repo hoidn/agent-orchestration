@@ -46,7 +46,7 @@ inputs:
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "gpt-5.4"
+    default: "gpt-5.5"
   design_gap_draft_effort:
     kind: scalar
     type: string
