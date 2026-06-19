@@ -738,6 +738,36 @@ imported `backlog-drain` adoption on the callable owner-boundary route when the
 child terminal value path still depends on compatibility-only normalization,
 run-state-file side effects, or family-local repair wrappers.
 
+##### 9.1.0.1 Terminal Responsibility Split
+
+Do not use "terminal finalization" as a bundled mechanism. The target model
+separates four lanes:
+
+- child-call value return: imported `backlog-drain` returns
+  `DrainResult<TSummary>` as an ordinary typed child-workflow value;
+- variant/provenance preservation: refined match binders, `requires_variant`
+  provenance, source maps, and variant-scoped contracts survive child calls and
+  terminal reprojection;
+- declared terminal effects: publication, bridge generation, resource
+  transition, adapter calls, or external audit events run only when explicitly
+  declared by a boundary/resource contract; and
+- migration evidence: parity compares public behavior, typed terminal results,
+  declared resource effects, artifacts, resume/reuse behavior, and accepted
+  bridges without becoming internal authoring semantics.
+
+Any proposed `record-drain-outcome`-style helper must first answer which
+consumer it serves:
+
+- parent workflow: use the returned typed value directly;
+- public report or dashboard: use publication policy;
+- legacy YAML-era reader: use bridge metadata with owner, schema, consumer, and
+  retirement condition;
+- durable domain/resource state: use a typed resource transition; or
+- resume: use runtime-owned checkpoint state, not authored drain bookkeeping.
+
+If no consumer fits one of those cases, the helper is migration debt and must
+not be required for `DrainResult<TSummary>` return.
+
 #### 9.1.1 Parent Terminal Reprojection Over Imported `backlog-drain`
 
 For families whose public or parity-constrained terminal boundary still differs
@@ -1034,6 +1064,9 @@ must not claim completion of the imported child-phase/stdlib route.
   output, resource, publication, bridge, and resume failures must be traceable
   from concrete bundle keys, JSON pointers, paths, or resources back to the
   authored type, variant, field, binder, projection, or transition.
+- Terminal records, summaries, bridges, audit entries, and resource transitions
+  must name a consumer and authority class. They are invalid as hidden
+  prerequisites for ordinary typed value return.
 
 ## 11. Evidence And Implementation Boundaries
 
