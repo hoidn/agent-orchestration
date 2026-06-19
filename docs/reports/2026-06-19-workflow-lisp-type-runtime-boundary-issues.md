@@ -182,7 +182,64 @@ Implication: compatibility bridges should be declared at generic boundary or
 publication seams and retired from internal module-to-module workflow
 composition.
 
-### 7. The current vocabulary risks over-modeling if every boundary gets its own concept
+### 7. Workflow-family wrapper types should collapse toward generic lifecycle types plus domain payloads
+
+Some current family-specific types exist because the migration preserves
+YAML-era bundles, pointer paths, report summaries, compatibility outputs, and
+run-state views. Those are not all domain concepts. Many are representations
+of a smaller lifecycle shape that should be owned by generic stdlib types.
+
+A cleaner target is:
+
+```text
+DrainResult<TSummary>
+Selection<TItem, TGap>
+WorkItemResult<TSummary>
+GapDraft<TGap>
+```
+
+The Design Delta family should then provide only the payload/schema types that
+are actually domain-specific:
+
+```text
+DesignDeltaItem
+DesignDeltaGap
+DesignDeltaSummary
+```
+
+This avoids inventing or preserving names such as `DesignDeltaDrainResult`,
+`DesignDeltaSelectionBundle`, `DesignGapDraftBundle`, `WorkItemSummaryBundle`,
+and path-heavy summary wrappers when they merely rename generic
+`DONE`/`BLOCKED`/`EXHAUSTED`, selected-item, draft-gap, or summary concepts.
+
+What should remain family-specific:
+
+- item payloads;
+- gap payloads;
+- summary content;
+- provider request records;
+- domain validation rules;
+- public compatibility projections that are still required while legacy YAML
+  remains a supported comparison target.
+
+What should go away or become views:
+
+- `selection_bundle_path` as semantic authority;
+- `work_item_bundle_path` as semantic authority;
+- family-specific terminal result types that only rename generic lifecycle
+  variants;
+- compatibility bridge records inside ordinary internal composition;
+- path-heavy wrapper records whose only purpose is to preserve legacy
+  materialization mechanics.
+
+Implication: the stdlib should own generic lifecycle unions and callable
+boundaries. Workflow families should supply typed payloads and ordinary
+projections to public outputs or legacy views. Exact replication of the YAML
+state-machine representation should not be a parity requirement; parity should
+compare semantic terminal results, payloads, public artifacts, and accepted
+compatibility views.
+
+### 8. The current vocabulary risks over-modeling if every boundary gets its own concept
 
 The discussion has accumulated terms such as proof, refined binding, source
 map, executable contract, output bundle, bridge, materialized view, resource
@@ -259,7 +316,13 @@ type definitions and refined WCC bindings
    for prompts, public outputs, observability, or explicitly declared legacy
    consumers.
 
-7. Add focused negative tests.
+7. Collapse family wrapper types into generic lifecycle types where possible.
+
+   Keep `DrainResult`, `Selection`, `WorkItemResult`, and `GapDraft` generic.
+   Keep Design Delta-specific types for item, gap, summary, provider request,
+   validation, and public compatibility payloads.
+
+8. Add focused negative tests.
 
    Minimum useful failures:
 
