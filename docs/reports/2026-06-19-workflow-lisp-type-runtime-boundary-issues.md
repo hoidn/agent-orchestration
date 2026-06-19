@@ -291,6 +291,33 @@ language with typed return semantics and tracked effects. `defworkflow`,
 `defproc`, and pure helpers should differ mainly by effect set, resumability,
 exported boundary metadata, and runtime evidence obligations.
 
+### 10. Interpreter-like value semantics would help, but opaque interpreter state is not enough
+
+Several of the current terminal-reprojection and branch-local-field problems
+would be less visible in a direct interpreter. An interpreter can keep a
+lexical environment such as `blocked = <BLOCKED payload>` and evaluate the
+parent constructor normally. That naturally preserves scoped field access,
+ordinary `match` refinement, and value return without generated step-name or
+bundle-shape detours.
+
+That does not remove the durable orchestration problem. Provider calls,
+commands, child workflow calls, resource transitions, publication, bridge
+generation, retries, resume, artifact lineage, output-bundle validation, and
+parity evidence still need explicit effect-boundary contracts. Opaque
+interpreter state would make those external effects harder to inspect, resume,
+deduplicate, validate, and compare.
+
+The better target is not "compiler only" or "interpreter only." It is
+interpreter-like typed evaluation for pure and structured regions, plus
+compiled/projected effect-boundary metadata for durable external work. WCC,
+lexical checkpoints, and contract projection are the current path toward that
+hybrid: preserve source-language value semantics while still giving the
+runtime concrete contracts for validation, resume, source maps, and parity.
+
+Implication: future runtime simplification should move toward evaluating typed
+values directly between effect boundaries, but it should not hide effect
+boundaries inside opaque interpreter state.
+
 ## Root Cause Interpretation
 
 The root cause is an impedance mismatch between a typed, lexical, expression
@@ -375,6 +402,13 @@ type definitions and refined WCC bindings
    different mechanism. Publication and bridge effects should consume returned
    typed values; they should not be required for parent composition.
 
+10. Prefer interpreter-like evaluation between explicit effect boundaries.
+
+   Pure and structured Workflow Lisp regions should behave like ordinary typed
+   expression evaluation with lexical environments and refined match binders.
+   External work should cross explicit effect boundaries that carry contracts
+   for validation, resume, source maps, artifacts, and parity evidence.
+
 ## Open Questions
 
 - How much of the executable output contract can be generated directly from
@@ -393,6 +427,9 @@ type definitions and refined WCC bindings
   that pure helpers, effectful procedures, and workflow entrypoints share one
   return-value model while differing by resumability and runtime boundary
   obligations?
+- Should the runtime roadmap explicitly target interpreter-like evaluation for
+  pure/structured regions while keeping providers, commands, child workflow
+  calls, transitions, publication, and bridges as compiled effect boundaries?
 
 ## Bottom Line
 
@@ -401,4 +438,6 @@ needs projected contracts because it validates concrete outputs after type
 erasure and lowering. The elegant solution is not to expose more proof machinery
 to authors. It is to make refined pattern matching the surface model and ensure
 that WCC, executable contracts, source maps, runtime validation, and parity
-evidence all preserve the same typed union/record structure.
+evidence all preserve the same typed union/record structure. Longer term, the
+runtime should feel interpreter-like for typed values between effect
+boundaries, while keeping those effect boundaries explicit and inspectable.
