@@ -3783,14 +3783,17 @@ def test_design_delta_parent_drain_resource_transition_parity_ignores_retirement
     runtime_audit_artifact = target.runtime_audit_artifacts[0]
     _write_text(
         tmp_path / runtime_audit_artifact["path"],
-        json.dumps(
-            {
-                "transition_name": runtime_audit_artifact["transition_name"],
-                "resource_kind": runtime_audit_artifact["resource_kind"],
-                "outcome_code": "committed",
-            }
-        )
-        + "\n",
+        "".join(
+            json.dumps(
+                {
+                    "transition_name": artifact["transition_name"],
+                    "resource_kind": artifact["resource_kind"],
+                    "outcome_code": "committed",
+                }
+            )
+            + "\n"
+            for artifact in target.runtime_audit_artifacts
+        ),
     )
     _write_json(
         tmp_path / str(target.command_boundaries_file),

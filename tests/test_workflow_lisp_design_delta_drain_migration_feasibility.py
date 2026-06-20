@@ -4428,7 +4428,7 @@ def test_stdlib_parent_delegation_audit_fixture_compiles_promoted_backlog_drain_
 def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
     tmp_path: Path,
 ) -> None:
-    result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    _result, lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
     drain_source = (
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
     ).read_text(encoding="utf-8")
@@ -4442,9 +4442,15 @@ def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
 
     assert "(backlog-drain" in drain_source
     assert "finalize-selected-item" in work_item_source
-    assert len(drain_lowered["steps"]) == 1
-    assert drain_lowered["steps"][0]["call"] == "std/drain::backlog-drain"
-    assert any(step.get("call") == "std/resource::finalize-selected-item" for step in work_item_steps)
+    assert "(loop/recur" not in drain_source
+    assert "(call project-selector-action" not in drain_source
+    assert "record-drain-terminal-outcome" not in drain_source
+    assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_lowered["steps"])
+    assert any(
+        "finalize_selected_item_proc" in str(step.get("name", ""))
+        or "finalize_selected_item_proc" in str(step.get("id", ""))
+        for step in work_item_steps
+    )
 
 
 def test_design_delta_parent_drain_source_shape_centers_stdlib_owner_routes(
@@ -5438,7 +5444,6 @@ def test_design_delta_parent_drain_smokes_blocked_recovery_path(
         "fake-plan-review",
         "fake-implementation-execute",
         "fake-work-item-recovery",
-        "fake-selector",
     ]
     assert state["workflow_outputs"]["return__variant"] == "BLOCKED"
     assert state["workflow_outputs"]["return__reason"] == "selector_blocked"

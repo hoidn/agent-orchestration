@@ -2016,12 +2016,20 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
     tmp_path: Path,
 ) -> None:
     result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
-    authored = next(
-        workflow.authored_mapping
+    parent = next(
+        workflow
         for workflow in result.lowered_workflows
         if workflow.typed_workflow.definition.name == "drain"
     )
-    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+    parent_call = next(
+        step
+        for step in _iter_nested_steps(parent.authored_mapping["steps"])
+        if step.get("call") == "std/drain::backlog-drain"
+    )
+    child = _child_backlog_drain_workflow(result)
+    repeat_step = next(
+        step for step in child.authored_mapping["steps"] if "repeat_until" in step
+    )
     body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
     selector_blocked_marker = next(
         step for step in body_steps if step.get("name") == "MarkSelectorBlocked"
@@ -2032,6 +2040,7 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
         if value["name"] == "acc__blocker-class"
     )
 
+    assert parent_call["call"] == "std/drain::backlog-drain"
     assert blocker_value["source"] == {"literal": "user_decision_required"}
 
 

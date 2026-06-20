@@ -153,6 +153,24 @@
         ((BLOCKED blocked)
          (project-terminal-blocked-family-result resolved_inputs reason)))))
 
+  (defproc materialize-selected-item-summary-target
+    ((resolved_inputs ResolvedWorkItemInputs)
+     (terminal_route String)
+     (reason String))
+    -> WorkReport
+    :effects ((writes selected-item-summary))
+    :lowering inline
+    (materialize-view selected-item-summary
+      :value (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+               :work_item_id resolved_inputs.work_item_id
+               :work_item_source resolved_inputs.work_item_source
+               :terminal_route terminal_route
+               :reason reason)
+      :renderer canonical-json
+      :renderer-version 1
+      :target resolved_inputs.item_summary_target_path
+      :returns WorkReport))
+
   (defproc route-blocked-implementation
     ((selection DesignDeltaSelectedItemPayload)
      (target_design_path TargetDesignDoc)
@@ -257,7 +275,8 @@
     -> SelectedItemResult
     :effects ((calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)
               (uses-provider providers.work-item.recovery-classifier)
-              (writes blocked-recovery-summary))
+              (writes blocked-recovery-summary)
+              (writes selected-item-summary))
     :lowering inline
     (let* ((classification
              (call classify-blocked-implementation-recovery
@@ -285,8 +304,22 @@
                   (finalize-selected-item-compat
                     selection
                     plan
-                    implementation)))
-           finalized))
+                    implementation))
+                (summary-path
+                  (materialize-selected-item-summary-target
+                    resolved_inputs
+                    "TERMINAL_BLOCKED"
+                    "implementation_blocked")))
+           (match finalized
+             ((CONTINUE continued)
+              (variant SelectedItemResult CONTINUE
+                :summary-path summary-path
+                :run-state continued.run-state))
+             ((BLOCKED blocked)
+              (variant SelectedItemResult BLOCKED
+                :summary-path summary-path
+                :blocker-class BlockerClass.roadmap_conflict
+                :run-state blocked.run-state)))))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((summary-path
                   (materialize-view blocked-recovery-summary
@@ -411,8 +444,22 @@
                        (finalize-selected-item-compat
                          selection
                          plan-compat
-                         implementation-compat)))
-                finalized))
+                         implementation-compat))
+                     (summary-path
+                       (materialize-selected-item-summary-target
+                         resolved
+                         "TERMINAL_BLOCKED"
+                         "plan_review_exhausted")))
+                (match finalized
+                  ((CONTINUE continued)
+                   (variant SelectedItemResult CONTINUE
+                     :summary-path summary-path
+                     :run-state continued.run-state))
+                  ((BLOCKED blocked)
+                   (variant SelectedItemResult BLOCKED
+                     :summary-path summary-path
+                     :blocker-class BlockerClass.unrecoverable_after_fix_attempt
+                     :run-state blocked.run-state)))))
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
               (let* ((plan-compat
                        (project-plan-approved-compat
@@ -425,8 +472,22 @@
                        (finalize-selected-item-compat
                          selection
                          plan-compat
-                         implementation-compat)))
-                finalized))
+                         implementation-compat))
+                     (summary-path
+                       (materialize-selected-item-summary-target
+                         resolved
+                         "TERMINAL_BLOCKED"
+                         "implementation_review_exhausted")))
+                (match finalized
+                  ((CONTINUE continued)
+                   (variant SelectedItemResult CONTINUE
+                     :summary-path summary-path
+                     :run-state continued.run-state))
+                  ((BLOCKED blocked)
+                   (variant SelectedItemResult BLOCKED
+                     :summary-path summary-path
+                     :blocker-class BlockerClass.unrecoverable_after_fix_attempt
+                     :run-state blocked.run-state)))))
              ((COMPLETE complete)
               (let* ((plan-compat
                        (project-plan-approved-compat
@@ -438,8 +499,22 @@
                        (finalize-selected-item-compat
                          selection
                          plan-compat
-                         implementation-compat)))
-                finalized)))))
+                         implementation-compat))
+                     (summary-path
+                       (materialize-selected-item-summary-target
+                         resolved
+                         "COMPLETED"
+                         "complete")))
+                (match finalized
+                  ((CONTINUE continued)
+                   (variant SelectedItemResult CONTINUE
+                     :summary-path summary-path
+                     :run-state continued.run-state))
+                  ((BLOCKED blocked)
+                   (variant SelectedItemResult BLOCKED
+                     :summary-path summary-path
+                     :blocker-class BlockerClass.missing_resource
+                     :run-state blocked.run-state))))))))
         ((BLOCKED blocked)
          (let* ((plan-compat
                   (project-plan-blocked-compat
@@ -452,8 +527,22 @@
                   (finalize-selected-item-compat
                     selection
                     plan-compat
-                    implementation-compat)))
-           finalized))
+                    implementation-compat))
+                (summary-path
+                  (materialize-selected-item-summary-target
+                    resolved
+                    "TERMINAL_BLOCKED"
+                    "plan_blocked")))
+           (match finalized
+             ((CONTINUE continued)
+              (variant SelectedItemResult CONTINUE
+                :summary-path summary-path
+                :run-state continued.run-state))
+             ((BLOCKED blocked)
+              (variant SelectedItemResult BLOCKED
+                :summary-path summary-path
+                :blocker-class BlockerClass.roadmap_conflict
+                :run-state blocked.run-state)))))
         ((EXHAUSTED exhausted)
          (let* ((plan-compat
                   (project-plan-blocked-compat
@@ -466,8 +555,22 @@
                   (finalize-selected-item-compat
                     selection
                     plan-compat
-                    implementation-compat)))
-           finalized)))))
+                    implementation-compat))
+                (summary-path
+                  (materialize-selected-item-summary-target
+                    resolved
+                    "TERMINAL_BLOCKED"
+                    "plan_review_exhausted")))
+           (match finalized
+             ((CONTINUE continued)
+              (variant SelectedItemResult CONTINUE
+                :summary-path summary-path
+                :run-state continued.run-state))
+             ((BLOCKED blocked)
+              (variant SelectedItemResult BLOCKED
+                :summary-path summary-path
+                :blocker-class BlockerClass.unrecoverable_after_fix_attempt
+                :run-state blocked.run-state))))))))
 
   (defworkflow run-work-item
     ((phase-ctx PhaseCtx)
