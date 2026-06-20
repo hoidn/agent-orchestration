@@ -28,6 +28,12 @@ HIGH_LEVEL_TRANSITION_MODULES = frozenset(
     }
 )
 INLINE_HELPER_TRANSITION_MARKER = "__lisp_frontend_design_delta_transitions_"
+IGNORED_IMPORTED_TRANSITION_STEP_ID_SUBSTRINGS = frozenset(
+    {
+        "lisp_frontend_design_delta_stdlib_adapters_finalize_selected_item_compat_",
+        "std_drain_backlog_drain__normalize_result__",
+    }
+)
 
 
 def load_transition_authoring_manifest(path: Path) -> dict[str, Any]:
@@ -337,6 +343,11 @@ def _is_transition_candidate(
     step_kind: str,
     step_id: str,
 ) -> bool:
+    if any(
+        marker in step_id
+        for marker in IGNORED_IMPORTED_TRANSITION_STEP_ID_SUBSTRINGS
+    ):
+        return False
     if module_name == "lisp_frontend_design_delta/transitions":
         return step_kind in {"resource_transition", "step"} and (
             step_kind == "resource_transition"

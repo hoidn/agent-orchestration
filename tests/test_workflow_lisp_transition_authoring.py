@@ -340,7 +340,7 @@ def test_transition_authoring_report_rejects_source_shape_assertion_failures(
     )
     manifest["source_shape_assertions"] = [
         {
-            "module_name": "lisp_frontend_design_delta/drain",
+            "module_name": "lisp_frontend_design_delta/transitions",
             "forbidden_substrings": ["record-drain-terminal-outcome"],
         }
     ]
@@ -354,9 +354,9 @@ def test_transition_authoring_report_rejects_source_shape_assertion_failures(
     assert report["status"] == "fail"
     assert report["source_shape_violations"] == [
         {
-            "module_name": "lisp_frontend_design_delta/drain",
+            "module_name": "lisp_frontend_design_delta/transitions",
             "substring": "record-drain-terminal-outcome",
-            "path": str(REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"),
+            "path": str(REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "transitions.orc"),
             "reason": "forbidden low-level transition authoring text is still present",
         }
     ]

@@ -2,8 +2,9 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/selector)
+  (import std/resource :only (StateExisting))
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc ProgressLedger RunStatePath SelectionBundlePath SelectionStatus
+    (BaselineDesignDoc ProgressLedger SelectionBundlePath SelectionStatus
       StateFileExisting SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
   (export SelectorPublicResult select-next-work)
 
@@ -13,7 +14,7 @@
     (baseline_design BaselineDesignDoc)
     (manifest StateFileExisting)
     (progress_ledger ProgressLedger)
-    (run_state RunStatePath))
+    (run_state StateExisting))
 
   (defrecord SelectorPromptSubject
     (steering SteeringDoc)
@@ -21,7 +22,7 @@
     (baseline_design BaselineDesignDoc)
     (manifest StateFileExisting)
     (progress_ledger ProgressLedger)
-    (run_state RunStatePath))
+    (run_state StateExisting))
 
   (defrecord SelectorRequest
     (subject SelectorPromptSubject))
@@ -42,7 +43,7 @@
      (baseline_design BaselineDesignDoc)
      (manifest StateFileExisting)
      (progress_ledger ProgressLedger)
-     (run_state RunStatePath))
+     (run_state StateExisting))
     -> SelectorPublicResult
     (let* ((inputs
              (record SelectorInputs

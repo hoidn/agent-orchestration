@@ -26,11 +26,11 @@
     },
     {
       "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
@@ -150,19 +150,19 @@
     },
     {
       "c0_row_id": "c0.plan_phase_output_approved_plan_path",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_approved_plan_path_compiled_boundary",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path",

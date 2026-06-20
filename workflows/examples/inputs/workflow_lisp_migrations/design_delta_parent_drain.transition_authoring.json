@@ -26,10 +26,11 @@
       "step_id_contains": "lisp_frontend_design_delta_transitions_record_drain_terminal_outcome"
     },
     {
-      "row_id": "low_level.record_work_item_terminal_outcome",
+      "row_id": "low_level.record_design_gap_progress",
       "classification": "low_level_library",
       "module_name": "lisp_frontend_design_delta/transitions",
-      "step_id_contains": "lisp_frontend_design_delta_transitions_record_work_item_terminal_outcome"
+      "step_kind": "resource_transition",
+      "step_id_contains": "lisp_frontend_design_delta_transitions_record_design_gap_progress"
     },
     {
       "row_id": "low_level.record_work_item_blocked_recovery_summary",

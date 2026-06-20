@@ -3,9 +3,16 @@
   "target_family": "lisp_frontend_design_delta_parent_drain",
   "source_census": {
     "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
-    "fingerprint": "sha256:8c87509a348c809fd13fe50f3b8361ca95f7342eb65fc6b5647b003bfae5247c"
+    "fingerprint": "sha256:b9be3ad85f3aaa8d6958e92418e48679eeffc19e2cf51c32e93c8f39e2f5a4ef"
   },
   "decisions": [
+    {
+      "row_id": "drain.loop.run_state_path",
+      "decision": "KEPT_COMPATIBILITY",
+      "remaining_consumer": "runtime_resume",
+      "retirement_condition": "remove after private checkpoint restore replaces authored run-state loop carriage",
+      "parity_constraint": "R5 keeps the surviving parent-drain compatibility bridge explicit while hidden run-item retirement evidence stays aligned"
+    },
     {
       "row_id": "work_item.loop.run_state_path",
       "decision": "KEPT_COMPATIBILITY",

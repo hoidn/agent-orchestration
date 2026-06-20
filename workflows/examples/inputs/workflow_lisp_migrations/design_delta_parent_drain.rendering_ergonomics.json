@@ -786,19 +786,13 @@
         "type_name": "approved_plan_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_approved_plan_path",
       "u0_row_id": "plan_phase.output.approved_plan_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -818,19 +812,13 @@
         "type_name": "approved_plan_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_approved_plan_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__approved_plan_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -850,19 +838,13 @@
         "type_name": "return_blocked_plan_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path",
       "u0_row_id": "plan_phase.output.return_blocked_plan_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -882,19 +864,13 @@
         "type_name": "return_blocked_plan_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__blocked_plan_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -914,19 +890,13 @@
         "type_name": "return_exhausted_plan_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path",
       "u0_row_id": "plan_phase.output.return_exhausted_plan_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -946,19 +916,13 @@
         "type_name": "return_exhausted_plan_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__exhausted_plan_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -978,19 +942,13 @@
         "type_name": "return_findings_items_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_return_findings_items_path",
       "u0_row_id": "plan_phase.output.return_findings_items_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -1010,19 +968,13 @@
         "type_name": "return_findings_items_path",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__findings__items_path",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },

@@ -57,11 +57,13 @@
             (variant WorkItemTerminalDecision COMPLETE)
             (variant WorkItemTerminalDecision IMPLEMENTATION_REVIEW_EXHAUSTED))))))
 
-  (defworkflow normalize-blocked-recovery-route
+  (defproc normalize-blocked-recovery-route
     ((work_item_source WorkItemSource)
      (blocked_recovery_route BlockedRecoveryRoute)
      (reason BlockedRecoveryReason))
     -> BlockedRecoveryDecision
+    :effects ()
+    :lowering inline
     (let* ((is-backlog-item
              (= work_item_source WorkItemSource.BACKLOG_ITEM))
            (rewrite-user-decision

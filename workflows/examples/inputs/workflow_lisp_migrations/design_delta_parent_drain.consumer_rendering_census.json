@@ -1341,20 +1341,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Approved plan publication remains an explicit consumer-facing artifact boundary."
+      "notes": "Approved plan path remains a typed child-workflow handoff to the work-item owner lane."
     },
     {
       "row_id": "c0.plan_phase_output_approved_plan_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__approved_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1367,20 +1367,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Approved plan publication remains an explicit consumer-facing artifact boundary. Compiled boundary inventory mirror of the same consumer surface."
+      "notes": "Approved plan path remains a typed child-workflow handoff to the work-item owner lane. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_output_return_blocked_plan_path",
       "u0_row_id": "plan_phase.output.return_blocked_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1389,20 +1389,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked boundary inventory row from flattened_output / public_artifact."
+      "notes": "Blocked plan path remains a typed child-workflow handoff rather than a consumer-facing publication."
     },
     {
       "row_id": "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__blocked_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1415,20 +1415,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
+      "notes": "Blocked plan path remains a typed child-workflow handoff rather than a consumer-facing publication. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_output_return_exhausted_plan_path",
       "u0_row_id": "plan_phase.output.return_exhausted_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1437,20 +1437,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked boundary inventory row from flattened_output / public_artifact."
+      "notes": "Exhausted plan path remains a typed child-workflow handoff rather than a consumer-facing publication."
     },
     {
       "row_id": "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__exhausted_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1463,20 +1463,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
+      "notes": "Exhausted plan path remains a typed child-workflow handoff rather than a consumer-facing publication. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.plan_phase_output_return_findings_items_path",
       "u0_row_id": "plan_phase.output.return_findings_items_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1485,20 +1485,20 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked boundary inventory row from flattened_output / public_artifact."
+      "notes": "Findings items path remains a typed child-workflow handoff rather than a consumer-facing publication."
     },
     {
       "row_id": "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__findings__items_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1511,7 +1511,7 @@
       ],
       "command_boundary": null,
       "bridge": null,
-      "notes": "Checked boundary inventory row from flattened_output / public_artifact. Compiled boundary inventory mirror of the same consumer surface."
+      "notes": "Findings items path remains a typed child-workflow handoff rather than a consumer-facing publication. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
       "row_id": "c0.selector_output_return_selection_bundle_path",
