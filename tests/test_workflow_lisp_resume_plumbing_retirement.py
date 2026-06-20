@@ -147,6 +147,22 @@ def _checkpoint_shadow_report_payload(
     }
 
 
+def _manifest(
+    decisions: list[dict[str, object]],
+    *,
+    fingerprint: str = "sha256:census",
+) -> dict[str, object]:
+    return {
+        "schema_version": "workflow_lisp_resume_plumbing_retirement.v1",
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "source_census": {
+            "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
+            "fingerprint": fingerprint,
+        },
+        "decisions": decisions,
+    }
+
+
 def test_select_resume_plumbing_retirement_candidates_from_checked_census() -> None:
     module = _module()
     census = _census(
@@ -334,6 +350,36 @@ def test_resume_plumbing_retirement_report_rejects_checkpoint_or_report_authorit
         )
 
 
+def test_resume_plumbing_retirement_report_rejects_manifest_fingerprint_drift() -> None:
+    module = _module()
+
+    with pytest.raises(
+        ValueError,
+        match="resume_plumbing_retirement_census_fingerprint_mismatch",
+    ):
+        module.build_resume_plumbing_retirement_report(
+            workflow_family="design_delta_parent_drain",
+            census=_census([_row()]),
+            census_fingerprint="sha256:current",
+            compiled_rows=[],
+            manifest=_manifest(
+                [
+                    {
+                        "row_id": "drain.loop.run_state_path",
+                        "decision": "KEPT_COMPATIBILITY",
+                        "remaining_consumer": "runtime_transition_bridge",
+                        "retirement_condition": "remove after runtime-native resource backing no longer requires the bridge field",
+                        "parity_constraint": "Track C public output and parity baseline still carry run_state",
+                    }
+                ],
+                fingerprint="sha256:stale",
+            ),
+            manifest_fingerprint="sha256:manifest",
+            checkpoint_points_payload=_checkpoint_points_payload(),
+            checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(),
+        )
+
+
 @pytest.mark.parametrize(
     ("points_payload", "shadow_report_payload", "expected_code"),
     [
@@ -435,6 +481,202 @@ def test_resume_plumbing_retirement_report_accepts_matching_checkpoint_workflow_
 
     assert report["status"] == "pass"
     assert report["diagnostics"] == []
+
+
+def test_resume_plumbing_retirement_report_allows_blocked_retained_row_without_fresh_compiled_evidence() -> None:
+    module = _module()
+
+    report = module.build_resume_plumbing_retirement_report(
+        workflow_family="design_delta_parent_drain",
+        census=_census(
+            [
+                _row(
+                    row_id="work_item.loop.run_state_path",
+                    workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                )
+            ]
+        ),
+        census_fingerprint="sha256:census",
+        compiled_rows=[],
+        manifest=_manifest(
+            [
+                {
+                    "row_id": "work_item.loop.run_state_path",
+                    "decision": "BLOCKED",
+                    "remaining_consumer": "runtime_transition_bridge",
+                    "retirement_condition": "remove after runtime-native drain-run-state backing stops injecting the private work-item run_state_path bridge",
+                    "parity_constraint": "R5 keeps the existing drain-run-state transition surface while the bridge remains explicitly blocked on fresh compiled evidence",
+                }
+            ]
+        ),
+        manifest_fingerprint="sha256:manifest",
+        checkpoint_points_payload=_checkpoint_points_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item",
+            transition_identity="record-terminal-work-item",
+            include_restore=False,
+        ),
+        checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item"
+        ),
+    )
+
+    assert report["status"] == "pass"
+    assert report["decisions"][0]["decision"] == "BLOCKED"
+    assert report["diagnostics"] == []
+
+
+def test_resume_plumbing_retirement_report_rejects_retained_work_item_call_signature_exposure() -> None:
+    module = _module()
+
+    report = module.build_resume_plumbing_retirement_report(
+        workflow_family="design_delta_parent_drain",
+        census=_census(
+            [
+                _row(
+                    row_id="work_item.loop.run_state_path",
+                    workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                )
+            ]
+        ),
+        census_fingerprint="sha256:census",
+        compiled_rows=[
+            _compiled_row(
+                row_id="work_item.loop.run_state_path",
+                workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                observed_locations=["call_signature"],
+            )
+        ],
+        manifest=_manifest(
+            [
+                {
+                    "row_id": "work_item.loop.run_state_path",
+                    "decision": "KEPT_COMPATIBILITY",
+                    "remaining_consumer": "runtime_transition_bridge",
+                    "retirement_condition": "remove after runtime-native drain-run-state backing stops injecting the private work-item run_state_path bridge",
+                    "parity_constraint": "R5 keeps the existing drain-run-state transition surface and must record the surviving private work-item bridge explicitly rather than claiming full retirement",
+                }
+            ]
+        ),
+        manifest_fingerprint="sha256:manifest",
+        checkpoint_points_payload=_checkpoint_points_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item",
+            transition_identity="record-terminal-work-item",
+            include_restore=False,
+        ),
+        checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item"
+        ),
+    )
+
+    assert report["status"] == "fail"
+    assert report["diagnostics"][0]["code"] == "resume_plumbing_retirement_call_signature_exposed"
+
+
+@pytest.mark.parametrize(
+    ("boundary_authority_class", "observed_locations", "expected_code"),
+    [
+        ("public_authored", ["public_boundary"], "resume_plumbing_retirement_public_boundary_exposed"),
+        ("compatibility_bridge", ["loop_state_field"], "resume_plumbing_retirement_loop_state_exposed"),
+    ],
+)
+def test_resume_plumbing_retirement_report_rejects_retained_work_item_public_or_loop_exposure(
+    boundary_authority_class: str,
+    observed_locations: list[str],
+    expected_code: str,
+) -> None:
+    module = _module()
+
+    report = module.build_resume_plumbing_retirement_report(
+        workflow_family="design_delta_parent_drain",
+        census=_census(
+            [
+                _row(
+                    row_id="work_item.loop.run_state_path",
+                    workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                )
+            ]
+        ),
+        census_fingerprint="sha256:census",
+        compiled_rows=[
+            _compiled_row(
+                row_id="work_item.loop.run_state_path",
+                workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                boundary_authority_class=boundary_authority_class,
+                observed_locations=observed_locations,
+            )
+        ],
+        manifest=_manifest(
+            [
+                {
+                    "row_id": "work_item.loop.run_state_path",
+                    "decision": "KEPT_COMPATIBILITY",
+                    "remaining_consumer": "runtime_transition_bridge",
+                    "retirement_condition": "remove after runtime-native drain-run-state backing stops injecting the private work-item run_state_path bridge",
+                    "parity_constraint": "R5 keeps the existing drain-run-state transition surface and must record the surviving private work-item bridge explicitly rather than claiming full retirement",
+                }
+            ]
+        ),
+        manifest_fingerprint="sha256:manifest",
+        checkpoint_points_payload=_checkpoint_points_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item",
+            transition_identity="record-terminal-work-item",
+            include_restore=False,
+        ),
+        checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item"
+        ),
+    )
+
+    assert report["status"] == "fail"
+    assert report["diagnostics"][0]["code"] == expected_code
+
+
+def test_resume_plumbing_retirement_report_rejects_retained_work_item_runtime_derived_reclassification() -> None:
+    module = _module()
+
+    report = module.build_resume_plumbing_retirement_report(
+        workflow_family="design_delta_parent_drain",
+        census=_census(
+            [
+                _row(
+                    row_id="work_item.loop.run_state_path",
+                    workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                )
+            ]
+        ),
+        census_fingerprint="sha256:census",
+        compiled_rows=[
+            _compiled_row(
+                row_id="work_item.loop.run_state_path",
+                workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                boundary_authority_class="runtime_derived",
+                observed_locations=[],
+            )
+        ],
+        manifest=_manifest(
+            [
+                {
+                    "row_id": "work_item.loop.run_state_path",
+                    "decision": "KEPT_COMPATIBILITY",
+                    "remaining_consumer": "runtime_transition_bridge",
+                    "retirement_condition": "remove after runtime-native drain-run-state backing stops injecting the private work-item run_state_path bridge",
+                    "parity_constraint": "R5 keeps the existing drain-run-state transition surface and must record the surviving private work-item bridge explicitly rather than claiming full retirement",
+                }
+            ]
+        ),
+        manifest_fingerprint="sha256:manifest",
+        checkpoint_points_payload=_checkpoint_points_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item",
+            transition_identity="record-terminal-work-item",
+            include_restore=False,
+        ),
+        checkpoint_shadow_report_payload=_checkpoint_shadow_report_payload(
+            workflow_name="lisp_frontend_design_delta/work_item::run-work-item"
+        ),
+    )
+
+    assert report["status"] == "fail"
+    assert report["diagnostics"][0]["code"] == "resume_plumbing_retirement_runtime_derived_reclassification"
 
 
 def test_resume_plumbing_retirement_report_requires_checked_compatibility_for_drain_run_state_bridge() -> None:

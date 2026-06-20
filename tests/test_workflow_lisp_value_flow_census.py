@@ -394,6 +394,54 @@ def test_summarize_resume_plumbing_retirement_stale_rows_reports_missing_candida
     ]
 
 
+def test_normalize_resume_plumbing_retirement_compiled_rows_marks_work_item_call_signature_exposure() -> None:
+    module = _module()
+
+    normalized = module.normalize_resume_plumbing_retirement_compiled_rows(
+        [
+            _resume_only_runtime_row(
+                row_id="work_item.loop.run_state_path",
+                workflow_surface="lisp_frontend_design_delta/work_item::run-work-item",
+                source_kind="loop_state_field",
+                symbol_or_field="run_state_path",
+            )
+        ],
+        boundary_authority_report={
+            "workflows": [
+                {
+                    "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
+                    "public_authored": [],
+                    "compatibility_bridge": ["run_state_path"],
+                    "runtime_derived": [],
+                    "generated_internal": [],
+                    "materialized_view": [],
+                    "public_artifact": [],
+                }
+            ]
+        },
+        source_text_by_surface={
+            "lisp_frontend_design_delta/types": """
+              (defrecord DesignDeltaSelectedItemPayload
+                (run_state_path RunStatePath))
+            """,
+            "lisp_frontend_design_delta/work_item::run-work-item": """
+              (record DesignDeltaSelectedItemPayload
+                :run_state_path bridged-run-state)
+            """,
+        },
+    )
+
+    assert normalized["work_item.loop.run_state_path"] == {
+        "row_id": "work_item.loop.run_state_path",
+        "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+        "symbol_or_field": "run_state_path",
+        "source_kind": "loop_state_field",
+        "boundary_authority_class": "compatibility_bridge",
+        "observed_locations": ["call_signature"],
+        "semantic_authority_source": "typed_runtime_resource",
+    }
+
+
 def test_reconcile_value_flow_census_reports_missing_compiled_boundary_rows_outside_legacy_allowlist() -> None:
     module = _module()
     census = _valid_payload()

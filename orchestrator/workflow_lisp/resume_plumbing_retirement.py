@@ -274,6 +274,99 @@ def build_resume_plumbing_retirement_report(
                 diagnostics.append(
                     _diagnostic("resume_plumbing_retirement_row_stale", row, None)
                 )
+            else:
+                boundary_class = compiled_row.get("boundary_authority_class")
+                locations = set(compiled_row.get("observed_locations", []))
+                if boundary_class == "public_authored" or "public_boundary" in locations:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_public_boundary_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif "loop_state_field" in locations:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_loop_state_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif "call_signature" in locations:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_call_signature_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif (
+                    row_id == "work_item.loop.run_state_path"
+                    and boundary_class == "runtime_derived"
+                ):
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_runtime_derived_reclassification",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif boundary_class not in {"compatibility_bridge", None}:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_public_boundary_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+        elif decision == "BLOCKED":
+            if compiled_row is not None:
+                boundary_class = compiled_row.get("boundary_authority_class")
+                locations = set(compiled_row.get("observed_locations", []))
+                if boundary_class == "public_authored" or "public_boundary" in locations:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_public_boundary_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif "loop_state_field" in locations:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_loop_state_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif "call_signature" in locations:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_call_signature_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif (
+                    row_id == "work_item.loop.run_state_path"
+                    and boundary_class == "runtime_derived"
+                ):
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_runtime_derived_reclassification",
+                            row,
+                            compiled_row,
+                        )
+                    )
+                elif boundary_class not in {"compatibility_bridge", None}:
+                    diagnostics.append(
+                        _diagnostic(
+                            "resume_plumbing_retirement_public_boundary_exposed",
+                            row,
+                            compiled_row,
+                        )
+                    )
 
         report_decisions.append(
             {
@@ -317,7 +410,7 @@ def build_resume_plumbing_retirement_report(
         stale
         for stale in stale_candidates
         if decisions_by_row.get(str(stale.get("row_id", "")))
-        in {"HIDDEN_PRIVATE", "KEPT_COMPATIBILITY", "BLOCKED"}
+        in {"HIDDEN_PRIVATE", "KEPT_COMPATIBILITY"}
     )
     deduped_diagnostics = _dedupe_diagnostics(diagnostics)
     return {

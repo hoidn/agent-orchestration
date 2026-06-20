@@ -170,6 +170,15 @@ def normalize_resume_plumbing_retirement_compiled_rows(
             "semantic_authority_source": "typed_runtime_resource",
         }
         if row_id == "drain.loop.run_state_path":
+            boundary_row = boundary_rows.get(
+                ("lisp_frontend_design_delta/drain::drain", "run_state_path")
+            )
+            if boundary_row is not None:
+                normalized_row["boundary_authority_class"] = boundary_row[
+                    "boundary_authority_class"
+                ]
+                if boundary_row["boundary_authority_class"] == "public_authored":
+                    normalized_row["observed_locations"].append("public_boundary")
             drain_state_block = _source_block(
                 types_source,
                 "(defrecord DrainState",
@@ -187,10 +196,12 @@ def normalize_resume_plumbing_retirement_compiled_rows(
                 normalized_row["boundary_authority_class"] = boundary_row[
                     "boundary_authority_class"
                 ]
-                normalized_row["observed_locations"].append("call_signature")
-            if "(run_state_path RunStatePath)" in work_item_source:
-                normalized_row["observed_locations"].append("call_signature")
-            if ":run_state_path" in work_item_source:
+                if boundary_row["boundary_authority_class"] == "public_authored":
+                    normalized_row["observed_locations"].append("public_boundary")
+            if (
+                "(run_state_path RunStatePath)" in types_source
+                and ":run_state_path" in work_item_source
+            ):
                 normalized_row["observed_locations"].append("call_signature")
         else:
             boundary_row = boundary_rows.get(
@@ -205,7 +216,7 @@ def normalize_resume_plumbing_retirement_compiled_rows(
                 ]
                 normalized_row["observed_locations"].append("boundary_report")
 
-        if normalized_row["observed_locations"]:
+        if normalized_row["observed_locations"] or normalized_row["boundary_authority_class"] is not None:
             normalized_row["observed_locations"] = sorted(
                 set(normalized_row["observed_locations"])
             )
