@@ -68,6 +68,11 @@ INVALID_STDLIB_DRAIN_NON_SYMBOL_CALLEE_FIXTURE = (
 INVALID_STDLIB_DRAIN_VIEW_AUTHORITY_FIXTURE = (
     FIXTURES / "invalid" / "drain_stdlib_materialized_view_authority_invalid.orc"
 )
+INVALID_HIDDEN_COMPATIBILITY_BRIDGE_PUBLIC_RUN_ITEM_FIXTURE = (
+    FIXTURES
+    / "invalid"
+    / "backlog_drain_hidden_compatibility_bridge_public_run_item_invalid.orc"
+)
 
 
 def _build_syntax_module(path: Path):
@@ -2321,6 +2326,19 @@ def test_stdlib_backlog_drain_view_authority_misuse_still_fails_closed(tmp_path:
         _compile_linked_stdlib_fixture(INVALID_STDLIB_DRAIN_VIEW_AUTHORITY_FIXTURE, tmp_path=tmp_path)
 
     assert excinfo.value.diagnostics[0].code == "type_mismatch"
+
+
+def test_compile_stage3_module_rejects_hidden_compatibility_bridge_public_run_item_fixture(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_linked_stdlib_fixture(
+            INVALID_HIDDEN_COMPATIBILITY_BRIDGE_PUBLIC_RUN_ITEM_FIXTURE,
+            tmp_path=tmp_path,
+            validate_shared=True,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "backlog_drain_contract_invalid"
 
 def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Path) -> None:
     path = tmp_path / "provider_backlog_drain_invalid.orc"

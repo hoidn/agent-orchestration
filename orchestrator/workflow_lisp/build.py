@@ -503,6 +503,11 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         compile_result,
         selected_name=entry_selection.canonical_name,
     )
+    _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
+        workflow_boundary_projection_payload,
+        selected_name=entry_selection.canonical_name,
+        boundary_authority_registry=boundary_authority_registry,
+    )
     fingerprint = _fingerprint_build(
         request=resolved_request,
         compile_result=compile_result,
@@ -5221,6 +5226,72 @@ def _serialize_workflow_boundary_projection(
         "entry_workflow": selected_name,
         "workflows": workflows,
     }
+
+
+def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
+    boundary_projection_payload: Mapping[str, object],
+    *,
+    selected_name: str,
+    boundary_authority_registry: Mapping[str, object] | None,
+) -> None:
+    workflows = {
+        str(workflow["workflow_name"]): workflow
+        for workflow in boundary_projection_payload.get("workflows", [])
+        if isinstance(workflow, Mapping)
+        and isinstance(workflow.get("workflow_name"), str)
+    }
+    selected_workflow = workflows.get(selected_name)
+    if not isinstance(selected_workflow, Mapping):
+        return
+
+    params = {
+        str(param.get("name"))
+        for param in selected_workflow.get("params", [])
+        if isinstance(param, Mapping) and isinstance(param.get("name"), str)
+    }
+    private_bridge_inputs = {
+        str(name)
+        for name in selected_workflow.get("boundary", {}).get(
+            "private_compatibility_bridge_inputs", []
+        )
+        if isinstance(name, str)
+    }
+    if not private_bridge_inputs:
+        return
+
+    allowed_public_bridge_inputs = {
+        str(row.get("field_name"))
+        for row in (boundary_authority_registry or {}).get("rows", [])
+        if isinstance(row, Mapping)
+        and row.get("workflow_name") == selected_name
+        and row.get("surface_kind") == "compatibility_bridge_input"
+        and row.get("authority_class") == "compatibility_bridge"
+        and isinstance(row.get("field_name"), str)
+    }
+    publicly_authored_hidden_bridges = sorted(
+        (params & private_bridge_inputs) - allowed_public_bridge_inputs
+    )
+    if not publicly_authored_hidden_bridges:
+        return
+
+    registry_path = None
+    if isinstance(boundary_authority_registry, Mapping):
+        raw_registry_path = boundary_authority_registry.get("__registry_path__")
+        if isinstance(raw_registry_path, (str, Path)) and str(raw_registry_path):
+            registry_path = Path(str(raw_registry_path))
+    raise LispFrontendCompileError(
+        (
+            _cli_request_diagnostic(
+                code="workflow_boundary_authority_unclassified",
+                message=(
+                    "selected workflow publicly declares hidden compatibility bridge "
+                    "inputs without checked boundary-authority metadata: "
+                    f"{selected_name}: {', '.join(publicly_authored_hidden_bridges)}"
+                ),
+                path=registry_path,
+            ),
+        )
+    )
 
 
 def _origin_payload(origin: object) -> dict[str, object]:

@@ -1,0 +1,11 @@
+{
+  "row_id": "work_item.loop.run_state_path",
+  "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+  "symbol_or_field": "run_state_path",
+  "source_kind": "report_path",
+  "boundary_authority_class": "compatibility_bridge",
+  "observed_locations": [
+    "compatibility_file"
+  ],
+  "semantic_authority_source": "report_path"
+}

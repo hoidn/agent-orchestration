@@ -73,6 +73,16 @@ ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
 STDLIB_HIDDEN_COMPATIBILITY_BRIDGE_FIXTURE = (
     FIXTURES / "valid" / "drain_stdlib_backlog_drain_hidden_compatibility_bridge.orc"
 )
+HIDDEN_COMPATIBILITY_BRIDGE_PUBLIC_BOUNDARY_FIXTURE = (
+    FIXTURES
+    / "invalid"
+    / "backlog_drain_hidden_compatibility_bridge_public_boundary_invalid.orc"
+)
+HIDDEN_COMPATIBILITY_BRIDGE_REREAD_POINTER_AUTHORITY_FIXTURE = (
+    FIXTURES
+    / "invalid"
+    / "backlog_drain_hidden_compatibility_bridge_reread_pointer_authority_invalid.json"
+)
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
@@ -143,6 +153,22 @@ def _link_fixture_module_into_source_root(path: Path, *, tmp_path: Path) -> Path
 def _compile_linked_hidden_compatibility_bridge_fixture(tmp_path: Path):
     module_path = _link_fixture_module_into_source_root(
         STDLIB_HIDDEN_COMPATIBILITY_BRIDGE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    return compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        command_boundaries=_drain_command_boundaries().bindings_by_name,
+        workspace_root=tmp_path,
+        validate_shared=True,
+    )
+
+
+def _compile_linked_hidden_compatibility_bridge_public_boundary_fixture(
+    tmp_path: Path,
+):
+    module_path = _link_fixture_module_into_source_root(
+        HIDDEN_COMPATIBILITY_BRIDGE_PUBLIC_BOUNDARY_FIXTURE,
         tmp_path=tmp_path,
     )
     return compile_stage3_entrypoint(
@@ -709,6 +735,14 @@ def _load_design_delta_compatibility_bridges() -> dict[str, object]:
 
 def _load_design_delta_resume_plumbing_retirement_manifest(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_hidden_compatibility_bridge_reread_pointer_authority_fixture() -> dict[str, object]:
+    return json.loads(
+        HIDDEN_COMPATIBILITY_BRIDGE_REREAD_POINTER_AUTHORITY_FIXTURE.read_text(
+            encoding="utf-8"
+        )
+    )
 
 
 def _aligned_design_delta_resume_plumbing_retirement_manifest(
@@ -7392,6 +7426,37 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item
     assert "resume_plumbing_retirement_public_boundary_exposed" in excinfo.value.diagnostics[0].message
 
 
+def test_design_delta_parent_drain_rejects_hidden_compatibility_bridge_public_boundary_fixture(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    serialize = getattr(build, "_serialize_workflow_boundary_projection")
+    validate = getattr(
+        build,
+        "_validate_selected_workflow_hidden_compatibility_bridge_public_boundary",
+    )
+    result = _compile_linked_hidden_compatibility_bridge_public_boundary_fixture(
+        tmp_path
+    )
+    payload = serialize(
+        result,
+        selected_name=(
+            "backlog_drain_hidden_compatibility_bridge_public_boundary_invalid::drain"
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate(
+            payload,
+            selected_name=(
+                "backlog_drain_hidden_compatibility_bridge_public_boundary_invalid::drain"
+            ),
+            boundary_authority_registry=None,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_boundary_authority_unclassified"
+
+
 def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item_loop_state_exposure_rejected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -7531,6 +7596,46 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_retained_work_item
         )
     assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
     assert "resume_plumbing_retirement_runtime_derived_reclassification" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_rejects_hidden_compatibility_bridge_reread_pointer_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resume = importlib.import_module(
+        "orchestrator.workflow_lisp.resume_plumbing_retirement"
+    )
+    fixture_row = _load_hidden_compatibility_bridge_reread_pointer_authority_fixture()
+    original = resume.normalize_resume_plumbing_retirement_compiled_rows
+    original_retirement_diagnostics = resume._retirement_evidence_diagnostics
+
+    def _mutated(*args, **kwargs):
+        rows = original(*args, **kwargs)
+        rows["work_item.loop.run_state_path"] = dict(fixture_row)
+        return rows
+
+    monkeypatch.setattr(
+        resume,
+        "normalize_resume_plumbing_retirement_compiled_rows",
+        _mutated,
+    )
+    monkeypatch.setattr(
+        resume,
+        "_retirement_evidence_diagnostics",
+        lambda row, **kwargs: []
+        if row.get("row_id") == "drain.loop.run_state_path"
+        else original_retirement_diagnostics(row, **kwargs),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+        )
+    assert excinfo.value.diagnostics[0].code == "resume_plumbing_retirement_invalid"
+    assert "resume_plumbing_retirement_checkpoint_used_as_authority" in excinfo.value.diagnostics[0].message
 
 
 def test_design_delta_parent_drain_resume_plumbing_retirement_rejects_unjustified_compatibility(
