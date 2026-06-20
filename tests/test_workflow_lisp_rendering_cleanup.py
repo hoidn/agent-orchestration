@@ -263,6 +263,30 @@ def test_checked_design_delta_rendering_cleanup_retires_summary_body_materializa
     )
 
 
+def test_checked_design_delta_rendering_cleanup_keeps_live_checks_report_pair_timed() -> None:
+    manifest_path = (
+        Path(__file__).resolve().parent.parent
+        / "workflows"
+        / "examples"
+        / "inputs"
+        / "workflow_lisp_migrations"
+        / "design_delta_parent_drain.rendering_cleanup.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    decisions = {row["c0_row_id"]: row["decision"] for row in payload["rows"]}
+
+    assert (
+        decisions["c0.implementation_phase_materialized_return_checks_report"]
+        == "KEEP_TIMED_PUBLICATION"
+    )
+    assert (
+        decisions[
+            "c0.implementation_phase_materialized_return_checks_report_compiled_boundary"
+        ]
+        == "KEEP_TIMED_PUBLICATION"
+    )
+
+
 def test_load_rendering_cleanup_manifest_requires_source_and_prerequisite_reports(
     tmp_path: Path,
 ) -> None:

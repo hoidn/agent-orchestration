@@ -165,13 +165,13 @@
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
       "workflow_surface": "lisp_frontend_design_delta/drain::drain",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -246,8 +246,11 @@
       "u0_row_id": "implementation_phase.materialized.return_checks_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "materialized_output",
-      "consumer_lane": "retirement_candidate",
-      "durability": "ephemeral",
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__blocked_implementation_checks_report"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -284,8 +287,8 @@
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__checks-report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "materialized_output",
-      "consumer_lane": "retirement_candidate",
-      "durability": "ephemeral",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -406,8 +409,11 @@
       "u0_row_id": "implementation_phase.materialized.return_implementation_review_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "materialized_output",
-      "consumer_lane": "retirement_candidate",
-      "durability": "ephemeral",
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__blocked_implementation_review_report"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -427,7 +433,7 @@
           "artifacts/work/archive/implementation_review.json"
         ]
       },
-      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
       "replacement_target": "Track C consumer-side rendering",
       "source_evidence": [
         {
@@ -444,8 +450,8 @@
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__implementation-review-report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "materialized_output",
-      "consumer_lane": "retirement_candidate",
-      "durability": "ephemeral",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -465,7 +471,7 @@
           "artifacts/work/archive/implementation_review.json"
         ]
       },
-      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
       "replacement_target": "Track C consumer-side rendering",
       "source_evidence": [
         {
@@ -486,8 +492,11 @@
       "u0_row_id": "implementation_phase.materialized.return_progress_report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "materialized_output",
-      "consumer_lane": "retirement_candidate",
-      "durability": "ephemeral",
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__implementation_progress_report"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -507,7 +516,7 @@
           "artifacts/work/archive/progress_report.json"
         ]
       },
-      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
       "replacement_target": "Track C consumer-side rendering",
       "source_evidence": [
         {
@@ -524,8 +533,8 @@
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__progress-report",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
       "source_kind": "materialized_output",
-      "consumer_lane": "retirement_candidate",
-      "durability": "ephemeral",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
       "renderer": {
         "renderer_id": "canonical-json",
         "renderer_version": 1,
@@ -545,7 +554,7 @@
           "artifacts/work/archive/progress_report.json"
         ]
       },
-      "track_c_decision": "RETIRE_TO_OBSERVABILITY",
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
       "replacement_target": "Track C consumer-side rendering",
       "source_evidence": [
         {
@@ -802,6 +811,353 @@
       "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
     },
     {
+      "row_id": "c0.plan_phase_materialized_return_progress_report_path",
+      "u0_row_id": "plan_phase.materialized.return_progress_report_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "materialized_output",
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__plan_progress_report"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "plan_progress",
+          "path": "artifacts/work/plan_progress_report.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/plan_progress_report.json",
+          "artifacts/work/archive/plan_progress_report.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view."
+    },
+    {
+      "row_id": "c0.plan_phase_materialized_return_progress_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__progress_report_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "report_kind": "plan_progress",
+          "path": "artifacts/work/plan_progress_report.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/plan_progress_report.json",
+          "artifacts/work/archive/plan_progress_report.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        },
+        {
+          "kind": "compiled_boundary_inventory",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Checked boundary inventory row from flattened_output / materialized_view. Compiled boundary inventory mirror of the same consumer surface."
+    },
+    {
+      "row_id": "c0.std_drain_materialized_shared_drain_result_summary",
+      "u0_row_id": "std_drain.materialized.shared_drain_result_summary",
+      "workflow_surface": "std/drain::backlog-drain",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__shared_drain_result__summary"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "summary_path": "artifacts/work/drain_summary.json",
+          "run_state": "state/run_state.json",
+          "drain_status": "DONE",
+          "drain_status_reason": ""
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/shared_drain_result_summary.render_a.json",
+          "artifacts/work/archive/shared_drain_result_summary.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Shared backlog-drain summary stays a timed view until typed drain-result consumers can replace the generic rendered summary lane."
+    },
+    {
+      "row_id": "c0.work_item_stdlib_materialized_blocked_recovery_summary",
+      "u0_row_id": "work_item_stdlib.materialized.blocked_recovery_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__blocked_recovery_summary"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "work_item_id": "gap-1",
+          "work_item_source": "DESIGN_GAP",
+          "terminal_route": "BLOCKED_RECOVERY",
+          "reason": "gap_design_revision_required"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/blocked_recovery_summary.render_a.json",
+          "artifacts/work/archive/blocked_recovery_summary.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C exact-path summary bridge retirement",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Stdlib blocked-recovery summary stays a timed view until typed boundary consumers retire the canonical summary file."
+    },
+    {
+      "row_id": "c0.work_item_stdlib_materialized_selected_item_summary",
+      "u0_row_id": "work_item_stdlib.materialized.selected_item_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__selected_item_summary"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "variant": "BLOCKED",
+          "summary_path": "artifacts/work/item_summary.json",
+          "run_state": "state/run_state.json",
+          "blocker_class": "roadmap_conflict",
+          "has_blocker": true,
+          "roadmap_status": "NO_CHANGE",
+          "queue_transition_id": ""
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/item_selected_summary.render_a.json",
+          "artifacts/work/archive/item_selected_summary.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C exact-path summary bridge retirement",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Stdlib-selected item summary stays a timed view until typed boundary consumers retire the canonical summary file."
+    },
+    {
+      "row_id": "c0.work_item_materialized_work_item_context_view",
+      "u0_row_id": "work_item.materialized.work_item_context_view",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__work_item_context_view"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "target_design_path": "docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+          "baseline_design_path": "docs/design/workflow_lisp_frontend_specification.md",
+          "plan_path": "docs/plans/gap-1/execution_plan.md",
+          "work_item_source": "DESIGN_GAP"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/work_item_context_view.render_a.json",
+          "artifacts/work/archive/work_item_context_view.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Rendered work-item context view stays representation-only until typed blocked-recovery transitions can consume WorkItemContextValue directly."
+    },
+    {
+      "row_id": "c0.work_item_materialized_blocked_recovery_summary",
+      "u0_row_id": "work_item.materialized.blocked_recovery_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__blocked_recovery_summary"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "work_item_id": "gap-1",
+          "work_item_source": "DESIGN_GAP",
+          "terminal_route": "BLOCKED_RECOVERY",
+          "reason": "gap_design_revision_required"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/blocked_recovery_summary.render_a.json",
+          "artifacts/work/archive/blocked_recovery_summary.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C exact-path summary bridge retirement",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Blocked-recovery summary stays a timed view until typed boundary consumers retire the canonical summary file."
+    },
+    {
+      "row_id": "c0.work_item_materialized_selected_item_summary",
+      "u0_row_id": "work_item.materialized.selected_item_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__selected_item_summary"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "variant": "BLOCKED",
+          "summary_path": "artifacts/work/item_summary.json",
+          "run_state": "state/run_state.json",
+          "blocker_class": "roadmap_conflict",
+          "has_blocker": true,
+          "roadmap_status": "NO_CHANGE",
+          "queue_transition_id": ""
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "artifacts/work/item_selected_summary.render_a.json",
+          "artifacts/work/archive/item_selected_summary.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C exact-path summary bridge retirement",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Selected-item summary stays a timed view until typed boundary consumers retire the canonical summary file."
+    },
+    {
       "row_id": "c0.work_item_summary_summary_path",
       "u0_row_id": "work_item.summary.summary_path",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
@@ -918,6 +1274,28 @@
       "notes": "Validated work-item bundle path is an internal typed validation handoff, not an entry-facing publication."
     },
     {
+      "row_id": "c0.design_gap_architect_validate_stdlib_output_work_item_bundle_path",
+      "u0_row_id": "design_gap_architect_validate_stdlib.output.work_item_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+      "source_kind": "public_output",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
+      "renderer": null,
+      "typed_value_source": null,
+      "target_binding": null,
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed validation handoff",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Stdlib validation work-item bundle path is an internal typed validation handoff, not an entry-facing publication."
+    },
+    {
       "row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture::return__work_item_bundle_path",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
@@ -948,13 +1326,13 @@
       "u0_row_id": "plan_phase.output.approved_plan_path",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "source_kind": "public_output",
-      "consumer_lane": "entry_publication",
-      "durability": "durable_publication",
+      "consumer_lane": "typed_step",
+      "durability": "ephemeral",
       "renderer": null,
       "typed_value_source": null,
       "target_binding": null,
-      "track_c_decision": "RETIRE_TO_ENTRY_PUBLICATION",
-      "replacement_target": "Track C entry publication policy",
+      "track_c_decision": "KEEP_TYPED",
+      "replacement_target": "Track typed plan-phase handoff",
       "source_evidence": [
         {
           "kind": "u0_checked_row",
@@ -1945,6 +2323,51 @@
       "command_boundary": null,
       "bridge": null,
       "notes": "Rendered architecture-targets input stays representation-only until typed design-gap validation parity can retire file-based command input transport."
+    }
+    ,
+    {
+      "row_id": "c0.design_gap_architect_validate_stdlib_materialized_architecture_targets_view",
+      "u0_row_id": "design_gap_architect_validate_stdlib.materialized.architecture_targets_view",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+      "source_kind": "materialized_output",
+      "consumer_lane": "timed_body_materialization",
+      "durability": "durable_timed_body",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "compiled_effect_match": {
+        "step_id_suffix": "__materialize_view__design_gap_architecture_targets_view"
+      },
+      "typed_value_source": {
+        "kind": "sample_value_document",
+        "value_document": {
+          "design_gap_id": "gap-1",
+          "architecture_path": "docs/plans/gap-1/implementation_architecture.md",
+          "work_item_context_path": "state/gap-1/work_item_context.json",
+          "check_commands_path": "state/gap-1/check_commands.json",
+          "plan_target_path": "docs/plans/gap-1/execution_plan.md"
+        }
+      },
+      "target_binding": {
+        "kind": "consumer_owned_target",
+        "target_labels": [
+          "state/design_gap_architecture_targets.render_a.json",
+          "state/archive/design_gap_architecture_targets.render_b.json"
+        ]
+      },
+      "track_c_decision": "KEEP_TIMED_PUBLICATION",
+      "replacement_target": "Track C consumer-side rendering",
+      "source_evidence": [
+        {
+          "kind": "u0_checked_row",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "command_boundary": null,
+      "bridge": null,
+      "notes": "Stdlib-rendered architecture-targets input stays representation-only until typed design-gap validation parity can retire file-based command input transport."
     }
   ]
 }

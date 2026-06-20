@@ -26,11 +26,11 @@
     },
     {
       "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path",
-      "decision": "NOT_C5_TARGET"
+      "decision": "BLOCKED"
     },
     {
       "c0_row_id": "c0.design_gap_architect_validate_output_work_item_bundle_path_compiled_boundary",
-      "decision": "NOT_C5_TARGET"
+      "decision": "BLOCKED"
     },
     {
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
@@ -82,11 +82,11 @@
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_checks_report",
-      "decision": "RETIRED_TO_OBSERVABILITY"
+      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
-      "decision": "RETIRED_TO_OBSERVABILITY"
+      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_execution_report",
@@ -98,19 +98,19 @@
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report",
-      "decision": "RETIRED_TO_OBSERVABILITY"
+      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report_compiled_boundary",
-      "decision": "RETIRED_TO_OBSERVABILITY"
+      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_progress_report",
-      "decision": "RETIRED_TO_OBSERVABILITY"
+      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.implementation_phase_materialized_return_progress_report_compiled_boundary",
-      "decision": "RETIRED_TO_OBSERVABILITY"
+      "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
       "c0_row_id": "c0.implementation_phase_prompt_execute",
@@ -166,19 +166,19 @@
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_findings_items_path",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
-      "decision": "BLOCKED"
+      "decision": "NOT_C5_TARGET"
     },
     {
       "c0_row_id": "c0.plan_phase_prompt_draft",
@@ -231,6 +231,46 @@
     {
       "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
+    },
+    {
+      "c0_row_id": "c0.design_gap_architect_validate_stdlib_materialized_architecture_targets_view",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.design_gap_architect_validate_stdlib_output_work_item_bundle_path",
+      "decision": "NOT_C5_TARGET"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path_compiled_boundary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.std_drain_materialized_shared_drain_result_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.work_item_materialized_blocked_recovery_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.work_item_materialized_selected_item_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.work_item_materialized_work_item_context_view",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.work_item_stdlib_materialized_blocked_recovery_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.work_item_stdlib_materialized_selected_item_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
     }
   ]
 }

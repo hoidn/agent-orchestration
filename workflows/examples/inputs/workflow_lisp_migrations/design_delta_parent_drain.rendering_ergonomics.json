@@ -277,19 +277,13 @@
         "type_name": "drain_summary",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.drain_materialized_drain_summary",
       "u0_row_id": "drain.materialized.drain_summary",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -309,19 +303,13 @@
         "type_name": "drain_summary",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -341,19 +329,13 @@
         "type_name": "return_run_state",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.drain_output_return_run_state",
       "u0_row_id": "drain.output.return_run_state",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -373,19 +355,13 @@
         "type_name": "return_run_state",
         "authority": "typed_value"
       },
-      "consumer_lane": "entry_publication",
-      "expected_track_c_lane": "C3",
+      "consumer_lane": "typed_step",
       "c0_row_id": "c0.drain_output_return_run_state_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__run-state",
       "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
       },
       "body_rendering_policy": "forbid"
     },
@@ -432,8 +408,8 @@
         "type_name": "return_checks_report",
         "authority": "typed_value"
       },
-      "consumer_lane": "observability",
-      "expected_track_c_lane": "C2",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_return_checks_report",
       "u0_row_id": "implementation_phase.materialized.return_checks_report",
       "renderer_selection": {
@@ -441,7 +417,7 @@
         "allowed_renderers": [],
         "override_allowed": false
       },
-      "body_rendering_policy": "forbid"
+      "body_rendering_policy": "allow_timed"
     },
     {
       "slot_id": "implementation_phase.materialized.return_checks_report.compiled_boundary",
@@ -459,8 +435,8 @@
         "type_name": "return_checks_report",
         "authority": "typed_value"
       },
-      "consumer_lane": "observability",
-      "expected_track_c_lane": "C2",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__checks-report",
       "renderer_selection": {
@@ -468,7 +444,7 @@
         "allowed_renderers": [],
         "override_allowed": false
       },
-      "body_rendering_policy": "forbid"
+      "body_rendering_policy": "allow_timed"
     },
     {
       "slot_id": "implementation_phase.materialized.return_execution_report",
@@ -540,8 +516,8 @@
         "type_name": "return_implementation_review_report",
         "authority": "typed_value"
       },
-      "consumer_lane": "observability",
-      "expected_track_c_lane": "C2",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report",
       "u0_row_id": "implementation_phase.materialized.return_implementation_review_report",
       "renderer_selection": {
@@ -549,7 +525,7 @@
         "allowed_renderers": [],
         "override_allowed": false
       },
-      "body_rendering_policy": "forbid"
+      "body_rendering_policy": "allow_timed"
     },
     {
       "slot_id": "implementation_phase.materialized.return_implementation_review_report.compiled_boundary",
@@ -567,8 +543,8 @@
         "type_name": "return_implementation_review_report",
         "authority": "typed_value"
       },
-      "consumer_lane": "observability",
-      "expected_track_c_lane": "C2",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_return_implementation_review_report_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__implementation-review-report",
       "renderer_selection": {
@@ -576,7 +552,7 @@
         "allowed_renderers": [],
         "override_allowed": false
       },
-      "body_rendering_policy": "forbid"
+      "body_rendering_policy": "allow_timed"
     },
     {
       "slot_id": "implementation_phase.materialized.return_progress_report",
@@ -594,8 +570,8 @@
         "type_name": "return_progress_report",
         "authority": "typed_value"
       },
-      "consumer_lane": "observability",
-      "expected_track_c_lane": "C2",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_return_progress_report",
       "u0_row_id": "implementation_phase.materialized.return_progress_report",
       "renderer_selection": {
@@ -603,7 +579,7 @@
         "allowed_renderers": [],
         "override_allowed": false
       },
-      "body_rendering_policy": "forbid"
+      "body_rendering_policy": "allow_timed"
     },
     {
       "slot_id": "implementation_phase.materialized.return_progress_report.compiled_boundary",
@@ -621,8 +597,8 @@
         "type_name": "return_progress_report",
         "authority": "typed_value"
       },
-      "consumer_lane": "observability",
-      "expected_track_c_lane": "C2",
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_return_progress_report_compiled_boundary",
       "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::return__progress-report",
       "renderer_selection": {
@@ -630,7 +606,7 @@
         "allowed_renderers": [],
         "override_allowed": false
       },
-      "body_rendering_policy": "forbid"
+      "body_rendering_policy": "allow_timed"
     },
     {
       "slot_id": "plan_phase.materialized.return_approved_plan_review_report_path",
@@ -1716,6 +1692,310 @@
       "expected_track_c_lane": "C5",
       "c0_row_id": "c0.implementation_phase_materialized_check_commands_view",
       "u0_row_id": "implementation_phase.materialized.check_commands_view",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "design_gap_architect_validate_stdlib.materialized.architecture_targets_view",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+        "form_path": [
+          "design_gap_architect_validate_stdlib",
+          "materialized",
+          "architecture_targets_view"
+        ]
+      },
+      "value": {
+        "type_name": "architecture_targets_view",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.design_gap_architect_validate_stdlib_materialized_architecture_targets_view",
+      "u0_row_id": "design_gap_architect_validate_stdlib.materialized.architecture_targets_view",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "design_gap_architect_validate_stdlib.output.work_item_bundle_path",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+      "source_form": {
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib",
+        "form_path": [
+          "design_gap_architect_validate_stdlib",
+          "output",
+          "work_item_bundle_path"
+        ]
+      },
+      "value": {
+        "type_name": "work_item_bundle_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "typed_step",
+      "c0_row_id": "c0.design_gap_architect_validate_stdlib_output_work_item_bundle_path",
+      "u0_row_id": "design_gap_architect_validate_stdlib.output.work_item_bundle_path",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "forbid"
+    },
+    {
+      "slot_id": "plan_phase.materialized.return_progress_report_path",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "materialized",
+          "return_progress_report_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_progress_report_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path",
+      "u0_row_id": "plan_phase.materialized.return_progress_report_path",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "plan_phase.materialized.return_progress_report_path.compiled_boundary",
+      "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+        "form_path": [
+          "plan_phase",
+          "materialized",
+          "return_progress_report_path"
+        ]
+      },
+      "value": {
+        "type_name": "return_progress_report_path",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path_compiled_boundary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::return__progress_report_path",
+      "renderer_selection": {
+        "mode": "none",
+        "allowed_renderers": [],
+        "override_allowed": false
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "std_drain.materialized.shared_drain_result_summary",
+      "workflow_surface": "std/drain::backlog-drain",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "std/drain::backlog-drain",
+        "form_path": [
+          "std_drain",
+          "materialized",
+          "shared_drain_result_summary"
+        ]
+      },
+      "value": {
+        "type_name": "shared_drain_result_summary",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.std_drain_materialized_shared_drain_result_summary",
+      "u0_row_id": "std_drain.materialized.shared_drain_result_summary",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "work_item.materialized.blocked_recovery_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "materialized",
+          "blocked_recovery_summary"
+        ]
+      },
+      "value": {
+        "type_name": "blocked_recovery_summary",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.work_item_materialized_blocked_recovery_summary",
+      "u0_row_id": "work_item.materialized.blocked_recovery_summary",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "work_item.materialized.selected_item_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "materialized",
+          "selected_item_summary"
+        ]
+      },
+      "value": {
+        "type_name": "selected_item_summary",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.work_item_materialized_selected_item_summary",
+      "u0_row_id": "work_item.materialized.selected_item_summary",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "work_item.materialized.work_item_context_view",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "form_path": [
+          "work_item",
+          "materialized",
+          "work_item_context_view"
+        ]
+      },
+      "value": {
+        "type_name": "work_item_context_view",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.work_item_materialized_work_item_context_view",
+      "u0_row_id": "work_item.materialized.work_item_context_view",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "work_item_stdlib.materialized.blocked_recovery_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+        "form_path": [
+          "work_item_stdlib",
+          "materialized",
+          "blocked_recovery_summary"
+        ]
+      },
+      "value": {
+        "type_name": "blocked_recovery_summary",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.work_item_stdlib_materialized_blocked_recovery_summary",
+      "u0_row_id": "work_item_stdlib.materialized.blocked_recovery_summary",
+      "renderer_selection": {
+        "mode": "infer",
+        "allowed_renderers": [
+          {
+            "renderer_id": "canonical-json",
+            "renderer_version": 1
+          }
+        ],
+        "override_allowed": true
+      },
+      "body_rendering_policy": "allow_timed"
+    },
+    {
+      "slot_id": "work_item_stdlib.materialized.selected_item_summary",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "source_form": {
+        "kind": "materialized_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+        "form_path": [
+          "work_item_stdlib",
+          "materialized",
+          "selected_item_summary"
+        ]
+      },
+      "value": {
+        "type_name": "selected_item_summary",
+        "authority": "typed_value"
+      },
+      "consumer_lane": "timed_body_materialization",
+      "expected_track_c_lane": "C5",
+      "c0_row_id": "c0.work_item_stdlib_materialized_selected_item_summary",
+      "u0_row_id": "work_item_stdlib.materialized.selected_item_summary",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [

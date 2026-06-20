@@ -90,13 +90,13 @@ def test_checked_design_delta_summary_slots_use_entry_publication_and_bridge_lan
 
     assert (
         slots_by_row["c0.drain_materialized_drain_summary"]["consumer_lane"]
-        == "entry_publication"
+        == "typed_step"
     )
     assert (
         slots_by_row["c0.drain_materialized_drain_summary_compiled_boundary"][
             "consumer_lane"
         ]
-        == "entry_publication"
+        == "typed_step"
     )
     assert (
         slots_by_row["c0.work_item_summary_summary_path"]["consumer_lane"]
@@ -108,6 +108,25 @@ def test_checked_design_delta_summary_slots_use_entry_publication_and_bridge_lan
         ]
         == "compatibility_bridge"
     )
+
+
+def test_checked_design_delta_checks_report_slots_stay_in_timed_body_lane_until_writer_retirement():
+    policy = load_rendering_ergonomics_policy(POLICY_PATH)
+    slots_by_row = {slot["c0_row_id"]: slot for slot in policy["consumer_slots"]}
+
+    primary_slot = slots_by_row[
+        "c0.implementation_phase_materialized_return_checks_report"
+    ]
+    mirror_slot = slots_by_row[
+        "c0.implementation_phase_materialized_return_checks_report_compiled_boundary"
+    ]
+
+    assert primary_slot["consumer_lane"] == "timed_body_materialization"
+    assert primary_slot["expected_track_c_lane"] == "C5"
+    assert primary_slot["body_rendering_policy"] == "allow_timed"
+    assert mirror_slot["consumer_lane"] == "timed_body_materialization"
+    assert mirror_slot["expected_track_c_lane"] == "C5"
+    assert mirror_slot["body_rendering_policy"] == "allow_timed"
 
 
 def test_load_policy_rejects_wrong_schema_version(tmp_path):

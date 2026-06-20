@@ -71,7 +71,12 @@ from .phase_family_boundary import (
     is_design_delta_parent_drain_target_workflow,
     load_design_delta_boundary_authority_registry,
 )
-from .observability_summaries import OBSERVABILITY_SUMMARY_REPORT_SCHEMA_ID
+from .observability_summaries import (
+    OBSERVABILITY_SUMMARY_REPORT_SCHEMA_ID,
+    build_observability_pair_report,
+    load_old_writer_pair_manifest,
+    row_requires_old_writer_contract_evidence,
+)
 from . import lexical_checkpoint_default_resume
 from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
@@ -193,6 +198,22 @@ DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.resume_plumbing_retirement.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.observability_old_writer_comparisons.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_BLOCKED_IMPLEMENTATION_CHECKS_REPORT_LEGACY_PAYLOAD_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.blocked_implementation_checks_report.legacy_writer_payload.json"
 )
 DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS = (
     "classify_lisp_frontend_work_item_terminal",
@@ -338,6 +359,7 @@ class FrontendBuildManifest:
     boundary_authority_registry: Mapping[str, object] | None = None
     value_flow_census: Mapping[str, object] | None = None
     consumer_rendering_census: Mapping[str, object] | None = None
+    observability_old_writer_pair_evidence: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)
@@ -449,6 +471,12 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         entry_workflow=entry_selection.canonical_name,
         value_flow_census=value_flow_census,
     )
+    observability_old_writer_pair_manifest = (
+        _maybe_load_design_delta_observability_old_writer_pair_manifest(
+            entry_workflow=entry_selection.canonical_name,
+            consumer_rendering_census=consumer_rendering_census,
+        )
+    )
     compatibility_bridge_manifest = None
     if consumer_rendering_census is not None and value_flow_census is not None:
         compatibility_bridge_manifest = (
@@ -464,7 +492,9 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             entry_workflow=entry_selection.canonical_name,
         )
     )
-    selected_bundle = compile_result.entry_result.validated_bundles[entry_selection.canonical_name]
+    selected_bundle = compile_result.validated_bundles_by_name[
+        entry_selection.canonical_name
+    ]
     source_map_payload = _serialize_source_map(
         compile_result,
         selected_name=entry_selection.canonical_name,
@@ -484,6 +514,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
         consumer_rendering_census=consumer_rendering_census,
+        observability_old_writer_pair_manifest=observability_old_writer_pair_manifest,
         resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
@@ -781,6 +812,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                 observability_summary_report_payload = (
                     _build_design_delta_observability_summary_prerequisite_report(
                         consumer_rendering_census=consumer_rendering_census,
+                        old_writer_pair_manifest=observability_old_writer_pair_manifest,
                         materialize_view_effects=materialize_view_effects,
                     )
                 )
@@ -1246,6 +1278,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
         consumer_rendering_census=consumer_rendering_census,
+        observability_old_writer_pair_manifest=observability_old_writer_pair_manifest,
         resume_plumbing_retirement_manifest=resume_plumbing_retirement_manifest,
     )
     manifest_path = build_root / "manifest.json"
@@ -2289,6 +2322,37 @@ def _maybe_load_design_delta_consumer_rendering_census(
         ) from exc
 
 
+def _maybe_load_design_delta_observability_old_writer_pair_manifest(
+    *,
+    entry_workflow: str,
+    consumer_rendering_census: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if consumer_rendering_census is None:
+        return None
+    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    try:
+        return load_old_writer_pair_manifest(
+            DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
+            consumer_rendering_census=consumer_rendering_census,
+        )
+    except (OSError, ValueError) as exc:
+        message = str(exc)
+        error_code = message.split(":", 1)[0] if ":" in message else message
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code=error_code or "observability_summary_old_writer_evidence_stale",
+                    message=(
+                        "design-delta observability old-writer pair evidence is invalid: "
+                        f"{exc}"
+                    ),
+                    path=DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
+                ),
+            )
+        ) from exc
+
+
 def _maybe_load_design_delta_compatibility_bridge_manifest(
     *,
     entry_workflow: str,
@@ -2492,6 +2556,34 @@ def _consumer_rendering_census_provenance(
         "path": str(consumer_rendering_census.get("__manifest_path__", "")),
         "sha256": f"sha256:{consumer_rendering_census.get('__manifest_sha256__', '')}",
         "schema_version": str(consumer_rendering_census.get("schema_version", "")),
+    }
+
+
+def _observability_old_writer_pair_provenance(
+    observability_old_writer_pair_manifest: Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
+    if observability_old_writer_pair_manifest is None:
+        return None
+    legacy_payload_sources: list[dict[str, object]] = []
+    for row in observability_old_writer_pair_manifest.get("row_pairs", []):
+        if not isinstance(row, Mapping):
+            continue
+        legacy_source = row.get("legacy_payload_source")
+        if not isinstance(legacy_source, Mapping):
+            continue
+        legacy_payload_sources.append(_json_data(legacy_source))
+    return {
+        "workflow_family": "design_delta_parent_drain",
+        "path": str(observability_old_writer_pair_manifest.get("__manifest_path__", "")),
+        "sha256": (
+            f"sha256:{observability_old_writer_pair_manifest.get('__manifest_sha256__', '')}"
+            if observability_old_writer_pair_manifest.get("__manifest_sha256__")
+            else ""
+        ),
+        "schema_version": str(
+            observability_old_writer_pair_manifest.get("schema_version", "")
+        ),
+        "legacy_payload_sources": legacy_payload_sources,
     }
 
 
@@ -2754,6 +2846,11 @@ def _surface_with_compatibility_bridge_steps(
         allocation.allocation_id
         for allocation in surface.provenance.generated_path_allocations
     }
+    existing_step_ids = {
+        step.step_id
+        for step in surface.steps
+        if isinstance(getattr(step, "step_id", None), str)
+    }
     allocations = list(surface.provenance.generated_path_allocations)
     steps = list(surface.steps)
     for row in bridge_rows:
@@ -2761,10 +2858,12 @@ def _surface_with_compatibility_bridge_steps(
             workflow_name=str(surface.name or ""),
             row=row,
         )
+        if step.step_id not in existing_step_ids:
+            steps.append(step)
+            existing_step_ids.add(step.step_id)
         if allocation.allocation_id not in existing_allocations:
             allocations.append(allocation)
             existing_allocations.add(allocation.allocation_id)
-        steps.append(step)
     return replace(
         surface,
         steps=tuple(steps),
@@ -2801,13 +2900,17 @@ def _compatibility_bridge_surface_step(
     renderer_id = str(renderer.get("renderer_id", ""))
     renderer_version = int(renderer.get("renderer_version", 0))
     renderer_descriptor = resolve_view_renderer(renderer_id, renderer_version)
-    target_path = (
-        ".orchestrate/workflow_lisp/compatibility_bridges/"
-        f"{workflow_slug}/{bridge_slug}{renderer_descriptor.file_extension}"
+    target_binding = _compatibility_bridge_target_binding(
+        bridge_id=bridge_id,
+        workflow_slug=workflow_slug,
+        bridge_slug=bridge_slug,
+        file_extension=renderer_descriptor.file_extension,
+        row=row,
     )
+    target_path = str(target_binding["path_template"])
     allocation_id = f"alloc:design_delta_compatibility_bridge:{workflow_slug}:{bridge_slug}"
     step_id = f"compatibility_bridge__{bridge_slug}"
-    value_ref = _compatibility_bridge_value_ref(
+    value_document = _compatibility_bridge_value_document(
         bridge_id=bridge_id,
         row=row,
     )
@@ -2834,8 +2937,8 @@ def _compatibility_bridge_surface_step(
                     "kind": "compatibility_bridge",
                     "name": bridge_id,
                 },
-                "value_document": MaterializeViewBindingReference(ref=value_ref),
-                "target_path": target_path,
+                "value_document": value_document,
+                "target_path": target_binding["runtime_target"],
                 "target_allocation_id": allocation_id,
                 "authority_class": "compatibility_bridge",
                 "bridge_id": bridge_id,
@@ -2854,12 +2957,45 @@ def _compatibility_bridge_surface_step(
     )
 
 
-def _compatibility_bridge_value_ref(
+def _compatibility_bridge_target_binding(
+    *,
+    bridge_id: str,
+    workflow_slug: str,
+    bridge_slug: str,
+    file_extension: str,
+    row: Mapping[str, Any],
+) -> dict[str, object]:
+    target = row.get("target")
+    if isinstance(target, Mapping):
+        path_template = target.get("path_template")
+        runtime_target = target.get("runtime_target")
+        if isinstance(path_template, str) and path_template:
+            return {
+                "runtime_target": (
+                    runtime_target if runtime_target is not None else path_template
+                ),
+                "path_template": path_template,
+            }
+    path_template = (
+        ".orchestrate/workflow_lisp/compatibility_bridges/"
+        f"{workflow_slug}/{bridge_slug}{file_extension}"
+    )
+    return {
+        "runtime_target": path_template,
+        "path_template": path_template,
+    }
+
+
+def _compatibility_bridge_value_document(
     *,
     bridge_id: str,
     row: Mapping[str, Any],
-) -> str:
+) -> Any:
     typed_value_source = row.get("typed_value_source")
+    if isinstance(typed_value_source, Mapping):
+        value_document = typed_value_source.get("value_document")
+        if value_document is not None:
+            return _compatibility_bridge_manifest_value_document(value_document)
     source_ref = (
         str(typed_value_source.get("ref", ""))
         if isinstance(typed_value_source, Mapping)
@@ -2873,11 +3009,12 @@ def _compatibility_bridge_value_ref(
             "work_item.architecture_bundle": "inputs.architecture_bundle_path",
             "work_item.manifest_bundle": "inputs.manifest_path",
             "work_item.progress_ledger_path": "inputs.progress_ledger_path",
+            "work_item.summary": "self.outputs.return__summary",
             "work_item.selection_bundle_pointer": "inputs.selection_bundle_path",
             "work_item.selection_bundle_command_input": "inputs.selection_bundle_path",
         }
         if source_ref in known_refs:
-            return known_refs[source_ref]
+            return MaterializeViewBindingReference(ref=known_refs[source_ref])
     field_name = {
         "bridge.drain.architecture_bundle": "inputs.architecture_bundle_path",
         "bridge.drain.manifest": "inputs.manifest_path",
@@ -2885,11 +3022,13 @@ def _compatibility_bridge_value_ref(
         "bridge.work_item.architecture_bundle": "inputs.architecture_bundle_path",
         "bridge.work_item.manifest": "inputs.manifest_path",
         "bridge.work_item.progress_ledger": "inputs.progress_ledger_path",
+        "bridge.work_item.summary": "self.outputs.return__summary",
+        "bridge.work_item.summary.compiled_boundary": "self.outputs.return__summary",
         "bridge.work_item.pointer.selection_bundle": "inputs.selection_bundle_path",
         "bridge.work_item.command.selection_bundle": "inputs.selection_bundle_path",
     }.get(bridge_id)
     if field_name is not None:
-        return field_name
+        return MaterializeViewBindingReference(ref=field_name)
     raise LispFrontendCompileError(
         (
             _cli_request_diagnostic(
@@ -2902,6 +3041,20 @@ def _compatibility_bridge_value_ref(
             ),
         )
     )
+
+
+def _compatibility_bridge_manifest_value_document(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        ref = value.get("ref")
+        if isinstance(ref, str) and set(value) == {"ref"}:
+            return MaterializeViewBindingReference(ref=ref)
+        return {
+            str(key): _compatibility_bridge_manifest_value_document(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_compatibility_bridge_manifest_value_document(item) for item in value]
+    return value
 
 
 def _augment_design_delta_compatibility_bridge_lineage(
@@ -3074,10 +3227,41 @@ def _with_report_path(
 def _build_design_delta_observability_summary_prerequisite_report(
     *,
     consumer_rendering_census: Mapping[str, object],
+    old_writer_pair_manifest: Mapping[str, object] | None,
     materialize_view_effects: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, object]:
-    selected_row_ids: list[str] = []
+    selected_row_ids: set[str] = set()
     diagnostics_errors: list[dict[str, object]] = []
+    diagnostics_warnings: list[dict[str, object]] = []
+    pair_report = (
+        build_observability_pair_report(
+            consumer_rendering_census=consumer_rendering_census,
+            pair_manifest=old_writer_pair_manifest,
+            materialize_view_effects=materialize_view_effects,
+        )
+        if old_writer_pair_manifest is not None
+        else None
+    )
+    if pair_report is not None and pair_report.get("status") == "pass":
+        selected_row_ids.update(
+            row_id
+            for row_id in pair_report.get("selected_c0_row_ids", [])
+            if isinstance(row_id, str)
+        )
+    elif pair_report is not None:
+        diagnostics = pair_report.get("diagnostics", {})
+        errors = diagnostics.get("errors", []) if isinstance(diagnostics, Mapping) else []
+        warnings = (
+            diagnostics.get("warnings", [])
+            if isinstance(diagnostics, Mapping)
+            else []
+        )
+        diagnostics_errors.extend(
+            error for error in errors if isinstance(error, Mapping)
+        )
+        diagnostics_warnings.extend(
+            warning for warning in warnings if isinstance(warning, Mapping)
+        )
     for row in consumer_rendering_census.get("rows", []):
         if not isinstance(row, Mapping):
             continue
@@ -3088,7 +3272,9 @@ def _build_design_delta_observability_summary_prerequisite_report(
             "track_c_decision"
         ) != "RETIRE_TO_OBSERVABILITY":
             continue
-        selected_row_ids.append(row_id)
+        if row_id in selected_row_ids:
+            continue
+        selected_row_ids.add(row_id)
         compiled_effect = row.get("compiled_effect_match")
         if not isinstance(compiled_effect, Mapping):
             continue
@@ -3107,13 +3293,20 @@ def _build_design_delta_observability_summary_prerequisite_report(
             )
             for effect in materialize_view_effects
         ):
-            diagnostics_errors.append(
-                {
+            diagnostic = {
                     "code": "observability_summary_old_writer_comparison_missing",
                     "c0_row_id": row_id,
                     "message": "observability row still lowers a body materialize_view effect",
                 }
-            )
+            if row_requires_old_writer_contract_evidence(row):
+                diagnostics_errors.append(diagnostic)
+            else:
+                diagnostics_warnings.append(
+                    {
+                        **diagnostic,
+                        "code": "observability_summary_old_writer_mechanics_not_contract",
+                    }
+                )
     return {
         "schema_id": OBSERVABILITY_SUMMARY_REPORT_SCHEMA_ID,
         "workflow_family": "design_delta_parent_drain",
@@ -3121,8 +3314,18 @@ def _build_design_delta_observability_summary_prerequisite_report(
         "selected_c0_row_ids": sorted(selected_row_ids),
         "diagnostics": {
             "errors": diagnostics_errors,
-            "warnings": [],
+            "warnings": diagnostics_warnings,
         },
+        "pair_manifest_provenance": (
+            pair_report.get("pair_manifest_provenance", {})
+            if isinstance(pair_report, Mapping)
+            else {}
+        ),
+        "pair_results": (
+            pair_report.get("pair_results", [])
+            if isinstance(pair_report, Mapping)
+            else []
+        ),
     }
 
 
@@ -3144,7 +3347,10 @@ def _build_entry_publication_report(
     selected_rows = select_entry_publication_rows(consumer_rendering_census)
     compatibility_reasons: list[dict[str, object]] = []
     diagnostics: list[dict[str, object]] = []
-    lowered_publications = _collect_entry_publication_lowerings(compile_result)
+    lowered_publications = _collect_entry_publication_lowerings(
+        compile_result,
+        source_map_payload=source_map_payload,
+    )
     materialize_view_effects = _collect_materialize_view_effects(
         compile_result.validated_bundles_by_name
     )
@@ -3296,8 +3502,13 @@ def _build_entry_publication_report(
         or not hasattr(entry_workflow.signature, "publication_policy"),
         "call_contract_unchanged": entry_workflow is None
         or not hasattr(entry_workflow.signature, "publication_policy"),
-        "boundary_projection_public_inputs_unchanged": "publication"
-        not in json.dumps(_json_data(workflow_boundary_projection_payload), sort_keys=True),
+        "boundary_projection_public_inputs_unchanged": all(
+            "publication" not in input_name
+            for workflow in workflow_boundary_projection_payload.get("workflows", [])
+            if isinstance(workflow, Mapping)
+            for input_name in workflow.get("boundary", {}).get("public_input_names", [])
+            if isinstance(workflow.get("boundary", {}), Mapping) and isinstance(input_name, str)
+        ),
         "semantic_call_edges_hide_publish_policy": all(
             "publication" not in json.dumps(_json_data(bundle.semantic_ir.call_edges), sort_keys=True)
             for bundle in compile_result.validated_bundles_by_name.values()
@@ -3345,6 +3556,8 @@ def _build_entry_publication_report(
 
 def _collect_entry_publication_lowerings(
     compile_result: LinkedStage3CompileResult,
+    *,
+    source_map_payload: Mapping[str, object] | None = None,
 ) -> list[dict[str, object]]:
     collected: list[dict[str, object]] = []
     for workflow_name, bundle in sorted(compile_result.validated_bundles_by_name.items()):
@@ -3368,7 +3581,69 @@ def _collect_entry_publication_lowerings(
                     "target_path": materialize_view.get("target_path"),
                 }
             )
-    return collected
+    workflows = source_map_payload.get("workflows") if isinstance(source_map_payload, Mapping) else None
+    if isinstance(workflows, Mapping):
+        for workflow_name, workflow_payload in sorted(workflows.items()):
+            if not isinstance(workflow_name, str) or not isinstance(workflow_payload, Mapping):
+                continue
+            generated_effects = workflow_payload.get("generated_semantic_effects")
+            if not isinstance(generated_effects, list):
+                continue
+            for effect in generated_effects:
+                if not isinstance(effect, Mapping) or effect.get("effect_kind") != "materialize_view":
+                    continue
+                details = effect.get("details")
+                if not isinstance(details, Mapping):
+                    continue
+                role = details.get("publication_role")
+                value_type = details.get("value_type")
+                variant = value_type.get("variant") if isinstance(value_type, Mapping) else None
+                step_id = effect.get("step_id")
+                if not isinstance(role, str) or not role or not isinstance(variant, str) or not variant:
+                    continue
+                collected.append(
+                    {
+                        "workflow_name": workflow_name,
+                        "step_id": str(step_id or ""),
+                        "step_name": str(step_id or ""),
+                        "row_id": _entry_publication_policy_row_id(
+                            workflow_name=workflow_name,
+                            variant=variant,
+                            role=role,
+                        ),
+                        "role": role,
+                        "variant": variant,
+                        "renderer_id": str(details.get("renderer_id", "")),
+                        "renderer_version": details.get("renderer_version"),
+                        "target_path": details.get("target_path"),
+                    }
+                )
+    deduped: dict[tuple[str, str, str], dict[str, object]] = {}
+    for row in collected:
+        key = (
+            str(row.get("workflow_name", "")),
+            str(row.get("row_id", "")),
+            str(row.get("step_id", "")),
+        )
+        deduped[key] = row
+    return [deduped[key] for key in sorted(deduped)]
+
+
+def _entry_publication_policy_row_id(
+    *,
+    workflow_name: str,
+    variant: str,
+    role: str,
+) -> str:
+    workflow_slug_source = workflow_name.rsplit("::", 1)[-1]
+    return (
+        f"publish.{_entry_publication_slug(workflow_slug_source)}."
+        f"{variant.lower()}.{_entry_publication_slug(role)}"
+    )
+
+
+def _entry_publication_slug(value: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in value).strip("-")
 
 
 def _entry_publication_source_map_step_ids(
@@ -4005,6 +4280,7 @@ def _fingerprint_build(
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
     consumer_rendering_census: Mapping[str, object] | None,
+    observability_old_writer_pair_manifest: Mapping[str, object] | None,
     resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> str:
     source_payload = {
@@ -4037,6 +4313,11 @@ def _fingerprint_build(
         else None,
         "consumer_rendering_census": _json_data(consumer_rendering_census)
         if consumer_rendering_census is not None
+        else None,
+        "observability_old_writer_pair_manifest": _json_data(
+            observability_old_writer_pair_manifest
+        )
+        if observability_old_writer_pair_manifest is not None
         else None,
         "resume_plumbing_retirement_manifest": _json_data(
             resume_plumbing_retirement_manifest
@@ -4355,6 +4636,7 @@ def _build_manifest(
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
     consumer_rendering_census: Mapping[str, object] | None,
+    observability_old_writer_pair_manifest: Mapping[str, object] | None,
     resume_plumbing_retirement_manifest: Mapping[str, object] | None,
 ) -> FrontendBuildManifest:
     return FrontendBuildManifest(
@@ -4406,6 +4688,9 @@ def _build_manifest(
         value_flow_census=_value_flow_census_provenance(value_flow_census),
         consumer_rendering_census=_consumer_rendering_census_provenance(
             consumer_rendering_census
+        ),
+        observability_old_writer_pair_evidence=_observability_old_writer_pair_provenance(
+            observability_old_writer_pair_manifest
         ),
     )
 
@@ -4789,6 +5074,7 @@ def _serialize_workflow_boundary_projection(
                             "bridge_class": binding.bridge_class,
                             "derived_phase_identity": binding.derived_phase_identity,
                             "generated_input_names": sorted(binding.generated_input_names),
+                            "projection_hints": _json_data(binding.projection_hints),
                             "source_provenance": _json_data(binding.source_provenance),
                         }
                         for binding in boundary.private_runtime_context_bindings
@@ -4828,6 +5114,7 @@ def _serialize_workflow_boundary_projection(
                             "bridge_class": binding.bridge_class,
                             "derived_phase_identity": binding.derived_phase_identity,
                             "generated_input_names": sorted(binding.generated_input_names),
+                            "projection_hints": _json_data(binding.projection_hints),
                             "source_provenance": _json_data(binding.source_provenance),
                         }
                         for binding in lowered.private_exec_context_bindings

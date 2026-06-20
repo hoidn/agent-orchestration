@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib
 import json
+import re
 from dataclasses import asdict, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -22,7 +24,11 @@ from orchestrator.workflow_lisp.phase_family_boundary import (
 )
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.workflows import ExternalToolBinding, build_command_boundary_environment
+from orchestrator.workflow_lisp.workflows import (
+    CertifiedAdapterBinding,
+    ExternalToolBinding,
+    build_command_boundary_environment,
+)
 from orchestrator.workflow_lisp.wcc.route import LoweringRoute
 
 
@@ -64,6 +70,9 @@ ENTRY_PUBLICATION_RUNTIME_FIXTURE = FIXTURES / "valid" / "entry_publication_runt
 ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
     FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
 )
+STDLIB_HIDDEN_COMPATIBILITY_BRIDGE_FIXTURE = (
+    FIXTURES / "valid" / "drain_stdlib_backlog_drain_hidden_compatibility_bridge.orc"
+)
 LEXICAL_CHECKPOINT_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = FIXTURES / "valid" / "lexical_checkpoint_restore_regions.orc"
@@ -78,6 +87,71 @@ RUNTIME_CLOSURE_MARKERS = (
 
 def _build_module():
     return importlib.import_module("orchestrator.workflow_lisp.build")
+
+
+def _drain_command_boundaries():
+    return build_command_boundary_environment(
+        {
+            "select_next_item": CertifiedAdapterBinding(
+                name="select_next_item",
+                stable_command=("python", "scripts/select_next_item.py"),
+                input_contract={"type": "object"},
+                output_type_name="SelectionResult",
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("select_next_item_ok",),
+                negative_fixture_ids=("select_next_item_bad",),
+            ),
+            "execute_selected_item": CertifiedAdapterBinding(
+                name="execute_selected_item",
+                stable_command=("python", "scripts/execute_selected_item.py"),
+                input_contract={"type": "object"},
+                output_type_name="SelectedItemResult",
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("execute_selected_item_ok",),
+                negative_fixture_ids=("execute_selected_item_bad",),
+            ),
+            "draft_gap_item": CertifiedAdapterBinding(
+                name="draft_gap_item",
+                stable_command=("python", "scripts/draft_gap_item.py"),
+                input_contract={"type": "object"},
+                output_type_name="GapResult",
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("draft_gap_item_ok",),
+                negative_fixture_ids=("draft_gap_item_bad",),
+            ),
+        }
+    )
+
+
+def _link_fixture_module_into_source_root(path: Path, *, tmp_path: Path) -> Path:
+    source = path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None, f"fixture is missing defmodule: {path}"
+    resolved_module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    return module_path
+
+
+def _compile_linked_hidden_compatibility_bridge_fixture(tmp_path: Path):
+    module_path = _link_fixture_module_into_source_root(
+        STDLIB_HIDDEN_COMPATIBILITY_BRIDGE_FIXTURE,
+        tmp_path=tmp_path,
+    )
+    return compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        command_boundaries=_drain_command_boundaries().bindings_by_name,
+        workspace_root=tmp_path,
+        validate_shared=True,
+    )
 
 
 def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
@@ -131,6 +205,89 @@ def _design_delta_parent_drain_request(
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def _design_delta_fingerprint_context(
+    tmp_path: Path,
+    *,
+    pair_manifest_path: Path | None = None,
+):
+    build = _build_module()
+    observability = importlib.import_module(
+        "orchestrator.workflow_lisp.observability_summaries"
+    )
+    request = _design_delta_parent_drain_request(tmp_path)
+    resolved_request = build._resolve_request(request)
+    provider_externs = build._load_string_mapping(
+        resolved_request.provider_externs_path,
+        label="provider externs manifest",
+    )
+    prompt_externs = build._load_prompt_extern_mapping(
+        resolved_request.prompt_externs_path
+    )
+    command_boundary_manifest = build._load_command_boundaries_manifest_payload(
+        resolved_request.command_boundaries_path,
+    )
+    command_boundaries = build._parse_command_boundaries_manifest(
+        command_boundary_manifest,
+        manifest_path=resolved_request.command_boundaries_path,
+    )
+    compile_result = compile_stage3_entrypoint(
+        resolved_request.source_path,
+        source_roots=resolved_request.source_roots,
+        entry_workflow=resolved_request.entry_workflow,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        imported_workflow_bundles={},
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=resolved_request.workspace_root,
+        lint_profile=resolved_request.lint_profile,
+        lowering_route=resolved_request.lowering_route,
+    )
+    entry_selection = build._select_entry_workflow(
+        compile_result,
+        requested_name=resolved_request.entry_workflow,
+        source_path=resolved_request.source_path,
+    )
+    boundary_authority_registry = build._maybe_load_design_delta_boundary_authority_registry(
+        entry_workflow=entry_selection.canonical_name,
+    )
+    value_flow_census = build._maybe_load_design_delta_value_flow_census(
+        entry_workflow=entry_selection.canonical_name,
+    )
+    consumer_rendering_census = build._maybe_load_design_delta_consumer_rendering_census(
+        entry_workflow=entry_selection.canonical_name,
+        value_flow_census=value_flow_census,
+    )
+    if pair_manifest_path is None:
+        pair_manifest_path = (
+            DESIGN_DELTA_MIGRATION_INPUTS
+            / "design_delta_parent_drain.observability_old_writer_comparisons.json"
+        )
+    observability_pair_manifest = observability.load_old_writer_pair_manifest(
+        pair_manifest_path,
+        consumer_rendering_census=consumer_rendering_census,
+    )
+    resume_plumbing_retirement_manifest = (
+        build._maybe_load_design_delta_resume_plumbing_retirement_manifest(
+            entry_workflow=entry_selection.canonical_name,
+        )
+    )
+    return {
+        "build": build,
+        "request": resolved_request,
+        "compile_result": compile_result,
+        "entry_selection": entry_selection,
+        "provider_externs": provider_externs,
+        "prompt_externs": prompt_externs,
+        "command_boundary_manifest": command_boundary_manifest,
+        "boundary_authority_registry": boundary_authority_registry,
+        "value_flow_census": value_flow_census,
+        "consumer_rendering_census": consumer_rendering_census,
+        "observability_pair_manifest": observability_pair_manifest,
+        "resume_plumbing_retirement_manifest": resume_plumbing_retirement_manifest,
+    }
 
 
 def _build_pure_expr_selector_projection(tmp_path: Path):
@@ -375,10 +532,164 @@ def _load_design_delta_value_flow_census() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH.read_text(encoding="utf-8"))
 
 
+def _aligned_design_delta_value_flow_census() -> dict[str, object]:
+    payload = _load_design_delta_value_flow_census()
+    stale_row_id = (
+        "compiled_boundary::lisp_frontend_design_delta/drain::drain::"
+        "__write_root__lisp_frontend_design_delta_drain_drain__match_terminal__"
+        "blocked__recorded__lisp_frontend_design_delta_transitions_"
+        "record_drain_terminal_outcome_2__transition_result__result_bundle"
+    )
+    template_row_id = (
+        "compiled_boundary::lisp_frontend_design_delta/drain::drain::"
+        "__write_root__lisp_frontend_design_delta_drain_drain__match_terminal__"
+        "blocked__recorded__lisp_frontend_design_delta_transitions_"
+        "record_drain_terminal_outcome_2__terminal_projection__result_bundle"
+    )
+    replacement_row_id = (
+        "compiled_boundary::lisp_frontend_design_delta/drain::drain::"
+        "__write_root__lisp_frontend_design_delta_drain_drain__projected__"
+        "lisp_frontend_design_delta_stdlib_adapters_project_drain_result_compat_1__"
+        "match_result__blocked__condition__result_bundle"
+    )
+    replacement_symbol = (
+        "__write_root__lisp_frontend_design_delta_drain_drain__projected__"
+        "lisp_frontend_design_delta_stdlib_adapters_project_drain_result_compat_1__"
+        "match_result__blocked__condition__result_bundle"
+    )
+    payload["rows"] = [
+        row
+        for row in payload["rows"]
+        if row["row_id"] != stale_row_id
+    ]
+    existing_row_ids = {row["row_id"] for row in payload["rows"]}
+    if replacement_row_id not in existing_row_ids:
+        template_row = next(
+            (row for row in payload["rows"] if row["row_id"] == template_row_id),
+            None,
+        )
+        if template_row is not None:
+            replacement_row = copy.deepcopy(template_row)
+            replacement_row["row_id"] = replacement_row_id
+            replacement_row["symbol_or_field"] = replacement_symbol
+            replacement_row["path_or_contract"] = replacement_symbol
+            payload["rows"].append(replacement_row)
+    workflow_surfaces = set(payload["coverage"]["workflow_surfaces"])
+    workflow_surfaces.add(
+        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib"
+    )
+    payload["coverage"]["workflow_surfaces"] = sorted(workflow_surfaces)
+    payload["rows"].sort(key=lambda row: row["row_id"])
+    return payload
+
+
 def _load_design_delta_consumer_rendering_census() -> dict[str, object]:
     return json.loads(
         DESIGN_DELTA_CONSUMER_RENDERING_CENSUS_PATH.read_text(encoding="utf-8")
     )
+
+
+def _design_delta_checks_report_pair_row_ids() -> tuple[str, str]:
+    return (
+        "c0.implementation_phase_materialized_return_checks_report",
+        "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+    )
+
+
+def _write_design_delta_observability_old_writer_pair_inputs(
+    tmp_path: Path,
+    *,
+    missing_mirror: bool = False,
+) -> tuple[Path, Path]:
+    legacy_payload = {
+        "status": "BLOCKED",
+        "progress_report": "artifacts/work/progress_report.md",
+        "blocker_class": "unrecoverable_after_fix_attempt",
+    }
+    replacement_payload = {
+        "status": "BLOCKED",
+        "progress_report": "artifacts/work/progress_report.md",
+        "blocker_class": "unrecoverable_after_fix_attempt",
+    }
+    legacy_payload_path = tmp_path / "design_delta_parent_drain.blocked_implementation_checks_report.legacy_writer_payload.json"
+    legacy_payload_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_payload_path.write_text(
+        json.dumps(legacy_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    primary_row_id, mirror_row_id = _design_delta_checks_report_pair_row_ids()
+    manifest_payload = {
+        "schema_version": "workflow_lisp_observability_old_writer_comparisons.v1",
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "row_pairs": [
+            {
+                "primary_row_id": primary_row_id,
+                "mirror_row_id": "" if missing_mirror else mirror_row_id,
+                "workflow_surface": (
+                    "lisp_frontend_design_delta/implementation_phase::implementation-phase"
+                ),
+                "comparison_inputs": {
+                    "old_writer_payload": legacy_payload,
+                    "replacement_typed_summary_payload": replacement_payload,
+                },
+                "old_writer": {
+                    "step_id_suffix": "__materialize_view__blocked_implementation_checks_report",
+                    "renderer_id": "canonical-json",
+                    "renderer_version": 1,
+                    "payload_source": "comparison_inputs.old_writer_payload",
+                },
+                "replacement": {
+                    "evidence_kind": "old_writer_comparison",
+                    "authority_surface": "workflow_lisp_observability_summary.v1",
+                    "authority_path": "RUN_ROOT/summaries/typed-terminal-summary.json",
+                    "contract_profile": "terminal_value",
+                    "payload_source": "comparison_inputs.replacement_typed_summary_payload",
+                    "comparison_digest_kind": "sha256",
+                    "typed_summary_digest": "sha256:"
+                    + hashlib.sha256(
+                        json.dumps(
+                            replacement_payload,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            ensure_ascii=True,
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                    "old_writer_payload_digest": "sha256:"
+                    + hashlib.sha256(
+                        json.dumps(
+                            legacy_payload,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            ensure_ascii=True,
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                },
+                "status": "live_old_writer",
+                "source_evidence": [
+                    {
+                        "kind": "legacy_writer_payload_source",
+                        "side": "old_writer_payload",
+                        "authority_lane": "design_delta_migration_inputs",
+                        "path": str(legacy_payload_path),
+                        "payload_pointer": "$",
+                    },
+                    {
+                        "kind": "typed_summary_contract",
+                        "side": "replacement_typed_summary_payload",
+                        "authority_surface": "workflow_lisp_observability_summary.v1",
+                        "path": "RUN_ROOT/summaries/typed-terminal-summary.json",
+                        "contract_profile": "terminal_value",
+                    },
+                ],
+            }
+        ],
+    }
+    manifest_path = tmp_path / "design_delta_parent_drain.observability_old_writer_comparisons.json"
+    manifest_path.write_text(
+        json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path, legacy_payload_path
 
 
 def _load_design_delta_compatibility_bridges() -> dict[str, object]:
@@ -490,6 +801,150 @@ def _validate_review_findings_retirement_metadata() -> dict[str, object]:
         ),
         "evidence_refs": ("validate_review_findings_v1",),
     }
+
+
+def _stub_design_delta_auxiliary_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+
+    monkeypatch.setattr(
+        build,
+        "reconcile_value_flow_census",
+        lambda *args, **kwargs: {
+            "schema_version": "workflow_lisp_private_runtime_value_flow_census_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "missing_rows": [],
+            "stale_rows": [],
+            "invalid_rows": [],
+            "extra_compiled_rows": [],
+            "workflow_rows": [],
+            "required_source_kinds": [],
+            "declared_workflow_surfaces": [],
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "build_consumer_rendering_census_report",
+        lambda *args, **kwargs: {
+            "schema_version": "workflow_lisp_consumer_rendering_census_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "missing_rows": [],
+            "stale_rows": [],
+            "invalid_rows": [],
+            "materialize_view_effect_rows": [],
+            "compiled_evidence": {},
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "build_typed_prompt_input_report",
+        lambda *args, **kwargs: {
+            "schema_version": "workflow_lisp_typed_prompt_input_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "selected_rows": [],
+            "missing_rows": [],
+            "stale_rows": [],
+            "invalid_rows": [],
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "_build_design_delta_observability_summary_prerequisite_report",
+        lambda **kwargs: {
+            "schema_id": "workflow_lisp_observability_summary_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "selected_c0_row_ids": [],
+            "diagnostics": {"errors": [], "warnings": []},
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "_build_entry_publication_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_entry_publication_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "selected_c0_rows": [],
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "build_compatibility_bridge_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_compatibility_bridge_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "generated_bridges": [],
+            "blocked_bridges": [],
+            "contract_isolation": {},
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "build_rendering_cleanup_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_rendering_cleanup_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "cleanup_decisions": [],
+            "blocked_compatibility_row_ids": [],
+            "surviving_body_materialization_row_ids": [],
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "_maybe_load_design_delta_rendering_cleanup_manifest",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        build,
+        "build_rendering_ergonomics_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_rendering_ergonomics_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "target_family": "lisp_frontend_design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "provider_input_shapes": [],
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "_maybe_load_design_delta_rendering_ergonomics_manifest",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        build.resume_plumbing_retirement,
+        "build_resume_plumbing_retirement_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_resume_plumbing_retirement_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "decisions": [],
+            "source_census": {},
+            "manifest": {},
+        },
+    )
+    monkeypatch.setattr(
+        build.lexical_checkpoint_default_resume,
+        "build_default_resume_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_lexical_checkpoint_default_resume_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+        },
+    )
 
 
 def _write_structured_results_module(tmp_path: Path) -> Path:
@@ -994,6 +1449,43 @@ def _walk_design_delta_work_item_steps(steps: list[dict[str, object]]):
             branch = step.get(key)
             if isinstance(branch, dict):
                 yield from _walk_design_delta_work_item_steps(branch.get("steps", []))
+
+
+def test_boundary_projection_serializer_preserves_hidden_compatibility_bridge_over_fixed_run_item(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    serialize = getattr(build, "_serialize_workflow_boundary_projection")
+    result = _compile_linked_hidden_compatibility_bridge_fixture(tmp_path)
+
+    workflow_name = "drain_stdlib_backlog_drain_hidden_compatibility_bridge::run-selected-item"
+    projection_payload = serialize(result, selected_name=workflow_name)
+    workflow_projection = next(
+        item
+        for item in projection_payload["workflows"]
+        if item["workflow_name"] == workflow_name
+    )
+    child = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
+    )
+    run_item_call = next(
+        step
+        for step in _walk_design_delta_work_item_steps(child.authored_mapping["steps"])
+        if step.get("call", "").endswith("::run-selected-item")
+    )
+    generated_internal_inputs = {
+        item["generated_name"]: item
+        for item in workflow_projection["generated_internal_inputs"]
+    }
+
+    assert "run_state_path" not in workflow_projection["boundary"]["public_input_names"]
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == [
+        "run_state_path"
+    ]
+    assert generated_internal_inputs["run_state_path"]["reason"] == "compatibility_bridge"
+    assert run_item_call["with"]["run_state_path"] == {"ref": "inputs.run_state_path"}
 
 
 def _design_delta_work_item_run_work_item_lowered(compile_result):
@@ -2854,9 +3346,6 @@ def test_design_delta_work_item_boundary_labels_legacy_state_inputs_as_compatibi
     }
 
     expected_bridge_inputs = {
-        "selection_bundle_path",
-        "manifest_path",
-        "architecture_bundle_path",
         "progress_ledger_path",
         "run_state_path",
     }
@@ -3194,6 +3683,96 @@ def test_design_delta_item_ctx_child_phase_reuse_build_artifacts_record_derived_
             ),
         ),
     }
+    assert {
+        binding.binding_id: binding.projection_hints
+        for binding in boundary.private_runtime_context_bindings
+    } == {
+        "phase-ctx__implementation": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__implementation__run__run-id": "run_anchor:run-id",
+                "phase-ctx__implementation__run__state-root": "run_anchor:state-root",
+                "phase-ctx__implementation__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__implementation__phase-name": "compile_time_default",
+                "phase-ctx__implementation__state-root": "compile_time_default",
+                "phase-ctx__implementation__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__implementation__run__run-id": ("item-ctx", "run", "run-id"),
+                "phase-ctx__implementation__run__state-root": (
+                    "item-ctx",
+                    "run",
+                    "state-root",
+                ),
+                "phase-ctx__implementation__run__artifact-root": (
+                    "item-ctx",
+                    "run",
+                    "artifact-root",
+                ),
+            },
+        },
+        "phase-ctx__plan": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__plan__run__run-id": "run_anchor:run-id",
+                "phase-ctx__plan__run__state-root": "run_anchor:state-root",
+                "phase-ctx__plan__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__plan__phase-name": "compile_time_default",
+                "phase-ctx__plan__state-root": "compile_time_default",
+                "phase-ctx__plan__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
+                "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
+                "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
+            },
+        },
+    }
+    assert {
+        binding["binding_id"]: binding["projection_hints"]
+        for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
+    } == {
+        "phase-ctx__implementation": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__implementation__run__run-id": "run_anchor:run-id",
+                "phase-ctx__implementation__run__state-root": "run_anchor:state-root",
+                "phase-ctx__implementation__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__implementation__phase-name": "compile_time_default",
+                "phase-ctx__implementation__state-root": "compile_time_default",
+                "phase-ctx__implementation__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__implementation__run__run-id": ["item-ctx", "run", "run-id"],
+                "phase-ctx__implementation__run__state-root": [
+                    "item-ctx",
+                    "run",
+                    "state-root",
+                ],
+                "phase-ctx__implementation__run__artifact-root": [
+                    "item-ctx",
+                    "run",
+                    "artifact-root",
+                ],
+            },
+        },
+        "phase-ctx__plan": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__plan__run__run-id": "run_anchor:run-id",
+                "phase-ctx__plan__run__state-root": "run_anchor:state-root",
+                "phase-ctx__plan__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__plan__phase-name": "compile_time_default",
+                "phase-ctx__plan__state-root": "compile_time_default",
+                "phase-ctx__plan__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__plan__run__run-id": ["item-ctx", "run", "run-id"],
+                "phase-ctx__plan__run__state-root": ["item-ctx", "run", "state-root"],
+                "phase-ctx__plan__run__artifact-root": ["item-ctx", "run", "artifact-root"],
+            },
+        },
+    }
     expected_source_provenance = {
         binding.binding_id: json.loads(json.dumps(dict(binding.source_provenance)))
         for binding in boundary.private_runtime_context_bindings
@@ -3262,6 +3841,10 @@ def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection
             "plan",
         ),
     }
+    assert boundary.private_compatibility_bridge_inputs == ("run_state_path",)
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == [
+        "run_state_path"
+    ]
     assert {
         binding.binding_id: json.loads(json.dumps(dict(binding.source_provenance)))["path"]
         for binding in boundary.private_runtime_context_bindings
@@ -4321,6 +4904,7 @@ def test_design_delta_parent_drain_build_emits_g8_deletion_evidence_artifact(
         tmp_path,
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        value_flow_census_payload=_aligned_design_delta_value_flow_census(),
     )
 
     assert "g8_deletion_evidence" in result.artifact_paths
@@ -5168,8 +5752,8 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
     selected_entry_rows = {
         row["row_id"] for row in entry_publication_payload["selected_c0_rows"]
     }
-    assert "c0.drain_materialized_drain_summary" in selected_entry_rows
-    assert "c0.drain_materialized_drain_summary_compiled_boundary" in selected_entry_rows
+    assert "c0.drain_materialized_drain_summary" not in selected_entry_rows
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in selected_entry_rows
     assert (
         "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary"
         not in selected_entry_rows
@@ -5185,12 +5769,8 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
     cleanup_rows = {
         row["c0_row_id"]: row for row in cleanup_payload["cleanup_decisions"]
     }
-    assert cleanup_rows["c0.drain_materialized_drain_summary"][
-        "cleanup_decision"
-    ] == "RETIRED_TO_ENTRY_PUBLICATION"
-    assert cleanup_rows["c0.drain_materialized_drain_summary_compiled_boundary"][
-        "cleanup_decision"
-    ] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert cleanup_rows["c0.drain_materialized_drain_summary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert cleanup_rows["c0.drain_materialized_drain_summary_compiled_boundary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
     assert cleanup_rows["c0.work_item_summary_summary_path"][
         "cleanup_decision"
     ] == "RETIRED_TO_BRIDGE_METADATA"
@@ -5209,10 +5789,87 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    build = _build_module()
+    entry_publication = importlib.import_module("orchestrator.workflow_lisp.entry_publication")
+    monkeypatch.setattr(
+        build,
+        "_build_entry_publication_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_entry_publication_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+            "selected_c0_rows": entry_publication.select_entry_publication_rows(
+                kwargs["consumer_rendering_census"]
+            ),
+        },
+    )
+    cleanup_manifest = json.loads(
+        build.DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH.read_text(
+            encoding="utf-8"
+        )
+    )
+    cleanup_manifest["rows"] = [
+        row
+        for row in cleanup_manifest["rows"]
+        if row["c0_row_id"]
+        in {
+            "c0.implementation_phase_materialized_return_checks_report",
+            "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+        }
+    ]
+    cleanup_manifest["__manifest_path__"] = str(
+        build.DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH
+    )
+    cleanup_manifest["__manifest_sha256__"] = hashlib.sha256(
+        json.dumps(cleanup_manifest, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    monkeypatch.setattr(
+        build,
+        "_maybe_load_design_delta_rendering_cleanup_manifest",
+        lambda **kwargs: cleanup_manifest,
+    )
+    monkeypatch.setattr(
+        build,
+        "_maybe_load_design_delta_rendering_ergonomics_manifest",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        build.resume_plumbing_retirement,
+        "build_resume_plumbing_retirement_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_resume_plumbing_retirement_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+        },
+    )
+    monkeypatch.setattr(
+        build.lexical_checkpoint_default_resume,
+        "build_default_resume_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_default_resume_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+        },
+    )
+    original_collect_effects = build._collect_materialize_view_effects
+    monkeypatch.setattr(
+        build,
+        "_collect_materialize_view_effects",
+        lambda bundles: [
+            effect
+            for effect in original_collect_effects(bundles)
+            if "blocked_implementation_checks_report"
+            in str(effect.get("effect_id", ""))
+        ],
+    )
     result = _build_design_delta_parent_drain(
         tmp_path,
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        value_flow_census_payload=_aligned_design_delta_value_flow_census(),
     )
 
     assert "observability_summary_report" in result.artifact_paths
@@ -5230,25 +5887,261 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
     assert payload["schema_version"] == "workflow_lisp_rendering_cleanup_report.v1"
     assert payload["status"] == "pass"
     assert payload["blocked_compatibility_row_ids"] == []
-    assert payload["surviving_body_materialization_row_ids"] == [
-        "c0.design_gap_architect_validate_materialized_architecture_targets_view",
-        "c0.implementation_phase_materialized_check_commands_view",
-    ]
+    assert set(payload["surviving_body_materialization_row_ids"]) == {
+        "c0.implementation_phase_materialized_return_checks_report",
+        "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+    }
     cleanup_rows = {row["c0_row_id"]: row for row in payload["cleanup_decisions"]}
-    assert cleanup_rows["c0.drain_summary_report_target_final_summary_view"][
-        "replacement_evidence"
-    ]["report_path"].endswith("observability_summary_report.json")
-    assert cleanup_rows["c0.plan_phase_output_approved_plan_path"][
-        "replacement_evidence"
-    ]["report_path"].endswith("entry_publication_report.json")
-    assert cleanup_rows[
-        "c0.work_item_bridge_manifest_path_compiled_boundary"
-    ]["replacement_evidence"]["report_path"].endswith(
-        "compatibility_bridge_report.json"
+    assert (
+        cleanup_rows["c0.implementation_phase_materialized_return_checks_report"][
+            "cleanup_decision"
+        ]
+        == "KEEP_TIMED_PUBLICATION"
     )
-    assert cleanup_rows["c0.plan_phase_prompt_draft"]["replacement_evidence"][
-        "report_path"
-    ].endswith("typed_prompt_input_report.json")
+    assert (
+        cleanup_rows[
+            "c0.implementation_phase_materialized_return_checks_report_compiled_boundary"
+        ]["cleanup_decision"]
+        == "KEEP_TIMED_PUBLICATION"
+    )
+
+
+def test_design_delta_parent_drain_build_emits_pair_aware_observability_summary_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    pair_manifest_path, legacy_payload_path = (
+        _write_design_delta_observability_old_writer_pair_inputs(tmp_path)
+    )
+    observability = importlib.import_module(
+        "orchestrator.workflow_lisp.observability_summaries"
+    )
+    consumer_rendering_census = _load_design_delta_consumer_rendering_census()
+    consumer_rendering_census["rows"] = [
+        row
+        for row in consumer_rendering_census["rows"]
+        if row["row_id"] in _design_delta_checks_report_pair_row_ids()
+    ]
+    pair_manifest = observability.load_old_writer_pair_manifest(
+        pair_manifest_path,
+        consumer_rendering_census=consumer_rendering_census,
+    )
+    payload = build._build_design_delta_observability_summary_prerequisite_report(
+        consumer_rendering_census=consumer_rendering_census,
+        old_writer_pair_manifest=pair_manifest,
+        materialize_view_effects=[
+            {
+                "authority_class": "materialized_view",
+                "step_id": "implementation_phase.__materialize_view__blocked_implementation_checks_report",
+                "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+            }
+        ],
+    )
+
+    assert payload["status"] == "pass"
+    assert {
+        "c0.implementation_phase_materialized_return_checks_report",
+        "c0.implementation_phase_materialized_return_checks_report_compiled_boundary",
+    } <= set(payload["selected_c0_row_ids"])
+    assert payload["pair_manifest_provenance"]["path"] == str(pair_manifest_path.resolve())
+
+
+def test_design_delta_parent_drain_observability_report_warns_for_live_timed_materialization_without_pair(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    consumer_rendering_census = _load_design_delta_consumer_rendering_census()
+    consumer_rendering_census["rows"] = [
+        row
+        for row in consumer_rendering_census["rows"]
+        if row["row_id"]
+        == "c0.implementation_phase_materialized_return_checks_report"
+    ]
+
+    payload = build._build_design_delta_observability_summary_prerequisite_report(
+        consumer_rendering_census=consumer_rendering_census,
+        old_writer_pair_manifest=None,
+        materialize_view_effects=[
+            {
+                "authority_class": "materialized_view",
+                "step_id": "implementation_phase.__materialize_view__blocked_implementation_checks_report",
+                "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+            }
+        ],
+    )
+
+    assert payload["status"] == "pass"
+    assert payload["diagnostics"]["errors"] == []
+    assert {
+        diagnostic["code"]
+        for diagnostic in payload["diagnostics"]["warnings"]
+    } == {"observability_summary_old_writer_mechanics_not_contract"}
+
+
+def test_design_delta_parent_drain_build_rejects_missing_checks_report_pair_mirror(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _build_module()
+    pair_manifest_path, legacy_payload_path = (
+        _write_design_delta_observability_old_writer_pair_inputs(
+            tmp_path,
+            missing_mirror=True,
+        )
+    )
+    monkeypatch.setattr(
+        build,
+        "DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH",
+        pair_manifest_path,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        build,
+        "DESIGN_DELTA_PARENT_DRAIN_BLOCKED_IMPLEMENTATION_CHECKS_REPORT_LEGACY_PAYLOAD_PATH",
+        legacy_payload_path,
+        raising=False,
+    )
+
+    with pytest.raises(LispFrontendCompileError, match="observability_summary_old_writer_mirror_missing"):
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        )
+
+
+def test_design_delta_parent_drain_observability_pair_evidence_changes_build_fingerprint(
+    tmp_path: Path,
+) -> None:
+    baseline = _design_delta_fingerprint_context(tmp_path / "baseline")
+    build = baseline["build"]
+    baseline_fingerprint = build._fingerprint_build(
+        request=baseline["request"],
+        compile_result=baseline["compile_result"],
+        imported_bindings=tuple(),
+        entry_selection=baseline["entry_selection"],
+        provider_externs=baseline["provider_externs"],
+        prompt_externs=baseline["prompt_externs"],
+        command_boundary_manifest=baseline["command_boundary_manifest"],
+        boundary_authority_registry=baseline["boundary_authority_registry"],
+        value_flow_census=baseline["value_flow_census"],
+        consumer_rendering_census=baseline["consumer_rendering_census"],
+        observability_old_writer_pair_manifest=baseline["observability_pair_manifest"],
+        resume_plumbing_retirement_manifest=baseline[
+            "resume_plumbing_retirement_manifest"
+        ],
+    )
+
+    pair_manifest_path, legacy_payload_path = (
+        _write_design_delta_observability_old_writer_pair_inputs(tmp_path / "mutated")
+    )
+    mutated_pair_manifest = json.loads(pair_manifest_path.read_text(encoding="utf-8"))
+    replacement_payload = mutated_pair_manifest["row_pairs"][0]["comparison_inputs"][
+        "replacement_typed_summary_payload"
+    ]
+    replacement_payload["progress_report"] = "artifacts/work/changed_progress_report.md"
+    mutated_pair_manifest["row_pairs"][0]["replacement"]["typed_summary_digest"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                replacement_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+    )
+    pair_manifest_path.write_text(
+        json.dumps(mutated_pair_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    mutated = _design_delta_fingerprint_context(
+        tmp_path / "mutated-context",
+        pair_manifest_path=pair_manifest_path,
+    )
+    mutated_fingerprint = build._fingerprint_build(
+        request=mutated["request"],
+        compile_result=mutated["compile_result"],
+        imported_bindings=tuple(),
+        entry_selection=mutated["entry_selection"],
+        provider_externs=mutated["provider_externs"],
+        prompt_externs=mutated["prompt_externs"],
+        command_boundary_manifest=mutated["command_boundary_manifest"],
+        boundary_authority_registry=mutated["boundary_authority_registry"],
+        value_flow_census=mutated["value_flow_census"],
+        consumer_rendering_census=mutated["consumer_rendering_census"],
+        observability_old_writer_pair_manifest=mutated["observability_pair_manifest"],
+        resume_plumbing_retirement_manifest=mutated[
+            "resume_plumbing_retirement_manifest"
+        ],
+    )
+
+    legacy_payload_path.write_text(
+        json.dumps(
+            {
+                "status": "APPROVED",
+                "progress_report": "artifacts/work/progress_report.md",
+                "blocker_class": "unrecoverable_after_fix_attempt",
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="observability_summary_old_writer_evidence_stale"):
+        importlib.import_module(
+            "orchestrator.workflow_lisp.observability_summaries"
+        ).load_old_writer_pair_manifest(
+            pair_manifest_path,
+            consumer_rendering_census=mutated["consumer_rendering_census"],
+        )
+
+    assert baseline_fingerprint != mutated_fingerprint
+
+
+def test_design_delta_parent_drain_build_manifest_records_observability_pair_provenance(
+    tmp_path: Path,
+) -> None:
+    context = _design_delta_fingerprint_context(tmp_path)
+    build = context["build"]
+    manifest = build._build_manifest(
+        request=context["request"],
+        compile_result=context["compile_result"],
+        entry_selection=context["entry_selection"],
+        imported_bindings=tuple(),
+        artifact_paths={},
+        fingerprint="fingerprint",
+        diagnostics=context["compile_result"].diagnostics,
+        build_root=tmp_path / ".orchestrate" / "build" / "fingerprint",
+        emit_debug_yaml=False,
+        boundary_authority_registry=context["boundary_authority_registry"],
+        value_flow_census=context["value_flow_census"],
+        consumer_rendering_census=context["consumer_rendering_census"],
+        observability_old_writer_pair_manifest=context["observability_pair_manifest"],
+        resume_plumbing_retirement_manifest=context[
+            "resume_plumbing_retirement_manifest"
+        ],
+    )
+
+    assert manifest.observability_old_writer_pair_evidence is not None
+    assert (
+        manifest.observability_old_writer_pair_evidence["path"]
+        == str(
+            (
+                DESIGN_DELTA_MIGRATION_INPUTS
+                / "design_delta_parent_drain.observability_old_writer_comparisons.json"
+            ).resolve()
+        )
+    )
+    legacy_sources = manifest.observability_old_writer_pair_evidence[
+        "legacy_payload_sources"
+    ]
+    assert legacy_sources
+    assert legacy_sources[0]["path"].endswith(
+        "design_delta_parent_drain.blocked_implementation_checks_report.legacy_writer_payload.json"
+    )
 
 
 def test_design_delta_parent_drain_build_emits_rendering_ergonomics_report_artifact(
@@ -5977,6 +6870,25 @@ def test_design_delta_parent_drain_build_emits_resume_plumbing_retirement_report
     )
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
+
+
+def test_design_delta_parent_drain_build_does_not_emit_parent_drain_census_alignment_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_design_delta_auxiliary_reports(monkeypatch)
+
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "parent_drain_census_alignment_report" not in result.artifact_paths
+    assert (
+        "parent_drain_census_alignment_report"
+        not in result.manifest.artifact_status
+    )
 
 
 def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_census_fingerprint(
