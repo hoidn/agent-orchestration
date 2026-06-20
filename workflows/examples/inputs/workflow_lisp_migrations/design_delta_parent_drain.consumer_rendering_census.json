@@ -1069,49 +1069,6 @@
       "notes": "Rendered work-item context view stays representation-only until typed blocked-recovery transitions can consume WorkItemContextValue directly."
     },
     {
-      "row_id": "c0.work_item_materialized_blocked_recovery_summary",
-      "u0_row_id": "work_item.materialized.blocked_recovery_summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "materialized_output",
-      "consumer_lane": "timed_body_materialization",
-      "durability": "durable_timed_body",
-      "renderer": {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value"
-      },
-      "compiled_effect_match": {
-        "step_id_suffix": "__materialize_view__blocked_recovery_summary"
-      },
-      "typed_value_source": {
-        "kind": "sample_value_document",
-        "value_document": {
-          "work_item_id": "gap-1",
-          "work_item_source": "DESIGN_GAP",
-          "terminal_route": "BLOCKED_RECOVERY",
-          "reason": "gap_design_revision_required"
-        }
-      },
-      "target_binding": {
-        "kind": "consumer_owned_target",
-        "target_labels": [
-          "artifacts/work/blocked_recovery_summary.render_a.json",
-          "artifacts/work/archive/blocked_recovery_summary.render_b.json"
-        ]
-      },
-      "track_c_decision": "KEEP_TIMED_PUBLICATION",
-      "replacement_target": "Track C exact-path summary bridge retirement",
-      "source_evidence": [
-        {
-          "kind": "u0_checked_row",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Blocked-recovery summary stays a timed view until typed boundary consumers retire the canonical summary file."
-    },
-    {
       "row_id": "c0.work_item_materialized_selected_item_summary",
       "u0_row_id": "work_item.materialized.selected_item_summary",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",

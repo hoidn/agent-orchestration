@@ -1801,38 +1801,6 @@
       "body_rendering_policy": "allow_timed"
     },
     {
-      "slot_id": "work_item.materialized.blocked_recovery_summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "materialized_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "materialized",
-          "blocked_recovery_summary"
-        ]
-      },
-      "value": {
-        "type_name": "blocked_recovery_summary",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
-      "c0_row_id": "c0.work_item_materialized_blocked_recovery_summary",
-      "u0_row_id": "work_item.materialized.blocked_recovery_summary",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "allow_timed"
-    },
-    {
       "slot_id": "work_item.materialized.selected_item_summary",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {

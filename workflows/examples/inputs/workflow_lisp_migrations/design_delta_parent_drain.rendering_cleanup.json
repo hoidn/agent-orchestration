@@ -253,10 +253,6 @@
       "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
-      "c0_row_id": "c0.work_item_materialized_blocked_recovery_summary",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
       "c0_row_id": "c0.work_item_materialized_selected_item_summary",
       "decision": "KEEP_TIMED_PUBLICATION"
     },

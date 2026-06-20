@@ -6707,28 +6707,6 @@
       "notes": "Rendered work-item context view stays representation-only until typed blocked-recovery transitions can consume WorkItemContextValue directly."
     },
     {
-      "row_id": "work_item.materialized.blocked_recovery_summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_kind": "materialized_output",
-      "symbol_or_field": "return__summary",
-      "path_or_contract": "WorkReport",
-      "plumbing_class": "human_rendering",
-      "boundary_authority_class": "materialized_view",
-      "track_owner": "C",
-      "current_consumer": "standalone_summary_reader",
-      "semantic_owner": "workflow_surface",
-      "source_evidence": [
-        {
-          "kind": "checked_census",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "replacement_target": "Track C exact-path summary bridge retirement",
-      "command_boundary": null,
-      "bridge": null,
-      "notes": "Blocked-recovery summary stays a timed view until typed boundary consumers retire the canonical summary file."
-    },
-    {
       "row_id": "work_item.materialized.selected_item_summary",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_kind": "materialized_output",

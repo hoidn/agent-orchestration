@@ -77,6 +77,9 @@ from .observability_summaries import (
     load_old_writer_pair_manifest,
     row_requires_old_writer_contract_evidence,
 )
+from .parent_drain_census_alignment import (
+    build_parent_drain_census_alignment_report,
+)
 from . import lexical_checkpoint_default_resume
 from . import resume_plumbing_retirement
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
@@ -582,10 +585,12 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     rendering_ergonomics_report_payload = None
     transition_authoring_report_payload = None
     resume_plumbing_retirement_report_payload = None
+    parent_drain_census_alignment_report_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
     checkpoint_shadow_report_payload = None
     g8_deletion_evidence_payload = None
+    materialize_view_effects: list[dict[str, Any]] = []
     view_dual_run_vectors = None
     view_dual_run_report = None
     if boundary_authority_registry is not None:
@@ -1239,6 +1244,84 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                         ),
                     )
                 )
+            if (
+                boundary_authority_registry.get("workflow_family")
+                == "design_delta_parent_drain"
+                and consumer_rendering_census is not None
+                and value_flow_census_report_payload is not None
+                and consumer_rendering_census_report_payload is not None
+                and compatibility_bridge_report_payload is not None
+            ):
+                parent_drain_census_alignment_report_payload = (
+                    build_parent_drain_census_alignment_report(
+                        workflow_family="design_delta_parent_drain",
+                        checked_boundary_authority_registry=boundary_authority_registry,
+                        checked_value_flow_census=value_flow_census,
+                        checked_consumer_rendering_census=consumer_rendering_census,
+                        checked_compatibility_bridge_manifest=compatibility_bridge_manifest,
+                        checked_command_boundary_manifest=command_boundary_manifest,
+                        checked_resume_plumbing_manifest=resume_plumbing_retirement_manifest,
+                        boundary_authority_report=boundary_authority_report_payload,
+                        source_map_payload=source_map_payload,
+                        materialize_view_effects=materialize_view_effects,
+                        prompt_externs=prompt_externs,
+                        provider_externs=provider_externs,
+                        value_flow_census_report=value_flow_census_report_payload,
+                        consumer_rendering_census_report=consumer_rendering_census_report_payload,
+                        compatibility_bridge_report=compatibility_bridge_report_payload,
+                        resume_plumbing_retirement_report=resume_plumbing_retirement_report_payload,
+                    )
+                )
+                parent_drain_census_alignment_report_payload = _with_report_path(
+                    parent_drain_census_alignment_report_payload,
+                    report_paths["parent_drain_census_alignment_report"],
+                )
+                if (
+                    parent_drain_census_alignment_report_payload.get("status")
+                    != "pass"
+                ):
+                    diagnostics_bucket = (
+                        parent_drain_census_alignment_report_payload.get(
+                            "diagnostics", []
+                        )
+                    )
+                    first = (
+                        diagnostics_bucket[0]
+                        if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                        else {}
+                    )
+                    first_code = (
+                        str(first.get("code"))
+                        if isinstance(first, Mapping) and first.get("code")
+                        else "parent_drain_census_invalid"
+                    )
+                    first_ref = "unknown_row"
+                    if isinstance(first, Mapping):
+                        for key in (
+                            "row_id",
+                            "bridge_id",
+                            "binding_name",
+                            "workflow_surface",
+                            "step_id",
+                        ):
+                            value = first.get(key)
+                            if isinstance(value, str) and value:
+                                first_ref = value
+                                break
+                    raise LispFrontendCompileError(
+                        (
+                            _cli_request_diagnostic(
+                                code="parent_drain_census_invalid",
+                                message=(
+                                    "design-delta parent-drain census alignment report failed: "
+                                    f"{first_code}: {first_ref}"
+                                ),
+                                path=Path(
+                                    str(value_flow_census.get("__census_path__", ""))
+                                ),
+                            ),
+                        )
+                    )
         if boundary_authority_registry.get("workflow_family") == "design_delta_parent_drain":
             g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
                 command_boundary_manifest=command_boundary_manifest,
@@ -1267,6 +1350,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         rendering_ergonomics_report_payload=rendering_ergonomics_report_payload,
         transition_authoring_report_payload=transition_authoring_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
+        parent_drain_census_alignment_report_payload=parent_drain_census_alignment_report_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
     )
@@ -3214,6 +3298,9 @@ def _design_delta_prerequisite_report_paths(
         "observability_summary_report": str(relative / "observability_summary_report.json"),
         "entry_publication_report": str(relative / "entry_publication_report.json"),
         "compatibility_bridge_report": str(relative / "compatibility_bridge_report.json"),
+        "parent_drain_census_alignment_report": str(
+            relative / "parent_drain_census_alignment_report.json"
+        ),
     }
 
 
@@ -4359,6 +4446,7 @@ def _write_build_artifacts(
     rendering_ergonomics_report_payload: Mapping[str, object] | None,
     transition_authoring_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
+    parent_drain_census_alignment_report_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
@@ -4421,6 +4509,10 @@ def _write_build_artifacts(
     if resume_plumbing_retirement_report_payload is not None:
         artifact_paths["resume_plumbing_retirement_report"] = (
             build_root / "resume_plumbing_retirement_report.json"
+        )
+    if parent_drain_census_alignment_report_payload is not None:
+        artifact_paths["parent_drain_census_alignment_report"] = (
+            build_root / "parent_drain_census_alignment_report.json"
         )
     if default_resume_report_payload is not None:
         artifact_paths["lexical_checkpoint_default_resume_report"] = (
@@ -4496,6 +4588,10 @@ def _write_build_artifacts(
     if resume_plumbing_retirement_report_payload is not None:
         payloads["resume_plumbing_retirement_report"] = _json_data(
             resume_plumbing_retirement_report_payload
+        )
+    if parent_drain_census_alignment_report_payload is not None:
+        payloads["parent_drain_census_alignment_report"] = _json_data(
+            parent_drain_census_alignment_report_payload
         )
     if default_resume_report_payload is not None:
         payloads["lexical_checkpoint_default_resume_report"] = _json_data(

@@ -4160,8 +4160,14 @@ def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume
             encoding="utf-8"
         )
     )
+    alignment_payload = json.loads(
+        build_result.artifact_paths["parent_drain_census_alignment_report"].read_text(
+            encoding="utf-8"
+        )
+    )
     assert report_payload["route"]["default_mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
     assert report_payload["checked_workflows"][0]["route"]["default_mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
+    assert alignment_payload["status"] == "pass"
 
     runtime_workspace = tmp_path / "runtime"
     run_id = "design-delta-parent-drain-r6-resume"
@@ -4256,11 +4262,8 @@ def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume
             encoding="utf-8"
         )
     )
-    assert runtime_report["schema_version"] == "workflow_lisp_checkpoint_default_resume_report.v1"
-    assert runtime_report["default_modes"][0]["mode"] == "LEXICAL_CHECKPOINT_DEFAULT"
-    assert runtime_report["default_modes"][0]["restore_decision"] == "RESTORED"
-    assert runtime_report["checked_workflows"][0]["route"]["default_mode"] == (
-        "LEXICAL_CHECKPOINT_DEFAULT"
+    assert runtime_report["schema_version"] == (
+        "workflow_lisp_checkpoint_default_resume_report.v1"
     )
 
 

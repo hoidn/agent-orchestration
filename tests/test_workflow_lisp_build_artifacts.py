@@ -7224,22 +7224,58 @@ def test_design_delta_parent_drain_build_emits_resume_plumbing_retirement_report
     assert payload["status"] == "pass"
 
 
-def test_design_delta_parent_drain_build_does_not_emit_parent_drain_census_alignment_report(
+def test_design_delta_parent_drain_build_emits_parent_drain_census_alignment_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _stub_design_delta_auxiliary_reports(monkeypatch)
-
     result = _build_design_delta_parent_drain(
         tmp_path,
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
     )
 
-    assert "parent_drain_census_alignment_report" not in result.artifact_paths
+    assert "parent_drain_census_alignment_report" in result.artifact_paths
     assert (
-        "parent_drain_census_alignment_report"
-        not in result.manifest.artifact_status
+        result.manifest.artifact_status["parent_drain_census_alignment_report"]
+        == "emitted"
+    )
+    payload = json.loads(
+        result.artifact_paths["parent_drain_census_alignment_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["workflow_family"] == "design_delta_parent_drain"
+    assert payload["status"] == "pass"
+
+
+def test_design_delta_parent_drain_build_rejects_parent_drain_census_alignment_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command_boundaries_payload = json.loads(
+        (
+            DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.commands.json"
+        ).read_text(encoding="utf-8")
+    )
+    command_boundaries_payload.pop("validate_review_findings_v1")
+    command_boundaries_path = tmp_path / "design_delta_parent_drain.commands.json"
+    command_boundaries_path.write_text(
+        json.dumps(command_boundaries_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            command_boundaries_path=command_boundaries_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "parent_drain_census_invalid"
+    assert (
+        "parent_drain_census_command_boundary_missing"
+        in excinfo.value.diagnostics[0].message
     )
 
 
