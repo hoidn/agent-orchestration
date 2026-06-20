@@ -4100,13 +4100,15 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
         in lowered_by_name
     )
     assert "lisp_frontend_design_delta/work_item::run-work-item" in lowered_by_name
-    parent_family_steps = [
-        step
-        for name, lowered in lowered_by_name.items()
-        if name.startswith("lisp_frontend_design_delta/drain::")
-        for step in _walk_lowered_steps(lowered["steps"])
-    ]
-    assert any("repeat_until" in step for step in parent_family_steps)
+    drain_steps = list(
+        _walk_lowered_steps(lowered_by_name["lisp_frontend_design_delta/drain::drain"]["steps"])
+    )
+    stdlib_drain_steps = list(
+        _walk_lowered_steps(lowered_by_name["std/drain::backlog-drain"]["steps"])
+    )
+
+    assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_steps)
+    assert any("repeat_until" in step for step in stdlib_drain_steps)
 
 
 def test_design_delta_parent_drain_public_input_only_cli_dry_run_still_fails_without_runtime_owned_hidden_bindings(

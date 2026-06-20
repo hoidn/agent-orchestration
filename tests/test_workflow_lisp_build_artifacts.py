@@ -3995,6 +3995,157 @@ def test_design_delta_parent_drain_build_artifacts_record_imported_selector_carr
     ]
 
 
+def test_design_delta_parent_drain_imported_backlog_drain_build_artifacts_record_derived_child_phase_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    built = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+    )
+    bundle = built.compile_result.validated_bundles_by_name["std/drain::backlog-drain"]
+    boundary = _workflow_boundary_projection(bundle)
+    workflow_projection = next(
+        item
+        for item in json.loads(
+            built.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+        )["workflows"]
+        if item["workflow_name"] == "std/drain::backlog-drain"
+    )
+
+    assert boundary.private_compatibility_bridge_inputs == ()
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == []
+    assert {
+        (
+            binding.binding_id,
+            binding.source_param_name,
+            binding.bridge_class,
+            binding.derived_phase_identity,
+            tuple(binding.generated_input_names),
+        )
+        for binding in boundary.private_runtime_context_bindings
+    } == {
+        (
+            "phase-ctx__implementation",
+            "ctx",
+            "derived_private_child_context",
+            "implementation",
+            (
+                "phase-ctx__implementation__phase-name",
+                "phase-ctx__implementation__state-root",
+                "phase-ctx__implementation__artifact-root",
+            ),
+        ),
+        (
+            "phase-ctx__plan",
+            "ctx",
+            "derived_private_child_context",
+            "plan",
+            (
+                "phase-ctx__plan__phase-name",
+                "phase-ctx__plan__state-root",
+                "phase-ctx__plan__artifact-root",
+            ),
+        ),
+    }
+    assert {
+        binding.binding_id: binding.projection_hints
+        for binding in boundary.private_runtime_context_bindings
+    } == {
+        "phase-ctx__implementation": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__implementation__run__run-id": "run_anchor:run-id",
+                "phase-ctx__implementation__run__state-root": "run_anchor:state-root",
+                "phase-ctx__implementation__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__implementation__phase-name": "compile_time_default",
+                "phase-ctx__implementation__state-root": "compile_time_default",
+                "phase-ctx__implementation__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__implementation__run__run-id": ("ctx", "run", "run-id"),
+                "phase-ctx__implementation__run__state-root": (
+                    "ctx",
+                    "run",
+                    "state-root",
+                ),
+                "phase-ctx__implementation__run__artifact-root": (
+                    "ctx",
+                    "run",
+                    "artifact-root",
+                ),
+            },
+        },
+        "phase-ctx__plan": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__plan__run__run-id": "run_anchor:run-id",
+                "phase-ctx__plan__run__state-root": "run_anchor:state-root",
+                "phase-ctx__plan__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__plan__phase-name": "compile_time_default",
+                "phase-ctx__plan__state-root": "compile_time_default",
+                "phase-ctx__plan__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__plan__run__run-id": ("ctx", "run", "run-id"),
+                "phase-ctx__plan__run__state-root": ("ctx", "run", "state-root"),
+                "phase-ctx__plan__run__artifact-root": ("ctx", "run", "artifact-root"),
+            },
+        },
+    }
+    assert {
+        binding["binding_id"]: binding["projection_hints"]
+        for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
+    } == {
+        "phase-ctx__implementation": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__implementation__run__run-id": "run_anchor:run-id",
+                "phase-ctx__implementation__run__state-root": "run_anchor:state-root",
+                "phase-ctx__implementation__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__implementation__phase-name": "compile_time_default",
+                "phase-ctx__implementation__state-root": "compile_time_default",
+                "phase-ctx__implementation__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__implementation__run__run-id": ["ctx", "run", "run-id"],
+                "phase-ctx__implementation__run__state-root": [
+                    "ctx",
+                    "run",
+                    "state-root",
+                ],
+                "phase-ctx__implementation__run__artifact-root": [
+                    "ctx",
+                    "run",
+                    "artifact-root",
+                ],
+            },
+        },
+        "phase-ctx__plan": {
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "phase-ctx__plan__run__run-id": "run_anchor:run-id",
+                "phase-ctx__plan__run__state-root": "run_anchor:state-root",
+                "phase-ctx__plan__run__artifact-root": "run_anchor:artifact-root",
+                "phase-ctx__plan__phase-name": "compile_time_default",
+                "phase-ctx__plan__state-root": "compile_time_default",
+                "phase-ctx__plan__artifact-root": "compile_time_default",
+            },
+            "carried_input_sources": {
+                "phase-ctx__plan__run__run-id": ["ctx", "run", "run-id"],
+                "phase-ctx__plan__run__state-root": ["ctx", "run", "state-root"],
+                "phase-ctx__plan__run__artifact-root": ["ctx", "run", "artifact-root"],
+            },
+        },
+    }
+    assert all(
+        "run_state_path" not in binding.projection_hints.get("carried_input_sources", {})
+        for binding in boundary.private_runtime_context_bindings
+    )
+
+
 def test_boundary_projection_serializer_uses_typed_bundle_compatibility_split(
     tmp_path: Path,
 ) -> None:

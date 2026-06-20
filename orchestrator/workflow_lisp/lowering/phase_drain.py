@@ -12,10 +12,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
+from orchestrator.workflow.loaded_bundle import (
+    LoadedWorkflowBundle,
+    workflow_boundary_projection,
+    workflow_input_contracts,
+    workflow_managed_write_root_inputs,
+    workflow_runtime_context_inputs,
+)
 from orchestrator.workflow.references import StructuredStepReference
 from orchestrator.workflow.executable_ir import ProviderStepConfig
-from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
+from orchestrator.workflow.surface_ast import PrivateExecContextBinding, SurfaceStep, SurfaceStepKind
 
 from ..contracts import derive_reusable_state_contract_metadata, derive_structured_result_contract, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -48,6 +54,7 @@ from ..expressions import (
     WithPhaseExpr,
 )
 from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
+from ..phase import derived_private_child_context_eligibility, private_exec_context_kind
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourceSpan
@@ -65,6 +72,7 @@ from ..workflows import (
     analyze_workflow_boundary_type,
 )
 from . import core as lowering_core
+from . import workflow_calls as lowering_workflow_calls
 from .context import (
     _ActivePhaseScope,
     _copy_context_with_phase_scope,
@@ -717,9 +725,28 @@ def _phase_stdlib_lower_backlog_drain_impl(
         generated_name: str,
         call_target: str,
         with_bindings: Mapping[str, Any],
+        source_record_values: Mapping[str, Any] | None,
         lowered_callee: LoweredWorkflow | None,
         imported_bundle: LoadedWorkflowBundle | None,
+        callee_signature: Any,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        def _param_has_authored_binding(param_name: str, param_type: Any) -> bool:
+            if param_name in step["with"]:
+                return True
+            if not isinstance(param_type, RecordTypeRef):
+                return False
+            flattened_field_names = {
+                field.generated_name
+                for field in derive_workflow_boundary_fields(
+                    param_type,
+                    generated_name=param_name,
+                    source_path=(param_name,),
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            }
+            return any(field_name in step["with"] for field_name in flattened_field_names)
+
         step = {
             "name": generated_name,
             "id": _normalize_generated_step_id(generated_name),
@@ -789,6 +816,216 @@ def _phase_stdlib_lower_backlog_drain_impl(
                 for managed_input in sorted(managed_inputs)
             }
             step["with"].update(managed_bindings)
+        for param_name, param_type in callee_signature.params:
+            if _param_has_authored_binding(param_name, param_type) or not isinstance(param_type, RecordTypeRef):
+                continue
+            requirement = getattr(callee_signature, "hidden_context_requirements", {}).get(param_name)
+            if requirement is not None and requirement.binding_kind == "derived_private_child_context":
+                ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
+                if requirement.phase_name is None or param_name in ambiguities:
+                    raise lowering_core._compile_error(
+                        code="derived_phase_context_ambiguous",
+                        message=f"derived child phase context for `{param_name}` is ambiguous in this callee",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                eligibility = derived_private_child_context_eligibility(
+                    context.signature,
+                    param_name=param_name,
+                )
+                if not eligibility.allowed:
+                    raise lowering_core._compile_error(
+                        code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
+                        message=eligibility.diagnostic_message
+                        or f"invalid derived child phase context for `{param_name}`",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                generated_binding_name = f"{param_name}__{requirement.phase_name}"
+                step["with"].update(
+                    lowering_workflow_calls._declare_runtime_context_hidden_inputs(
+                        context=context,
+                        param_name=param_name,
+                        param_type=param_type,
+                        requirement=requirement,
+                        source_expr=expr,
+                        source_param_name=eligibility.source_param_name,
+                        bridge_class="derived_private_child_context",
+                        binding_id=generated_binding_name,
+                        generated_name=generated_binding_name,
+                        carried_input_sources=eligibility.carried_input_sources,
+                        carried_source_expr=(
+                            source_record_values.get(eligibility.source_param_name)
+                            if source_record_values is not None
+                            and eligibility.source_param_name is not None
+                            else None
+                        ),
+                        local_values=local_values,
+                    )
+                )
+                continue
+            if requirement is not None:
+                step["with"].update(
+                    lowering_core._declare_runtime_context_hidden_inputs(
+                        context=context,
+                        param_name=param_name,
+                        param_type=param_type,
+                        requirement=requirement,
+                        source_expr=expr,
+                    )
+                )
+                continue
+            if private_exec_context_kind(param_type) is not None:
+                code = "promoted_entry_hidden_context_metadata_missing"
+                ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
+                if param_name in ambiguities:
+                    code = "promoted_entry_hidden_phase_ctx_ambiguous"
+                raise lowering_core._compile_error(
+                    code=code,
+                    message=f"promoted-entry hidden binding metadata is unavailable for `{param_name}`",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+        private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+        if lowered_callee is not None:
+            private_exec_context_bindings = getattr(lowered_callee, "private_exec_context_bindings", ())
+        elif imported_bundle is not None:
+            private_exec_context_bindings = workflow_boundary_projection(
+                imported_bundle
+            ).private_runtime_context_bindings
+        for binding in private_exec_context_bindings:
+            if binding.bridge_class != "derived_private_child_context":
+                continue
+            source_value = (
+                source_record_values.get(binding.source_param_name)
+                if source_record_values is not None
+                else None
+            )
+            if not isinstance(source_value, Mapping):
+                continue
+            carried_input_sources = binding.projection_hints.get("carried_input_sources", {})
+            if isinstance(carried_input_sources, Mapping) and carried_input_sources:
+                for generated_name, source_path in carried_input_sources.items():
+                    if not isinstance(generated_name, str) or not isinstance(source_path, (tuple, list)):
+                        continue
+                    if not source_path or source_path[0] != binding.source_param_name:
+                        continue
+                    field_path = tuple(str(part) for part in source_path[1:])
+                    if not field_path or generated_name in step["with"]:
+                        continue
+                    carried_value = _resolve_nested_local_value(source_value, field_path)
+                    step["with"][generated_name] = lowering_core._render_call_binding_leaf_ref(
+                        carried_value,
+                        source_expr=expr,
+                    )
+        step["with"].update(
+            lowering_workflow_calls._carry_callee_private_exec_context_bindings(
+                context=context,
+                source_expr=expr,
+                lowered_callee=lowered_callee,
+                imported_bundle=imported_bundle,
+                already_bound=set(step["with"]),
+            )
+        )
+        step["with"].update(
+            lowering_workflow_calls._carry_callee_runtime_context_inputs(
+                context=context,
+                source_expr=expr,
+                lowered_callee=lowered_callee,
+                imported_bundle=imported_bundle,
+                already_bound=set(step["with"]),
+            )
+        )
+        for binding in private_exec_context_bindings:
+            if binding.bridge_class != "derived_private_child_context":
+                continue
+            carried_input_sources = binding.projection_hints.get("carried_input_sources", {})
+            if not isinstance(carried_input_sources, Mapping) or not carried_input_sources:
+                continue
+            remapped_sources: dict[str, tuple[str, ...]] = {}
+            source_roots: set[str] = set()
+            for generated_name in carried_input_sources:
+                binding_value = step["with"].get(generated_name)
+                if not isinstance(binding_value, Mapping):
+                    continue
+                ref_value = binding_value.get("ref")
+                if not isinstance(ref_value, str) or not ref_value.startswith("inputs."):
+                    continue
+                ref_name = ref_value.removeprefix("inputs.")
+                parts = tuple(part for part in ref_name.split("__") if part)
+                if not parts:
+                    continue
+                remapped_sources[generated_name] = parts
+                source_roots.add(parts[0])
+            if not remapped_sources:
+                continue
+            remapped_source_param_name = (
+                next(iter(source_roots))
+                if len(source_roots) == 1
+                else binding.source_param_name
+            )
+            remapped_projection_hints = dict(binding.projection_hints)
+            remapped_projection_hints["carried_input_sources"] = remapped_sources
+            for index, carried_binding in enumerate(context.private_exec_context_bindings):
+                if (
+                    carried_binding.binding_id == binding.binding_id
+                    and carried_binding.bridge_class == binding.bridge_class
+                ):
+                    context.private_exec_context_bindings[index] = replace(
+                        carried_binding,
+                        source_param_name=remapped_source_param_name,
+                        projection_hints=remapped_projection_hints,
+                    )
+                    break
+        compatibility_bridge_owner = None
+        if lowered_callee is not None:
+            compatibility_bridge_owner = lowered_callee
+        elif imported_bundle is not None:
+            compatibility_bridge_owner = type(
+                "ImportedBundleCompatibilityBridgeOwner",
+                (),
+                {
+                    "compatibility_bridge_inputs": workflow_boundary_projection(
+                        imported_bundle
+                    ).private_compatibility_bridge_inputs
+                },
+            )()
+        compatibility_bridge_input_names = set(
+            getattr(compatibility_bridge_owner, "compatibility_bridge_inputs", ())
+            if compatibility_bridge_owner is not None
+            else ()
+        )
+        if not compatibility_bridge_input_names:
+            compatibility_bridge_input_names.update(
+                getattr(callee_signature, "private_compatibility_bridge_types", {}).keys()
+            )
+        omitted_compatibility_bridge_inputs = {
+            input_name
+            for input_name in compatibility_bridge_input_names
+            if input_name not in step["with"]
+        }
+        if omitted_compatibility_bridge_inputs:
+            bridge_owner = compatibility_bridge_owner
+            if bridge_owner is None:
+                bridge_owner = type(
+                    "SignatureCompatibilityBridgeOwner",
+                    (),
+                    {
+                        "compatibility_bridge_inputs": tuple(
+                            sorted(omitted_compatibility_bridge_inputs)
+                        )
+                    },
+                )()
+            step["with"].update(
+                lowering_workflow_calls._compatibility_bridge_bindings_for_lowered_callee(
+                    context=context,
+                    lowered_callee=bridge_owner,
+                    source_expr=expr,
+                    local_values=dict(local_values),
+                    already_bound=set(step["with"]),
+                    allowed_inputs=omitted_compatibility_bridge_inputs,
+                )
+            )
         for managed_input in managed_inputs:
             hidden_inputs[managed_input] = _origin_from_context_source(context, expr)
         _record_step_origin(context, step_name=generated_name, step_id=step["id"], source=expr)
@@ -1009,15 +1246,22 @@ def _phase_stdlib_lower_backlog_drain_impl(
         generated_name=selector_call_name,
         call_target=selector_call_target,
         with_bindings=selector_with,
+        source_record_values={selector_signature.params[0][0]: ctx_value},
         lowered_callee=selector_callee,
         imported_bundle=selector_imported,
+        callee_signature=selector_signature,
     )
     gap_prepare_steps, gap_drafter_call_step = _managed_call_step(
         generated_name=gap_drafter_call_name,
         call_target=gap_drafter_call_target,
         with_bindings=gap_drafter_with,
+        source_record_values={
+            gap_drafter_signature.params[0][0]: ctx_value,
+            gap_drafter_signature.params[1][0]: gap_value,
+        },
         lowered_callee=gap_drafter_callee,
         imported_bundle=gap_drafter_imported,
+        callee_signature=gap_drafter_signature,
     )
     gap_drafter_call_step["when"] = {
         "compare": {
@@ -1030,8 +1274,13 @@ def _phase_stdlib_lower_backlog_drain_impl(
         generated_name=run_item_call_name,
         call_target=run_item_call_target,
         with_bindings=run_item_with,
+        source_record_values={
+            run_item_signature.params[0][0]: item_ctx_value,
+            run_item_signature.params[1][0]: selection_value,
+        },
         lowered_callee=run_item_callee,
         imported_bundle=run_item_imported,
+        callee_signature=run_item_signature,
     )
     run_item_call_step["when"] = {
         "compare": {
