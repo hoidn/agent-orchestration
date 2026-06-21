@@ -9,6 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+BOOTSTRAP_WAIT_STATUS = "WAITING_ON_BOOTSTRAP_REACHABILITY"
+BOOTSTRAP_WAIT_REASON = "bootstrap_reachability_missing"
+
 
 def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -64,6 +67,10 @@ def _completed_waiting_prerequisite(state: dict[str, Any], *, original_gap_id: s
     if _is_completed(state, source=source, item_id=prerequisite_id):
         return source, prerequisite_id
     return "", ""
+
+
+def _original_entry(state: dict[str, Any], *, original_gap_id: str) -> dict[str, Any]:
+    return dict((state.get("blocked_design_gaps") or {}).get(original_gap_id) or {})
 
 
 def _is_blocked(state: dict[str, Any], *, source: str, item_id: str) -> bool:
@@ -164,6 +171,37 @@ def _record_recovery_continues(
     )
 
 
+def _is_bootstrap_wait_boundary(entry: dict[str, Any]) -> bool:
+    return (
+        str(entry.get("prerequisite_recovery_status") or "").strip() == BOOTSTRAP_WAIT_STATUS
+        and str(entry.get("downstream_blocked_gap_id") or "").strip() != ""
+        and str(entry.get("waiting_on_prerequisite_gap_id") or "").strip() != ""
+    )
+
+
+def _record_original_completed(
+    state: dict[str, Any],
+    *,
+    original_gap_id: str,
+    selected_source: str,
+    selected_id: str,
+    reason: str,
+) -> None:
+    state.setdefault("history", []).append(
+        {
+            "event": "prerequisite_recovery_satisfied",
+            "item_id": original_gap_id,
+            "source": "DESIGN_GAP",
+            "reason": reason,
+            "recovery_status": "RETRY_READY",
+            "prerequisite_recovery_status": "COMPLETED",
+            "waiting_on_prerequisite_gap_id": selected_id,
+            "waiting_on_prerequisite_source": selected_source,
+            "timestamp_utc": _timestamp(),
+        }
+    )
+
+
 def _finish(
     *,
     state_path: Path,
@@ -208,6 +246,89 @@ def main() -> int:
     selected_status = _read_status(Path(args.selected_work_status_path))
     selected_source, selected_id = _selected_work(selection)
     relation = str(selection.get("prerequisite_relation") or "").strip()
+    original = _original_entry(state, original_gap_id=original_gap_id)
+
+    completed_source, completed_id = _completed_waiting_prerequisite(state, original_gap_id=original_gap_id)
+    if completed_id:
+        _record_original(
+            state,
+            original_gap_id=original_gap_id,
+            selection_path=selection_path,
+            selected_source=completed_source,
+            selected_id=completed_id,
+            status="RETRY_READY",
+            prerequisite_status="COMPLETED",
+            reason="prerequisite_completed",
+        )
+        return _finish(
+            state_path=state_path,
+            state=state,
+            summary_path=Path(args.summary_path),
+            drain_status_path=Path(args.drain_status_path),
+            summary={
+                "record_status": "RETRY_READY",
+                "original_blocked_gap_id": original_gap_id,
+                "selected_prerequisite_id": completed_id,
+                "selected_prerequisite_source": completed_source,
+                "reason": "prerequisite_completed",
+            },
+            drain_status="CONTINUE",
+        )
+
+    boundary_waiting_id = str(original.get("waiting_on_prerequisite_gap_id") or "").strip()
+    boundary_waiting_source = str(original.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
+    downstream_gap_id = str(original.get("downstream_blocked_gap_id") or "").strip()
+    if _is_bootstrap_wait_boundary(original) and selected_source == "DESIGN_GAP":
+        if selected_id == downstream_gap_id:
+            _record_original(
+                state,
+                original_gap_id=original_gap_id,
+                selection_path=selection_path,
+                selected_source=boundary_waiting_source,
+                selected_id=boundary_waiting_id,
+                status="PREREQUISITE_WORK_PENDING",
+                prerequisite_status=BOOTSTRAP_WAIT_STATUS,
+                reason=BOOTSTRAP_WAIT_REASON,
+                event="prerequisite_recovery_continues",
+            )
+            return _finish(
+                state_path=state_path,
+                state=state,
+                summary_path=Path(args.summary_path),
+                drain_status_path=Path(args.drain_status_path),
+                summary={
+                    "record_status": "RECOVERY_CONTINUES",
+                    "original_blocked_gap_id": original_gap_id,
+                    "selected_prerequisite_id": boundary_waiting_id,
+                    "selected_prerequisite_source": boundary_waiting_source,
+                    "reason": BOOTSTRAP_WAIT_REASON,
+                },
+                drain_status="CONTINUE",
+            )
+        if selected_id == original_gap_id and not _is_completed(state, source=selected_source, item_id=selected_id):
+            reason = "circular_prerequisite_relation"
+            _record_recovery_continues(
+                state,
+                original_gap_id=original_gap_id,
+                selection_path=selection_path,
+                selected_source=boundary_waiting_source,
+                selected_id=boundary_waiting_id,
+                reason=reason,
+            )
+            return _finish(
+                state_path=state_path,
+                state=state,
+                summary_path=Path(args.summary_path),
+                drain_status_path=Path(args.drain_status_path),
+                summary={
+                    "record_status": "RECOVERY_CONTINUES",
+                    "original_blocked_gap_id": original_gap_id,
+                    "selected_prerequisite_id": boundary_waiting_id,
+                    "selected_prerequisite_source": boundary_waiting_source,
+                    "reason": reason,
+                },
+                drain_status="CONTINUE",
+            )
 
     reason = ""
     if not selected_source or not selected_id:
@@ -215,17 +336,13 @@ def main() -> int:
     elif not relation:
         reason = "missing_prerequisite_relation"
     elif selected_source == "DESIGN_GAP" and selected_id == original_gap_id:
-        completed_source, completed_id = _completed_waiting_prerequisite(state, original_gap_id=original_gap_id)
-        if completed_id:
-            _record_original(
+        if _is_completed(state, source=selected_source, item_id=selected_id):
+            _record_original_completed(
                 state,
                 original_gap_id=original_gap_id,
-                selection_path=selection_path,
-                selected_source=completed_source,
-                selected_id=completed_id,
-                status="RETRY_READY",
-                prerequisite_status="COMPLETED",
-                reason="prerequisite_completed",
+                selected_source=selected_source,
+                selected_id=selected_id,
+                reason="original_gap_completed",
             )
             return _finish(
                 state_path=state_path,
@@ -235,13 +352,13 @@ def main() -> int:
                 summary={
                     "record_status": "RETRY_READY",
                     "original_blocked_gap_id": original_gap_id,
-                    "selected_prerequisite_id": completed_id,
-                    "selected_prerequisite_source": completed_source,
-                    "reason": "prerequisite_completed",
+                    "selected_prerequisite_id": selected_id,
+                    "selected_prerequisite_source": selected_source,
+                    "reason": "original_gap_completed",
                 },
                 drain_status="CONTINUE",
             )
-        reason = "self_prerequisite_selection"
+        reason = "circular_prerequisite_relation"
     elif _is_completed(state, source=selected_source, item_id=selected_id):
         _record_original(
             state,

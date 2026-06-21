@@ -20,6 +20,18 @@ RECOVERY_ROUTES = {
     "TERMINAL_BLOCKED",
 }
 
+BOOTSTRAP_GAP_ID = "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+SUMMARY_OWNERSHIP_GAP_ID = (
+    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+)
+BOOTSTRAP_FAILURE_CODE = "private_exec_context_bootstrap_unsupported"
+BOOTSTRAP_WAIT_STATUS = "WAITING_ON_BOOTSTRAP_REACHABILITY"
+BOOTSTRAP_WAIT_REASON = "bootstrap_reachability_missing"
+BOOTSTRAP_RETRY_CONDITION = (
+    "imported stdlib-adapter selector path reaches imported finalizer branches "
+    "without private_exec_context_bootstrap_unsupported"
+)
+
 
 def _read_value_or_path(value: str) -> str:
     path = Path(value)
@@ -172,6 +184,13 @@ def _run_update(
     *,
     recovery_status: str = "",
     prerequisite_gap_hint: str = "",
+    waiting_on_prerequisite_gap_id: str = "",
+    waiting_on_prerequisite_source: str = "",
+    prerequisite_recovery_status: str = "",
+    prerequisite_recovery_reason: str = "",
+    downstream_blocked_gap_id: str = "",
+    blocking_failure_code: str = "",
+    retry_condition: str = "",
 ) -> int:
     state_reason = "implementation_blocked" if command == "blocked" else reason
     command_args = [
@@ -204,6 +223,13 @@ def _run_update(
             "--recovery-event-id": args.recovery_event_id,
             "--recovery-status": recovery_status,
             "--prerequisite-gap-hint": prerequisite_gap_hint,
+            "--waiting-on-prerequisite-gap-id": waiting_on_prerequisite_gap_id,
+            "--waiting-on-prerequisite-source": waiting_on_prerequisite_source,
+            "--prerequisite-recovery-status": prerequisite_recovery_status,
+            "--prerequisite-recovery-reason": prerequisite_recovery_reason,
+            "--downstream-blocked-gap-id": downstream_blocked_gap_id,
+            "--blocking-failure-code": blocking_failure_code,
+            "--retry-condition": retry_condition,
         }
         for flag, value in optional.items():
             if value:
@@ -221,6 +247,41 @@ def _architecture_path(args: argparse.Namespace) -> str:
         return ""
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     return str(bundle.get("architecture_path") or "").strip()
+
+
+def _bootstrap_boundary_metadata(bundle: dict[str, Any], args: argparse.Namespace) -> dict[str, str]:
+    if args.item_id != BOOTSTRAP_GAP_ID or args.source != "DESIGN_GAP":
+        return {}
+    metadata = {
+        "waiting_on_prerequisite_gap_id": str(bundle.get("waiting_on_prerequisite_gap_id") or "").strip(),
+        "waiting_on_prerequisite_source": str(bundle.get("waiting_on_prerequisite_source") or "").strip(),
+        "prerequisite_recovery_status": str(bundle.get("prerequisite_recovery_status") or "").strip(),
+        "prerequisite_recovery_reason": str(bundle.get("prerequisite_recovery_reason") or "").strip(),
+        "downstream_blocked_gap_id": str(bundle.get("downstream_blocked_gap_id") or "").strip(),
+        "blocking_failure_code": str(bundle.get("blocking_failure_code") or "").strip(),
+        "retry_condition": str(bundle.get("retry_condition") or "").strip(),
+    }
+    if metadata == {
+        "waiting_on_prerequisite_gap_id": BOOTSTRAP_GAP_ID,
+        "waiting_on_prerequisite_source": "DESIGN_GAP",
+        "prerequisite_recovery_status": BOOTSTRAP_WAIT_STATUS,
+        "prerequisite_recovery_reason": BOOTSTRAP_WAIT_REASON,
+        "downstream_blocked_gap_id": SUMMARY_OWNERSHIP_GAP_ID,
+        "blocking_failure_code": BOOTSTRAP_FAILURE_CODE,
+        "retry_condition": BOOTSTRAP_RETRY_CONDITION,
+    }:
+        return metadata
+    if any(metadata.values()):
+        raise SystemExit("Incomplete or invalid structured bootstrap boundary metadata in recovery bundle")
+    return {
+        "waiting_on_prerequisite_gap_id": "",
+        "waiting_on_prerequisite_source": "",
+        "prerequisite_recovery_status": "",
+        "prerequisite_recovery_reason": "",
+        "downstream_blocked_gap_id": "",
+        "blocking_failure_code": "",
+        "retry_condition": "",
+    }
 
 
 def main() -> int:
@@ -250,10 +311,11 @@ def main() -> int:
 
     route = args.recovery_route.strip()
     reason = args.reason.strip()
+    recovery_bundle: dict[str, Any] = {}
     if args.recovery_bundle_path:
-        bundle = json.loads(Path(args.recovery_bundle_path).read_text(encoding="utf-8"))
-        route = str(bundle.get("blocked_recovery_route") or route).strip()
-        reason = str(bundle.get("reason") or reason).strip()
+        recovery_bundle = json.loads(Path(args.recovery_bundle_path).read_text(encoding="utf-8"))
+        route = str(recovery_bundle.get("blocked_recovery_route") or route).strip()
+        reason = str(recovery_bundle.get("reason") or reason).strip()
     if route not in RECOVERY_ROUTES:
         raise SystemExit(f"Unexpected recovery route: {route}")
     if not reason:
@@ -317,53 +379,20 @@ def main() -> int:
     if route == "PREREQUISITE_GAP_REQUIRED":
         if args.terminal_action == "block":
             return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
-        if revision_report_exists:
-            report = json.loads(revision_report_path.read_text(encoding="utf-8"))
-            revision_decision = str(report.get("design_revision_decision") or "").strip()
-            if revision_decision == "BLOCKED":
-                return _run_update(args, "blocked", "prerequisite_target_design_revision_blocked")
-            if revision_decision != "REVISED":
-                raise SystemExit(f"Unexpected prerequisite target design revision decision: {revision_decision}")
-            decision = _read_value_or_path(args.target_design_review_decision)
-            if decision == "APPROVE":
-                result = _run_update(
-                    args,
-                    "blocked",
-                    reason,
-                    recovery_status="PREREQUISITE_WORK_PENDING",
-                    prerequisite_gap_hint=str(report.get("summary") or "").strip(),
-                )
-                if result == 0:
-                    Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
-                return result
-            if decision == "REVISE":
-                result = _run_update(
-                    args,
-                    "blocked",
-                    "prerequisite_target_design_revision_revise",
-                    recovery_status="TARGET_DESIGN_REVISION_REQUIRED",
-                )
-                if result == 0:
-                    _append_recovery_review_revise_event(
-                        state_path=args.state_path,
-                        item_id=args.item_id,
-                        source=args.source,
-                        route=route,
-                        reason="prerequisite_target_design_revision_revise",
-                        revision_report_path=revision_report_path,
-                        review_decision=decision,
-                    )
-                    Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
-                return result
-            if decision == "BLOCKED":
-                return _run_update(
-                    args,
-                    "blocked",
-                    "prerequisite_target_design_revision_blocked",
-                    recovery_status="TARGET_DESIGN_REVISION_REQUIRED",
-                )
-            raise SystemExit(f"Unexpected prerequisite target design review decision: {decision}")
-        result = _run_update(args, "blocked", reason, recovery_status="TARGET_DESIGN_REVISION_REQUIRED")
+        metadata = _bootstrap_boundary_metadata(recovery_bundle, args)
+        result = _run_update(
+            args,
+            "blocked",
+            reason,
+            recovery_status="PREREQUISITE_WORK_PENDING",
+            waiting_on_prerequisite_gap_id=metadata.get("waiting_on_prerequisite_gap_id", ""),
+            waiting_on_prerequisite_source=metadata.get("waiting_on_prerequisite_source", ""),
+            prerequisite_recovery_status=metadata.get("prerequisite_recovery_status", ""),
+            prerequisite_recovery_reason=metadata.get("prerequisite_recovery_reason", ""),
+            downstream_blocked_gap_id=metadata.get("downstream_blocked_gap_id", ""),
+            blocking_failure_code=metadata.get("blocking_failure_code", ""),
+            retry_condition=metadata.get("retry_condition", ""),
+        )
         if result == 0:
             Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
         return result

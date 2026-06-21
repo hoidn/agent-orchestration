@@ -40,3 +40,21 @@ Write one JSON bundle at the required output path:
   "summary": ""
 }
 ```
+
+When `blocked_recovery_route` is `PREREQUISITE_GAP_REQUIRED` because the
+imported-adapter bootstrap gap is still failing with
+`private_exec_context_bootstrap_unsupported` and the summary-ownership gap is
+waiting on bootstrap reachability, include these additional fields exactly and
+omit them otherwise:
+
+```json
+{
+  "waiting_on_prerequisite_gap_id": "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters",
+  "waiting_on_prerequisite_source": "DESIGN_GAP",
+  "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
+  "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+  "downstream_blocked_gap_id": "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item",
+  "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
+  "retry_condition": "imported stdlib-adapter selector path reaches imported finalizer branches without private_exec_context_bootstrap_unsupported"
+}
+```

@@ -13,9 +13,12 @@ authority for what may be edited:
 - `GAP_DESIGN_REVISION_REQUIRED`: update the consumed gap
   `implementation_architecture.md` and, if needed, its `execution_plan.md`.
   Keep the target and baseline design documents unchanged.
-- `PREREQUISITE_GAP_REQUIRED`: update only the consumed target design enough to
-  add or decompose the missing prerequisite gap so it can be selected or drafted
-  next. Keep the baseline design and current gap architecture/plan unchanged.
+- `PREREQUISITE_GAP_REQUIRED`: this prompt should normally not be used. Do not
+  revise the target design, baseline design, or current gap architecture/plan
+  just to encode prerequisite sequencing. If this route reaches the prompt,
+  write a revision report with `design_revision_decision: "BLOCKED"` and explain
+  that prerequisite routing/evidence must be updated instead of revising design
+  documents.
 
 Make the smallest principled design change that resolves the blocker and gives a
 future plan/implementation pass a coherent contract to use. If the blocker

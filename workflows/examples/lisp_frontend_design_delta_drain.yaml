@@ -774,11 +774,6 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: GAP_DESIGN_REVISION_REQUIRED
-                  - compare:
-                      left:
-                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                      op: eq
-                      right: PREREQUISITE_GAP_REQUIRED
           provider: ${inputs.implementation_execute_provider}
           input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_prior_blocked_design_gap.md
           timeout_sec: 3600
@@ -821,11 +816,6 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: TARGET_DESIGN_REVISION_REQUIRED
-                  - compare:
-                      left:
-                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                      op: eq
-                      right: PREREQUISITE_GAP_REQUIRED
               - compare:
                   left:
                     ref: self.steps.ReviseBlockedDesignGap.artifacts.design_revision_decision
@@ -867,11 +857,6 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: TARGET_DESIGN_REVISION_REQUIRED
-                  - compare:
-                      left:
-                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                      op: eq
-                      right: PREREQUISITE_GAP_REQUIRED
               - compare:
                   left:
                     ref: self.steps.ReviseBlockedDesignGap.artifacts.design_revision_decision
@@ -915,11 +900,6 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: TARGET_DESIGN_REVISION_REQUIRED
-                  - compare:
-                      left:
-                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                      op: eq
-                      right: PREREQUISITE_GAP_REQUIRED
               - compare:
                   left:
                     ref: self.steps.ReviseBlockedDesignGap.artifacts.design_revision_decision
@@ -972,11 +952,6 @@ steps:
                         ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
                       op: eq
                       right: TARGET_DESIGN_REVISION_REQUIRED
-                  - compare:
-                      left:
-                        ref: self.steps.ClassifyBlockedImplementationRecovery.artifacts.blocked_recovery_route
-                      op: eq
-                      right: PREREQUISITE_GAP_REQUIRED
           command:
             - python
             - workflows/library/scripts/write_lisp_frontend_design_revision_iteration_decision.py

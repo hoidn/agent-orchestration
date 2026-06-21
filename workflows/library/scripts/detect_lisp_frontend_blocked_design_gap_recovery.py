@@ -8,6 +8,19 @@ import json
 from pathlib import Path
 from typing import Any
 
+BOOTSTRAP_GAP_ID = "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+SUMMARY_OWNERSHIP_GAP_ID = (
+    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+)
+BOOTSTRAP_FAILURE_CODE = "private_exec_context_bootstrap_unsupported"
+BOOTSTRAP_WAIT_STATUS = "WAITING_ON_BOOTSTRAP_REACHABILITY"
+BOOTSTRAP_WAIT_REASON = "bootstrap_reachability_missing"
+BOOTSTRAP_RETRY_CONDITION = (
+    "imported stdlib-adapter selector path reaches imported finalizer branches "
+    "without private_exec_context_bootstrap_unsupported"
+)
+BOOTSTRAP_BOUNDARY_DIAGNOSTIC = "prerequisite_boundary_bootstrap_reachability_missing"
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -55,6 +68,29 @@ def _is_completed_prerequisite(state: dict[str, Any], entry: dict[str, Any]) -> 
     if source == "BACKLOG_ITEM":
         return prerequisite_id in set(state.get("completed_items") or [])
     return False
+
+
+def _has_valid_bootstrap_boundary_metadata(design_gap_id: str, entry: dict[str, Any]) -> bool:
+    if design_gap_id != BOOTSTRAP_GAP_ID:
+        return True
+    metadata = {
+        "waiting_on_prerequisite_gap_id": str(entry.get("waiting_on_prerequisite_gap_id") or "").strip(),
+        "waiting_on_prerequisite_source": str(entry.get("waiting_on_prerequisite_source") or "").strip(),
+        "prerequisite_recovery_status": str(entry.get("prerequisite_recovery_status") or "").strip(),
+        "prerequisite_recovery_reason": str(entry.get("prerequisite_recovery_reason") or "").strip(),
+        "downstream_blocked_gap_id": str(entry.get("downstream_blocked_gap_id") or "").strip(),
+        "blocking_failure_code": str(entry.get("blocking_failure_code") or "").strip(),
+        "retry_condition": str(entry.get("retry_condition") or "").strip(),
+    }
+    return metadata == {
+        "waiting_on_prerequisite_gap_id": BOOTSTRAP_GAP_ID,
+        "waiting_on_prerequisite_source": "DESIGN_GAP",
+        "prerequisite_recovery_status": BOOTSTRAP_WAIT_STATUS,
+        "prerequisite_recovery_reason": BOOTSTRAP_WAIT_REASON,
+        "downstream_blocked_gap_id": SUMMARY_OWNERSHIP_GAP_ID,
+        "blocking_failure_code": BOOTSTRAP_FAILURE_CODE,
+        "retry_condition": BOOTSTRAP_RETRY_CONDITION,
+    }
 
 
 def _block_payload(reason: str) -> dict[str, str]:
@@ -147,6 +183,8 @@ def _recovery_payload(
         if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_WORK_PENDING":
             if _is_completed_prerequisite(state, entry):
                 recovery_status = "RETRY_READY"
+            elif not _has_valid_bootstrap_boundary_metadata(design_gap_id, entry):
+                recovery_reason = BOOTSTRAP_BOUNDARY_DIAGNOSTIC
             else:
                 return _none_payload(
                     recovery_route=recovery_route,

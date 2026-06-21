@@ -1375,6 +1375,20 @@ def test_prerequisite_block_recovery_stays_nonterminal_until_target_revision(tmp
             {
                 "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
                 "reason": "prerequisite_gap_required",
+                "waiting_on_prerequisite_gap_id": (
+                    "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+                ),
+                "waiting_on_prerequisite_source": "DESIGN_GAP",
+                "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
+                "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+                "downstream_blocked_gap_id": (
+                    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+                ),
+                "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
+                "retry_condition": (
+                    "imported stdlib-adapter selector path reaches imported finalizer branches "
+                    "without private_exec_context_bootstrap_unsupported"
+                ),
             }
         )
         + "\n",
@@ -1427,7 +1441,7 @@ def test_prerequisite_block_recovery_stays_nonterminal_until_target_revision(tmp
     assert blocked["reason"] == "implementation_blocked"
     assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
     assert blocked["recovery_reason"] == "prerequisite_gap_required"
-    assert blocked["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
 
     _run_script(
@@ -1441,7 +1455,7 @@ def test_prerequisite_block_recovery_stays_nonterminal_until_target_revision(tmp
         detector_output.relative_to(workspace).as_posix(),
     )
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
-    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
     assert payload["design_gap_id"] == "parser-syntax"
     assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
 
@@ -1641,9 +1655,9 @@ def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path
     blocked = state["blocked_design_gaps"]["parser-syntax"]
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
     assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
-    assert blocked["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
-    assert blocked["recovery_reason"] == "prerequisite_target_design_revision_revise"
-    assert state["history"][-1]["event"] == "blocked_recovery_review_revise"
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["recovery_reason"] == "prerequisite_gap_required"
+    assert state["history"][-1]["event"] == "blocked"
 
     _run_script(
         workspace,
@@ -1656,9 +1670,631 @@ def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path
         detector_output.relative_to(workspace).as_posix(),
     )
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
-    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
     assert payload["design_gap_id"] == "parser-syntax"
-    assert payload["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+
+
+def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    recovery_bundle = workspace / "state/drain/recovery-decision.json"
+    summary_path = workspace / "artifacts/work/blocked-summary.json"
+    pointer_path = workspace / "state/drain/blocked-summary-path.txt"
+    drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
+    progress_path = (
+        workspace
+        / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        "progress_report.md"
+    )
+    implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
+    architecture_path = (
+        workspace
+        / "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        "implementation_architecture.md"
+    )
+    plan_path = (
+        workspace
+        / "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        "execution_plan.md"
+    )
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recovery_bundle.parent.mkdir(parents=True, exist_ok=True)
+    recovery_bundle.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "reason": "prerequisite_gap_required",
+                "waiting_on_prerequisite_gap_id": (
+                    "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+                ),
+                "waiting_on_prerequisite_source": "DESIGN_GAP",
+                "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
+                "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+                "downstream_blocked_gap_id": (
+                    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+                ),
+                "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
+                "retry_condition": (
+                    "imported stdlib-adapter selector path reaches imported finalizer branches "
+                    "without private_exec_context_bootstrap_unsupported"
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for path, text in [
+        (
+            progress_path,
+            (
+                "# Progress Report\n\n"
+                "Imported stdlib-adapter execution still fails with "
+                "`private_exec_context_bootstrap_unsupported` before the finalizer branches.\n"
+            ),
+        ),
+        (implementation_state_path, "{}\n"),
+        (architecture_path, "# Imported Adapter Bootstrap Architecture\n"),
+        (plan_path, "# Imported Adapter Bootstrap Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+        "--recovery-bundle-path",
+        recovery_bundle.relative_to(workspace).as_posix(),
+        "--target-design-review-decision",
+        "NOT_APPLICABLE",
+        "--terminal-action",
+        "continue",
+        "--state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--item-id",
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters",
+        "--source",
+        "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--implementation-state-path",
+        implementation_state_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "bootstrap-gap-implementation-blocked",
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--summary-pointer-path",
+        pointer_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"][
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    ]
+    assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["waiting_on_prerequisite_gap_id"] == (
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    )
+    assert blocked["waiting_on_prerequisite_source"] == "DESIGN_GAP"
+    assert blocked["prerequisite_recovery_status"] == "WAITING_ON_BOOTSTRAP_REACHABILITY"
+    assert blocked["prerequisite_recovery_reason"] == "bootstrap_reachability_missing"
+    assert blocked["downstream_blocked_gap_id"] == (
+        "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+    )
+    assert blocked["blocking_failure_code"] == "private_exec_context_bootstrap_unsupported"
+    assert "private_exec_context_bootstrap_unsupported" in blocked["retry_condition"]
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
+    assert payload["design_gap_id"] == (
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    )
+    assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+
+
+def test_prerequisite_boundary_bootstrap_failure_requires_structured_evidence(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    recovery_bundle = workspace / "state/drain/recovery-decision.json"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
+    summary_path = workspace / "artifacts/work/blocked-summary.json"
+    pointer_path = workspace / "state/drain/blocked-summary-path.txt"
+    drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
+    progress_path = (
+        workspace
+        / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        "progress_report.md"
+    )
+    implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
+    architecture_path = (
+        workspace
+        / "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        "implementation_architecture.md"
+    )
+    plan_path = (
+        workspace
+        / "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        "execution_plan.md"
+    )
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recovery_bundle.parent.mkdir(parents=True, exist_ok=True)
+    recovery_bundle.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "reason": "prerequisite_gap_required",
+                "summary": "A different prerequisite gap still needs implementation before bootstrap can proceed.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for path, text in [
+        (progress_path, "# Progress Report\n\nBootstrap is still blocked, but no structured boundary evidence was emitted.\n"),
+        (implementation_state_path, "{}\n"),
+        (architecture_path, "# Imported Adapter Bootstrap Architecture\n"),
+        (plan_path, "# Imported Adapter Bootstrap Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+        "--recovery-bundle-path",
+        recovery_bundle.relative_to(workspace).as_posix(),
+        "--target-design-review-decision",
+        "NOT_APPLICABLE",
+        "--terminal-action",
+        "continue",
+        "--state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--item-id",
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters",
+        "--source",
+        "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--implementation-state-path",
+        implementation_state_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "bootstrap-gap-implementation-blocked",
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--summary-pointer-path",
+        pointer_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    blocked = json.loads(state_path.read_text(encoding="utf-8"))["blocked_design_gaps"][
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    ]
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert "waiting_on_prerequisite_gap_id" not in blocked
+    assert "prerequisite_recovery_status" not in blocked
+    assert "downstream_blocked_gap_id" not in blocked
+    assert "blocking_failure_code" not in blocked
+    assert "retry_condition" not in blocked
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["design_gap_id"] == (
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    )
+    assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
+    assert payload["recovery_reason"] == "prerequisite_boundary_bootstrap_reachability_missing"
+    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+
+
+def test_prerequisite_boundary_summary_waits_for_bootstrap(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    pre_selection_bundle = workspace / "state/drain/blocked-recovery.json"
+    selection_bundle = workspace / "state/drain/prerequisite-selector/selection.json"
+    selected_status = workspace / "state/drain/selected-prerequisite-status.txt"
+    summary_path = workspace / "artifacts/work/prerequisite-recovery-summary.json"
+    drain_status_path = workspace / "state/drain/prerequisite-recovery-status.txt"
+    original_gap_id = (
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    )
+    downstream_gap_id = (
+        "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+    )
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    original_gap_id: {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "waiting_on_prerequisite_gap_id": original_gap_id,
+                        "waiting_on_prerequisite_source": "DESIGN_GAP",
+                        "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
+                        "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+                        "downstream_blocked_gap_id": downstream_gap_id,
+                        "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
+                        "retry_condition": (
+                            "imported stdlib-adapter selector path reaches imported finalizer branches "
+                            "without private_exec_context_bootstrap_unsupported"
+                        ),
+                        "recovery_event_id": "bootstrap-gap-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pre_selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    pre_selection_bundle.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "design_gap_id": original_gap_id,
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_status": "PREREQUISITE_WORK_PENDING",
+                "recovery_event_id": "bootstrap-gap-implementation-blocked",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": downstream_gap_id,
+                "prerequisite_relation": (
+                    f"{downstream_gap_id} remains blocked until {original_gap_id} "
+                    "proves imported finalizer reachability."
+                ),
+                "selection_rationale": "Summary ownership should wait for bootstrap reachability.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selected_status.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "--pre-selection-bundle-path",
+        pre_selection_bundle.relative_to(workspace).as_posix(),
+        "--selection-bundle-path",
+        selection_bundle.relative_to(workspace).as_posix(),
+        "--selected-work-status-path",
+        selected_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"][original_gap_id]
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["waiting_on_prerequisite_gap_id"] == original_gap_id
+    assert blocked["downstream_blocked_gap_id"] == downstream_gap_id
+    assert blocked["prerequisite_recovery_status"] == "WAITING_ON_BOOTSTRAP_REACHABILITY"
+    assert blocked["prerequisite_recovery_reason"] == "bootstrap_reachability_missing"
+    assert state["history"][-1]["event"] == "prerequisite_recovery_continues"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["record_status"] == "RECOVERY_CONTINUES"
+    assert summary["reason"] == "bootstrap_reachability_missing"
+    assert summary["selected_prerequisite_id"] == original_gap_id
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+
+
+def test_prerequisite_boundary_retry_ready_after_bootstrap(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    pre_selection_bundle = workspace / "state/drain/blocked-recovery.json"
+    selection_bundle = workspace / "state/drain/prerequisite-selector/selection.json"
+    selected_status = workspace / "state/drain/selected-prerequisite-status.txt"
+    summary_path = workspace / "artifacts/work/prerequisite-recovery-summary.json"
+    drain_status_path = workspace / "state/drain/prerequisite-recovery-status.txt"
+    original_gap_id = (
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    )
+    downstream_gap_id = (
+        "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+    )
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [original_gap_id],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    original_gap_id: {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "waiting_on_prerequisite_gap_id": original_gap_id,
+                        "waiting_on_prerequisite_source": "DESIGN_GAP",
+                        "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
+                        "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+                        "downstream_blocked_gap_id": downstream_gap_id,
+                        "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
+                        "retry_condition": (
+                            "imported stdlib-adapter selector path reaches imported finalizer branches "
+                            "without private_exec_context_bootstrap_unsupported"
+                        ),
+                        "recovery_event_id": "bootstrap-gap-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pre_selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    pre_selection_bundle.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "design_gap_id": original_gap_id,
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_status": "PREREQUISITE_WORK_PENDING",
+                "recovery_event_id": "bootstrap-gap-implementation-blocked",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": downstream_gap_id,
+                "prerequisite_relation": (
+                    f"{downstream_gap_id} becomes selectable after {original_gap_id} completes."
+                ),
+                "selection_rationale": "Bootstrap reachability is proven, so summary ownership is now selectable.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selected_status.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "--pre-selection-bundle-path",
+        pre_selection_bundle.relative_to(workspace).as_posix(),
+        "--selection-bundle-path",
+        selection_bundle.relative_to(workspace).as_posix(),
+        "--selected-work-status-path",
+        selected_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"][original_gap_id]
+    assert blocked["recovery_status"] == "RETRY_READY"
+    assert blocked["waiting_on_prerequisite_gap_id"] == original_gap_id
+    assert blocked["downstream_blocked_gap_id"] == downstream_gap_id
+    assert blocked["prerequisite_recovery_status"] == "COMPLETED"
+    assert blocked["prerequisite_recovery_reason"] == "prerequisite_completed"
+    assert state["history"][-1]["event"] == "prerequisite_recovery_satisfied"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["record_status"] == "RETRY_READY"
+    assert summary["selected_prerequisite_id"] == original_gap_id
+    assert summary["reason"] == "prerequisite_completed"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+
+
+def test_prerequisite_boundary_circular_relation_fails_closed(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    pre_selection_bundle = workspace / "state/drain/blocked-recovery.json"
+    selection_bundle = workspace / "state/drain/prerequisite-selector/selection.json"
+    selected_status = workspace / "state/drain/selected-prerequisite-status.txt"
+    summary_path = workspace / "artifacts/work/prerequisite-recovery-summary.json"
+    drain_status_path = workspace / "state/drain/prerequisite-recovery-status.txt"
+    original_gap_id = (
+        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    )
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    original_gap_id: {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "waiting_on_prerequisite_gap_id": original_gap_id,
+                        "waiting_on_prerequisite_source": "DESIGN_GAP",
+                        "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
+                        "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+                        "downstream_blocked_gap_id": (
+                            "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
+                        ),
+                        "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
+                        "retry_condition": (
+                            "imported stdlib-adapter selector path reaches imported finalizer branches "
+                            "without private_exec_context_bootstrap_unsupported"
+                        ),
+                        "recovery_event_id": "bootstrap-gap-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pre_selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    pre_selection_bundle.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "design_gap_id": original_gap_id,
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_status": "PREREQUISITE_WORK_PENDING",
+                "recovery_event_id": "bootstrap-gap-implementation-blocked",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": original_gap_id,
+                "prerequisite_relation": (
+                    f"{original_gap_id} depends on itself until bootstrap reachability is proven."
+                ),
+                "selection_rationale": "Accidental circular prerequisite relation.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selected_status.write_text("CONTINUE\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "--pre-selection-bundle-path",
+        pre_selection_bundle.relative_to(workspace).as_posix(),
+        "--selection-bundle-path",
+        selection_bundle.relative_to(workspace).as_posix(),
+        "--selected-work-status-path",
+        selected_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"][original_gap_id]
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert blocked["prerequisite_recovery_status"] == "RECOVERY_CONTINUES"
+    assert blocked["prerequisite_recovery_reason"] == "circular_prerequisite_relation"
+    assert blocked["waiting_on_prerequisite_gap_id"] == original_gap_id
+    assert state["history"][-1]["event"] == "prerequisite_recovery_continues"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["record_status"] == "RECOVERY_CONTINUES"
+    assert summary["reason"] == "circular_prerequisite_relation"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
 
 
 def test_detector_treats_legacy_prerequisite_blocked_as_recoverable(tmp_path):
@@ -2368,7 +3004,7 @@ def test_prerequisite_retry_ready_is_overridden_when_retry_blocks_again(tmp_path
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
     blocked = state["blocked_design_gaps"]["parser-syntax"]
-    assert blocked["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
     assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
     assert blocked["recovery_reason"] == "prerequisite_gap_required"
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
@@ -2387,9 +3023,9 @@ def test_prerequisite_retry_ready_is_overridden_when_retry_blocks_again(tmp_path
     )
 
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
-    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
     assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
-    assert payload["recovery_status"] == "TARGET_DESIGN_REVISION_REQUIRED"
+    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
 
 
 def test_prerequisite_recovery_decline_keeps_original_gap_blocked(tmp_path):
@@ -2477,6 +3113,97 @@ def test_prerequisite_recovery_decline_keeps_original_gap_blocked(tmp_path):
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["record_status"] == "RECOVERY_CONTINUES"
+
+
+def test_prerequisite_recovery_decline_with_completed_waiting_gap_retries_original(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    pre_selection_bundle = workspace / "state/drain/blocked-recovery.json"
+    selection_bundle = workspace / "state/drain/prerequisite-selector/selection.json"
+    selected_status = workspace / "state/drain/selected-prerequisite-status.txt"
+    summary_path = workspace / "artifacts/work/prerequisite-recovery-summary.json"
+    drain_status_path = workspace / "state/drain/prerequisite-recovery-status.txt"
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": ["generic-context-capability"],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "waiting_on_prerequisite_gap_id": "generic-context-capability",
+                        "waiting_on_prerequisite_source": "DESIGN_GAP",
+                        "progress_report_path": "artifacts/work/design-gaps/parser-syntax/progress_report.md",
+                        "implementation_state_path": "state/drain/iterations/0/work-item/implementation_state.json",
+                        "architecture_path": "docs/plans/design-gaps/parser-syntax/implementation_architecture.md",
+                        "plan_path": "docs/plans/design-gaps/parser-syntax/execution_plan.md",
+                        "recovery_event_id": "parser-syntax-implementation-blocked",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    pre_selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    pre_selection_bundle.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "design_gap_id": "parser-syntax",
+                "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "recovery_reason": "prerequisite_gap_required",
+                "recovery_status": "PREREQUISITE_WORK_PENDING",
+                "recovery_event_id": "parser-syntax-implementation-blocked",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection_bundle.parent.mkdir(parents=True, exist_ok=True)
+    selection_bundle.write_text(
+        json.dumps({"selection_status": "BLOCKED", "selection_rationale": "No safe prerequisite found."}) + "\n",
+        encoding="utf-8",
+    )
+    selected_status.write_text("BLOCKED\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "--pre-selection-bundle-path",
+        pre_selection_bundle.relative_to(workspace).as_posix(),
+        "--selection-bundle-path",
+        selection_bundle.relative_to(workspace).as_posix(),
+        "--selected-work-status-path",
+        selected_status.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    blocked = state["blocked_design_gaps"]["parser-syntax"]
+    assert blocked["recovery_status"] == "RETRY_READY"
+    assert blocked["prerequisite_recovery_status"] == "COMPLETED"
+    assert blocked["waiting_on_prerequisite_gap_id"] == "generic-context-capability"
+    assert blocked["prerequisite_recovery_reason"] == "prerequisite_completed"
+    assert state["history"][-1]["event"] == "prerequisite_recovery_satisfied"
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["record_status"] == "RETRY_READY"
+    assert summary["reason"] == "prerequisite_completed"
 
 
 def test_prerequisite_recovery_missing_relation_remains_recoverable(tmp_path):
@@ -3179,10 +3906,9 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
     assert route_values == [
         "TARGET_DESIGN_REVISION_REQUIRED",
         "GAP_DESIGN_REVISION_REQUIRED",
-        "PREREQUISITE_GAP_REQUIRED",
     ]
-    assert "PREREQUISITE_GAP_REQUIRED" in json.dumps(recover["ReviewBlockedTargetDesignRevision"]["when"])
-    assert "PREREQUISITE_GAP_REQUIRED" in json.dumps(recover["WriteBlockedDesignRevisionDecision"]["when"])
+    assert "PREREQUISITE_GAP_REQUIRED" not in json.dumps(recover["ReviewBlockedTargetDesignRevision"]["when"])
+    assert "PREREQUISITE_GAP_REQUIRED" not in json.dumps(recover["WriteBlockedDesignRevisionDecision"]["when"])
     assert "${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-decision.json" in reviser["depends_on"]["required"]
     assert "${inputs.drain_state_root}/iterations/${loop.index}/blocked-gap-architecture.md" in reviser["depends_on"]["required"]
     assert "${inputs.drain_state_root}/iterations/${loop.index}/blocked-gap-execution-plan.md" in reviser["depends_on"]["required"]
@@ -3248,6 +3974,22 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
         "RecordRecoveredRetryUnavailable",
     ]:
         assert _condition_has_recovered_retry_request_guard(recover[step_name]["when"]), step_name
+
+
+def test_prerequisite_boundary_workflow_route():
+    workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text(encoding="utf-8"))
+    repeat_steps = list(_iter_workflow_steps(workflow["steps"]))
+    recover = {step["name"]: step for step in repeat_steps}
+    reviser = recover["ReviseBlockedDesignGap"]
+    route_values = [
+        predicate["compare"]["right"]
+        for clause in reviser["when"]["all_of"]
+        if "any_of" in clause
+        for predicate in clause["any_of"]
+    ]
+    assert "PREREQUISITE_GAP_REQUIRED" not in route_values
+    assert "PREREQUISITE_GAP_REQUIRED" not in json.dumps(recover["ReviewBlockedTargetDesignRevision"]["when"])
+    assert "PREREQUISITE_GAP_REQUIRED" not in json.dumps(recover["WriteBlockedDesignRevisionDecision"]["when"])
 
 
 def test_blocked_target_design_revision_review_report_path_is_command_owned():
