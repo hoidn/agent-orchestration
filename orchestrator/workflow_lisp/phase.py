@@ -95,6 +95,7 @@ class DerivedPrivateChildContextEligibility:
 
     source_param_name: str | None = None
     payload_param_name: str | None = None
+    carried_input_sources: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     diagnostic_code: str | None = None
     diagnostic_message: str | None = None
 
@@ -157,7 +158,11 @@ def derived_private_child_context_eligibility(
         )
 
     source_type = dict(signature.params)[source_param_name]
-    if source_param_name != "item-ctx" or private_exec_context_kind(source_type) != ITEM_CONTEXT_NAME:
+    if (
+        source_param_name != "item-ctx"
+        or private_exec_context_kind(source_type) != ITEM_CONTEXT_NAME
+        or not _is_item_context_shape(source_type)
+    ):
         return DerivedPrivateChildContextEligibility(
             diagnostic_code="derived_phase_context_binding_invalid",
             diagnostic_message=(
@@ -184,6 +189,11 @@ def derived_private_child_context_eligibility(
     return DerivedPrivateChildContextEligibility(
         source_param_name=source_param_name,
         payload_param_name=payload_param_name,
+        carried_input_sources={
+            f"{param_name}__run__run-id": (source_param_name, "run", "run-id"),
+            f"{param_name}__run__state-root": (source_param_name, "run", "state-root"),
+            f"{param_name}__run__artifact-root": (source_param_name, "run", "artifact-root"),
+        },
     )
 
 

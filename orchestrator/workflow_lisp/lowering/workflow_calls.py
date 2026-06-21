@@ -8,7 +8,9 @@ from typing import Any
 
 from orchestrator.workflow.loaded_bundle import (
     workflow_boundary_projection,
+    workflow_input_contracts,
     workflow_managed_write_root_inputs,
+    workflow_runtime_context_inputs,
 )
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 from orchestrator.workflow.state_layout import GeneratedPathAllocation
@@ -17,7 +19,6 @@ from ..conditionals import classify_condition_expr, render_condition_predicate
 from ..context_classification import (
     _bootstrap_role_for_field,
     classify_structural_private_exec_context,
-    structural_bootstrap_plan,
 )
 from ..contracts import FlattenedContractField, derive_workflow_boundary_fields
 from ..diagnostics import LispFrontendCompileError
@@ -113,14 +114,20 @@ def _compatibility_bridge_omission_allowed(
 ) -> bool:
     if context_signature is None:
         return False
-    if param_name != "run_state_path":
-        return False
     if callee_signature is None:
         return False
-    return callee_signature.name in getattr(
+    if param_name not in getattr(callee_signature, "private_compatibility_bridge_types", {}):
+        return False
+    allowed_callees = getattr(
         context_signature,
         "allowed_private_compatibility_bridge_callees",
         frozenset(),
+    )
+    if callee_signature.name in allowed_callees:
+        return True
+    return bool(
+        getattr(context_signature, "allow_private_compatibility_bridge_omission", False)
+        and not allowed_callees
     )
 
 
@@ -213,6 +220,9 @@ def _declare_runtime_context_hidden_inputs(
     bridge_class: str = "runtime_owned_context",
     binding_id: str | None = None,
     generated_name: str | None = None,
+    carried_input_sources: Mapping[str, tuple[str, ...]] | None = None,
+    carried_source_expr: Any | None = None,
+    local_values: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Declare runtime-owned hidden inputs for one omitted promoted-entry context param."""
 
@@ -268,23 +278,35 @@ def _declare_runtime_context_hidden_inputs(
             )
         )
 
-    bootstrap_plan = structural_bootstrap_plan(
-        [generated_field for _callee_field, generated_field in prepared_fields],
-        structural_classification,
-    )
-    if bootstrap_plan is None and not private_exec_context_bootstrap_supported(requirement.context_kind):
+    normalized_carried_input_sources = {
+        str(name): tuple(str(part) for part in source_path)
+        for name, source_path in (carried_input_sources or {}).items()
+        if isinstance(name, str) and isinstance(source_path, (tuple, list))
+    }
+    input_roles: dict[str, str] = {}
+    missing_non_bootstrapable_fields: list[str] = []
+    for callee_field, flattened_field in prepared_fields:
+        role = (
+            _bootstrap_role_for_field(
+                source_path=flattened_field.source_path,
+                contract_definition=flattened_field.contract_definition,
+                anchors=structural_classification.anchors,
+            )
+            if structural_classification is not None
+            else None
+        )
+        if role is not None:
+            input_roles[flattened_field.generated_name] = role
+            continue
+        if callee_field.generated_name in normalized_carried_input_sources:
+            continue
+        missing_non_bootstrapable_fields.append(flattened_field.generated_name)
+    if (
+        missing_non_bootstrapable_fields
+        and not private_exec_context_bootstrap_supported(requirement.context_kind)
+    ):
         unsupported_input_name = next(
-            (
-                flattened_field.generated_name
-                for _callee_field, flattened_field in prepared_fields
-                if structural_classification is None
-                or _bootstrap_role_for_field(
-                    source_path=flattened_field.source_path,
-                    contract_definition=flattened_field.contract_definition,
-                    anchors=structural_classification.anchors,
-                )
-                is None
-            ),
+            iter(missing_non_bootstrapable_fields),
             None,
         )
         raise lowering_core._compile_error(
@@ -315,9 +337,47 @@ def _declare_runtime_context_hidden_inputs(
             bridge_class,
         )
         generated_input_names.append(flattened_field.generated_name)
-        with_bindings[callee_field.generated_name] = {
-            "ref": f"inputs.{flattened_field.generated_name}",
+        carried_source_path = normalized_carried_input_sources.get(
+            callee_field.generated_name
+        )
+        if (
+            isinstance(carried_source_path, tuple)
+            and local_values is not None
+            and len(carried_source_path) > 1
+        ):
+            field_path = tuple(str(part) for part in carried_source_path[1:])
+            if carried_source_expr is not None:
+                with_bindings[callee_field.generated_name] = _render_call_binding_ref(
+                    carried_source_expr,
+                    local_values=local_values,
+                    field_path=field_path,
+                )
+                continue
+            if source_param_name is not None and source_param_name in local_values:
+                carried_value = _resolve_nested_local_value(
+                    local_values[source_param_name],
+                    field_path,
+                )
+                with_bindings[callee_field.generated_name] = lowering_core._render_call_binding_leaf_ref(
+                    carried_value,
+                    source_expr=source_expr,
+                )
+                continue
+        with_bindings[callee_field.generated_name] = {"ref": f"inputs.{flattened_field.generated_name}"}
+    projection_hints: dict[str, Any] = {}
+    if input_roles or normalized_carried_input_sources:
+        projection_hints["context_binding_schema_version"] = 1
+    if input_roles:
+        projection_hints["context_input_roles"] = dict(input_roles)
+    if normalized_carried_input_sources:
+        projection_hints["carried_input_sources"] = {
+            flattened_field.generated_name: tuple(
+                normalized_carried_input_sources[callee_field.generated_name]
+            )
+            for callee_field, flattened_field in prepared_fields
+            if callee_field.generated_name in normalized_carried_input_sources
         }
+
     binding_record = PrivateExecContextBinding(
         binding_id=binding_id,
         source_param_name=source_param_name or param_name,
@@ -326,18 +386,11 @@ def _declare_runtime_context_hidden_inputs(
         generated_input_names=tuple(generated_input_names),
         required_capabilities=(
             structural_classification.derived_capabilities
-            if bootstrap_plan is not None and structural_classification is not None
+            if structural_classification is not None
             else private_exec_context_capabilities(requirement.context_kind)
         ),
         derived_phase_identity=requirement.phase_name,
-        projection_hints=(
-            {
-                "context_binding_schema_version": 1,
-                "context_input_roles": dict(bootstrap_plan.input_roles),
-            }
-            if bootstrap_plan is not None
-            else {}
-        ),
+        projection_hints=projection_hints,
         source_provenance={
             "workflow_name": context.workflow_name,
             "path": str(origin.span.start.path),
@@ -449,18 +502,66 @@ def _derived_private_context_source_field_path(generated_name: str) -> tuple[str
     return None
 
 
+def _input_contracts_for_lowered_callee(lowered_callee: Any) -> dict[str, dict[str, Any]]:
+    """Return runtime-visible input contracts for one same-file lowered callee."""
+
+    contracts: dict[str, dict[str, Any]] = {}
+    boundary_projection = getattr(lowered_callee, "boundary_projection", None)
+    flattened_inputs = getattr(boundary_projection, "flattened_inputs", ()) if boundary_projection else ()
+    for field in flattened_inputs:
+        generated_name = getattr(field, "generated_name", None)
+        contract_definition = getattr(field, "contract_definition", None)
+        if isinstance(generated_name, str) and isinstance(contract_definition, Mapping):
+            contracts[generated_name] = dict(contract_definition)
+    raw_input_contracts = getattr(lowered_callee, "authored_mapping", {}).get("inputs", {})
+    if isinstance(raw_input_contracts, Mapping):
+        for name, contract_definition in raw_input_contracts.items():
+            if isinstance(name, str) and isinstance(contract_definition, Mapping):
+                contracts.setdefault(name, dict(contract_definition))
+    return contracts
+
+
 def _render_callee_private_exec_context_call_bindings(
     *,
-    lowered_callee: Any,
+    lowered_callee: Any | None,
+    imported_bundle: Any | None,
     authored_bindings: Mapping[str, Any],
     local_values: Mapping[str, Any],
 ) -> dict[str, Any]:
     bindings: dict[str, Any] = {}
-    for binding in getattr(lowered_callee, "private_exec_context_bindings", ()):
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    if lowered_callee is not None:
+        private_exec_context_bindings = getattr(lowered_callee, "private_exec_context_bindings", ())
+    elif imported_bundle is not None:
+        private_exec_context_bindings = workflow_boundary_projection(
+            imported_bundle
+        ).private_runtime_context_bindings
+    for binding in private_exec_context_bindings:
         if binding.bridge_class != "derived_private_child_context":
             continue
         source_expr = authored_bindings.get(binding.source_param_name)
         if source_expr is None:
+            continue
+        carried_input_sources = binding.projection_hints.get("carried_input_sources", {})
+        if isinstance(carried_input_sources, Mapping) and carried_input_sources:
+            for generated_name, source_path in carried_input_sources.items():
+                if not isinstance(generated_name, str) or not isinstance(source_path, (tuple, list)):
+                    continue
+                if generated_name not in binding.generated_input_names:
+                    continue
+                if not source_path or source_path[0] != binding.source_param_name:
+                    continue
+                field_path = tuple(str(part) for part in source_path[1:])
+                if not field_path:
+                    continue
+                bindings.setdefault(
+                    generated_name,
+                    _render_call_binding_ref(
+                        source_expr,
+                        local_values=local_values,
+                        field_path=field_path,
+                    ),
+                )
             continue
         for generated_name in binding.generated_input_names:
             field_path = _derived_private_context_source_field_path(generated_name)
@@ -475,6 +576,194 @@ def _render_callee_private_exec_context_call_bindings(
                 ),
             )
     return bindings
+
+
+def _carry_callee_private_exec_context_bindings(
+    *,
+    context: Any,
+    source_expr: Any,
+    lowered_callee: Any | None,
+    imported_bundle: Any | None,
+    already_bound: set[str],
+) -> dict[str, Any]:
+    private_exec_context_bindings: tuple[PrivateExecContextBinding, ...] = ()
+    callee_input_contracts: Mapping[str, Any] = {}
+    if lowered_callee is not None:
+        private_exec_context_bindings = getattr(lowered_callee, "private_exec_context_bindings", ())
+        callee_input_contracts = _input_contracts_for_lowered_callee(lowered_callee)
+    elif imported_bundle is not None:
+        private_exec_context_bindings = workflow_boundary_projection(
+            imported_bundle
+        ).private_runtime_context_bindings
+        callee_input_contracts = workflow_input_contracts(imported_bundle)
+    if not private_exec_context_bindings:
+        return {}
+
+    origin = lowering_core._origin_from_context_source(context, source_expr)
+    source_provenance = {
+        "workflow_name": context.workflow_name,
+        "path": str(origin.span.start.path),
+        "line": origin.span.start.line,
+        "form_path": list(origin.form_path),
+    }
+    carried_bindings: dict[str, Any] = {}
+    for binding in private_exec_context_bindings:
+        missing_generated_inputs = tuple(
+            generated_input_name
+            for generated_input_name in binding.generated_input_names
+            if generated_input_name not in already_bound and generated_input_name not in carried_bindings
+        )
+        if not missing_generated_inputs:
+            continue
+        for generated_input_name in missing_generated_inputs:
+            contract_definition = callee_input_contracts.get(generated_input_name)
+            if not isinstance(contract_definition, Mapping):
+                raise lowering_core._compile_error(
+                    code="workflow_boundary_type_invalid",
+                    message=(
+                        "private executable context binding metadata is missing a runtime "
+                        f"contract for `{generated_input_name}`"
+                    ),
+                    span=source_expr.span,
+                    form_path=source_expr.form_path,
+                )
+            context.internal_generated_input_contracts.setdefault(
+                generated_input_name,
+                dict(contract_definition),
+            )
+            context.generated_input_spans.setdefault(generated_input_name, origin)
+            context.internal_generated_input_reasons.setdefault(
+                generated_input_name,
+                binding.bridge_class,
+            )
+            carried_bindings[generated_input_name] = {"ref": f"inputs.{generated_input_name}"}
+        carried_projection_hints = dict(binding.projection_hints)
+        carried_input_sources = carried_projection_hints.get("carried_input_sources")
+        if isinstance(carried_input_sources, Mapping):
+            carried_projection_hints["carried_input_sources"] = {
+                name: value
+                for name, value in carried_input_sources.items()
+                if name in missing_generated_inputs
+            }
+            if not carried_projection_hints["carried_input_sources"]:
+                carried_projection_hints.pop("carried_input_sources")
+        context_input_roles = carried_projection_hints.get("context_input_roles")
+        if isinstance(context_input_roles, Mapping):
+            carried_projection_hints["context_input_roles"] = {
+                name: value
+                for name, value in context_input_roles.items()
+                if name in missing_generated_inputs
+            }
+            if not carried_projection_hints["context_input_roles"]:
+                carried_projection_hints.pop("context_input_roles")
+        if not carried_projection_hints.get("context_input_roles"):
+            carried_projection_hints.pop("context_binding_schema_version", None)
+        carried_binding = PrivateExecContextBinding(
+            binding_id=binding.binding_id,
+            source_param_name=binding.source_param_name,
+            context_family=binding.context_family,
+            bridge_class=binding.bridge_class,
+            generated_input_names=missing_generated_inputs,
+            required_capabilities=tuple(binding.required_capabilities),
+            derived_phase_identity=binding.derived_phase_identity,
+            allocation_ids=tuple(binding.allocation_ids),
+            projection_hints=carried_projection_hints,
+            source_provenance=source_provenance,
+        )
+        if carried_binding not in context.private_exec_context_bindings:
+            context.private_exec_context_bindings.append(carried_binding)
+    return carried_bindings
+
+
+def _carry_callee_runtime_context_inputs(
+    *,
+    context: Any,
+    source_expr: Any,
+    lowered_callee: Any | None,
+    imported_bundle: Any | None,
+    already_bound: set[str],
+) -> dict[str, Any]:
+    runtime_context_input_names: tuple[str, ...] = ()
+    callee_input_contracts: Mapping[str, Any] = {}
+    if lowered_callee is not None:
+        runtime_context_input_names = tuple(
+            field.generated_name
+            for field in lowered_callee.boundary_projection.generated_internal_inputs
+            if field.reason == "runtime_owned_context" and isinstance(field.generated_name, str)
+        )
+        callee_input_contracts = _input_contracts_for_lowered_callee(lowered_callee)
+    elif imported_bundle is not None:
+        runtime_context_input_names = workflow_runtime_context_inputs(imported_bundle)
+        callee_input_contracts = workflow_input_contracts(imported_bundle)
+    if not runtime_context_input_names:
+        return {}
+
+    origin = lowering_core._origin_from_context_source(context, source_expr)
+    carried_bindings: dict[str, Any] = {}
+    for input_name in runtime_context_input_names:
+        if input_name in already_bound or input_name in carried_bindings:
+            continue
+        contract_definition = callee_input_contracts.get(input_name)
+        if not isinstance(contract_definition, Mapping):
+            raise lowering_core._compile_error(
+                code="workflow_boundary_type_invalid",
+                message=(
+                    "runtime-owned context metadata is missing a runtime contract "
+                    f"for `{input_name}`"
+                ),
+                span=source_expr.span,
+                form_path=source_expr.form_path,
+            )
+        context.internal_generated_input_contracts.setdefault(
+            input_name,
+            dict(contract_definition),
+        )
+        context.generated_input_spans.setdefault(input_name, origin)
+        context.internal_generated_input_reasons.setdefault(
+            input_name,
+            "runtime_owned_context",
+        )
+        carried_bindings[input_name] = {"ref": f"inputs.{input_name}"}
+    source_provenance = {
+        "workflow_name": context.workflow_name,
+        "path": str(origin.span.start.path),
+        "line": origin.span.start.line,
+        "form_path": list(origin.form_path),
+    }
+    for binding in _synthetic_runtime_context_binding_records(
+        runtime_context_input_names=tuple(sorted(carried_bindings)),
+        source_provenance=source_provenance,
+    ):
+        if binding not in context.private_exec_context_bindings:
+            context.private_exec_context_bindings.append(binding)
+    return carried_bindings
+
+
+def _synthetic_runtime_context_binding_records(
+    *,
+    runtime_context_input_names: tuple[str, ...],
+    source_provenance: Mapping[str, Any],
+) -> tuple[PrivateExecContextBinding, ...]:
+    phase_groups: dict[tuple[str, str], list[str]] = {}
+    for input_name in runtime_context_input_names:
+        parts = input_name.split("__")
+        if len(parts) < 3 or parts[0] != "phase-ctx":
+            continue
+        binding_id = "__".join(parts[:2])
+        derived_phase_identity = parts[1]
+        phase_groups.setdefault((binding_id, derived_phase_identity), []).append(input_name)
+    return tuple(
+        PrivateExecContextBinding(
+            binding_id=binding_id,
+            source_param_name=binding_id,
+            context_family=PHASE_CONTEXT_NAME,
+            bridge_class="runtime_owned_context",
+            generated_input_names=tuple(sorted(input_names)),
+            derived_phase_identity=derived_phase_identity,
+            source_provenance=dict(source_provenance),
+        )
+        for (binding_id, derived_phase_identity), input_names in sorted(phase_groups.items())
+    )
 
 
 def _render_call_binding_leaf_ref(
@@ -683,6 +972,13 @@ def _lower_workflow_call(
         if callee is None and canonical_name in context.workflows_by_name:
             callee = context.ensure_workflow_lowered(canonical_name)
         imported_bundle = context.imported_workflow_bundles.get(canonical_name)
+        actual_signature = (
+            callee.typed_workflow.signature
+            if callee is not None
+            else context.workflow_catalog.signatures_by_name.get(canonical_name)
+        )
+        if actual_signature is not None:
+            callee_signature = actual_signature
     elif signature is not None and any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params):
         workflow_ref_bindings: dict[str, Any] = {}
         for param_name, param_type in signature.params:
@@ -785,6 +1081,13 @@ def _lower_workflow_call(
                         bridge_class="derived_private_child_context",
                         binding_id=generated_binding_name,
                         generated_name=generated_binding_name,
+                        carried_input_sources=eligibility.carried_input_sources,
+                        carried_source_expr=(
+                            binding_by_name.get(eligibility.source_param_name)
+                            if eligibility.source_param_name is not None
+                            else None
+                        ),
+                        local_values=local_values,
                     )
                 )
                 continue
@@ -905,12 +1208,44 @@ def _lower_workflow_call(
                 name: value
                 for name, value in _render_callee_private_exec_context_call_bindings(
                     lowered_callee=callee,
+                    imported_bundle=imported_bundle,
                     authored_bindings=binding_by_name,
                     local_values=local_values,
                 ).items()
                 if name not in with_bindings
             }
         )
+    elif imported_bundle is not None:
+        with_bindings.update(
+            {
+                name: value
+                for name, value in _render_callee_private_exec_context_call_bindings(
+                    lowered_callee=None,
+                    imported_bundle=imported_bundle,
+                    authored_bindings=binding_by_name,
+                    local_values=local_values,
+                ).items()
+                if name not in with_bindings
+            }
+        )
+    with_bindings.update(
+        _carry_callee_private_exec_context_bindings(
+            context=context,
+            source_expr=expr,
+            lowered_callee=callee,
+            imported_bundle=imported_bundle,
+            already_bound=set(with_bindings),
+        )
+    )
+    with_bindings.update(
+        _carry_callee_runtime_context_inputs(
+            context=context,
+            source_expr=expr,
+            lowered_callee=callee,
+            imported_bundle=imported_bundle,
+            already_bound=set(with_bindings),
+        )
+    )
     managed_inputs = _managed_write_root_requirements_for_callable(
         lowered_callee=callee,
         imported_bundle=imported_bundle,
@@ -939,22 +1274,41 @@ def _lower_workflow_call(
             },
         )()
     omitted_compatibility_bridge_inputs = set()
-    if compatibility_bridge_owner is not None:
+    compatibility_bridge_input_names = set(
+        getattr(compatibility_bridge_owner, "compatibility_bridge_inputs", ())
+        if compatibility_bridge_owner is not None
+        else ()
+    )
+    if not compatibility_bridge_input_names:
+        compatibility_bridge_input_names.update(
+            getattr(callee_signature, "private_compatibility_bridge_types", {}).keys()
+        )
+    if compatibility_bridge_input_names:
         omitted_compatibility_bridge_inputs = {
             input_name
-            for input_name in getattr(compatibility_bridge_owner, "compatibility_bridge_inputs", ())
+            for input_name in compatibility_bridge_input_names
             if input_name not in with_bindings
-            and _compatibility_bridge_omission_allowed(
-                context_signature=context.signature,
-                callee_signature=callee_signature,
-                param_name=input_name,
-            )
         }
     if compatibility_bridge_owner is not None and omitted_compatibility_bridge_inputs:
         with_bindings.update(
             _compatibility_bridge_bindings_for_lowered_callee(
                 context=context,
                 lowered_callee=compatibility_bridge_owner,
+                source_expr=expr,
+                local_values=dict(local_values),
+                already_bound=set(with_bindings),
+                allowed_inputs=omitted_compatibility_bridge_inputs,
+            )
+        )
+    elif omitted_compatibility_bridge_inputs:
+        with_bindings.update(
+            _compatibility_bridge_bindings_for_lowered_callee(
+                context=context,
+                lowered_callee=type(
+                    "SignatureCompatibilityBridgeOwner",
+                    (),
+                    {"compatibility_bridge_inputs": tuple(sorted(compatibility_bridge_input_names))},
+                )(),
                 source_expr=expr,
                 local_values=dict(local_values),
                 already_bound=set(with_bindings),

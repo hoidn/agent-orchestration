@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 import json
 from pathlib import Path
 from typing import Any
 
-from .context_classification import classify_structural_private_exec_context
-from .contracts import FlattenedContractField
+from .context_classification import (
+    _bootstrap_role_for_field,
+    classify_structural_private_exec_context,
+)
+from .contracts import FlattenedContractField, derive_workflow_boundary_fields
 from .effects import CallsWorkflowEffect, EffectSummary
+from .phase import private_exec_context_capabilities
 from .type_env import PathTypeRef, RecordTypeRef, TypeRef
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
@@ -56,6 +61,14 @@ DESIGN_DELTA_BOUNDARY_SURFACE_KINDS = frozenset(
         "managed_write_root",
         "runtime_context_input",
     }
+)
+DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.boundary_authority.json"
 )
 
 COMPATIBILITY_BRIDGE_TYPE_NAMES = frozenset(
@@ -129,9 +142,7 @@ def classify_phase_family_boundary(
     params: Iterable[tuple[str, TypeRef]],
     flattened_inputs: Iterable[FlattenedContractField],
 ) -> PhaseFamilyBoundaryClassification:
-    if not is_selected_phase_family_workflow(workflow_name):
-        return PhaseFamilyBoundaryClassification()
-
+    selected_phase_family = is_selected_phase_family_workflow(workflow_name)
     params_by_name = dict(params)
     runtime_names: list[str] = []
     bridge_names: list[str] = []
@@ -144,7 +155,10 @@ def classify_phase_family_boundary(
             public_names.append(field.generated_name)
             continue
         if is_phase_context_type(type_ref):
-            runtime_names.append(field.generated_name)
+            if selected_phase_family:
+                runtime_names.append(field.generated_name)
+            else:
+                public_names.append(field.generated_name)
         elif is_compatibility_bridge_param(root_param, type_ref):
             bridge_names.append(field.generated_name)
         else:
@@ -200,33 +214,86 @@ def record_direct_entry_phase_context_binding(
 ) -> None:
     if not generated_input_names:
         return
-    source_param_name = "phase-ctx"
-    origin = context.generated_input_spans.get(generated_input_names[0])
-    provenance: dict[str, Any] = {
-        "workflow_name": typed_workflow.definition.name,
-    }
-    if origin is not None:
-        provenance.update(
-            {
-                "path": str(origin.span.start.path),
-                "line": origin.span.start.line,
-                "form_path": list(origin.form_path),
-            }
+    generated_input_name_set = set(generated_input_names)
+    params_by_name = dict(typed_workflow.signature.params)
+    for (
+        source_param_name,
+        requirement,
+    ) in typed_workflow.signature.hidden_context_requirements.items():
+        type_ref = params_by_name.get(source_param_name)
+        if not isinstance(type_ref, RecordTypeRef):
+            continue
+        structural_classification = classify_structural_private_exec_context(type_ref)
+        flattened_fields = tuple(
+            field
+            for field in derive_workflow_boundary_fields(
+                type_ref,
+                generated_name=source_param_name,
+                source_path=(source_param_name,),
+                span=typed_workflow.definition.span,
+                form_path=typed_workflow.definition.form_path,
+            )
+            if field.generated_name in generated_input_name_set
         )
-    binding = PrivateExecContextBinding(
-        binding_id=source_param_name,
-        source_param_name=source_param_name,
-        context_family=PHASE_CONTEXT_TYPE_NAME,
-        bridge_class="runtime_owned_context",
-        generated_input_names=generated_input_names,
-        required_capabilities=_phase_context_capabilities(typed_workflow),
-        derived_phase_identity=phase_family_entry_phase_identity(
-            typed_workflow.definition.name
-        ),
-        source_provenance=provenance,
-    )
-    if binding not in context.private_exec_context_bindings:
-        context.private_exec_context_bindings.append(binding)
+        if not flattened_fields:
+            continue
+        origin = context.generated_input_spans.get(flattened_fields[0].generated_name)
+        provenance: dict[str, Any] = {
+            "workflow_name": typed_workflow.definition.name,
+        }
+        if origin is not None:
+            provenance.update(
+                {
+                    "path": str(origin.span.start.path),
+                    "line": origin.span.start.line,
+                    "form_path": list(origin.form_path),
+                }
+            )
+        input_roles: dict[str, str] = {}
+        carried_input_sources: dict[str, tuple[str, ...]] = {}
+        has_non_bootstrap_leaf = False
+        if structural_classification is not None:
+            for field in flattened_fields:
+                carried_input_sources[field.generated_name] = field.source_path
+                role = _bootstrap_role_for_field(
+                    source_path=field.source_path,
+                    contract_definition=field.contract_definition,
+                    anchors=structural_classification.anchors,
+                )
+                if role is None:
+                    has_non_bootstrap_leaf = True
+                    continue
+                input_roles[field.generated_name] = role
+        projection_hints: dict[str, Any] = {"context_binding_schema_version": 1}
+        if input_roles:
+            projection_hints["context_input_roles"] = input_roles
+        if carried_input_sources:
+            projection_hints["carried_input_sources"] = carried_input_sources
+        binding = PrivateExecContextBinding(
+            binding_id=source_param_name,
+            source_param_name=source_param_name,
+            context_family=requirement.context_kind,
+            bridge_class=(
+                "imported_adapter_carried_context"
+                if has_non_bootstrap_leaf
+                else "runtime_owned_context"
+            ),
+            generated_input_names=tuple(
+                field.generated_name for field in flattened_fields
+            ),
+            required_capabilities=(
+                structural_classification.derived_capabilities
+                if structural_classification is not None
+                else private_exec_context_capabilities(requirement.context_kind)
+            ),
+            derived_phase_identity=phase_family_entry_phase_identity(
+                typed_workflow.definition.name
+            ),
+            projection_hints=projection_hints,
+            source_provenance=provenance,
+        )
+        if binding not in context.private_exec_context_bindings:
+            context.private_exec_context_bindings.append(binding)
 
 
 def _phase_context_capabilities(typed_workflow: Any) -> tuple[str, ...]:
@@ -291,6 +358,26 @@ def load_design_delta_boundary_authority_registry(path: Path) -> dict[str, objec
         "schema_version": DESIGN_DELTA_BOUNDARY_AUTHORITY_SCHEMA_VERSION,
         "rows": normalized_rows,
     }
+
+
+@lru_cache(maxsize=1)
+def _checked_design_delta_boundary_authority_registry() -> dict[str, object]:
+    return load_design_delta_boundary_authority_registry(
+        DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH
+    )
+
+
+def checked_design_delta_compatibility_bridge_inputs(workflow_name: str) -> frozenset[str]:
+    if not is_design_delta_parent_drain_target_workflow(workflow_name):
+        return frozenset()
+    payload = _checked_design_delta_boundary_authority_registry()
+    return frozenset(
+        str(row["field_name"])
+        for row in payload["rows"]
+        if row.get("workflow_name") == workflow_name
+        and row.get("surface_kind") == "compatibility_bridge_input"
+        and row.get("authority_class") == "compatibility_bridge"
+    )
 
 
 def build_design_delta_boundary_authority_expected_rows(

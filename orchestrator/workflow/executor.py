@@ -2468,9 +2468,14 @@ class WorkflowExecutor:
         if not isinstance(self.state_manager, StateManager):
             return {}
         contracts = self._workflow_input_contracts()
+        bound_inputs = self.state_manager.load().bound_inputs
         bindings: Dict[str, Any] = {}
         for binding in workflow_boundary_projection(self.loaded_bundle).private_runtime_context_bindings:
-            if not self._private_exec_context_binding_supported(binding=binding, contracts=contracts):
+            if not self._private_exec_context_binding_supported(
+                binding=binding,
+                contracts=contracts,
+                bound_inputs=bound_inputs,
+            ):
                 continue
             for input_name in binding.generated_input_names:
                 if not isinstance(input_name, str):
@@ -2575,15 +2580,36 @@ class WorkflowExecutor:
             return (schema_version, None)
         return schema_version, normalized_roles
 
+    def _private_exec_context_carried_input_sources(
+        self,
+        binding: Any,
+    ) -> Mapping[str, tuple[str, ...]] | None:
+        """Return schema-versioned carried-input metadata when present."""
+
+        hints = getattr(binding, "projection_hints", None)
+        if not isinstance(hints, dict) and not isinstance(hints, Mapping):
+            return None
+        carried_input_sources = hints.get("carried_input_sources")
+        if not isinstance(carried_input_sources, Mapping):
+            return None
+        normalized: dict[str, tuple[str, ...]] = {}
+        for name, source_path in carried_input_sources.items():
+            if not isinstance(name, str) or not isinstance(source_path, (tuple, list)):
+                return None
+            normalized[name] = tuple(str(part) for part in source_path)
+        return normalized
+
     def _private_exec_context_binding_supported(
         self,
         *,
         binding: Any,
         contracts: Mapping[str, Any],
+        bound_inputs: Mapping[str, Any] | None = None,
     ) -> bool:
         """Return whether one hidden context binding can be resolved on this runtime."""
 
         role_metadata = self._private_exec_context_role_metadata(binding)
+        carried_input_sources = self._private_exec_context_carried_input_sources(binding)
         if role_metadata is not None:
             schema_version, roles = role_metadata
             if schema_version != 1 or roles is None:
@@ -2592,17 +2618,25 @@ class WorkflowExecutor:
                 if not isinstance(input_name, str):
                     return False
                 role = roles.get(input_name)
-                if role not in {
+                if role in {
                     "run_anchor:run-id",
                     "run_anchor:state-root",
                     "run_anchor:artifact-root",
                     "compile_time_default",
                 }:
-                    return False
-                if role == "compile_time_default":
-                    contract = contracts.get(input_name, {})
-                    if not isinstance(contract, dict) or "default" not in contract:
-                        return False
+                    if role == "compile_time_default":
+                        contract = contracts.get(input_name, {})
+                        if not isinstance(contract, dict) or "default" not in contract:
+                            return False
+                    continue
+                if (
+                    isinstance(carried_input_sources, Mapping)
+                    and input_name in carried_input_sources
+                    and isinstance(bound_inputs, Mapping)
+                    and input_name in bound_inputs
+                ):
+                    continue
+                return False
             return True
         generated_names = tuple(
             name
@@ -2652,7 +2686,11 @@ class WorkflowExecutor:
             )
         )
 
-    def _unsupported_private_exec_context_families(self) -> tuple[str, ...]:
+    def _unsupported_private_exec_context_families(
+        self,
+        *,
+        bound_inputs: Mapping[str, Any] | None = None,
+    ) -> tuple[str, ...]:
         """Return private context families that this runtime cannot bootstrap."""
 
         contracts = self._workflow_input_contracts()
@@ -2664,6 +2702,7 @@ class WorkflowExecutor:
                     if not self._private_exec_context_binding_supported(
                         binding=binding,
                         contracts=contracts,
+                        bound_inputs=bound_inputs,
                     )
                 }
             )
@@ -2732,7 +2771,9 @@ class WorkflowExecutor:
     ) -> Optional[Dict[str, Any]]:
         """Allocate or validate runtime-owned hidden context inputs for entry workflows."""
 
-        unsupported_families = self._unsupported_private_exec_context_families()
+        unsupported_families = self._unsupported_private_exec_context_families(
+            bound_inputs=state.get("bound_inputs", {}),
+        )
         if unsupported_families:
             return self._contract_violation_result(
                 "Workflow input binding failed",
