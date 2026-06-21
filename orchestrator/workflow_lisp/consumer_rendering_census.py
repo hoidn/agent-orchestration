@@ -289,6 +289,11 @@ def extract_materialize_view_effects(
                     workflow_surface=str(effect.get("workflow_name", "")),
                 ),
                 "target_path": details.get("target_path"),
+                "target_allocation_id": details.get("target_allocation_id")
+                or details.get("allocation_id"),
+                "authority_class": str(
+                    details.get("authority_class", "materialized_view")
+                ),
                 "value_type": _json_data(details.get("value_type")),
             }
         )
@@ -448,6 +453,8 @@ def build_consumer_rendering_census_report(
     for effect in materialize_effects:
         if not isinstance(effect, Mapping):
             continue
+        if str(effect.get("authority_class", "materialized_view")) != "materialized_view":
+            continue
         effect_id = str(effect.get("effect_id", ""))
         workflow_surface = str(effect.get("workflow_surface", ""))
         renderer_id = str(effect.get("renderer_id", ""))
@@ -466,6 +473,8 @@ def build_consumer_rendering_census_report(
         candidate_rows = _match_compiled_effect_rows(effect, candidate_rows)
 
         if not candidate_rows:
+            if _is_bridge_fulfillment_effect(effect):
+                continue
             missing_rows.append(
                 {
                     "row_id": effect_id,
@@ -553,7 +562,8 @@ def build_consumer_rendering_census_report(
         if source_kind in BODY_MATERIALIZATION_SOURCE_KINDS:
             body_ok = (
                 consumer_lane == "timed_body_materialization"
-                and track_c_decision == "KEEP_TIMED_PUBLICATION"
+                and track_c_decision
+                in {"KEEP_TIMED_PUBLICATION", "RETIRE_TO_OBSERVABILITY"}
                 and durability == "durable_timed_body"
             ) or (
                 consumer_lane == "retirement_candidate"
@@ -605,7 +615,7 @@ def build_consumer_rendering_census_report(
                     )
                 )
 
-        if consumer_lane in {"entry_publication", "compatibility_bridge"}:
+        if consumer_lane == "entry_publication":
             if not boundary_workflows or workflow_surface not in boundary_workflows:
                 stale_rows.append(
                     {
@@ -1004,6 +1014,23 @@ def _match_compiled_effect_rows(
         if isinstance(step_id_suffix, str) and step_id.endswith(step_id_suffix):
             matched_rows.append(row)
     return matched_rows
+
+
+def _is_bridge_fulfillment_effect(effect: Mapping[str, Any]) -> bool:
+    step_id = str(effect.get("step_id", ""))
+    target_path = str(effect.get("target_path", ""))
+    value_type = effect.get("value_type")
+    value_type_name = (
+        str(value_type.get("name", ""))
+        if isinstance(value_type, Mapping)
+        else ""
+    )
+    return bool(
+        step_id.endswith("__materialize_view__selected_item_summary")
+        and target_path.endswith("artifacts.return__item_summary_target_path")
+        and value_type_name
+        == "lisp_frontend_design_delta/types::WorkItemSummaryValue"
+    )
 
 
 def _normalize_source_census(value: object) -> dict[str, str]:

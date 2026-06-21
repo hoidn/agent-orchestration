@@ -261,6 +261,18 @@ def test_checked_design_delta_rendering_cleanup_retires_summary_body_materializa
     assert decisions["c0.work_item_summary_summary_path_compiled_boundary"] == (
         "RETIRED_TO_BRIDGE_METADATA"
     )
+    assert (
+        decisions.get("c0.work_item_materialized_selected_item_summary")
+        != "KEEP_TIMED_PUBLICATION"
+    )
+    assert (
+        decisions.get("c0.work_item_stdlib_materialized_selected_item_summary")
+        != "KEEP_TIMED_PUBLICATION"
+    )
+    assert (
+        decisions.get("c0.work_item_stdlib_materialized_blocked_recovery_summary")
+        != "KEEP_TIMED_PUBLICATION"
+    )
 
 
 def test_checked_design_delta_rendering_cleanup_keeps_live_checks_report_pair_timed() -> None:

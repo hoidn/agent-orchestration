@@ -1,19 +1,9 @@
 {
-  "schema_version": "workflow_lisp_rendering_cleanup.v1",
-  "target_family": "lisp_frontend_design_delta_parent_drain",
-  "source_census": {
-    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
-    "schema_version": "workflow_lisp_private_runtime_value_flow_census.v1"
-  },
-  "source_consumer_rendering_census": {
-    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.consumer_rendering_census.json",
-    "schema_version": "workflow_lisp_consumer_rendering_census.v1"
-  },
   "prerequisite_reports": {
-    "typed_prompt_input_report": "workflow_lisp_typed_prompt_input_report.v1",
-    "observability_summary_report": "workflow_lisp_observability_summary_report.v1",
+    "compatibility_bridge_report": "workflow_lisp_compatibility_bridge_report.v1",
     "entry_publication_report": "workflow_lisp_entry_publication_report.v1",
-    "compatibility_bridge_report": "workflow_lisp_compatibility_bridge_report.v1"
+    "observability_summary_report": "workflow_lisp_observability_summary_report.v1",
+    "typed_prompt_input_report": "workflow_lisp_typed_prompt_input_report.v1"
   },
   "rows": [
     {
@@ -253,20 +243,18 @@
       "decision": "KEEP_TIMED_PUBLICATION"
     },
     {
-      "c0_row_id": "c0.work_item_materialized_selected_item_summary",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
       "c0_row_id": "c0.work_item_materialized_work_item_context_view",
       "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.work_item_stdlib_materialized_blocked_recovery_summary",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.work_item_stdlib_materialized_selected_item_summary",
-      "decision": "KEEP_TIMED_PUBLICATION"
     }
-  ]
+  ],
+  "schema_version": "workflow_lisp_rendering_cleanup.v1",
+  "source_census": {
+    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json",
+    "schema_version": "workflow_lisp_private_runtime_value_flow_census.v1"
+  },
+  "source_consumer_rendering_census": {
+    "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.consumer_rendering_census.json",
+    "schema_version": "workflow_lisp_consumer_rendering_census.v1"
+  },
+  "target_family": "lisp_frontend_design_delta_parent_drain"
 }

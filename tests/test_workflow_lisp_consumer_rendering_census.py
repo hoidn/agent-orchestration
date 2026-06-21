@@ -410,6 +410,66 @@ def test_reconcile_consumer_rendering_census_rejects_unclassified_body_materiali
         )
 
 
+def test_reconcile_consumer_rendering_census_accepts_timed_body_with_observability_retirement_target(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    u0_payload = _u0_payload(
+        rows=[
+            _u0_row(
+                row_id="implementation_phase.materialized.return_checks_report",
+                workflow_surface="lisp_frontend_design_delta/implementation_phase::implementation-phase",
+                source_kind="materialized_output",
+                symbol_or_field="return__checks-report",
+                plumbing_class="human_rendering",
+                current_consumer="observability",
+            )
+        ]
+    )
+    payload = _consumer_payload(
+        rows=[
+            _consumer_row(
+                row_id="c0.implementation_phase_materialized_return_checks_report",
+                u0_row_id="implementation_phase.materialized.return_checks_report",
+                workflow_surface="lisp_frontend_design_delta/implementation_phase::implementation-phase",
+                source_kind="materialized_output",
+                consumer_lane="timed_body_materialization",
+                durability="durable_timed_body",
+                track_c_decision="RETIRE_TO_OBSERVABILITY",
+                compiled_effect_match={
+                    "step_id_suffix": "__materialize_view__blocked_implementation_checks_report",
+                },
+            )
+        ]
+    )
+    path = _write_json(tmp_path / "hybrid-timed-observability.json", payload)
+    manifest = module.load_consumer_rendering_census(path, value_flow_census=u0_payload)
+
+    report = module.reconcile_consumer_rendering_census(
+        manifest=manifest,
+        value_flow_census=u0_payload,
+        materialize_view_effects=[
+            {
+                "effect_id": (
+                    "effect:lisp_frontend_design_delta/implementation_phase::"
+                    "implementation-phase:implementation_phase."
+                    "__materialize_view__blocked_implementation_checks_report:"
+                    "materialize_view"
+                ),
+                "authority_class": "materialized_view",
+                "step_id": "implementation_phase.__materialize_view__blocked_implementation_checks_report",
+                "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+            }
+        ],
+        command_boundary_manifest={},
+    )
+
+    assert report["status"] == "pass"
+    assert report["invalid_rows"] == []
+
+
 def test_reconcile_consumer_rendering_census_rejects_same_workflow_unmatched_materialize_view_effect(
     tmp_path: Path,
 ) -> None:

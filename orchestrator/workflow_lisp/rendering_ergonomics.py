@@ -388,8 +388,24 @@ def _lane_evidence(reports: Mapping[str, Any]) -> dict[str, set[str]]:
         "C3": _row_ids(c3.get("selected_c0_rows"), "row_id") if isinstance(c3, Mapping) else set(),
         "C4": _c4_row_ids(c4) if isinstance(c4, Mapping) else set(),
         "C5": _c5_timed_row_ids(c5) if isinstance(c5, Mapping) else set(),
-        "census": _row_ids(census.get("rows"), "row_id") if isinstance(census, Mapping) else set(),
+        "census": _active_census_row_ids(census) if isinstance(census, Mapping) else set(),
     }
+
+
+def _active_census_row_ids(census: Mapping[str, Any]) -> set[str]:
+    row_ids: set[str] = set()
+    for row in census.get("rows", []):
+        if not isinstance(row, Mapping):
+            continue
+        if (
+            str(row.get("consumer_lane", "")) == "retirement_candidate"
+            and str(row.get("track_c_decision", "")) == "BLOCKED"
+        ):
+            continue
+        row_id = str(row.get("row_id", ""))
+        if row_id:
+            row_ids.add(row_id)
+    return row_ids
 
 
 def _check_prompt_slot(

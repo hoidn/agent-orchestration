@@ -306,9 +306,26 @@ def test_checked_design_delta_compatibility_bridge_manifest_adopts_canonical_ite
 ) -> None:
     payload = _load_json(COMPATIBILITY_BRIDGES_PATH)
     bridge_row_ids = {row["c0_row_id"] for row in payload["bridges"]}
+    rows_by_id = {row["c0_row_id"]: row for row in payload["bridges"]}
 
     assert "c0.work_item_summary_summary_path" in bridge_row_ids
     assert "c0.work_item_summary_summary_path_compiled_boundary" in bridge_row_ids
+    assert (
+        rows_by_id["c0.work_item_summary_summary_path"]["workflow_surface"]
+        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    )
+    assert (
+        rows_by_id["c0.work_item_summary_summary_path"]["bridge_owner"]
+        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    )
+    assert (
+        rows_by_id["c0.work_item_summary_summary_path_compiled_boundary"]["u0_row_id"]
+        == "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
+    )
+    assert (
+        rows_by_id["c0.work_item_summary_summary_path_compiled_boundary"]["workflow_surface"]
+        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    )
 
     consumer_rows = {
         row["row_id"]: row
@@ -319,12 +336,38 @@ def test_checked_design_delta_compatibility_bridge_manifest_adopts_canonical_ite
             "c0.work_item_summary_summary_path_compiled_boundary",
         }
     }
-    assert consumer_rows["c0.work_item_summary_summary_path"]["target_binding"][
-        "target_labels"
-    ] == [
+    canonical_targets = [
         "artifacts/work/item_summary.json",
         "artifacts/work/archive/item_summary.json",
     ]
+    assert (
+        consumer_rows["c0.work_item_summary_summary_path"]["target_binding"][
+            "target_labels"
+        ]
+        == canonical_targets
+    )
+    assert (
+        consumer_rows["c0.work_item_summary_summary_path_compiled_boundary"][
+            "target_binding"
+        ]["target_labels"]
+        == canonical_targets
+    )
+    assert (
+        consumer_rows["c0.work_item_summary_summary_path"]["consumer_lane"]
+        == "compatibility_bridge"
+    )
+    assert (
+        consumer_rows["c0.work_item_summary_summary_path_compiled_boundary"][
+            "consumer_lane"
+        ]
+        == "compatibility_bridge"
+    )
+    assert all(
+        not label.endswith("execution_report.md")
+        and not label.endswith("progress_report.md")
+        and "pointer.txt" not in label
+        for label in canonical_targets
+    )
 
 
 def test_load_compatibility_bridge_manifest_requires_metadata_for_every_selected_c0_row(

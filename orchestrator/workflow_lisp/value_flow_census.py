@@ -531,6 +531,7 @@ def reconcile_value_flow_census(
         "checked_census_fingerprint": f"sha256:{checked_census_sha256}",
         "required_source_kinds": list(census["coverage"]["required_source_kinds"]),
         "declared_workflow_surfaces": declared_workflow_surfaces,
+        "rows": [dict(row) for row in checked_rows],
         "workflow_rows": workflow_rows,
         "missing_rows": missing_rows,
         "stale_rows": stale_rows,

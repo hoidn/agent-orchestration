@@ -56,5 +56,18 @@
         "record-blocked-recovery-outcome"
       ]
     }
+  ],
+  "selected_item_summary_path_assertions": [
+    {
+      "row_id": "selected_item.summary_path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "compiled_boundary_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
+      "fulfilled_source_ref": "root.steps.lisp_frontend_design_delta/work_item::run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path",
+      "authority_class": "compatibility_bridge",
+      "rejected_source_kinds": [
+        "phase_report_path",
+        "pointer_file"
+      ]
+    }
   ]
 }

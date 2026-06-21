@@ -360,3 +360,33 @@ def test_transition_authoring_report_rejects_source_shape_assertion_failures(
             "reason": "forbidden low-level transition authoring text is still present",
         }
     ]
+
+
+def test_transition_authoring_report_records_selected_item_summary_carrier_path_without_render_authority() -> None:
+    manifest = json.loads(TRANSITION_AUTHORING_MANIFEST_PATH.read_text(encoding="utf-8"))
+    assertion = manifest["selected_item_summary_path_assertions"][0]
+
+    assert assertion["workflow_surface"] == (
+        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    )
+    assert assertion["compiled_boundary_row_id"] == (
+        "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
+    )
+    assert assertion["fulfilled_source_ref"].endswith(
+        "run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
+    )
+    assert assertion["authority_class"] == "compatibility_bridge"
+
+
+def test_transition_authoring_report_rejects_selected_item_summary_path_sourced_from_phase_report() -> None:
+    manifest = json.loads(TRANSITION_AUTHORING_MANIFEST_PATH.read_text(encoding="utf-8"))
+    assertion = manifest["selected_item_summary_path_assertions"][0]
+
+    assert "phase_report_path" in assertion["rejected_source_kinds"]
+
+
+def test_transition_authoring_report_rejects_selected_item_summary_path_sourced_from_pointer_file() -> None:
+    manifest = json.loads(TRANSITION_AUTHORING_MANIFEST_PATH.read_text(encoding="utf-8"))
+    assertion = manifest["selected_item_summary_path_assertions"][0]
+
+    assert "pointer_file" in assertion["rejected_source_kinds"]

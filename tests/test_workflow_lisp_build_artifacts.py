@@ -6097,18 +6097,95 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
     }
     assert cleanup_rows["c0.drain_materialized_drain_summary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
     assert cleanup_rows["c0.drain_materialized_drain_summary_compiled_boundary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert "c0.drain_materialized_drain_summary" not in cleanup_payload[
+        "surviving_body_materialization_row_ids"
+    ]
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in cleanup_payload[
+        "surviving_body_materialization_row_ids"
+    ]
+
+
+def test_design_delta_parent_drain_build_reclassifies_work_item_summary_rows_to_bridge_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    cleanup_payload = json.loads(
+        result.artifact_paths["rendering_cleanup_report"].read_text(encoding="utf-8")
+    )
+    cleanup_rows = {
+        row["c0_row_id"]: row for row in cleanup_payload["cleanup_decisions"]
+    }
+    compatibility_bridge_payload = json.loads(
+        result.artifact_paths["compatibility_bridge_report"].read_text(
+            encoding="utf-8"
+        )
+    )
+    bridge_rows = {
+        row["c0_row_id"]: row for row in compatibility_bridge_payload["selected_c0_rows"]
+    }
+    generated_bridge_ids = {
+        row["c0_row_id"] for row in compatibility_bridge_payload["generated_bridges"]
+    }
+    value_flow_payload = json.loads(
+        result.artifact_paths["value_flow_census_report"].read_text(encoding="utf-8")
+    )
+    value_flow_rows = {
+        row["row_id"]: row for row in value_flow_payload["rows"]
+    }
+
     assert cleanup_rows["c0.work_item_summary_summary_path"][
         "cleanup_decision"
     ] == "RETIRED_TO_BRIDGE_METADATA"
     assert cleanup_rows["c0.work_item_summary_summary_path_compiled_boundary"][
         "cleanup_decision"
     ] == "RETIRED_TO_BRIDGE_METADATA"
-    assert "c0.drain_materialized_drain_summary" not in cleanup_payload[
-        "surviving_body_materialization_row_ids"
-    ]
     assert "c0.work_item_summary_summary_path" not in cleanup_payload[
         "surviving_body_materialization_row_ids"
     ]
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in cleanup_payload[
+        "surviving_body_materialization_row_ids"
+    ]
+    assert "c0.work_item_materialized_selected_item_summary" not in cleanup_payload[
+        "surviving_body_materialization_row_ids"
+    ]
+    assert (
+        "c0.work_item_stdlib_materialized_selected_item_summary"
+        not in cleanup_payload["surviving_body_materialization_row_ids"]
+    )
+    assert (
+        "c0.work_item_stdlib_materialized_blocked_recovery_summary"
+        not in cleanup_payload["surviving_body_materialization_row_ids"]
+    )
+    assert {
+        "c0.work_item_summary_summary_path",
+        "c0.work_item_summary_summary_path_compiled_boundary",
+    } <= generated_bridge_ids
+    assert bridge_rows["c0.work_item_summary_summary_path"]["target_binding"][
+        "target_labels"
+    ] == [
+        "artifacts/work/item_summary.json",
+        "artifacts/work/archive/item_summary.json",
+    ]
+    assert (
+        bridge_rows["c0.work_item_summary_summary_path"]["consumer_lane"]
+        == "compatibility_bridge"
+    )
+    assert (
+        value_flow_rows["work_item.summary.summary_path"]["path_or_contract"]
+        == "artifacts/work/item_summary.json"
+    )
+    assert (
+        value_flow_rows["work_item.summary.summary_path"][
+            "boundary_authority_class"
+        ]
+        == "compatibility_bridge"
+    )
 
 
 def test_design_delta_parent_drain_checked_rendering_cleanup_keeps_typed_handoff_rows_out_of_blocked_publication_lane() -> None:
@@ -7162,7 +7239,10 @@ def test_design_delta_parent_drain_consumer_rendering_report_rejects_missing_bri
 ) -> None:
     payload = _load_design_delta_consumer_rendering_census()
     for row in payload["rows"]:
-        if row["u0_row_id"] == "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary":
+        if (
+            row["u0_row_id"]
+            == "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
+        ):
             row["bridge"] = None
             break
     else:

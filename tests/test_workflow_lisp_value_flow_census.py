@@ -310,12 +310,19 @@ def test_checked_design_delta_value_flow_census_reclassifies_summary_authority()
     assert rows[
         "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary"
     ]["boundary_authority_class"] == "public_artifact"
-    assert rows["compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary"][
-        "plumbing_class"
-    ] == "compatibility_bridge"
-    assert rows["compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary"][
-        "boundary_authority_class"
-    ] == "compatibility_bridge"
+    summary_row_id = (
+        "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
+    )
+    assert summary_row_id in rows
+    assert rows[summary_row_id]["workflow_surface"] == (
+        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    )
+    assert rows[summary_row_id]["plumbing_class"] == "compatibility_bridge"
+    assert rows[summary_row_id]["boundary_authority_class"] == "compatibility_bridge"
+    assert (
+        "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary"
+        not in rows
+    )
     assert rows["work_item.summary.summary_path"]["path_or_contract"] == (
         "artifacts/work/item_summary.json"
     )

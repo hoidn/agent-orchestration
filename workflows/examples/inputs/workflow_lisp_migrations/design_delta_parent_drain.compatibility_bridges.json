@@ -284,8 +284,8 @@
       "bridge_id": "bridge.work_item.summary",
       "c0_row_id": "c0.work_item_summary_summary_path",
       "u0_row_id": "work_item.summary.summary_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "bridge_owner": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
       "consumer": "standalone_summary_reader",
       "file_shape": "compatibility_file",
       "typed_value_source": {
@@ -317,7 +317,7 @@
         "authority_class": "compatibility_bridge",
         "path_template": "artifacts/work/item_summary.json",
         "runtime_target": {
-          "ref": "root.steps.lisp_frontend_design_delta/work_item::run-work-item__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
+          "ref": "root.steps.lisp_frontend_design_delta/work_item::run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
         }
       },
       "retirement": {
@@ -328,9 +328,9 @@
     {
       "bridge_id": "bridge.work_item.summary.compiled_boundary",
       "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "bridge_owner": "lisp_frontend_design_delta/work_item",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "bridge_owner": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
       "consumer": "standalone_summary_reader",
       "file_shape": "compatibility_file",
       "typed_value_source": {
@@ -362,7 +362,7 @@
         "authority_class": "compatibility_bridge",
         "path_template": "artifacts/work/item_summary.json",
         "runtime_target": {
-          "ref": "root.steps.lisp_frontend_design_delta/work_item::run-work-item__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
+          "ref": "root.steps.lisp_frontend_design_delta/work_item::run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
         }
       },
       "retirement": {

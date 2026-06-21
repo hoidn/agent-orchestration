@@ -106,7 +106,14 @@ def load_rendering_cleanup_manifest(
                 f"row `{c0_row_id}` uses unknown decision `{decision}`"
             )
         normalized_rows.append({"c0_row_id": c0_row_id, "decision": decision})
-    missing_row_ids = sorted(set(consumer_rows) - seen_row_ids)
+    optional_blocked_row_ids = {
+        row_id
+        for row_id, row in consumer_rows.items()
+        if isinstance(row, Mapping)
+        and row.get("consumer_lane") == "retirement_candidate"
+        and row.get("track_c_decision") == "BLOCKED"
+    }
+    missing_row_ids = sorted((set(consumer_rows) - seen_row_ids) - optional_blocked_row_ids)
     if missing_row_ids:
         raise ValueError(
             "rendering_cleanup_c0_row_missing: manifest is missing decisions for "
@@ -327,6 +334,8 @@ def build_rendering_cleanup_report(
 
     for effect in materialize_view_effects:
         if str(effect.get("authority_class", "materialized_view")) != "materialized_view":
+            continue
+        if _is_bridge_fulfillment_effect(effect):
             continue
         matched_row_id = _matched_row_id(effect, consumer_rows)
         if matched_row_id is None:
@@ -638,6 +647,23 @@ def _matched_row_id(
         ):
             return row_id
     return None
+
+
+def _is_bridge_fulfillment_effect(effect: Mapping[str, Any]) -> bool:
+    step_id = str(effect.get("step_id", ""))
+    target_path = str(effect.get("target_path", ""))
+    value_type = effect.get("value_type")
+    value_type_name = (
+        str(value_type.get("name", ""))
+        if isinstance(value_type, Mapping)
+        else ""
+    )
+    return bool(
+        step_id.endswith("__materialize_view__selected_item_summary")
+        and target_path.endswith("artifacts.return__item_summary_target_path")
+        and value_type_name
+        == "lisp_frontend_design_delta/types::WorkItemSummaryValue"
+    )
 
 
 def _compiled_effect_suffix(row: Mapping[str, Any]) -> str | None:

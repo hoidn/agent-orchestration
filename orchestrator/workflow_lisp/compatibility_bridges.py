@@ -316,7 +316,10 @@ def build_compatibility_bridge_report(
             generated_bridges.append(report_row)
 
     report_selected_rows = [
-        dict(row)
+        {
+            **dict(row),
+            "c0_row_id": str(row.get("row_id", "")),
+        }
         for _, row in sorted(selected_rows_by_id.items(), key=lambda item: item[0])
     ]
     missing_selected_rows = sorted(set(selected_rows_by_id) - manifest_row_ids)

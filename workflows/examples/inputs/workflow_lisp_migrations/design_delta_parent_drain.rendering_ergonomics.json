@@ -1251,10 +1251,10 @@
     },
     {
       "slot_id": "work_item.summary.summary_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
       "source_form": {
         "kind": "bridge_file",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
         "form_path": [
           "work_item",
           "summary",
@@ -1283,10 +1283,10 @@
     },
     {
       "slot_id": "work_item.summary.summary_path.compiled_boundary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
       "source_form": {
         "kind": "bridge_file",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
+        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
         "form_path": [
           "work_item",
           "summary",
@@ -1300,7 +1300,7 @@
       "consumer_lane": "compatibility_bridge",
       "expected_track_c_lane": "C4",
       "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary",
+      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [
@@ -1801,38 +1801,6 @@
       "body_rendering_policy": "allow_timed"
     },
     {
-      "slot_id": "work_item.materialized.selected_item_summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
-      "source_form": {
-        "kind": "materialized_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-work-item",
-        "form_path": [
-          "work_item",
-          "materialized",
-          "selected_item_summary"
-        ]
-      },
-      "value": {
-        "type_name": "selected_item_summary",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
-      "c0_row_id": "c0.work_item_materialized_selected_item_summary",
-      "u0_row_id": "work_item.materialized.selected_item_summary",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "allow_timed"
-    },
-    {
       "slot_id": "work_item.materialized.work_item_context_view",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
       "source_form": {
@@ -1852,70 +1820,6 @@
       "expected_track_c_lane": "C5",
       "c0_row_id": "c0.work_item_materialized_work_item_context_view",
       "u0_row_id": "work_item.materialized.work_item_context_view",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "allow_timed"
-    },
-    {
-      "slot_id": "work_item_stdlib.materialized.blocked_recovery_summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-      "source_form": {
-        "kind": "materialized_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-        "form_path": [
-          "work_item_stdlib",
-          "materialized",
-          "blocked_recovery_summary"
-        ]
-      },
-      "value": {
-        "type_name": "blocked_recovery_summary",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
-      "c0_row_id": "c0.work_item_stdlib_materialized_blocked_recovery_summary",
-      "u0_row_id": "work_item_stdlib.materialized.blocked_recovery_summary",
-      "renderer_selection": {
-        "mode": "infer",
-        "allowed_renderers": [
-          {
-            "renderer_id": "canonical-json",
-            "renderer_version": 1
-          }
-        ],
-        "override_allowed": true
-      },
-      "body_rendering_policy": "allow_timed"
-    },
-    {
-      "slot_id": "work_item_stdlib.materialized.selected_item_summary",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-      "source_form": {
-        "kind": "materialized_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-        "form_path": [
-          "work_item_stdlib",
-          "materialized",
-          "selected_item_summary"
-        ]
-      },
-      "value": {
-        "type_name": "selected_item_summary",
-        "authority": "typed_value"
-      },
-      "consumer_lane": "timed_body_materialization",
-      "expected_track_c_lane": "C5",
-      "c0_row_id": "c0.work_item_stdlib_materialized_selected_item_summary",
-      "u0_row_id": "work_item_stdlib.materialized.selected_item_summary",
       "renderer_selection": {
         "mode": "infer",
         "allowed_renderers": [

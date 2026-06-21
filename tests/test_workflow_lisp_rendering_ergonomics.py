@@ -108,6 +108,24 @@ def test_checked_design_delta_summary_slots_use_entry_publication_and_bridge_lan
         ]
         == "compatibility_bridge"
     )
+    assert (
+        slots_by_row.get("c0.work_item_materialized_selected_item_summary", {}).get(
+            "consumer_lane"
+        )
+        != "timed_body_materialization"
+    )
+    assert (
+        slots_by_row.get(
+            "c0.work_item_stdlib_materialized_selected_item_summary", {}
+        ).get("consumer_lane")
+        != "timed_body_materialization"
+    )
+    assert (
+        slots_by_row.get(
+            "c0.work_item_stdlib_materialized_blocked_recovery_summary", {}
+        ).get("consumer_lane")
+        != "timed_body_materialization"
+    )
 
 
 def test_checked_design_delta_checks_report_slots_stay_in_timed_body_lane_until_writer_retirement():
