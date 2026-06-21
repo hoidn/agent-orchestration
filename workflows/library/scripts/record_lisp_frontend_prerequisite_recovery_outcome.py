@@ -5,12 +5,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-BOOTSTRAP_WAIT_STATUS = "WAITING_ON_BOOTSTRAP_REACHABILITY"
-BOOTSTRAP_WAIT_REASON = "bootstrap_reachability_missing"
+try:
+    from workflows.library.scripts.workflow_recovery_dependencies import (
+        WorkRef,
+        edge_from_blocked_entry,
+        edge_to_json,
+        normalize_edge,
+    )
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from workflows.library.scripts.workflow_recovery_dependencies import (
+        WorkRef,
+        edge_from_blocked_entry,
+        edge_to_json,
+        normalize_edge,
+    )
 
 
 def _timestamp() -> str:
@@ -60,10 +74,15 @@ def _is_completed(state: dict[str, Any], *, source: str, item_id: str) -> bool:
 
 def _completed_waiting_prerequisite(state: dict[str, Any], *, original_gap_id: str) -> tuple[str, str]:
     original = dict((state.get("blocked_design_gaps") or {}).get(original_gap_id) or {})
-    prerequisite_id = str(original.get("waiting_on_prerequisite_gap_id") or "").strip()
+    edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=original_gap_id), original)
+    if edge is not None and edge.blocker_work is not None:
+        prerequisite_id = edge.blocker_work.id
+        source = edge.blocker_work.source
+    else:
+        prerequisite_id = str(original.get("waiting_on_prerequisite_gap_id") or "").strip()
+        source = str(original.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
     if not prerequisite_id:
         return "", ""
-    source = str(original.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
     if _is_completed(state, source=source, item_id=prerequisite_id):
         return source, prerequisite_id
     return "", ""
@@ -129,6 +148,27 @@ def _record_original(
     entry["original_blocked_gap_id"] = original_gap_id
     entry["prerequisite_recovery_reason"] = reason
     entry["prerequisite_recovery_recorded_at_utc"] = _timestamp()
+    edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=original_gap_id), entry)
+    if edge is None and selected_id:
+        edge = normalize_edge(
+            {
+                "blocked_work": {"source": "DESIGN_GAP", "id": original_gap_id},
+                "blocker_work": {"source": selected_source, "id": selected_id},
+                "relation": "requires_completion",
+                "reason_code": reason or "prerequisite_required",
+                "ready_when": {"kind": "completed", "source": selected_source, "id": selected_id},
+                "retry_target": {"source": "DESIGN_GAP", "id": original_gap_id},
+            }
+        )
+    if edge is not None:
+        edge_json = edge_to_json(edge)
+        if status == "RETRY_READY":
+            edge_json["status"] = "ready_to_retry"
+        elif prerequisite_status == "COMPLETED":
+            edge_json["status"] = "completed"
+        elif prerequisite_status == "BLOCKED_RECOVERABLE":
+            edge_json["status"] = "blocked"
+        entry["recovery_dependency_edge"] = edge_json
     blocked[original_gap_id] = entry
     state["blocked_design_gaps"] = blocked
     event_name = event or (
@@ -168,14 +208,6 @@ def _record_recovery_continues(
         prerequisite_status="RECOVERY_CONTINUES",
         reason=reason,
         event="prerequisite_recovery_continues",
-    )
-
-
-def _is_bootstrap_wait_boundary(entry: dict[str, Any]) -> bool:
-    return (
-        str(entry.get("prerequisite_recovery_status") or "").strip() == BOOTSTRAP_WAIT_STATUS
-        and str(entry.get("downstream_blocked_gap_id") or "").strip() != ""
-        and str(entry.get("waiting_on_prerequisite_gap_id") or "").strip() != ""
     )
 
 
@@ -247,6 +279,7 @@ def main() -> int:
     selected_source, selected_id = _selected_work(selection)
     relation = str(selection.get("prerequisite_relation") or "").strip()
     original = _original_entry(state, original_gap_id=original_gap_id)
+    original_edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=original_gap_id), original)
 
     completed_source, completed_id = _completed_waiting_prerequisite(state, original_gap_id=original_gap_id)
     if completed_id:
@@ -275,60 +308,38 @@ def main() -> int:
             drain_status="CONTINUE",
         )
 
-    boundary_waiting_id = str(original.get("waiting_on_prerequisite_gap_id") or "").strip()
-    boundary_waiting_source = str(original.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
-    downstream_gap_id = str(original.get("downstream_blocked_gap_id") or "").strip()
-    if _is_bootstrap_wait_boundary(original) and selected_source == "DESIGN_GAP":
-        if selected_id == downstream_gap_id:
-            _record_original(
-                state,
-                original_gap_id=original_gap_id,
-                selection_path=selection_path,
-                selected_source=boundary_waiting_source,
-                selected_id=boundary_waiting_id,
-                status="PREREQUISITE_WORK_PENDING",
-                prerequisite_status=BOOTSTRAP_WAIT_STATUS,
-                reason=BOOTSTRAP_WAIT_REASON,
-                event="prerequisite_recovery_continues",
-            )
-            return _finish(
-                state_path=state_path,
-                state=state,
-                summary_path=Path(args.summary_path),
-                drain_status_path=Path(args.drain_status_path),
-                summary={
-                    "record_status": "RECOVERY_CONTINUES",
-                    "original_blocked_gap_id": original_gap_id,
-                    "selected_prerequisite_id": boundary_waiting_id,
-                    "selected_prerequisite_source": boundary_waiting_source,
-                    "reason": BOOTSTRAP_WAIT_REASON,
-                },
-                drain_status="CONTINUE",
-            )
-        if selected_id == original_gap_id and not _is_completed(state, source=selected_source, item_id=selected_id):
-            reason = "circular_prerequisite_relation"
-            _record_recovery_continues(
-                state,
-                original_gap_id=original_gap_id,
-                selection_path=selection_path,
-                selected_source=boundary_waiting_source,
-                selected_id=boundary_waiting_id,
-                reason=reason,
-            )
-            return _finish(
-                state_path=state_path,
-                state=state,
-                summary_path=Path(args.summary_path),
-                drain_status_path=Path(args.drain_status_path),
-                summary={
-                    "record_status": "RECOVERY_CONTINUES",
-                    "original_blocked_gap_id": original_gap_id,
-                    "selected_prerequisite_id": boundary_waiting_id,
-                    "selected_prerequisite_source": boundary_waiting_source,
-                    "reason": reason,
-                },
-                drain_status="CONTINUE",
-            )
+    if (
+        original_edge is not None
+        and original_edge.blocker_work is not None
+        and any(ref.source == selected_source and ref.id == selected_id for ref in original_edge.downstream_work)
+        and not _is_completed(state, source=original_edge.blocker_work.source, item_id=original_edge.blocker_work.id)
+    ):
+        reason = "selected_downstream_before_blocker_ready"
+        _record_original(
+            state,
+            original_gap_id=original_gap_id,
+            selection_path=selection_path,
+            selected_source=original_edge.blocker_work.source,
+            selected_id=original_edge.blocker_work.id,
+            status="PREREQUISITE_WORK_PENDING",
+            prerequisite_status="WAITING_ON_PREREQUISITE",
+            reason=reason,
+            event="prerequisite_recovery_continues",
+        )
+        return _finish(
+            state_path=state_path,
+            state=state,
+            summary_path=Path(args.summary_path),
+            drain_status_path=Path(args.drain_status_path),
+            summary={
+                "record_status": "RECOVERY_CONTINUES",
+                "original_blocked_gap_id": original_gap_id,
+                "selected_prerequisite_id": original_edge.blocker_work.id,
+                "selected_prerequisite_source": original_edge.blocker_work.source,
+                "reason": reason,
+            },
+            drain_status="CONTINUE",
+        )
 
     reason = ""
     if not selected_source or not selected_id:

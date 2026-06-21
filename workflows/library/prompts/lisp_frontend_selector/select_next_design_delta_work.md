@@ -26,13 +26,21 @@ the target design without violating the baseline design.
 If run state contains a blocked design gap with
 `recovery_status: PREREQUISITE_WORK_PENDING`, select or draft the prerequisite
 target design work needed to unblock that gap before unrelated target design work.
+If pre-selection metadata provides a dependency edge, select the blocker work
+named by that edge; do not select downstream work while the edge is waiting.
 For that prerequisite-recovery case, include `prerequisite_relation` in the
-selected or drafted output. The relation should name how the selected unit
-unblocks the original blocked design gap; use `BLOCKED` instead when no safe
-prerequisite can be selected.
+selected or drafted output. The relation is explanatory only; the structured
+run-state dependency edge is the authority for blocker identity, retry
+readiness, and downstream gating. Use `BLOCKED` when no safe acyclic blocker can
+be selected.
+If the pending prerequisite already has durable completion evidence, do not
+draft another prerequisite; select the original gap for retry or report BLOCKED
+with stale prerequisite state as the reason.
 
 Refactoring may be selected when it is the best next step toward completing the
 target design, but only as a bounded expansion-enabling pass.
+Do not select proof-only or compatibility-preservation work unless it directly
+enables deletion, quarantine, replacement, promotion safety, or a behavior fix.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select target design feature work, `DONE`, or `BLOCKED`.

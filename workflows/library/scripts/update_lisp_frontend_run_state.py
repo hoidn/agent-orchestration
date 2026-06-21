@@ -130,8 +130,14 @@ def _record_blocked(
     prerequisite_gap_hint: str = "",
     prerequisite_selection_bundle_path: str = "",
     waiting_on_prerequisite_gap_id: str = "",
+    waiting_on_prerequisite_source: str = "",
     prerequisite_recovery_status: str = "",
+    prerequisite_recovery_reason: str = "",
     original_blocked_gap_id: str = "",
+    downstream_blocked_gap_id: str = "",
+    blocking_failure_code: str = "",
+    retry_condition: str = "",
+    recovery_dependency_edge: dict[str, Any] | None = None,
 ) -> None:
     key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
     blocked = dict(state.get(key, {}))
@@ -148,10 +154,17 @@ def _record_blocked(
         "prerequisite_gap_hint": prerequisite_gap_hint,
         "prerequisite_selection_bundle_path": prerequisite_selection_bundle_path,
         "waiting_on_prerequisite_gap_id": waiting_on_prerequisite_gap_id,
+        "waiting_on_prerequisite_source": waiting_on_prerequisite_source,
         "prerequisite_recovery_status": prerequisite_recovery_status,
+        "prerequisite_recovery_reason": prerequisite_recovery_reason,
         "original_blocked_gap_id": original_blocked_gap_id,
+        "downstream_blocked_gap_id": downstream_blocked_gap_id,
+        "blocking_failure_code": blocking_failure_code,
+        "retry_condition": retry_condition,
     }
     entry.update({key: value for key, value in optional_fields.items() if value})
+    if recovery_dependency_edge:
+        entry["recovery_dependency_edge"] = recovery_dependency_edge
     blocked[item_id] = entry
     state[key] = blocked
     history_entry = {
@@ -162,6 +175,8 @@ def _record_blocked(
         "timestamp_utc": _timestamp(),
     }
     history_entry.update({key: value for key, value in optional_fields.items() if value})
+    if recovery_dependency_edge:
+        history_entry["recovery_dependency_edge"] = recovery_dependency_edge
     state.setdefault("history", []).append(history_entry)
 
 
@@ -223,8 +238,14 @@ def main() -> int:
     blocked.add_argument("--prerequisite-gap-hint", default="")
     blocked.add_argument("--prerequisite-selection-bundle-path", default="")
     blocked.add_argument("--waiting-on-prerequisite-gap-id", default="")
+    blocked.add_argument("--waiting-on-prerequisite-source", default="")
     blocked.add_argument("--prerequisite-recovery-status", default="")
+    blocked.add_argument("--prerequisite-recovery-reason", default="")
     blocked.add_argument("--original-blocked-gap-id", default="")
+    blocked.add_argument("--downstream-blocked-gap-id", default="")
+    blocked.add_argument("--blocking-failure-code", default="")
+    blocked.add_argument("--retry-condition", default="")
+    blocked.add_argument("--recovery-dependency-edge-json", default="")
     design_revision = sub.add_parser("design_revision")
     design_revision.add_argument("--item-id", required=True)
     design_revision.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
@@ -302,8 +323,16 @@ def main() -> int:
             prerequisite_gap_hint=args.prerequisite_gap_hint,
             prerequisite_selection_bundle_path=args.prerequisite_selection_bundle_path,
             waiting_on_prerequisite_gap_id=args.waiting_on_prerequisite_gap_id,
+            waiting_on_prerequisite_source=args.waiting_on_prerequisite_source,
             prerequisite_recovery_status=args.prerequisite_recovery_status,
+            prerequisite_recovery_reason=args.prerequisite_recovery_reason,
             original_blocked_gap_id=args.original_blocked_gap_id,
+            downstream_blocked_gap_id=args.downstream_blocked_gap_id,
+            blocking_failure_code=args.blocking_failure_code,
+            retry_condition=args.retry_condition,
+            recovery_dependency_edge=(
+                json.loads(args.recovery_dependency_edge_json) if args.recovery_dependency_edge_json else None
+            ),
         )
         if args.summary_path:
             summary_path = Path(args.summary_path)

@@ -100,6 +100,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/materialize_lisp_frontend_recovered_design_gap_draft.py",
         "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
         "workflows/library/scripts/update_lisp_frontend_run_state.py",
+        "workflows/library/scripts/workflow_recovery_dependencies.py",
         "workflows/library/scripts/record_lisp_frontend_design_revision_outcome.py",
         "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
         "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
@@ -168,6 +169,25 @@ def _design_delta_workflow_inputs() -> dict:
             "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json"
         ),
         "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
+    }
+
+
+def _recovery_dependency_edge(
+    *,
+    blocked: str = "parser-syntax",
+    blocker: str = "generic-context-capability",
+    reason_code: str = "missing_prerequisite",
+    downstream: list[str] | None = None,
+) -> dict:
+    return {
+        "schema": "workflow_recovery_dependency_edge/v1",
+        "blocked_work": {"source": "DESIGN_GAP", "id": blocked},
+        "blocker_work": {"source": "DESIGN_GAP", "id": blocker},
+        "relation": "requires_completion",
+        "reason_code": reason_code,
+        "ready_when": {"kind": "completed", "source": "DESIGN_GAP", "id": blocker},
+        "retry_target": {"source": "DESIGN_GAP", "id": blocked},
+        "downstream_work": [{"source": "DESIGN_GAP", "id": item} for item in downstream or []],
     }
 
 
@@ -1488,6 +1508,10 @@ def test_prerequisite_block_after_approved_target_revision_allows_prerequisite_s
         (recovery_bundle, json.dumps({
             "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
             "reason": "prerequisite_gap_required",
+            "recovery_dependency_edge": _recovery_dependency_edge(
+                blocked="parser-syntax",
+                blocker="generic-context-capability",
+            ),
         }) + "\n"),
         (revision_report, json.dumps({
             "design_revision_decision": "REVISED",
@@ -1602,6 +1626,10 @@ def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path
             "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
             "reason": "prerequisite_gap_required",
             "summary": "Target design needs clearer prerequisite sequencing.",
+            "recovery_dependency_edge": _recovery_dependency_edge(
+                blocked="parser-syntax",
+                blocker="generic-context-capability",
+            ),
         }) + "\n"),
         (revision_report, json.dumps({
             "design_revision_decision": "REVISED",
@@ -1671,11 +1699,10 @@ def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path
     )
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
     assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
-    assert payload["design_gap_id"] == "parser-syntax"
-    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert payload["blocker_work_id"] == "generic-context-capability"
 
 
-def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tmp_path):
+def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
     state_path = workspace / "state/drain/run_state.json"
@@ -1684,23 +1711,26 @@ def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tm
     pointer_path = workspace / "state/drain/blocked-summary-path.txt"
     drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
     detector_output = workspace / "state/drain/blocked-recovery.json"
+    blocked_gap_id = "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
+    blocker_gap_id = "workflow-lisp-runtime-native-drain-private-context-bootstrap-prerequisite"
+    downstream_gap_id = "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
     progress_path = (
         workspace
         / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        f"{blocked_gap_id}/"
         "progress_report.md"
     )
     implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
     architecture_path = (
         workspace
         / "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        f"{blocked_gap_id}/"
         "implementation_architecture.md"
     )
     plan_path = (
         workspace
         / "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters/"
+        f"{blocked_gap_id}/"
         "execution_plan.md"
     )
 
@@ -1725,20 +1755,16 @@ def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tm
             {
                 "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
                 "reason": "prerequisite_gap_required",
-                "waiting_on_prerequisite_gap_id": (
-                    "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-                ),
-                "waiting_on_prerequisite_source": "DESIGN_GAP",
-                "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
-                "prerequisite_recovery_reason": "bootstrap_reachability_missing",
-                "downstream_blocked_gap_id": (
-                    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
-                ),
-                "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
-                "retry_condition": (
-                    "imported stdlib-adapter selector path reaches imported finalizer branches "
-                    "without private_exec_context_bootstrap_unsupported"
-                ),
+                "recovery_dependency_edge": {
+                    "schema": "workflow_recovery_dependency_edge/v1",
+                    "blocked_work": {"source": "DESIGN_GAP", "id": blocked_gap_id},
+                    "blocker_work": {"source": "DESIGN_GAP", "id": blocker_gap_id},
+                    "relation": "requires_completion",
+                    "reason_code": "private_exec_context_bootstrap_unsupported",
+                    "ready_when": {"kind": "completed", "source": "DESIGN_GAP", "id": blocker_gap_id},
+                    "retry_target": {"source": "DESIGN_GAP", "id": blocked_gap_id},
+                    "downstream_work": [{"source": "DESIGN_GAP", "id": downstream_gap_id}],
+                },
             }
         )
         + "\n",
@@ -1772,7 +1798,7 @@ def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tm
         "--state-path",
         state_path.relative_to(workspace).as_posix(),
         "--item-id",
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters",
+        blocked_gap_id,
         "--source",
         "DESIGN_GAP",
         "--progress-report-path",
@@ -1794,22 +1820,17 @@ def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tm
     )
 
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    blocked = state["blocked_design_gaps"][
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-    ]
+    blocked = state["blocked_design_gaps"][blocked_gap_id]
     assert blocked["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
     assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
-    assert blocked["waiting_on_prerequisite_gap_id"] == (
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-    )
+    assert blocked["waiting_on_prerequisite_gap_id"] == blocker_gap_id
     assert blocked["waiting_on_prerequisite_source"] == "DESIGN_GAP"
-    assert blocked["prerequisite_recovery_status"] == "WAITING_ON_BOOTSTRAP_REACHABILITY"
-    assert blocked["prerequisite_recovery_reason"] == "bootstrap_reachability_missing"
-    assert blocked["downstream_blocked_gap_id"] == (
-        "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
-    )
+    assert blocked["prerequisite_recovery_status"] == "WAITING_ON_PREREQUISITE"
+    assert blocked["prerequisite_recovery_reason"] == "prerequisite_required"
+    assert blocked["downstream_blocked_gap_id"] == downstream_gap_id
     assert blocked["blocking_failure_code"] == "private_exec_context_bootstrap_unsupported"
-    assert "private_exec_context_bootstrap_unsupported" in blocked["retry_condition"]
+    assert blocked["recovery_dependency_edge"]["blocker_work"] == {"source": "DESIGN_GAP", "id": blocker_gap_id}
+    assert blocked["recovery_dependency_edge"]["retry_target"] == {"source": "DESIGN_GAP", "id": blocked_gap_id}
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
 
     _run_script(
@@ -1824,19 +1845,18 @@ def test_prerequisite_boundary_bootstrap_failure_records_bootstrap_wait_state(tm
     )
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
     assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
-    assert payload["design_gap_id"] == (
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-    )
+    assert payload["design_gap_id"] == blocked_gap_id
+    assert payload["blocker_work_id"] == blocker_gap_id
+    assert payload["dependency_relation"] == "requires_completion"
     assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
     assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
 
 
-def test_prerequisite_boundary_bootstrap_failure_requires_structured_evidence(tmp_path):
+def test_prerequisite_recovery_rejects_missing_dependency_edge(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
     state_path = workspace / "state/drain/run_state.json"
     recovery_bundle = workspace / "state/drain/recovery-decision.json"
-    detector_output = workspace / "state/drain/blocked-recovery.json"
     summary_path = workspace / "artifacts/work/blocked-summary.json"
     pointer_path = workspace / "state/drain/blocked-summary-path.txt"
     drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
@@ -1896,7 +1916,7 @@ def test_prerequisite_boundary_bootstrap_failure_requires_structured_evidence(tm
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    _run_script(
+    result = _run_script(
         workspace,
         "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
         "--recovery-bundle-path",
@@ -1927,37 +1947,97 @@ def test_prerequisite_boundary_bootstrap_failure_requires_structured_evidence(tm
         pointer_path.relative_to(workspace).as_posix(),
         "--drain-status-path",
         drain_status_path.relative_to(workspace).as_posix(),
+        check=False,
     )
 
-    blocked = json.loads(state_path.read_text(encoding="utf-8"))["blocked_design_gaps"][
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-    ]
-    assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
-    assert "waiting_on_prerequisite_gap_id" not in blocked
-    assert "prerequisite_recovery_status" not in blocked
-    assert "downstream_blocked_gap_id" not in blocked
-    assert "blocking_failure_code" not in blocked
-    assert "retry_condition" not in blocked
+    assert result.returncode != 0
+    assert "requires recovery_dependency_edge" in result.stderr
 
-    _run_script(
+
+def test_prerequisite_recovery_rejects_self_completion_edge(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    recovery_bundle = workspace / "state/drain/recovery-decision.json"
+    progress_path = workspace / "artifacts/work/design-gaps/parser-syntax/progress_report.md"
+    architecture_path = workspace / "docs/plans/design-gaps/parser-syntax/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/design-gaps/parser-syntax/execution_plan.md"
+    for path, text in [
+        (progress_path, "# Progress Report\n"),
+        (architecture_path, "# Architecture\n"),
+        (plan_path, "# Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recovery_bundle.parent.mkdir(parents=True, exist_ok=True)
+    recovery_bundle.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "reason": "prerequisite_gap_required",
+                "recovery_dependency_edge": {
+                    "blocked_work": {"source": "DESIGN_GAP", "id": "parser-syntax"},
+                    "blocker_work": {"source": "DESIGN_GAP", "id": "parser-syntax"},
+                    "relation": "requires_completion",
+                    "reason_code": "missing_parser",
+                    "ready_when": {"kind": "completed", "source": "DESIGN_GAP", "id": "parser-syntax"},
+                    "retry_target": {"source": "DESIGN_GAP", "id": "parser-syntax"},
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_script(
         workspace,
-        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
-        "--run-state-path",
+        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+        "--recovery-bundle-path",
+        recovery_bundle.relative_to(workspace).as_posix(),
+        "--target-design-review-decision",
+        "NOT_APPLICABLE",
+        "--terminal-action",
+        "continue",
+        "--state-path",
         state_path.relative_to(workspace).as_posix(),
-        "--artifact-work-root",
-        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
-        "--output",
-        detector_output.relative_to(workspace).as_posix(),
+        "--item-id",
+        "parser-syntax",
+        "--source",
+        "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "parser-syntax-implementation-blocked",
+        "--summary-path",
+        "artifacts/work/blocked-summary.json",
+        "--summary-pointer-path",
+        "state/drain/blocked-summary-path.txt",
+        "--drain-status-path",
+        "state/drain/blocked-drain-status.txt",
+        check=False,
     )
 
-    payload = json.loads(detector_output.read_text(encoding="utf-8"))
-    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
-    assert payload["design_gap_id"] == (
-        "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-    )
-    assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
-    assert payload["recovery_reason"] == "prerequisite_boundary_bootstrap_reachability_missing"
-    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert result.returncode != 0
+    assert "self_completion_dependency" in result.stderr
 
 
 def test_prerequisite_boundary_summary_waits_for_bootstrap(tmp_path):
@@ -1972,6 +2052,7 @@ def test_prerequisite_boundary_summary_waits_for_bootstrap(tmp_path):
     original_gap_id = (
         "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
     )
+    blocker_gap_id = "workflow-lisp-runtime-native-drain-private-context-bootstrap-prerequisite"
     downstream_gap_id = (
         "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
     )
@@ -1990,15 +2071,21 @@ def test_prerequisite_boundary_summary_waits_for_bootstrap(tmp_path):
                         "recovery_route": "PREREQUISITE_GAP_REQUIRED",
                         "recovery_reason": "prerequisite_gap_required",
                         "recovery_status": "PREREQUISITE_WORK_PENDING",
-                        "waiting_on_prerequisite_gap_id": original_gap_id,
+                        "waiting_on_prerequisite_gap_id": blocker_gap_id,
                         "waiting_on_prerequisite_source": "DESIGN_GAP",
-                        "prerequisite_recovery_status": "WAITING_ON_BOOTSTRAP_REACHABILITY",
-                        "prerequisite_recovery_reason": "bootstrap_reachability_missing",
+                        "prerequisite_recovery_status": "WAITING_ON_PREREQUISITE",
+                        "prerequisite_recovery_reason": "prerequisite_required",
                         "downstream_blocked_gap_id": downstream_gap_id,
                         "blocking_failure_code": "private_exec_context_bootstrap_unsupported",
                         "retry_condition": (
                             "imported stdlib-adapter selector path reaches imported finalizer branches "
                             "without private_exec_context_bootstrap_unsupported"
+                        ),
+                        "recovery_dependency_edge": _recovery_dependency_edge(
+                            blocked=original_gap_id,
+                            blocker=blocker_gap_id,
+                            reason_code="private_exec_context_bootstrap_unsupported",
+                            downstream=[downstream_gap_id],
                         ),
                         "recovery_event_id": "bootstrap-gap-implementation-blocked",
                     }
@@ -2062,15 +2149,15 @@ def test_prerequisite_boundary_summary_waits_for_bootstrap(tmp_path):
     state = json.loads(state_path.read_text(encoding="utf-8"))
     blocked = state["blocked_design_gaps"][original_gap_id]
     assert blocked["recovery_status"] == "PREREQUISITE_WORK_PENDING"
-    assert blocked["waiting_on_prerequisite_gap_id"] == original_gap_id
+    assert blocked["waiting_on_prerequisite_gap_id"] == blocker_gap_id
     assert blocked["downstream_blocked_gap_id"] == downstream_gap_id
-    assert blocked["prerequisite_recovery_status"] == "WAITING_ON_BOOTSTRAP_REACHABILITY"
-    assert blocked["prerequisite_recovery_reason"] == "bootstrap_reachability_missing"
+    assert blocked["prerequisite_recovery_status"] == "WAITING_ON_PREREQUISITE"
+    assert blocked["prerequisite_recovery_reason"] == "selected_downstream_before_blocker_ready"
     assert state["history"][-1]["event"] == "prerequisite_recovery_continues"
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["record_status"] == "RECOVERY_CONTINUES"
-    assert summary["reason"] == "bootstrap_reachability_missing"
-    assert summary["selected_prerequisite_id"] == original_gap_id
+    assert summary["reason"] == "selected_downstream_before_blocker_ready"
+    assert summary["selected_prerequisite_id"] == blocker_gap_id
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
 
 
@@ -2355,9 +2442,8 @@ def test_detector_treats_legacy_prerequisite_blocked_as_recoverable(tmp_path):
     )
 
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
-    assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
-    assert payload["design_gap_id"] == "parser-syntax"
-    assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+    assert payload["pre_selection_route"] == "BLOCKED"
+    assert payload["block_reason"] == "missing_prerequisite_dependency_edge"
 
 
 def test_prerequisite_pending_with_completed_waiting_gap_retries_original_without_selection(tmp_path):
@@ -2963,6 +3049,10 @@ def test_prerequisite_retry_ready_is_overridden_when_retry_blocks_again(tmp_path
             {
                 "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
                 "reason": "prerequisite_gap_required",
+                "recovery_dependency_edge": _recovery_dependency_edge(
+                    blocked="parser-syntax",
+                    blocker="owner-seam-prerequisite",
+                ),
             }
         )
         + "\n",

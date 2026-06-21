@@ -309,6 +309,30 @@ steps:
               - name: recovery_event_id
                 json_pointer: /recovery_event_id
                 type: string
+              - name: blocked_work_id
+                json_pointer: /blocked_work_id
+                type: string
+              - name: blocked_work_source
+                json_pointer: /blocked_work_source
+                type: string
+              - name: blocker_work_id
+                json_pointer: /blocker_work_id
+                type: string
+              - name: blocker_work_source
+                json_pointer: /blocker_work_source
+                type: string
+              - name: dependency_relation
+                json_pointer: /dependency_relation
+                type: string
+              - name: dependency_reason_code
+                json_pointer: /dependency_reason_code
+                type: string
+              - name: retry_target_id
+                json_pointer: /retry_target_id
+                type: string
+              - name: retry_target_source
+                json_pointer: /retry_target_source
+                type: string
 
         - name: SelectNextWork
           id: select_next_work
@@ -748,6 +772,38 @@ steps:
                   - true_external_dependency
                   - user_decision_required
                   - unsupported_blocker
+              - name: blocked_work_id
+                json_pointer: /blocked_work_id
+                type: string
+                required: false
+              - name: blocked_work_source
+                json_pointer: /blocked_work_source
+                type: string
+                required: false
+              - name: blocker_work_id
+                json_pointer: /blocker_work_id
+                type: string
+                required: false
+              - name: blocker_work_source
+                json_pointer: /blocker_work_source
+                type: string
+                required: false
+              - name: dependency_relation
+                json_pointer: /dependency_relation
+                type: string
+                required: false
+              - name: dependency_reason_code
+                json_pointer: /dependency_reason_code
+                type: string
+                required: false
+              - name: retry_target_id
+                json_pointer: /retry_target_id
+                type: string
+                required: false
+              - name: retry_target_source
+                json_pointer: /retry_target_source
+                type: string
+                required: false
 
         - name: ReviseBlockedDesignGap
           id: revise_blocked_design_gap

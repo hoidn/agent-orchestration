@@ -5,21 +5,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-BOOTSTRAP_GAP_ID = "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-SUMMARY_OWNERSHIP_GAP_ID = (
-    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
-)
-BOOTSTRAP_FAILURE_CODE = "private_exec_context_bootstrap_unsupported"
-BOOTSTRAP_WAIT_STATUS = "WAITING_ON_BOOTSTRAP_REACHABILITY"
-BOOTSTRAP_WAIT_REASON = "bootstrap_reachability_missing"
-BOOTSTRAP_RETRY_CONDITION = (
-    "imported stdlib-adapter selector path reaches imported finalizer branches "
-    "without private_exec_context_bootstrap_unsupported"
-)
-BOOTSTRAP_BOUNDARY_DIAGNOSTIC = "prerequisite_boundary_bootstrap_reachability_missing"
+try:
+    from workflows.library.scripts.workflow_recovery_dependencies import (
+        WorkRef,
+        edge_from_blocked_entry,
+        edge_to_json,
+        evaluate_edge,
+    )
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from workflows.library.scripts.workflow_recovery_dependencies import (
+        WorkRef,
+        edge_from_blocked_entry,
+        edge_to_json,
+        evaluate_edge,
+    )
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -58,41 +62,6 @@ def _gap_design_paths(architecture_index_root: Path, design_gap_id: str, entry: 
     )
 
 
-def _is_completed_prerequisite(state: dict[str, Any], entry: dict[str, Any]) -> bool:
-    prerequisite_id = str(entry.get("waiting_on_prerequisite_gap_id") or "").strip()
-    if not prerequisite_id:
-        return False
-    source = str(entry.get("waiting_on_prerequisite_source") or "DESIGN_GAP").strip()
-    if source == "DESIGN_GAP":
-        return prerequisite_id in set(state.get("completed_design_gaps") or [])
-    if source == "BACKLOG_ITEM":
-        return prerequisite_id in set(state.get("completed_items") or [])
-    return False
-
-
-def _has_valid_bootstrap_boundary_metadata(design_gap_id: str, entry: dict[str, Any]) -> bool:
-    if design_gap_id != BOOTSTRAP_GAP_ID:
-        return True
-    metadata = {
-        "waiting_on_prerequisite_gap_id": str(entry.get("waiting_on_prerequisite_gap_id") or "").strip(),
-        "waiting_on_prerequisite_source": str(entry.get("waiting_on_prerequisite_source") or "").strip(),
-        "prerequisite_recovery_status": str(entry.get("prerequisite_recovery_status") or "").strip(),
-        "prerequisite_recovery_reason": str(entry.get("prerequisite_recovery_reason") or "").strip(),
-        "downstream_blocked_gap_id": str(entry.get("downstream_blocked_gap_id") or "").strip(),
-        "blocking_failure_code": str(entry.get("blocking_failure_code") or "").strip(),
-        "retry_condition": str(entry.get("retry_condition") or "").strip(),
-    }
-    return metadata == {
-        "waiting_on_prerequisite_gap_id": BOOTSTRAP_GAP_ID,
-        "waiting_on_prerequisite_source": "DESIGN_GAP",
-        "prerequisite_recovery_status": BOOTSTRAP_WAIT_STATUS,
-        "prerequisite_recovery_reason": BOOTSTRAP_WAIT_REASON,
-        "downstream_blocked_gap_id": SUMMARY_OWNERSHIP_GAP_ID,
-        "blocking_failure_code": BOOTSTRAP_FAILURE_CODE,
-        "retry_condition": BOOTSTRAP_RETRY_CONDITION,
-    }
-
-
 def _block_payload(reason: str) -> dict[str, str]:
     return {
         "pre_selection_route": "BLOCKED",
@@ -109,6 +78,14 @@ def _block_payload(reason: str) -> dict[str, str]:
         "block_reason": reason,
         "implementation_state_path": "",
         "recovery_event_id": "",
+        "blocked_work_id": "",
+        "blocked_work_source": "",
+        "blocker_work_id": "",
+        "blocker_work_source": "",
+        "dependency_relation": "",
+        "dependency_reason_code": "",
+        "retry_target_id": "",
+        "retry_target_source": "",
     }
 
 
@@ -149,6 +126,41 @@ def _none_payload(
         "block_reason": "",
         "implementation_state_path": "",
         "recovery_event_id": recovery_event_id,
+        "blocked_work_id": "",
+        "blocked_work_source": "",
+        "blocker_work_id": "",
+        "blocker_work_source": "",
+        "dependency_relation": "",
+        "dependency_reason_code": "",
+        "retry_target_id": "",
+        "retry_target_source": "",
+    }
+
+
+def _edge_fields(edge_json: dict[str, Any] | None) -> dict[str, str]:
+    if not edge_json:
+        return {
+            "blocked_work_id": "",
+            "blocked_work_source": "",
+            "blocker_work_id": "",
+            "blocker_work_source": "",
+            "dependency_relation": "",
+            "dependency_reason_code": "",
+            "retry_target_id": "",
+            "retry_target_source": "",
+        }
+    blocked = edge_json.get("blocked_work") or {}
+    blocker = edge_json.get("blocker_work") or {}
+    retry = edge_json.get("retry_target") or {}
+    return {
+        "blocked_work_id": str(blocked.get("id") or ""),
+        "blocked_work_source": str(blocked.get("source") or ""),
+        "blocker_work_id": str(blocker.get("id") or ""),
+        "blocker_work_source": str(blocker.get("source") or ""),
+        "dependency_relation": str(edge_json.get("relation") or ""),
+        "dependency_reason_code": str(edge_json.get("reason_code") or ""),
+        "retry_target_id": str(retry.get("id") or ""),
+        "retry_target_source": str(retry.get("source") or ""),
     }
 
 
@@ -181,12 +193,16 @@ def _recovery_payload(
         if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_BLOCKED":
             recovery_status = "PREREQUISITE_WORK_PENDING"
         if recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status == "PREREQUISITE_WORK_PENDING":
-            if _is_completed_prerequisite(state, entry):
+            edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=design_gap_id), entry)
+            if edge is None:
+                return _block_payload("missing_prerequisite_dependency_edge")
+            decision = evaluate_edge(edge, state)
+            if decision.route == "INVALID_EDGE":
+                return _block_payload(decision.reason or "invalid_prerequisite_dependency_edge")
+            if decision.route == "RETRY_TARGET":
                 recovery_status = "RETRY_READY"
-            elif not _has_valid_bootstrap_boundary_metadata(design_gap_id, entry):
-                recovery_reason = BOOTSTRAP_BOUNDARY_DIAGNOSTIC
-            else:
-                return _none_payload(
+            elif decision.route in {"SELECT_BLOCKER", "BLOCKED_RECOVERABLE"}:
+                payload = _none_payload(
                     recovery_route=recovery_route,
                     recovery_reason=recovery_reason,
                     pre_selection_route="SELECT_PREREQUISITE_WORK",
@@ -194,6 +210,10 @@ def _recovery_payload(
                     recovery_event_id=recovery_event_id,
                     recovery_status=recovery_status,
                 )
+                payload.update(_edge_fields(edge_to_json(edge)))
+                return payload
+            elif decision.route == "BLOCKED_TERMINAL":
+                return _block_payload("prerequisite_blocker_terminal")
         progress_path = _find_progress_report(artifact_work_root, design_gap_id, entry)
         if progress_path is None:
             return _block_payload("missing_blocked_progress_report")
@@ -211,7 +231,7 @@ def _recovery_payload(
         architecture_copy_path.write_text(architecture.read_text(encoding="utf-8"), encoding="utf-8")
         if plan.is_file():
             plan_copy_path.write_text(plan.read_text(encoding="utf-8"), encoding="utf-8")
-        return {
+        payload = {
             "pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP",
             "design_gap_id": design_gap_id,
             "recovery_route": recovery_route,
@@ -227,6 +247,9 @@ def _recovery_payload(
             "implementation_state_path": str(entry.get("implementation_state_path") or "").strip(),
             "recovery_event_id": recovery_event_id,
         }
+        edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=design_gap_id), entry)
+        payload.update(_edge_fields(edge_to_json(edge) if edge is not None else None))
+        return payload
     return _none_payload()
 
 

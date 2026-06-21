@@ -12,6 +12,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from workflows.library.scripts.workflow_recovery_dependencies import (
+        WorkRef,
+        edge_from_blocked_entry,
+        edge_to_json,
+        normalize_edge,
+    )
+except ModuleNotFoundError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+    from workflows.library.scripts.workflow_recovery_dependencies import (
+        WorkRef,
+        edge_from_blocked_entry,
+        edge_to_json,
+        normalize_edge,
+    )
+
 
 RECOVERY_ROUTES = {
     "GAP_DESIGN_REVISION_REQUIRED",
@@ -19,19 +35,6 @@ RECOVERY_ROUTES = {
     "PREREQUISITE_GAP_REQUIRED",
     "TERMINAL_BLOCKED",
 }
-
-BOOTSTRAP_GAP_ID = "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
-SUMMARY_OWNERSHIP_GAP_ID = (
-    "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
-)
-BOOTSTRAP_FAILURE_CODE = "private_exec_context_bootstrap_unsupported"
-BOOTSTRAP_WAIT_STATUS = "WAITING_ON_BOOTSTRAP_REACHABILITY"
-BOOTSTRAP_WAIT_REASON = "bootstrap_reachability_missing"
-BOOTSTRAP_RETRY_CONDITION = (
-    "imported stdlib-adapter selector path reaches imported finalizer branches "
-    "without private_exec_context_bootstrap_unsupported"
-)
-
 
 def _read_value_or_path(value: str) -> str:
     path = Path(value)
@@ -191,6 +194,7 @@ def _run_update(
     downstream_blocked_gap_id: str = "",
     blocking_failure_code: str = "",
     retry_condition: str = "",
+    recovery_dependency_edge: dict[str, Any] | None = None,
 ) -> int:
     state_reason = "implementation_blocked" if command == "blocked" else reason
     command_args = [
@@ -234,6 +238,8 @@ def _run_update(
         for flag, value in optional.items():
             if value:
                 command_args.extend([flag, value])
+        if recovery_dependency_edge:
+            command_args.extend(["--recovery-dependency-edge-json", json.dumps(recovery_dependency_edge, sort_keys=True)])
     return subprocess.run(command_args).returncode
 
 
@@ -249,38 +255,75 @@ def _architecture_path(args: argparse.Namespace) -> str:
     return str(bundle.get("architecture_path") or "").strip()
 
 
-def _bootstrap_boundary_metadata(bundle: dict[str, Any], args: argparse.Namespace) -> dict[str, str]:
-    if args.item_id != BOOTSTRAP_GAP_ID or args.source != "DESIGN_GAP":
-        return {}
-    metadata = {
-        "waiting_on_prerequisite_gap_id": str(bundle.get("waiting_on_prerequisite_gap_id") or "").strip(),
-        "waiting_on_prerequisite_source": str(bundle.get("waiting_on_prerequisite_source") or "").strip(),
-        "prerequisite_recovery_status": str(bundle.get("prerequisite_recovery_status") or "").strip(),
-        "prerequisite_recovery_reason": str(bundle.get("prerequisite_recovery_reason") or "").strip(),
-        "downstream_blocked_gap_id": str(bundle.get("downstream_blocked_gap_id") or "").strip(),
-        "blocking_failure_code": str(bundle.get("blocking_failure_code") or "").strip(),
-        "retry_condition": str(bundle.get("retry_condition") or "").strip(),
-    }
-    if metadata == {
-        "waiting_on_prerequisite_gap_id": BOOTSTRAP_GAP_ID,
-        "waiting_on_prerequisite_source": "DESIGN_GAP",
-        "prerequisite_recovery_status": BOOTSTRAP_WAIT_STATUS,
-        "prerequisite_recovery_reason": BOOTSTRAP_WAIT_REASON,
-        "downstream_blocked_gap_id": SUMMARY_OWNERSHIP_GAP_ID,
-        "blocking_failure_code": BOOTSTRAP_FAILURE_CODE,
-        "retry_condition": BOOTSTRAP_RETRY_CONDITION,
-    }:
-        return metadata
-    if any(metadata.values()):
-        raise SystemExit("Incomplete or invalid structured bootstrap boundary metadata in recovery bundle")
+def _raw_edge_from_bundle(bundle: dict[str, Any], args: argparse.Namespace) -> dict[str, Any] | None:
+    explicit = bundle.get("recovery_dependency_edge")
+    if isinstance(explicit, dict):
+        return explicit
+
+    blocked_id = str(bundle.get("blocked_work_id") or args.item_id or "").strip()
+    blocker_id = str(bundle.get("blocker_work_id") or "").strip()
+    relation = str(bundle.get("dependency_relation") or "").strip()
+    reason_code = str(bundle.get("dependency_reason_code") or bundle.get("reason") or "").strip()
+    retry_target_id = str(bundle.get("retry_target_id") or blocked_id).strip()
+    has_generic_edge_fields = any(
+        str(bundle.get(key) or "").strip()
+        for key in (
+            "blocked_work_id",
+            "blocked_work_source",
+            "blocker_work_id",
+            "blocker_work_source",
+            "dependency_relation",
+            "dependency_reason_code",
+            "retry_target_id",
+            "retry_target_source",
+        )
+    )
+    if has_generic_edge_fields:
+        blocker_source = str(bundle.get("blocker_work_source") or "DESIGN_GAP").strip()
+        retry_source = str(bundle.get("retry_target_source") or args.source or "DESIGN_GAP").strip()
+        return {
+            "blocked_work": {"source": str(bundle.get("blocked_work_source") or args.source or "DESIGN_GAP"), "id": blocked_id},
+            "blocker_work": {"source": blocker_source, "id": blocker_id},
+            "relation": relation or "requires_completion",
+            "reason_code": reason_code,
+            "ready_when": {"kind": "completed", "source": blocker_source, "id": blocker_id},
+            "retry_target": {"source": retry_source, "id": retry_target_id},
+            "downstream_work": bundle.get("downstream_work") if isinstance(bundle.get("downstream_work"), list) else [],
+            "evidence": {"created_by": "blocked_recovery_classifier"},
+        }
+    return None
+
+
+def _dependency_edge_from_bundle(bundle: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    raw = _raw_edge_from_bundle(bundle, args)
+    if raw is not None:
+        edge = normalize_edge(raw)
+    else:
+        edge = edge_from_blocked_entry(WorkRef(source=args.source, id=args.item_id), bundle)
+    if edge is None:
+        raise SystemExit("PREREQUISITE_GAP_REQUIRED requires recovery_dependency_edge")
+    if edge.status in {"invalid_cycle", "missing_evidence"}:
+        reason = edge.reason or edge.status
+        raise SystemExit(f"Invalid recovery_dependency_edge: {reason}")
+    return edge_to_json(edge)
+
+
+def _compat_metadata_from_edge(edge_json: dict[str, Any], bundle: dict[str, Any]) -> dict[str, str]:
+    blocker = edge_json.get("blocker_work") or {}
+    retry = edge_json.get("retry_target") or {}
+    downstream = edge_json.get("downstream_work") or []
+    downstream_ref = downstream[0] if downstream and isinstance(downstream[0], dict) else {}
     return {
-        "waiting_on_prerequisite_gap_id": "",
-        "waiting_on_prerequisite_source": "",
-        "prerequisite_recovery_status": "",
-        "prerequisite_recovery_reason": "",
-        "downstream_blocked_gap_id": "",
-        "blocking_failure_code": "",
-        "retry_condition": "",
+        "waiting_on_prerequisite_gap_id": str(blocker.get("id") or "").strip(),
+        "waiting_on_prerequisite_source": str(blocker.get("source") or "").strip(),
+        "prerequisite_recovery_status": str(bundle.get("prerequisite_recovery_status") or "WAITING_ON_PREREQUISITE").strip(),
+        "prerequisite_recovery_reason": str(bundle.get("prerequisite_recovery_reason") or "prerequisite_required").strip(),
+        "downstream_blocked_gap_id": str(downstream_ref.get("id") or "").strip(),
+        "blocking_failure_code": str(edge_json.get("reason_code") or bundle.get("blocking_failure_code") or "").strip(),
+        "retry_condition": str(
+            bundle.get("retry_condition")
+            or f"{blocker.get('source', '')}:{blocker.get('id', '')} satisfies {retry.get('source', '')}:{retry.get('id', '')}"
+        ).strip(),
     }
 
 
@@ -379,7 +422,8 @@ def main() -> int:
     if route == "PREREQUISITE_GAP_REQUIRED":
         if args.terminal_action == "block":
             return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
-        metadata = _bootstrap_boundary_metadata(recovery_bundle, args)
+        dependency_edge = _dependency_edge_from_bundle(recovery_bundle, args)
+        metadata = _compat_metadata_from_edge(dependency_edge, recovery_bundle)
         result = _run_update(
             args,
             "blocked",
@@ -392,6 +436,7 @@ def main() -> int:
             downstream_blocked_gap_id=metadata.get("downstream_blocked_gap_id", ""),
             blocking_failure_code=metadata.get("blocking_failure_code", ""),
             retry_condition=metadata.get("retry_condition", ""),
+            recovery_dependency_edge=dependency_edge,
         )
         if result == 0:
             Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")

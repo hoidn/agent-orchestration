@@ -106,6 +106,15 @@ Classify existing glue by behavior before implementation form:
 See `docs/design/workflow_command_adapter_contract.md` for lint severity,
 allowlist metadata, migration sequence, and runtime-native promotion criteria.
 
+### Recovery Dependency Edges
+
+When a workflow can block on prerequisite work, record a machine-readable
+dependency edge instead of prose-only prerequisite text. The edge should name
+blocked work, blocker work, readiness evidence, retry target, and downstream
+work. Recovery selectors must reject cycles, retry the original work once the
+blocker is ready, and route to step-back rather than drafting another local
+prerequisite when no acyclic blocker exists.
+
 ## 3) Provider Prompt Composition (What The Agent Actually Sees)
 
 Provider prompt text is composed deterministically:
@@ -312,6 +321,12 @@ Common anti-pattern: a step "succeeds" because it wrote the required output file
 This is not a bug; it's how the contracts are designed. The orchestrator can validate that files exist, but it cannot infer semantic completeness unless you encode it.
 
 If your intent is root-cause closure, add an explicit gate that checks closure criteria before moving forward.
+
+### Non-Progress Step-Back Loops
+
+For iterative drains, do not let the normal selector keep choosing local work after repeated blocks, repeated prerequisite generation, stale artifact provenance, or plan churn without accepted progress. Project run history into small progress signals, evaluate deterministic thresholds in a command step, and route to a bounded step-back diagnosis before normal selection resumes.
+
+Keep the split strict: scripts compute counters, fingerprints, stale-state checks, and route decisions; the provider diagnoses strategy only after the deterministic trigger fires; the workflow records the step-back action and decides whether to continue or block for human input.
 
 Example closure checks: a required command was executed (with machine-checkable evidence), fallbacks were not used for canonical requirements, required artifacts exist with expected profile/tag, and a review decision artifact says `APPROVE`.
 

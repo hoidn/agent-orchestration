@@ -29,6 +29,15 @@ def _read_optional_recovered_status(path: str) -> str:
     return _read_status(path, valid=VALID_STATUS, label="recovered work-item")
 
 
+def _read_optional_step_back_status(path: str) -> str:
+    if not path:
+        return ""
+    path_obj = Path(path)
+    if not path_obj.exists():
+        return ""
+    return _read_status(path, valid=VALID_STATUS, label="step-back")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pre-selection-bundle-path", required=True)
@@ -36,6 +45,7 @@ def main() -> int:
     parser.add_argument("--prerequisite-recovery-status-path", required=True)
     parser.add_argument("--recovery-record-status-path", required=True)
     parser.add_argument("--recovered-work-item-status-path", required=True)
+    parser.add_argument("--step-back-status-path", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -57,7 +67,7 @@ def main() -> int:
         else:
             status = "CONTINUE"
     elif route == "BLOCKED":
-        status = "BLOCKED"
+        status = _read_optional_step_back_status(args.step_back_status_path) or "BLOCKED"
     else:
         raise SystemExit(f"Unexpected pre_selection_route: {route}")
 
