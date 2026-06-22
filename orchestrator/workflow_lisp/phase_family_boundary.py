@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 import json
@@ -276,11 +276,13 @@ def record_direct_entry_phase_context_binding(
                     contract_definition=contract_definition,
                     anchors=structural_classification.anchors,
                 )
-                if role is None:
-                    carried_input_sources[field.generated_name] = field.source_path
-                    has_non_bootstrap_leaf = True
+                if role is not None:
+                    input_roles[field.generated_name] = role
+                    if role.startswith("run_anchor:"):
+                        carried_input_sources[field.generated_name] = field.source_path
                     continue
-                input_roles[field.generated_name] = role
+                carried_input_sources[field.generated_name] = field.source_path
+                has_non_bootstrap_leaf = True
         projection_hints: dict[str, Any] = {"context_binding_schema_version": 1}
         if input_roles:
             projection_hints["context_input_roles"] = input_roles
@@ -378,31 +380,60 @@ def load_design_delta_boundary_authority_registry(path: Path) -> dict[str, objec
 
 
 @lru_cache(maxsize=1)
-def _checked_design_delta_boundary_authority_registry() -> dict[str, object]:
+def _cached_design_delta_boundary_authority_registry() -> dict[str, object] | None:
+    if not DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH.is_file():
+        return None
     return load_design_delta_boundary_authority_registry(
         DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH
     )
 
 
-def checked_design_delta_compatibility_bridge_inputs(workflow_name: str) -> frozenset[str]:
+def checked_design_delta_public_input_names(
+    workflow_name: str,
+    *,
+    boundary_authority_registry: Mapping[str, object] | None = None,
+) -> frozenset[str]:
+    """Return checked public-authored inputs for one Design Delta workflow."""
+
     if not is_design_delta_parent_drain_target_workflow(workflow_name):
         return frozenset()
-    payload = _checked_design_delta_boundary_authority_registry()
+    registry_payload = boundary_authority_registry
+    if registry_payload is None:
+        registry_payload = _cached_design_delta_boundary_authority_registry()
+    if not isinstance(registry_payload, Mapping):
+        return frozenset()
     return frozenset(
-        str(row["field_name"])
-        for row in payload["rows"]
-        if row.get("workflow_name") == workflow_name
-        and row.get("surface_kind") == "compatibility_bridge_input"
-        and row.get("authority_class") == "compatibility_bridge"
+        str(row.get("field_name"))
+        for row in registry_payload.get("rows", [])
+        if isinstance(row, Mapping)
+        and row.get("workflow_name") == workflow_name
+        and row.get("surface_kind") == "public_input"
+        and row.get("authority_class") == "public_authored"
+        and isinstance(row.get("field_name"), str)
     )
 
 
 def build_design_delta_boundary_authority_expected_rows(
     boundary_projection_payload: dict[str, object],
+    *,
+    boundary_authority_registry: Mapping[str, object] | None = None,
 ) -> dict[tuple[str, str], dict[str, object]]:
     workflows = boundary_projection_payload.get("workflows")
     if not isinstance(workflows, list):
         return {}
+    registry_payload = boundary_authority_registry
+    if registry_payload is None and DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH.is_file():
+        registry_payload = load_design_delta_boundary_authority_registry(
+            DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH
+        )
+    checked_public_inputs = {
+        (workflow_name, field_name)
+        for workflow_name in DESIGN_DELTA_PARENT_DRAIN_TARGET_WORKFLOW_NAMES
+        for field_name in checked_design_delta_public_input_names(
+            workflow_name,
+            boundary_authority_registry=registry_payload,
+        )
+    }
     expected: dict[tuple[str, str], dict[str, object]] = {}
     for workflow in workflows:
         if not isinstance(workflow, dict):
@@ -424,6 +455,11 @@ def build_design_delta_boundary_authority_expected_rows(
             field_name
             for field_name in boundary.get("private_compatibility_bridge_inputs", [])
             if isinstance(field_name, str)
+        }
+        overlapping_checked_public_inputs = {
+            field_name
+            for field_name in compatibility_bridge_inputs
+            if (workflow_name, field_name) in checked_public_inputs
         }
         managed_write_root_inputs = {
             field_name
@@ -451,6 +487,16 @@ def build_design_delta_boundary_authority_expected_rows(
                 "surface_kind": "public_input",
                 "path_like": True,
             }
+        for field_name in overlapping_checked_public_inputs:
+            field = flattened_inputs.get(field_name)
+            if not isinstance(field, dict) or not _is_path_like_contract(field.get("contract_definition")):
+                continue
+            expected[(workflow_name, field_name)] = {
+                "workflow_name": workflow_name,
+                "field_name": field_name,
+                "surface_kind": "public_input",
+                "path_like": True,
+            }
         for field in flattened_outputs:
             if not isinstance(field, dict):
                 continue
@@ -469,6 +515,7 @@ def build_design_delta_boundary_authority_expected_rows(
             field_name = field.get("generated_name")
             if (
                 not isinstance(field_name, str)
+                or (workflow_name, field_name) in expected
                 or field_name in runtime_context_generated_names
                 or field_name in compatibility_bridge_inputs
                 or field_name in managed_write_root_inputs
@@ -489,6 +536,8 @@ def build_design_delta_boundary_authority_expected_rows(
             field = flattened_inputs.get(field_name) or generated_internal_inputs.get(field_name)
             if (
                 not isinstance(field_name, str)
+                or (workflow_name, field_name) in expected
+                or field_name in overlapping_checked_public_inputs
                 or not isinstance(field, dict)
                 or not _is_path_like_generated_internal_field(
                     field_name,
@@ -507,6 +556,7 @@ def build_design_delta_boundary_authority_expected_rows(
             field = flattened_inputs.get(field_name) or generated_internal_inputs.get(field_name)
             if (
                 not isinstance(field_name, str)
+                or (workflow_name, field_name) in expected
                 or not isinstance(field, dict)
                 or not _is_path_like_generated_internal_field(
                     field_name,
@@ -528,6 +578,7 @@ def build_design_delta_boundary_authority_expected_rows(
                 field = flattened_inputs.get(field_name) or generated_internal_inputs.get(field_name)
                 if (
                     not isinstance(field_name, str)
+                    or (workflow_name, field_name) in expected
                     or not isinstance(field, dict)
                     or not _is_path_like_generated_internal_field(
                         field_name,

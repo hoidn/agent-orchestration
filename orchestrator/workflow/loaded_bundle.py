@@ -122,6 +122,23 @@ def _compatibility_bridge_input_set(bundle: LoadedWorkflowBundle) -> frozenset[s
     )
 
 
+def _private_compatibility_bridge_input_set(bundle: LoadedWorkflowBundle) -> frozenset[str]:
+    compatibility_bridge_inputs = _compatibility_bridge_input_set(bundle)
+    workflow_name = bundle.surface.name
+    if not isinstance(workflow_name, str) or not workflow_name:
+        return compatibility_bridge_inputs
+    from orchestrator.workflow_lisp.phase_family_boundary import (
+        checked_design_delta_public_input_names,
+    )
+
+    public_checked_inputs = checked_design_delta_public_input_names(workflow_name)
+    if not public_checked_inputs:
+        return compatibility_bridge_inputs
+    return frozenset(
+        name for name in compatibility_bridge_inputs if name not in public_checked_inputs
+    )
+
+
 def workflow_public_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
     """Return the user-bindable workflow input contracts from the typed bundle."""
     if workflow_or_bundle is None:
@@ -129,7 +146,7 @@ def workflow_public_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Map
     bundle = _require_bundle(workflow_or_bundle)
     managed_inputs = _managed_write_root_input_set(bundle)
     runtime_context_inputs = _runtime_context_input_set(bundle)
-    compatibility_bridge_inputs = _compatibility_bridge_input_set(bundle)
+    compatibility_bridge_inputs = _private_compatibility_bridge_input_set(bundle)
     return MappingProxyType({
         name: _compatibility_value(contract.definition)
         for name, contract in bundle.surface.inputs.items()
@@ -288,8 +305,6 @@ def workflow_boundary_projection(workflow_or_bundle: Any) -> WorkflowBoundaryPro
         private_runtime_context_bindings=tuple(bundle.provenance.private_exec_context_bindings),
         private_managed_write_root_inputs=workflow_managed_write_root_inputs(bundle),
         private_compatibility_bridge_inputs=tuple(
-            name
-            for name in bundle.provenance.compatibility_bridge_inputs
-            if isinstance(name, str)
+            sorted(_private_compatibility_bridge_input_set(bundle))
         ),
     )

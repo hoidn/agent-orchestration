@@ -5438,9 +5438,10 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_include_gene
                 .get("contract_definition", {})
                 .get("type")
                 == "relpath"
+                )
             )
-        )
     }
+    drain_generated_internal -= set(drain_workflow["boundary"]["public_input_names"])
     drain_managed_write_roots = set(
         drain_workflow["boundary"]["private_managed_write_root_inputs"]
     )
