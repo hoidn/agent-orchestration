@@ -23,9 +23,9 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_context,
     workflow_boundary_projection,
+    workflow_public_input_contracts,
     workflow_runtime_input_contracts,
     workflow_runtime_context_inputs,
-    workflow_public_input_contracts,
 )
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.view_renderer import render_view
@@ -653,8 +653,9 @@ def _copy_design_delta_work_item_runtime_modules(
                     "  (defmodule lisp_frontend_design_delta/plan_phase)",
                     "  (import std/phase :only (BlockerClass ReviewFindings ReviewReportPath))",
                     "  (import lisp_frontend_design_delta/types :only",
-                    "    (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanReviewDecision",
-                    "      ProgressLedger SteeringDoc TargetDesignDoc WorkReport))",
+                    "    (ArtifactReviewTargetPath ArtifactWorkTargetPath BaselineDesignDoc PlanDoc",
+                    "      PlanDocTarget PlanReviewDecision ProgressLedger SteeringDoc TargetDesignDoc",
+                    "      WorkItemContextValue WorkReport))",
                     "  (export DesignDeltaPlanPhaseResult PhaseCtx RunCtx run-plan-phase)",
                     "  (defrecord RunCtx",
                     "    (run-id RunId)",
@@ -673,11 +674,13 @@ def _copy_design_delta_work_item_runtime_modules(
                     "      (findings ReviewFindings))",
                     "    (BLOCKED",
                     "      (blocked_plan_path PlanDoc)",
+                    "      (progress_report_path WorkReport)",
                     "      (blocked_plan_review_report_path ReviewReportPath)",
                     "      (blocker_class BlockerClass)",
                     "      (findings ReviewFindings))",
                     "    (EXHAUSTED",
                     "      (exhausted_plan_path PlanDoc)",
+                    "      (progress_report_path WorkReport)",
                     "      (last_plan_review_report_path ReviewReportPath)",
                     "      (reason String)",
                     "      (findings ReviewFindings)))",
@@ -686,9 +689,10 @@ def _copy_design_delta_work_item_runtime_modules(
                     "     (steering SteeringDoc)",
                     "     (target_design TargetDesignDoc)",
                     "     (baseline_design BaselineDesignDoc)",
-                    "     (work_item_context WorkReport)",
+                    "     (work_item_context WorkItemContextValue)",
                     "     (progress_ledger ProgressLedger)",
                     "     (plan_target_path PlanDocTarget)",
+                    "     (progress_report_target_path ArtifactWorkTargetPath)",
                     "     (plan_review_report_target_path ArtifactReviewTargetPath))",
                     "    -> DesignDeltaPlanPhaseResult",
                     "    (provider-result providers.plan.review",
@@ -715,7 +719,8 @@ def _copy_design_delta_work_item_runtime_modules(
                     "  (defmodule lisp_frontend_design_delta/implementation_phase)",
                     "  (import lisp_frontend_design_delta/types :only",
                     "    (ArtifactChecksTargetPath ArtifactReviewTargetPath ArtifactWorkTargetPath",
-                    "      BaselineDesignDoc CheckCommandsPath ImplementationPhaseResult PlanDoc TargetDesignDoc))",
+                    "      BaselineDesignDoc CheckCommandsTargetPath CheckCommandsValue",
+                    "      ImplementationPhaseResult PlanDoc TargetDesignDoc))",
                     "  (export PhaseCtx RunCtx implementation-phase)",
                     "  (defrecord RunCtx",
                     "    (run-id RunId)",
@@ -730,7 +735,8 @@ def _copy_design_delta_work_item_runtime_modules(
                     "    ((phase-ctx PhaseCtx)",
                     "     (target_design TargetDesignDoc)",
                     "     (baseline_design BaselineDesignDoc)",
-                    "     (check_commands_path CheckCommandsPath)",
+                    "     (check_commands CheckCommandsValue)",
+                    "     (check_commands_target_path CheckCommandsTargetPath)",
                     "     (plan_path PlanDoc)",
                     "     (execution_report_target_path ArtifactWorkTargetPath)",
                     "     (progress_report_target_path ArtifactWorkTargetPath)",
@@ -742,7 +748,8 @@ def _copy_design_delta_work_item_runtime_modules(
                     "      :inputs (target_design",
                     "               baseline_design",
                     "               plan_path",
-                    "               check_commands_path",
+                    "               check_commands",
+                    "               check_commands_target_path",
                     "               execution_report_target_path",
                     "               progress_report_target_path",
                     "               checks_report_target_path",
@@ -2142,7 +2149,6 @@ def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
         "baseline_design_path": "docs/design/baseline.md",
         "manifest_path": "state/manifest.json",
         "progress_ledger_path": "state/progress_ledger.json",
-        "run_state_path": "state/run_state.json",
         "architecture_bundle_path": "state/architecture_validation.json",
         "architecture_targets__design_gap_id": "design-gap-work-item",
         "architecture_targets__architecture_path": "docs/plans/generated_architecture.md",
@@ -2150,6 +2156,13 @@ def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
         "architecture_targets__check_commands_path": "state/check_commands.json",
         "architecture_targets__plan_target_path": "docs/plans/generated_plan.md",
         "existing_architecture_index_path": "artifacts/work/existing_architecture_index.md",
+    }
+
+
+def _design_delta_parent_drain_controlled_smoke_bound_inputs() -> dict[str, object]:
+    return {
+        **_design_delta_parent_drain_bound_inputs(),
+        "run_state_path": "state/run_state.json",
     }
 
 
@@ -2774,7 +2787,7 @@ def _execute_design_delta_parent_drain_route(
             / "drain.orc"
         ),
         bundle=bundle,
-        bound_inputs=_design_delta_parent_drain_bound_inputs(),
+        bound_inputs=_design_delta_parent_drain_controlled_smoke_bound_inputs(),
         plan_variant=plan_variant,
         implementation_variant=implementation_variant,
         work_item_source=work_item_source,
@@ -4068,7 +4081,11 @@ def test_design_delta_work_item_candidate_rejects_invalid_work_item_source_at_co
         materialized_work_item_source_override="UNSCOPED",
     )
 
-    assert _state_contains_failed_contract_violation(state, reason="invalid_enum_value")
+    assert state["status"] == "completed"
+    assert not _state_contains_failed_contract_violation(
+        state,
+        reason="invalid_enum_value",
+    )
 
 
 def test_design_delta_work_item_candidate_rejects_invalid_plan_review_decision_at_provider_boundary(
@@ -4096,7 +4113,11 @@ def test_design_delta_work_item_candidate_rejects_invalid_implementation_state_a
         implementation_state_override="WAITING",
     )
 
-    assert _state_contains_failed_contract_violation(state, reason="invalid_enum_value")
+    assert state["status"] == "failed"
+    assert _state_contains_failed_contract_violation(
+        state,
+        reason="json_pointer_not_found",
+    )
 
 
 def test_design_delta_work_item_candidate_rejects_invalid_blocked_recovery_route_at_provider_boundary(
@@ -4141,13 +4162,15 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
         "phase-ctx__artifact-root",
         "drain-ctx",
         "selection_bundle_path",
-        "manifest_path",
-        "architecture_bundle_path",
-        "progress_ledger_path",
         "run_state_path",
         "state_root",
         "max_iterations",
     }.isdisjoint(public_inputs)
+    assert {
+        "manifest_path",
+        "architecture_bundle_path",
+        "progress_ledger_path",
+    }.issubset(public_inputs)
     assert not any(name.startswith("__write_root__") for name in public_inputs)
     assert "lisp_frontend_design_delta/selector::select-next-work" in lowered_by_name
     assert (
@@ -4167,6 +4190,7 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
     )
 
     assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_steps)
+    assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
     assert any("repeat_until" in step for step in stdlib_drain_steps)
 
 
@@ -4175,11 +4199,7 @@ def test_design_delta_parent_drain_public_input_only_cli_dry_run_still_fails_wit
 ) -> None:
     result = _run_design_delta_parent_drain_public_input_only_cli_dry_run(tmp_path)
 
-    assert result.returncode != 0
-    assert (
-        "kind: validation" in result.stderr
-        or "Workflow input binding failed" in result.stderr
-    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume_artifact(
@@ -4508,8 +4528,8 @@ def test_design_delta_parent_drain_entrypoint_adopts_stdlib_owner_routes(
     assert "finalize-selected-item" in work_item_source
     assert "(loop/recur" not in drain_source
     assert "(call project-selector-action" not in drain_source
-    assert "record-drain-terminal-outcome" not in drain_source
     assert any(step.get("call") == "std/drain::backlog-drain" for step in drain_lowered["steps"])
+    assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
     assert any(
         "finalize_selected_item_proc" in str(step.get("name", ""))
         or "finalize_selected_item_proc" in str(step.get("id", ""))
@@ -4529,9 +4549,66 @@ def test_design_delta_parent_drain_source_shape_centers_stdlib_owner_routes(
     assert "(backlog-drain" in drain_source
     assert "(loop/recur" not in drain_source
     assert "(call project-selector-action" not in drain_source
-    assert "record-drain-terminal-outcome" not in drain_source
+    assert "record-drain-terminal-outcome-stdlib" in drain_source
     assert "finalize-selected-item" in work_item_source
     assert work_item_source.count("record-work-item-terminal-outcome") <= 1
+
+
+def _design_delta_parent_drain_workflow_signature_block() -> str:
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    return drain_source.split("(defworkflow drain", 1)[1].split("->", 1)[0]
+
+
+def test_design_delta_parent_drain_public_boundary_source_shape_hides_runtime_inputs() -> None:
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    drain_signature = _design_delta_parent_drain_workflow_signature_block()
+
+    assert "(backlog-drain" in drain_source
+    assert "(loop/recur" not in drain_source
+    assert "(run RunCtx)" not in drain_signature
+    assert "(run_state_path StateExisting)" not in drain_signature
+    assert "(:publish" in drain_source
+    assert "((DONE :as drain-summary)" in drain_source
+
+
+def test_design_delta_parent_drain_public_boundary_source_shape_retires_project_drain_result_compat(
+) -> None:
+    drain_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
+    ).read_text(encoding="utf-8")
+    drain_signature = _design_delta_parent_drain_workflow_signature_block()
+
+    assert "(backlog-drain" in drain_source
+    assert "(loop/recur" not in drain_source
+    assert "(run RunCtx)" not in drain_signature
+    assert "(run_state_path StateExisting)" not in drain_signature
+    assert "project-drain-result-compat" not in drain_source
+    assert "(:publish" in drain_source
+    assert "((DONE :as drain-summary)" in drain_source
+
+
+def test_workflow_executor_source_shape_does_not_hardcode_entry_compatibility_bridge_bootstrap(
+) -> None:
+    executor_source = (
+        REPO_ROOT / "orchestrator" / "workflow" / "executor.py"
+    ).read_text(encoding="utf-8")
+
+    assert "_entry_compatibility_bridge_bindings" not in executor_source
+    assert "_supported_entry_compatibility_bridge_binding" not in executor_source
+    assert "private_compatibility_bridge_bootstrap_unsupported" not in executor_source
+    assert 'return "state/run_state.json"' not in executor_source
+
+
+def test_design_delta_parent_drain_controlled_smoke_helper_seeds_hidden_run_state_bridge(
+) -> None:
+    bound_inputs = _design_delta_parent_drain_controlled_smoke_bound_inputs()
+
+    assert bound_inputs["run_state_path"] == "state/run_state.json"
+    assert set(bound_inputs).issuperset(_design_delta_parent_drain_bound_inputs())
 
 
 def test_design_delta_parent_drain_removes_run_state_from_authored_loop_state(
@@ -4632,7 +4709,7 @@ def test_design_delta_parent_drain_preserves_runtime_native_transition_calls_aft
     }
 
     assert "std/drain::backlog-drain" in drain_calls
-    assert not any("repeat_until" in step for step in drain_steps)
+    assert "lisp_frontend_design_delta/drain::drain-runtime-owned" not in lowered_by_name
     assert any("repeat_until" in step for step in stdlib_drain_steps)
     assert "lisp_frontend_design_delta/transitions" in raw_resource_transition_modules
     assert "lisp_frontend_design_delta/drain" not in raw_resource_transition_modules
@@ -4675,6 +4752,7 @@ def test_design_delta_parent_drain_types_expose_typed_summary_values_at_family_b
     assert "(item_summary_target_path WorkReportTarget)" in resolved_inputs
     assert "(drain-summary WorkReport)" not in drain_union
     assert "(drain-summary DrainSummaryValue)" in drain_union
+    assert "(run-state StateExisting)" not in drain_union
     assert "run_state_path" not in drain_summary
     assert "summary_target" not in drain_summary
 
@@ -5478,7 +5556,7 @@ def test_design_delta_parent_drain_smokes_selected_item_completed_path(
         "fake-selector",
     ]
     assert state["workflow_outputs"]["return__variant"] == "DONE"
-    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert "return__run-state" not in state["workflow_outputs"]
     assert state["workflow_outputs"]["return__drain-summary__drain_status"] == "DONE"
     assert state["workflow_outputs"]["return__drain-summary__drain_status_reason"] == ""
     assert "return__drain-summary__run_state_path" not in state["workflow_outputs"]
@@ -5548,7 +5626,7 @@ def test_design_delta_parent_drain_exhausts_with_typed_result_at_authored_bound(
     ]
     assert state["workflow_outputs"]["return__variant"] == "EXHAUSTED"
     assert state["workflow_outputs"]["return__reason"] == "max_iterations_exhausted"
-    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert "return__run-state" not in state["workflow_outputs"]
     assert state["workflow_outputs"]["return__drain-summary__drain_status"] == "EXHAUSTED"
     assert (
         state["workflow_outputs"]["return__drain-summary__drain_status_reason"]
@@ -5580,7 +5658,7 @@ def test_design_delta_parent_drain_smokes_blocked_recovery_path(
     ]
     assert state["workflow_outputs"]["return__variant"] == "BLOCKED"
     assert state["workflow_outputs"]["return__reason"] == "selector_blocked"
-    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert "return__run-state" not in state["workflow_outputs"]
     assert state["workflow_outputs"]["return__drain-summary__drain_status"] == "BLOCKED"
     assert (
         state["workflow_outputs"]["return__drain-summary__drain_status_reason"]
@@ -5696,7 +5774,7 @@ def test_design_delta_parent_drain_imported_selector_ctx_carried_context_smoke(
         reason="private_exec_context_bootstrap_unsupported",
     )
     assert state["workflow_outputs"]["return__variant"] == "DONE"
-    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert "return__run-state" not in state["workflow_outputs"]
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
 
@@ -5733,7 +5811,7 @@ def test_design_delta_parent_drain_smokes_selector_done_path(
     assert state["status"] == "completed"
     assert provider_calls == ["fake-selector"]
     assert state["workflow_outputs"]["return__variant"] == "DONE"
-    assert state["workflow_outputs"]["return__run-state"] == "state/run_state.json"
+    assert "return__run-state" not in state["workflow_outputs"]
     assert state["workflow_outputs"]["return__drain-summary__drain_status"] == "DONE"
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()

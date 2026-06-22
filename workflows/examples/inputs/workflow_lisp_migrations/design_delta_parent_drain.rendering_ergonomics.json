@@ -184,6 +184,32 @@
     },
     {
       "body_rendering_policy": "forbid",
+      "c0_row_id": "c0.drain_materialized_drain_summary",
+      "consumer_lane": "typed_step",
+      "renderer_selection": {
+        "allowed_renderers": [],
+        "mode": "none",
+        "override_allowed": false
+      },
+      "slot_id": "drain.materialized.drain_summary",
+      "source_form": {
+        "form_path": [
+          "drain",
+          "materialized",
+          "drain_summary"
+        ],
+        "kind": "public_output",
+        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain"
+      },
+      "u0_row_id": "drain.materialized.drain_summary",
+      "value": {
+        "authority": "typed_value",
+        "type_name": "drain_summary"
+      },
+      "workflow_surface": "lisp_frontend_design_delta/drain::drain"
+    },
+    {
+      "body_rendering_policy": "forbid",
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
       "consumer_lane": "compatibility_bridge",
       "expected_track_c_lane": "C4",
@@ -371,84 +397,6 @@
       "value": {
         "authority": "typed_value",
         "type_name": "progress_ledger_path"
-      },
-      "workflow_surface": "lisp_frontend_design_delta/drain::drain"
-    },
-    {
-      "body_rendering_policy": "forbid",
-      "c0_row_id": "c0.drain_materialized_drain_summary",
-      "consumer_lane": "typed_step",
-      "renderer_selection": {
-        "allowed_renderers": [],
-        "mode": "none",
-        "override_allowed": false
-      },
-      "slot_id": "drain.materialized.drain_summary",
-      "source_form": {
-        "form_path": [
-          "drain",
-          "materialized",
-          "drain_summary"
-        ],
-        "kind": "public_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain"
-      },
-      "u0_row_id": "drain.materialized.drain_summary",
-      "value": {
-        "authority": "typed_value",
-        "type_name": "drain_summary"
-      },
-      "workflow_surface": "lisp_frontend_design_delta/drain::drain"
-    },
-    {
-      "body_rendering_policy": "forbid",
-      "c0_row_id": "c0.drain_output_return_run_state",
-      "consumer_lane": "typed_step",
-      "renderer_selection": {
-        "allowed_renderers": [],
-        "mode": "none",
-        "override_allowed": false
-      },
-      "slot_id": "drain.output.return_run_state",
-      "source_form": {
-        "form_path": [
-          "drain",
-          "output",
-          "return_run_state"
-        ],
-        "kind": "public_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain"
-      },
-      "u0_row_id": "drain.output.return_run_state",
-      "value": {
-        "authority": "typed_value",
-        "type_name": "return_run_state"
-      },
-      "workflow_surface": "lisp_frontend_design_delta/drain::drain"
-    },
-    {
-      "body_rendering_policy": "forbid",
-      "c0_row_id": "c0.drain_output_return_run_state_compiled_boundary",
-      "consumer_lane": "typed_step",
-      "renderer_selection": {
-        "allowed_renderers": [],
-        "mode": "none",
-        "override_allowed": false
-      },
-      "slot_id": "drain.output.return_run_state.compiled_boundary",
-      "source_form": {
-        "form_path": [
-          "drain",
-          "output",
-          "return_run_state"
-        ],
-        "kind": "public_output",
-        "source_map_origin_key": "lisp_frontend_design_delta/drain::drain"
-      },
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__run-state",
-      "value": {
-        "authority": "typed_value",
-        "type_name": "return_run_state"
       },
       "workflow_surface": "lisp_frontend_design_delta/drain::drain"
     },

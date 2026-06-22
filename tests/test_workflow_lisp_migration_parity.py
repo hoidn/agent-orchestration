@@ -337,6 +337,38 @@ def _valid_report_payload(*, workflow_family: str = "design_plan_impl_stack") ->
     }
 
 
+def _design_delta_parent_runtime_audit_artifacts() -> list[dict[str, str]]:
+    return [
+        {
+            "artifact_id": "drain_status_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
+            "resource_kind": "drain-run-state",
+        },
+        {
+            "artifact_id": "terminal_work_item_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
+            "resource_kind": "drain-run-state",
+        },
+        {
+            "artifact_id": "blocked_recovery_transition_audit",
+            "path": (
+                "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
+                "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
+            ),
+            "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
+            "resource_kind": "drain-run-state",
+        },
+    ]
+
+
 def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str, object]:
     target = json.loads(json.dumps(base_entry))
     target.update(
@@ -396,35 +428,7 @@ def _design_delta_parent_target_entry(base_entry: dict[str, object]) -> dict[str
                 ],
                 "optional": ["expanded_debug_yaml"],
             },
-            "runtime_audit_artifacts": [
-                {
-                    "artifact_id": "drain_status_transition_audit",
-                    "path": (
-                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-                    ),
-                    "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-                    "resource_kind": "drain-run-state",
-                },
-                {
-                    "artifact_id": "terminal_work_item_transition_audit",
-                    "path": (
-                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-                    ),
-                    "transition_name": "lisp_frontend_design_delta/transitions::record-terminal-work-item",
-                    "resource_kind": "drain-run-state",
-                },
-                {
-                    "artifact_id": "blocked_recovery_transition_audit",
-                    "path": (
-                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-                    ),
-                    "transition_name": "lisp_frontend_design_delta/transitions::record-blocked-recovery-outcome",
-                    "resource_kind": "drain-run-state",
-                }
-            ],
+            "runtime_audit_artifacts": _design_delta_parent_runtime_audit_artifacts(),
             "family_evidence_artifacts": [
                 {
                     "artifact_id": "projection_dual_run_report",
@@ -472,17 +476,7 @@ def _add_parent_family_evidence(
                 "boundary_artifact_justifications",
                 "route_identity",
             ],
-            "runtime_audit_artifacts": [
-                {
-                    "artifact_id": "drain_status_transition_audit",
-                    "path": (
-                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-                    ),
-                    "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-                    "resource_kind": "drain-run-state",
-                }
-            ],
+            "runtime_audit_artifacts": _design_delta_parent_runtime_audit_artifacts(),
             "family_evidence_artifacts": [
                 {
                     "artifact_id": "projection_dual_run_report",
@@ -510,16 +504,18 @@ def _add_parent_family_evidence(
         "lowering_route": route,
         "lowering_schema_version": 2,
     }
-    runtime_audit_path = repo_root / str(target_identity["runtime_audit_artifacts"][0]["path"])
+    runtime_audit_artifacts = target_identity["runtime_audit_artifacts"]
+    runtime_audit_path = repo_root / str(runtime_audit_artifacts[0]["path"])
     _write_text(runtime_audit_path, '{"transition":"write-drain-status"}\n')
     report["evidence_freshness"]["runtime_audit_artifacts"] = {
-        "drain_status_transition_audit": {
-            "path": str(target_identity["runtime_audit_artifacts"][0]["path"]),
-            "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-            "resource_kind": "drain-run-state",
+        str(artifact["artifact_id"]): {
+            "path": str(artifact["path"]),
+            "transition_name": str(artifact["transition_name"]),
+            "resource_kind": str(artifact["resource_kind"]),
             "exists": True,
             "sha256": _sha256_file(runtime_audit_path),
         }
+        for artifact in runtime_audit_artifacts
     }
     family_freshness: dict[str, object] = {}
     for artifact in target_identity["family_evidence_artifacts"]:
@@ -586,17 +582,7 @@ def _add_parent_family_identity(report: dict[str, object]) -> None:
                 "boundary_artifact_justifications",
                 "route_identity",
             ],
-            "runtime_audit_artifacts": [
-                {
-                    "artifact_id": "drain_status_transition_audit",
-                    "path": (
-                        "artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/"
-                        "runtime-audits/design_delta_parent_drain_transition_audit.jsonl"
-                    ),
-                    "transition_name": "lisp_frontend_design_delta/transitions::write-drain-status",
-                    "resource_kind": "drain-run-state",
-                }
-            ],
+            "runtime_audit_artifacts": _design_delta_parent_runtime_audit_artifacts(),
             "family_evidence_artifacts": [
                 {
                     "artifact_id": "projection_dual_run_report",

@@ -31,6 +31,10 @@
       "decision": "NOT_C5_TARGET"
     },
     {
+      "c0_row_id": "c0.drain_materialized_drain_summary",
+      "decision": "RETIRED_TO_ENTRY_PUBLICATION"
+    },
+    {
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
@@ -53,18 +57,6 @@
     {
       "c0_row_id": "c0.drain_bridge_progress_ledger_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
-    },
-    {
-      "c0_row_id": "c0.drain_materialized_drain_summary",
-      "decision": "RETIRED_TO_ENTRY_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.drain_output_return_run_state",
-      "decision": "BLOCKED"
-    },
-    {
-      "c0_row_id": "c0.drain_output_return_run_state_compiled_boundary",
-      "decision": "BLOCKED"
     },
     {
       "c0_row_id": "c0.drain_summary_report_target_final_summary_view",

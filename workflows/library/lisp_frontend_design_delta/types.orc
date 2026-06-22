@@ -529,13 +529,10 @@
 
   (defunion DrainResult
     (DONE
-      (run-state StateExisting)
       (drain-summary DrainSummaryValue))
     (BLOCKED
       (reason String)
-      (run-state StateExisting)
       (drain-summary DrainSummaryValue))
     (EXHAUSTED
       (reason String)
-      (run-state StateExisting)
       (drain-summary DrainSummaryValue))))

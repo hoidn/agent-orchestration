@@ -217,6 +217,10 @@ def _design_delta_parent_drain_request(
     *,
     command_boundaries_path: Path | None = None,
 ):
+    run_state_path = tmp_path / "state" / "run_state.json"
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+    if not run_state_path.exists():
+        run_state_path.write_text("{}\n", encoding="utf-8")
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
     return request_cls(
@@ -5448,10 +5452,15 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_include_gene
         and row["surface_kind"]
         in {
             "generated_internal_input",
-            "compatibility_bridge_input",
             "managed_write_root",
             "runtime_context_input",
         }
+    }
+    compatibility_bridge_coverage = {
+        field_name
+        for (workflow_name, field_name), row in expected_rows.items()
+        if workflow_name == "lisp_frontend_design_delta/drain::drain"
+        and row["surface_kind"] == "compatibility_bridge_input"
     }
     managed_write_root_rows = {
         field_name
@@ -5461,6 +5470,7 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_include_gene
     }
 
     assert generated_internal_coverage == drain_generated_internal
+    assert compatibility_bridge_coverage == {"run_state_path"}
     assert managed_write_root_rows == drain_managed_write_roots
 
 
@@ -5486,11 +5496,18 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
     assert (
         "lisp_frontend_design_delta/drain::drain",
         "run__artifact-root",
-    ) in expected_rows
+    ) not in expected_rows
     assert (
         "lisp_frontend_design_delta/drain::drain",
         "run__state-root",
+    ) not in expected_rows
+    assert (
+        "lisp_frontend_design_delta/drain::drain",
+        "run_state_path",
     ) in expected_rows
+    assert expected_rows[
+        ("lisp_frontend_design_delta/drain::drain", "run_state_path")
+    ]["surface_kind"] == "compatibility_bridge_input"
     assert all(
         ("lisp_frontend_design_delta/drain::drain", field_name) not in expected_rows
         for field_name in {
@@ -5501,14 +5518,13 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
             "drain_summary_target_path",
         }
     )
-    for field_name in {
-        "architecture_bundle_path",
-        "manifest_path",
-        "progress_ledger_path",
-        "run_state_path",
-    }:
+    for field_name in {"architecture_bundle_path", "manifest_path", "progress_ledger_path"}:
         row = expected_rows[("lisp_frontend_design_delta/drain::drain", field_name)]
-        assert row["surface_kind"] == "compatibility_bridge_input"
+        assert row["surface_kind"] == "public_input"
+    run_state_row = expected_rows[
+        ("lisp_frontend_design_delta/drain::drain", "run_state_path")
+    ]
+    assert run_state_row["surface_kind"] == "compatibility_bridge_input"
 
 
 def test_design_delta_parent_drain_build_rejects_unclassified_path_like_boundary_value(
@@ -5666,10 +5682,12 @@ def test_design_delta_parent_drain_boundary_authority_report_records_generated_a
         drain_row["compiled_evidence"]["private_managed_write_root_inputs"]
     )
 
-    assert generated_internal_inputs
-    assert managed_write_root_inputs
-    assert managed_write_root_inputs.issubset(generated_internal_inputs)
+    assert generated_internal_inputs == set(drain_row["generated_internal"]).union(
+        {"run_state_path"}
+    )
     assert managed_write_root_inputs == set(drain_row["generated_internal"])
+    assert drain_row["generated_internal"] != []
+    assert set(drain_row["compatibility_bridge"]) == {"run_state_path"}
 
 
 def test_boundary_authority_report_records_pure_projection_classification_for_fixture_local_projection_helpers(
@@ -6111,7 +6129,7 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
     selected_entry_rows = {
         row["row_id"] for row in entry_publication_payload["selected_c0_rows"]
     }
-    assert "c0.drain_materialized_drain_summary" not in selected_entry_rows
+    assert "c0.drain_materialized_drain_summary" in selected_entry_rows
     assert "c0.drain_materialized_drain_summary_compiled_boundary" not in selected_entry_rows
     assert (
         "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary"
@@ -6129,7 +6147,7 @@ def test_design_delta_parent_drain_build_reclassifies_summary_rows_to_entry_publ
         row["c0_row_id"]: row for row in cleanup_payload["cleanup_decisions"]
     }
     assert cleanup_rows["c0.drain_materialized_drain_summary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
-    assert cleanup_rows["c0.drain_materialized_drain_summary_compiled_boundary"]["cleanup_decision"] == "RETIRED_TO_ENTRY_PUBLICATION"
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in cleanup_rows
     assert "c0.drain_materialized_drain_summary" not in cleanup_payload[
         "surviving_body_materialization_row_ids"
     ]
@@ -7847,12 +7865,10 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_ignores_track_c_pu
             encoding="utf-8"
         )
     )
-    decision = next(
-        row
+    assert all(
+        row["row_id"] != "drain.output.return_run_state"
         for row in payload["decisions"]
-        if row["row_id"] == "drain.output.return_run_state"
     )
-    assert decision["decision"] == "NOT_R5_TARGET"
 
 
 def test_design_delta_parent_drain_resume_plumbing_retirement_build_passes_checkpoint_evidence_into_report(
@@ -7879,14 +7895,14 @@ def test_design_delta_parent_drain_resume_plumbing_retirement_build_passes_check
             for point in points_payload["points"]
         )
         assert any(
-            (
+            "drain_runtime_owned"
+            in (
                 point.get("effect_boundary", {})
                 .get("policy", {})
                 .get("evidence_requirements", {})
-                .get("transition", {})
-                .get("transition_identity")
+                .get("workflow_call", {})
+                .get("callee_workflow", "")
             )
-            == "write-drain-status"
             for point in points_payload["points"]
             if point.get("point_kind") == "effect_boundary"
         )
