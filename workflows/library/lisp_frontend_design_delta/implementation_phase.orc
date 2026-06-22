@@ -244,14 +244,26 @@
                     :max 40)))
            (match review
              ((APPROVED approved)
-              (record ImplementationPhaseResult
-                :implementation-state completed.implementation_state
-                :implementation-review-decision ImplementationReviewDecision.APPROVE
-                :blocker-class BlockerClass.missing_resource
-                :execution-report completed.execution_report
-                :progress-report completed.execution_report
-                :checks-report checks.checks_report
-                :implementation-review-report approved.review_report))
+              (let* ((progress-report
+                       (materialize-view implementation-progress-report
+                         :value (record ImplementationProgressReportValue
+                                  :status "COMPLETED"
+                                  :execution_report completed.execution_report
+                                  :checks_report checks.checks_report
+                                  :review_report approved.review_report
+                                  :reason "")
+                         :renderer canonical-json
+                         :renderer-version 1
+                         :target progress_report_target_path
+                         :returns WorkReport)))
+                (record ImplementationPhaseResult
+                  :implementation-state completed.implementation_state
+                  :implementation-review-decision ImplementationReviewDecision.APPROVE
+                  :blocker-class BlockerClass.missing_resource
+                  :execution-report completed.execution_report
+                  :progress-report progress-report
+                  :checks-report checks.checks_report
+                  :implementation-review-report approved.review_report)))
              ((BLOCKED blocked)
               (let* ((progress-report
                        (materialize-view implementation-progress-report

@@ -2,21 +2,28 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/transitions)
+  (import std/resource :only (StateExisting))
   (import lisp_frontend_design_delta/types :only
-    (BlockedRecoveryReason BlockedRecoveryRoute DrainSummaryValue DrainTerminalStatus RunStatePath
-      WorkItemContextValue WorkItemSource WorkItemSummaryValue WorkItemTerminalReason
-      WorkItemTerminalRoute WorkReport WorkReportTarget))
+    (ArchitectureValidationResult BlockedRecoveryReason BlockedRecoveryRoute DrainSummaryValue
+      DrainTerminalStatus PlanDocTarget RunStatePath WorkItemContextValue WorkItemSource
+      WorkItemSummaryValue WorkItemTerminalReason WorkItemTerminalRoute WorkReport
+      WorkReportTarget))
   (export
     apply-drain-status-transition
     BlockedRecoveryOutcomeRequest
     BlockedRecoveryOutcomeAudit
     BlockedRecoveryOutcomeResult
+    DesignGapProgressAudit
+    DesignGapProgressRequest
+    DesignGapProgressResult
     DrainStatusAudit
     DrainStatusRequest
     DrainStatusResult
     DrainRunStateRecord
     record-work-item-blocked-recovery-summary
+    record-design-gap-progress
     record-drain-terminal-outcome
+    record-drain-terminal-outcome-stdlib
     record-work-item-terminal-outcome
     TerminalOutcomeAudit
     TerminalOutcomeResult
@@ -29,6 +36,7 @@
     record-blocked-recovery-outcome)
 
   (defrecord DrainRunStateRecord
+    (completed_design_gaps List[String])
     (drain_status DrainTerminalStatus)
     (drain_status_reason String)
     (drain_status_summary WorkReportTarget)
@@ -79,6 +87,22 @@
   (defrecord BlockedRecoveryOutcomeAudit
     (reason BlockedRecoveryReason)
     (summary_path WorkReportTarget))
+
+  (defrecord DesignGapProgressRequest
+    (design_gap_id String)
+    (architecture_path PlanDocTarget)
+    (plan_target_path PlanDocTarget)
+    (validation_status ArchitectureValidationResult))
+
+  (defrecord DesignGapProgressResult
+    (design_gap_id String)
+    (validation_status ArchitectureValidationResult))
+
+  (defrecord DesignGapProgressAudit
+    (design_gap_id String)
+    (architecture_path PlanDocTarget)
+    (plan_target_path PlanDocTarget)
+    (validation_status ArchitectureValidationResult))
 
   (defresource drain-run-state
     :state-type lisp_frontend_design_delta/transitions/DrainRunStateRecord
@@ -159,6 +183,26 @@
     :conflict-policy fail_closed
     :backend runtime_native)
 
+  (deftransition record-design-gap-progress-transition
+    :resource drain-run-state
+    :request-type lisp_frontend_design_delta/transitions/DesignGapProgressRequest
+    :result-type lisp_frontend_design_delta/transitions/DesignGapProgressResult
+    :preconditions ((!= request.design_gap_id "")
+                    (= request.validation_status ArchitectureValidationResult.VALID))
+    :updates ((append-item completed_design_gaps request.design_gap_id))
+    :write-set (completed_design_gaps)
+    :idempotency-fields (design_gap_id architecture_path plan_target_path validation_status)
+    :result (record lisp_frontend_design_delta/transitions/DesignGapProgressResult
+      :design_gap_id request.design_gap_id
+      :validation_status request.validation_status)
+    :audit (record lisp_frontend_design_delta/transitions/DesignGapProgressAudit
+      :design_gap_id request.design_gap_id
+      :architecture_path request.architecture_path
+      :plan_target_path request.plan_target_path
+      :validation_status request.validation_status)
+    :conflict-policy fail_closed
+    :backend runtime_native)
+
   (defworkflow emit-drain-status-transition-audit
     ((run_state_path RunStatePath)
      (summary_path WorkReportTarget))
@@ -187,6 +231,49 @@
 
   (defproc record-drain-terminal-outcome
     ((run_state_path RunStatePath)
+     (status DrainTerminalStatus)
+     (reason String))
+    -> DrainSummaryValue
+    :effects ((uses-command apply_resource_transition))
+    :lowering inline
+    (let* ((summary-target
+             (__generated-relpath-seed__
+               WorkReportTarget
+               "artifacts/work/drain_summary.json"
+               "design_delta_parent_drain_summary"))
+           (transition-result
+             (resource-transition
+               :transition write-drain-status
+               :resource drain-run-state
+               :request (record lisp_frontend_design_delta/transitions/DrainStatusRequest
+                 :status status
+                 :reason reason
+                 :summary_path summary-target))))
+      (record DrainSummaryValue
+        :drain_status status
+        :drain_status_reason reason
+        :state_version "lisp_frontend_autonomous_drain_run_state/v1")))
+
+  (defproc record-design-gap-progress
+    ((run_state_path StateExisting)
+     (design_gap_id String)
+     (architecture_path PlanDocTarget)
+     (plan_target_path PlanDocTarget)
+     (validation_status ArchitectureValidationResult))
+    -> DesignGapProgressResult
+    :effects ((uses-command apply_resource_transition))
+    :lowering inline
+    (resource-transition
+      :transition record-design-gap-progress-transition
+      :resource drain-run-state
+      :request (record DesignGapProgressRequest
+        :design_gap_id design_gap_id
+        :architecture_path architecture_path
+        :plan_target_path plan_target_path
+        :validation_status validation_status)))
+
+  (defproc record-drain-terminal-outcome-stdlib
+    ((run_state_path StateExisting)
      (status DrainTerminalStatus)
      (reason String))
     -> DrainSummaryValue

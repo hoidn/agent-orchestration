@@ -51,12 +51,37 @@
       "lisp_frontend_design_delta/plan_phase::run-plan-phase",
       "lisp_frontend_design_delta/selector::select-next-work",
       "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery",
-      "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
       "lisp_frontend_design_delta/work_item::run-work-item",
       "std/drain::backlog-drain"
     ]
   },
   "rows": [
+    {
+      "boundary_authority_class": "materialized_view",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "return__summary-path",
+      "plumbing_class": "human_rendering",
+      "replacement_target": "Track C consumer-side rendering",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::return__summary-path",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "symbol_or_field": "return__summary-path",
+      "track_owner": "C",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
     {
       "boundary_authority_class": "generated_internal",
       "bridge": null,
@@ -879,32 +904,6 @@
       "workflow_surface": "lisp_frontend_design_delta/drain::drain"
     },
     {
-      "boundary_authority_class": "public_artifact",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "workflow_boundary_projection",
-      "notes": "Compiled boundary inventory mirror of the canonical drain summary publication.",
-      "path_or_contract": "return__drain-summary",
-      "plumbing_class": "entry_publication",
-      "replacement_target": "Track C entry publication policy",
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "entry_publication_report",
-          "path": "entry_publication_report.json"
-        },
-        {
-          "kind": "compiled_boundary_inventory",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "public_output",
-      "symbol_or_field": "return__drain-summary",
-      "track_owner": "C",
-      "workflow_surface": "lisp_frontend_design_delta/drain::drain"
-    },
-    {
       "boundary_authority_class": "runtime_derived",
       "bridge": null,
       "command_boundary": null,
@@ -1175,10 +1174,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1191,7 +1190,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase"
     },
@@ -1201,10 +1200,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1217,7 +1216,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase"
     },
@@ -1227,10 +1226,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__revise__state__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__revise__state__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__revise__state__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__revise__state__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1243,7 +1242,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__revise__state__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__revise__state__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase"
     },
@@ -1253,10 +1252,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/implementation_phase::implementation-phase::__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1269,7 +1268,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_2b324e7c1b3c_2b88229236c2_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_implementation_phase_implementation_phase__match_attempt__completed__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_14a2cf48b3d3_063bdc229c2a_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/implementation_phase::implementation-phase"
     },
@@ -1695,10 +1694,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1711,7 +1710,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__approve__validated_findings__validate_review_findings_v1__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
@@ -1721,10 +1720,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1737,7 +1736,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__blocked__validated_findings__validate_review_findings_v1__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
@@ -1747,10 +1746,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__revise__state__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__revise__state__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__revise__state__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__revise__state__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1763,7 +1762,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__revise__state__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__revise__state__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
@@ -1773,10 +1772,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/plan_phase::run-plan-phase::__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -1789,7 +1788,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_3fe848f67934_e694a593439d_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_plan_phase_run_plan_phase__review___proc_ref_call_parametric_call_std_phase_review_revise_loop_proc_f3ae8cb36a98_ad08cd0f8aa8_1__body__revise__validated_findings__validate_review_findings_v1__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase"
     },
@@ -2605,10 +2604,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_4__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4____wcc_anf_676842067c__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_4__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4____wcc_anf_676842067c__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2621,7 +2620,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_4__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4____wcc_anf_676842067c__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2631,10 +2630,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_7__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_7__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2647,7 +2646,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_7__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2657,10 +2656,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__blocked_decision__lisp_frontend_design_delta_projections_normalize_blocked_recovery_route_1__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__blocked_decision__lisp_frontend_design_delta_projections_normalize_blocked_recovery_route_1__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2673,7 +2672,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__blocked_decision__lisp_frontend_design_delta_projections_normalize_blocked_recovery_route_1__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2683,10 +2682,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2699,7 +2698,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__approved__match_implementation__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2709,10 +2708,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__blocked__outcome__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__blocked__outcome__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2725,7 +2724,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__blocked__outcome__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2735,10 +2734,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_1__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_1__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2751,7 +2750,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__gap_design_revision_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_1__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_4__match_plan__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2761,10 +2760,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_4__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_4__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2777,7 +2776,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_4__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2787,10 +2786,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__decision__lisp_frontend_design_delta_projections_normalize_blocked_recovery_route_1__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__decision__lisp_frontend_design_delta_projections_normalize_blocked_recovery_route_1__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2803,7 +2802,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__decision__lisp_frontend_design_delta_projections_normalize_blocked_recovery_route_1__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2813,10 +2812,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_3__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_1__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_3__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_1__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2829,7 +2828,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__prerequisite_gap_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_3__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_1__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2839,10 +2838,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2855,7 +2854,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2865,10 +2864,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2881,7 +2880,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__gap_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_1__transition_result__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2891,10 +2890,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_3__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_3__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2907,7 +2906,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_3__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2917,10 +2916,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_2__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_2__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2933,7 +2932,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__target_design_revision_required__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_2__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2943,10 +2942,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_1__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_1__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2959,7 +2958,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_1__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__prerequisite_gap_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_3__transition_result__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2969,10 +2968,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_4__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_2__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_4__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_2__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -2985,7 +2984,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_blocked_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_4__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__blocker_class__lisp_frontend_design_delta_stdlib_adapters_project_blocker_class_from_reason_2__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -2995,10 +2994,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_3__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_3__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3011,7 +3010,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_3__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3021,10 +3020,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_6__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_6__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3037,7 +3036,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_6__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__target_design_revision_required__recorded__lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary_2__transition_result__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3047,10 +3046,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_2__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1____wcc_anf_676842067c__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_2__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1____wcc_anf_676842067c__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3063,7 +3062,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_2__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1____wcc_anf_676842067c__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3073,10 +3072,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_5__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_5__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3089,7 +3088,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_5__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3099,10 +3098,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3115,7 +3114,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3125,10 +3124,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_5__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_5__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3141,7 +3140,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_5__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__approved__match_implementation__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3151,10 +3150,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_8__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__blocked__outcome__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_8__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__blocked__outcome__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3167,7 +3166,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_8__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__blocked__outcome__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3177,10 +3176,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_6__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_6__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3193,7 +3192,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalize_request__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_finalize_request_6__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_1__match_plan__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3203,10 +3202,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_9__terminal_projection__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_1__terminal_projection__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_9__terminal_projection__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_1__terminal_projection__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3219,7 +3218,7 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__summary_value__lisp_frontend_design_delta_work_item_project_work_item_summary_value_9__terminal_projection__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_1__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3229,10 +3228,10 @@
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__result_bundle",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3____wcc_anf_676842067c__result_bundle",
       "plumbing_class": "generated_internal",
       "replacement_target": null,
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__result_bundle",
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3____wcc_anf_676842067c__result_bundle",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
         {
@@ -3245,7 +3244,709 @@
         }
       ],
       "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__result_bundle",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3____wcc_anf_676842067c__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__approved__match_implementation__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_3__match_plan__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_3__terminal_projection__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_3__terminal_projection__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_3__terminal_projection__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2____wcc_anf_676842067c__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2____wcc_anf_676842067c__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2____wcc_anf_676842067c__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__approved__match_implementation__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_2__match_plan__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_2__terminal_projection__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_2__terminal_projection__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_2__terminal_projection__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5____wcc_anf_676842067c__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5____wcc_anf_676842067c__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5____wcc_anf_676842067c__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__approved__match_implementation__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_5__match_plan__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_5__terminal_projection__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_5__terminal_projection__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_5__terminal_projection__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6____wcc_anf_676842067c__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6____wcc_anf_676842067c__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6____wcc_anf_676842067c__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__approved__match_implementation__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__blocked__outcome__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__blocked__outcome__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__blocked__outcome__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_6b2d9707ec0c_6__match_plan__result_bundle",
+      "track_owner": "shared",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
+    },
+    {
+      "boundary_authority_class": "generated_internal",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "workflow_boundary_projection",
+      "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
+      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_6__terminal_projection__result_bundle",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
+      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_6__terminal_projection__result_bundle",
+      "semantic_owner": "compiled_boundary",
+      "source_evidence": [
+        {
+          "kind": "boundary_authority_report",
+          "path": "boundary_authority_report.json"
+        },
+        {
+          "kind": "boundary_authority_registry",
+          "path": "design_delta_parent_drain.boundary_authority.json"
+        }
+      ],
+      "source_kind": "generated_path",
+      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_6__terminal_projection__result_bundle",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
@@ -3256,7 +3957,7 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "baseline_design_path",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::baseline_design_path",
       "semantic_owner": "compiled_boundary",
@@ -3282,8 +3983,8 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "phase-ctx__artifact-root",
-      "plumbing_class": "resume_only",
-      "replacement_target": "Track R private lexical checkpoints",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::phase-ctx__artifact-root",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
@@ -3298,7 +3999,7 @@
       ],
       "source_kind": "generated_path",
       "symbol_or_field": "phase-ctx__artifact-root",
-      "track_owner": "R",
+      "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
@@ -3308,8 +4009,8 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "phase-ctx__run__artifact-root",
-      "plumbing_class": "resume_only",
-      "replacement_target": "Track R private lexical checkpoints",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::phase-ctx__run__artifact-root",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
@@ -3324,7 +4025,7 @@
       ],
       "source_kind": "generated_path",
       "symbol_or_field": "phase-ctx__run__artifact-root",
-      "track_owner": "R",
+      "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
@@ -3334,8 +4035,8 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "phase-ctx__run__state-root",
-      "plumbing_class": "resume_only",
-      "replacement_target": "Track R private lexical checkpoints",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::phase-ctx__run__state-root",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
@@ -3350,7 +4051,7 @@
       ],
       "source_kind": "generated_path",
       "symbol_or_field": "phase-ctx__run__state-root",
-      "track_owner": "R",
+      "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
@@ -3360,8 +4061,8 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "phase-ctx__state-root",
-      "plumbing_class": "resume_only",
-      "replacement_target": "Track R private lexical checkpoints",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::phase-ctx__state-root",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
@@ -3376,23 +4077,18 @@
       ],
       "source_kind": "generated_path",
       "symbol_or_field": "phase-ctx__state-root",
-      "track_owner": "R",
+      "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
       "boundary_authority_class": "compatibility_bridge",
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "legacy_bootstrap",
-        "file_shape": "report_path",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
+      "bridge": null,
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "progress_ledger_path",
-      "plumbing_class": "compatibility_bridge",
-      "replacement_target": "Track R/C private bootstrap revision",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::progress_ledger_path",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
@@ -3412,18 +4108,13 @@
     },
     {
       "boundary_authority_class": "compatibility_bridge",
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item",
-        "consumer": "runtime_resume",
-        "file_shape": "compatibility_file",
-        "retirement_condition": "remove after private typed value transport and consumer-owned rendering retire authored compatibility plumbing"
-      },
+      "bridge": null,
       "command_boundary": null,
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "run_state_path",
-      "plumbing_class": "resume_only",
-      "replacement_target": "Track R private lexical checkpoints",
+      "plumbing_class": "generated_internal",
+      "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::run_state_path",
       "semantic_owner": "compiled_boundary",
       "source_evidence": [
@@ -3438,7 +4129,7 @@
       ],
       "source_kind": "loop_state_field",
       "symbol_or_field": "run_state_path",
-      "track_owner": "R",
+      "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
@@ -3448,7 +4139,7 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "steering_path",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::steering_path",
       "semantic_owner": "compiled_boundary",
@@ -3474,7 +4165,7 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "target_design_path",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::target_design_path",
       "semantic_owner": "compiled_boundary",
@@ -3500,7 +4191,7 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "work_item_bootstrap__architecture_path",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__architecture_path",
       "semantic_owner": "compiled_boundary",
@@ -3526,7 +4217,7 @@
       "current_consumer": "workflow_boundary_projection",
       "notes": "Checked compiled boundary inventory row synthesized from the current boundary authority registry.",
       "path_or_contract": "work_item_bootstrap__plan_target_path",
-      "plumbing_class": "public_authored",
+      "plumbing_class": "generated_internal",
       "replacement_target": null,
       "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-work-item::work_item_bootstrap__plan_target_path",
       "semantic_owner": "compiled_boundary",
@@ -3544,37 +4235,6 @@
       "symbol_or_field": "work_item_bootstrap__plan_target_path",
       "track_owner": "shared",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
-    },
-    {
-      "boundary_authority_class": "compatibility_bridge",
-      "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-        "consumer": "standalone_summary_reader",
-        "file_shape": "compatibility_file",
-        "retirement_condition": "remove after typed boundary consumers stop requiring the canonical item summary file"
-      },
-      "command_boundary": null,
-      "current_consumer": "workflow_boundary_projection",
-      "notes": "Compiled boundary inventory mirror of the canonical item summary bridge on the selected-item lane.",
-      "path_or_contract": "artifacts/work/item_summary.json",
-      "plumbing_class": "compatibility_bridge",
-      "replacement_target": "Track C exact-path summary bridge retirement",
-      "row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
-      "semantic_owner": "compiled_boundary",
-      "source_evidence": [
-        {
-          "kind": "compatibility_bridge_metadata",
-          "path": "design_delta_parent_drain.compatibility_bridges.json"
-        },
-        {
-          "kind": "compiled_boundary_inventory",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "bridge_file",
-      "symbol_or_field": "return__summary-path",
-      "track_owner": "shared",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
     },
     {
       "boundary_authority_class": "compatibility_bridge",
@@ -3810,6 +4470,28 @@
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
     },
     {
+      "boundary_authority_class": "public_artifact",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "downstream_work_item",
+      "notes": "Validated work-item bundle path is still a published artifact boundary.",
+      "path_or_contract": "WorkItemBundlePath",
+      "plumbing_class": "entry_publication",
+      "replacement_target": "Track C entry publication policy",
+      "row_id": "design_gap_architect_validate.output.work_item_bundle_path",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "checked_census",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "public_output",
+      "symbol_or_field": "return__work_item_bundle_path",
+      "track_owner": "C",
+      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
+    },
+    {
       "boundary_authority_class": "materialized_view",
       "bridge": null,
       "command_boundary": {
@@ -3843,28 +4525,6 @@
       "symbol_or_field": "design_gap_architecture_targets_view",
       "track_owner": "C",
       "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture-stdlib"
-    },
-    {
-      "boundary_authority_class": "public_artifact",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "downstream_work_item",
-      "notes": "Validated work-item bundle path is still a published artifact boundary.",
-      "path_or_contract": "WorkItemBundlePath",
-      "plumbing_class": "entry_publication",
-      "replacement_target": "Track C entry publication policy",
-      "row_id": "design_gap_architect_validate.output.work_item_bundle_path",
-      "semantic_owner": "workflow_surface",
-      "source_evidence": [
-        {
-          "kind": "checked_census",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "public_output",
-      "symbol_or_field": "return__work_item_bundle_path",
-      "track_owner": "C",
-      "workflow_surface": "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture"
     },
     {
       "boundary_authority_class": "public_artifact",
@@ -5484,6 +6144,28 @@
       "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work"
     },
     {
+      "boundary_authority_class": "materialized_view",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "operator_summary_view",
+      "notes": "Shared backlog-drain summary stays a timed view until typed drain-result consumers can replace the generic rendered summary lane.",
+      "path_or_contract": "WorkReport",
+      "plumbing_class": "human_rendering",
+      "replacement_target": "Track C consumer-side rendering",
+      "row_id": "std_drain.materialized.shared_drain_result_summary",
+      "semantic_owner": "workflow_surface",
+      "source_evidence": [
+        {
+          "kind": "checked_census",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
+        }
+      ],
+      "source_kind": "materialized_output",
+      "symbol_or_field": "return__summary-path",
+      "track_owner": "C",
+      "workflow_surface": "std/drain::backlog-drain"
+    },
+    {
       "boundary_authority_class": "compatibility_bridge",
       "bridge": {
         "bridge_owner": "lisp_frontend_design_delta/work_item",
@@ -5599,50 +6281,6 @@
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
-      "boundary_authority_class": "generated_internal",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "runtime_internal",
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__result_bundle",
-      "plumbing_class": "generated_internal",
-      "replacement_target": null,
-      "row_id": "work_item.generated.write_root_lisp_frontend_design_delta_work_item_run_work_item_match_plan_approved_match_terminal_result_bundle",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__result_bundle",
-      "track_owner": "shared",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
-    },
-    {
-      "boundary_authority_class": "generated_internal",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "runtime_internal",
-      "notes": "Checked boundary inventory row from managed_write_root / generated_internal.",
-      "path_or_contract": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__result_bundle",
-      "plumbing_class": "generated_internal",
-      "replacement_target": null,
-      "row_id": "work_item.generated.write_root_lisp_frontend_design_delta_work_item_run_work_item_match_plan_result_bundle",
-      "semantic_owner": "workflow_runtime",
-      "source_evidence": [
-        {
-          "kind": "boundary_authority_report",
-          "path": "boundary_authority_report.json"
-        }
-      ],
-      "source_kind": "generated_path",
-      "symbol_or_field": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__result_bundle",
-      "track_owner": "shared",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
-    },
-    {
       "boundary_authority_class": "public_authored",
       "bridge": null,
       "command_boundary": null,
@@ -5736,50 +6374,6 @@
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     },
     {
-      "boundary_authority_class": "compatibility_bridge",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "provider_prompt",
-      "notes": "Blocked-recovery classifier prompt stays explicit until recovery routing can consume typed request values directly.",
-      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md",
-      "plumbing_class": "prompt_rendering",
-      "replacement_target": "Track C typed prompt-input rendering",
-      "row_id": "work_item.prompt.classify_blocked_recovery",
-      "semantic_owner": "prompt_extern_manifest",
-      "source_evidence": [
-        {
-          "kind": "prompt_extern_manifest",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
-        }
-      ],
-      "source_kind": "prompt_input_file",
-      "symbol_or_field": "prompts.work-item.classify-blocked-recovery",
-      "track_owner": "C",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery"
-    },
-    {
-      "boundary_authority_class": "materialized_view",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "operator_summary_view",
-      "notes": "Shared backlog-drain summary stays a timed view until typed drain-result consumers can replace the generic rendered summary lane.",
-      "path_or_contract": "WorkReport",
-      "plumbing_class": "human_rendering",
-      "replacement_target": "Track C consumer-side rendering",
-      "row_id": "std_drain.materialized.shared_drain_result_summary",
-      "semantic_owner": "workflow_surface",
-      "source_evidence": [
-        {
-          "kind": "checked_census",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "materialized_output",
-      "symbol_or_field": "return__summary-path",
-      "track_owner": "C",
-      "workflow_surface": "std/drain::backlog-drain"
-    },
-    {
       "boundary_authority_class": "materialized_view",
       "bridge": null,
       "command_boundary": null,
@@ -5803,8 +6397,30 @@
     },
     {
       "boundary_authority_class": "compatibility_bridge",
+      "bridge": null,
+      "command_boundary": null,
+      "current_consumer": "provider_prompt",
+      "notes": "Blocked-recovery classifier prompt stays explicit until recovery routing can consume typed request values directly.",
+      "path_or_contract": "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md",
+      "plumbing_class": "prompt_rendering",
+      "replacement_target": "Track C typed prompt-input rendering",
+      "row_id": "work_item.prompt.classify_blocked_recovery",
+      "semantic_owner": "prompt_extern_manifest",
+      "source_evidence": [
+        {
+          "kind": "prompt_extern_manifest",
+          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json"
+        }
+      ],
+      "source_kind": "prompt_input_file",
+      "symbol_or_field": "prompts.work-item.classify-blocked-recovery",
+      "track_owner": "C",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery"
+    },
+    {
+      "boundary_authority_class": "compatibility_bridge",
       "bridge": {
-        "bridge_owner": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+        "bridge_owner": "lisp_frontend_design_delta/work_item::run-work-item",
         "consumer": "standalone_summary_reader",
         "file_shape": "compatibility_file",
         "retirement_condition": "remove after typed boundary consumers stop requiring the canonical item summary file"
@@ -5826,28 +6442,6 @@
       "source_kind": "bridge_file",
       "symbol_or_field": "return__summary-path",
       "track_owner": "shared",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
-    },
-    {
-      "boundary_authority_class": "materialized_view",
-      "bridge": null,
-      "command_boundary": null,
-      "current_consumer": "standalone_summary_reader",
-      "notes": "Selected-item summary stays a timed view until typed boundary consumers retire the canonical summary file.",
-      "path_or_contract": "WorkReport",
-      "plumbing_class": "human_rendering",
-      "replacement_target": "Track C exact-path summary bridge retirement",
-      "row_id": "work_item.materialized.selected_item_summary",
-      "semantic_owner": "workflow_surface",
-      "source_evidence": [
-        {
-          "kind": "checked_census",
-          "path": "workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.value_flow_census.json"
-        }
-      ],
-      "source_kind": "materialized_output",
-      "symbol_or_field": "return__summary",
-      "track_owner": "C",
       "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item"
     }
   ],

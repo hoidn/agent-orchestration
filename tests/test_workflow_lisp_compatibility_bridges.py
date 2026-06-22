@@ -174,7 +174,6 @@ def test_select_compatibility_bridge_rows_uses_checked_c0_inventory() -> None:
         "c0.work_item_bridge_progress_ledger_path",
         "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
         "c0.work_item_summary_summary_path",
-        "c0.work_item_summary_summary_path_compiled_boundary",
     }
 
 
@@ -309,22 +308,18 @@ def test_checked_design_delta_compatibility_bridge_manifest_adopts_canonical_ite
     rows_by_id = {row["c0_row_id"]: row for row in payload["bridges"]}
 
     assert "c0.work_item_summary_summary_path" in bridge_row_ids
-    assert "c0.work_item_summary_summary_path_compiled_boundary" in bridge_row_ids
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in bridge_row_ids
     assert (
         rows_by_id["c0.work_item_summary_summary_path"]["workflow_surface"]
-        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+        == "lisp_frontend_design_delta/work_item::run-work-item"
     )
     assert (
         rows_by_id["c0.work_item_summary_summary_path"]["bridge_owner"]
-        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+        == "lisp_frontend_design_delta/work_item::run-work-item"
     )
     assert (
-        rows_by_id["c0.work_item_summary_summary_path_compiled_boundary"]["u0_row_id"]
-        == "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
-    )
-    assert (
-        rows_by_id["c0.work_item_summary_summary_path_compiled_boundary"]["workflow_surface"]
-        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+        rows_by_id["c0.work_item_summary_summary_path"]["u0_row_id"]
+        == "work_item.summary.summary_path"
     )
 
     consumer_rows = {
@@ -333,7 +328,6 @@ def test_checked_design_delta_compatibility_bridge_manifest_adopts_canonical_ite
         if row["row_id"]
         in {
             "c0.work_item_summary_summary_path",
-            "c0.work_item_summary_summary_path_compiled_boundary",
         }
     }
     canonical_targets = [
@@ -347,27 +341,24 @@ def test_checked_design_delta_compatibility_bridge_manifest_adopts_canonical_ite
         == canonical_targets
     )
     assert (
-        consumer_rows["c0.work_item_summary_summary_path_compiled_boundary"][
-            "target_binding"
-        ]["target_labels"]
-        == canonical_targets
-    )
-    assert (
         consumer_rows["c0.work_item_summary_summary_path"]["consumer_lane"]
-        == "compatibility_bridge"
+        == "retirement_candidate"
     )
-    assert (
-        consumer_rows["c0.work_item_summary_summary_path_compiled_boundary"][
-            "consumer_lane"
-        ]
-        == "compatibility_bridge"
-    )
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in consumer_rows
     assert all(
         not label.endswith("execution_report.md")
         and not label.endswith("progress_report.md")
         and "pointer.txt" not in label
         for label in canonical_targets
     )
+
+
+def test_checked_design_delta_compatibility_bridge_manifest_keeps_selected_item_summary_off_progress_report(
+) -> None:
+    payload = _load_json(COMPATIBILITY_BRIDGES_PATH)
+    rows_by_id = {row["c0_row_id"]: row for row in payload["bridges"]}
+
+    assert "c0.work_item_materialized_selected_item_summary" not in rows_by_id
 
 
 def test_load_compatibility_bridge_manifest_requires_metadata_for_every_selected_c0_row(
@@ -545,6 +536,15 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
                         ],
                     },
                 },
+                {
+                    "workflow_name": (
+                        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+                    ),
+                    "boundary": {
+                        "public_input_names": [],
+                        "private_compatibility_bridge_inputs": [],
+                    },
+                },
             ]
         },
         source_map_payload={
@@ -583,6 +583,23 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
                         }
                     ],
                 },
+                "lisp_frontend_design_delta/work_item::run-selected-item-stdlib": {
+                    "generated_semantic_effects": [
+                        {
+                            "effect_kind": "materialize_view",
+                            "details": {
+                                "authority_class": "compatibility_bridge",
+                                "allocation_id": "bridge-selected-item-summary",
+                            },
+                        }
+                    ],
+                    "generated_path_allocations": [
+                        {
+                            "allocation_id": "bridge-selected-item-summary",
+                            "semantic_role": "materialized_value_view",
+                        }
+                    ],
+                },
             }
         },
         materialize_view_effects=[],
@@ -603,16 +620,17 @@ def test_build_compatibility_bridge_report_fails_closed_when_manifest_omits_sele
         "c0.work_item_bridge_progress_ledger_path",
         "c0.work_item_bridge_progress_ledger_path_compiled_boundary",
         "c0.work_item_summary_summary_path",
-        "c0.work_item_summary_summary_path_compiled_boundary",
     }
-    assert {
-        (diagnostic["code"], diagnostic["c0_row_id"])
-        for diagnostic in report["diagnostics"]
-    } == {
-        (
-            "compatibility_bridge_required_metadata_missing",
-            "c0.drain_bridge_manifest_path",
-        )
+    diagnostics = report["diagnostics"]
+    assert (
+        "compatibility_bridge_required_metadata_missing",
+        "c0.drain_bridge_manifest_path",
+    ) in {
+        (diagnostic["code"], diagnostic.get("c0_row_id"))
+        for diagnostic in diagnostics
+    }
+    assert {diagnostic["code"] for diagnostic in diagnostics} == {
+        "compatibility_bridge_required_metadata_missing",
     }
 
 

@@ -23,6 +23,14 @@
       "decision": "NOT_C5_TARGET"
     },
     {
+      "c0_row_id": "c0.design_gap_architect_validate_stdlib_materialized_architecture_targets_view",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.design_gap_architect_validate_stdlib_output_work_item_bundle_path",
+      "decision": "NOT_C5_TARGET"
+    },
+    {
       "c0_row_id": "c0.drain_bridge_architecture_bundle_path",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
@@ -48,10 +56,6 @@
     },
     {
       "c0_row_id": "c0.drain_materialized_drain_summary",
-      "decision": "RETIRED_TO_ENTRY_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.drain_materialized_drain_summary_compiled_boundary",
       "decision": "RETIRED_TO_ENTRY_PUBLICATION"
     },
     {
@@ -139,6 +143,14 @@
       "decision": "RETIRED_TO_OBSERVABILITY"
     },
     {
+      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
+      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path_compiled_boundary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
       "c0_row_id": "c0.plan_phase_output_approved_plan_path",
       "decision": "NOT_C5_TARGET"
     },
@@ -195,6 +207,10 @@
       "decision": "KEEP_TYPED"
     },
     {
+      "c0_row_id": "c0.std_drain_materialized_shared_drain_result_summary",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
       "c0_row_id": "c0.work_item_bridge_architecture_bundle_path_compiled_boundary",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
@@ -211,40 +227,16 @@
       "decision": "RETIRED_TO_BRIDGE_METADATA"
     },
     {
+      "c0_row_id": "c0.work_item_materialized_work_item_context_view",
+      "decision": "KEEP_TIMED_PUBLICATION"
+    },
+    {
       "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",
       "decision": "KEEP_TYPED"
     },
     {
       "c0_row_id": "c0.work_item_summary_summary_path",
       "decision": "RETIRED_TO_BRIDGE_METADATA"
-    },
-    {
-      "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
-      "decision": "RETIRED_TO_BRIDGE_METADATA"
-    },
-    {
-      "c0_row_id": "c0.design_gap_architect_validate_stdlib_materialized_architecture_targets_view",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.design_gap_architect_validate_stdlib_output_work_item_bundle_path",
-      "decision": "NOT_C5_TARGET"
-    },
-    {
-      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.plan_phase_materialized_return_progress_report_path_compiled_boundary",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.std_drain_materialized_shared_drain_result_summary",
-      "decision": "KEEP_TIMED_PUBLICATION"
-    },
-    {
-      "c0_row_id": "c0.work_item_materialized_work_item_context_view",
-      "decision": "KEEP_TIMED_PUBLICATION"
     }
   ],
   "schema_version": "workflow_lisp_rendering_cleanup.v1",

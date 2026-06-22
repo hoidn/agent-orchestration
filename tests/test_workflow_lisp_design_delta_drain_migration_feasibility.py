@@ -2204,6 +2204,65 @@ def _execute_design_delta_work_item_route(
     )
 
 
+def _design_delta_selected_item_stdlib_bound_inputs() -> dict[str, object]:
+    return {
+        "item-ctx__run__run-id": "selected-item-stdlib",
+        "item-ctx__run__state-root": "state/run",
+        "item-ctx__run__artifact-root": "artifacts/run",
+        "item-ctx__item-id": "design-gap-work-item",
+        "item-ctx__state-root": "state/item",
+        "item-ctx__artifact-root": "artifacts/item",
+        "item-ctx__ledger": "state/progress_ledger.json",
+        "selection__item-id": "design-gap-work-item",
+        "selection__item-state-root": "state/item",
+        "selection__work_item_bootstrap__work_item_source": "DESIGN_GAP",
+        "selection__work_item_bootstrap__work_item_id": "design-gap-work-item",
+        "selection__work_item_bootstrap__plan_target_path": "docs/plans/generated_plan.md",
+        "selection__work_item_bootstrap__check_commands__commands": [
+            "python -m pytest -q"
+        ],
+        "selection__work_item_bootstrap__architecture_path": (
+            "docs/plans/generated_architecture.md"
+        ),
+        "selection__steering_path": "docs/steering.md",
+        "selection__target_design_path": "docs/design/target.md",
+        "selection__baseline_design_path": "docs/design/baseline.md",
+        "selection__progress_ledger_path": "state/progress_ledger.json",
+        "selection__run_state_path": "state/run_state.json",
+        "phase-ctx__plan__run__run-id": "selected-item-stdlib",
+        "phase-ctx__implementation__run__run-id": "selected-item-stdlib",
+    }
+
+
+def _execute_design_delta_selected_item_stdlib_route(
+    tmp_path: Path,
+    *,
+    plan_variant: str,
+    implementation_variant: str,
+    work_item_source: str,
+    recovery_route: str = "GAP_DESIGN_REVISION_REQUIRED",
+    recovery_reason: str = "implementation_architecture_under_scoped",
+    review_sequence: tuple[str, ...] = ("APPROVE",),
+):
+    workflow_path, result = _compile_design_delta_work_item_runtime_entrypoint(tmp_path)
+    bundle = result.entry_result.validated_bundles[
+        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    ]
+    return _execute_design_delta_work_item_bundle(
+        tmp_path,
+        workflow_path=workflow_path,
+        bundle=bundle,
+        bound_inputs=_design_delta_selected_item_stdlib_bound_inputs(),
+        plan_variant=plan_variant,
+        implementation_variant=implementation_variant,
+        work_item_source=work_item_source,
+        recovery_route=recovery_route,
+        recovery_reason=recovery_reason,
+        review_sequence=review_sequence,
+        run_id="selected-item-stdlib",
+    )
+
+
 def _execute_design_delta_work_item_bundle(
     tmp_path: Path,
     *,
@@ -4602,6 +4661,9 @@ def test_design_delta_parent_drain_types_expose_typed_summary_values_at_family_b
     work_item_union = types_source.split("(defunion WorkItemResult", 1)[1].split(
         "(defrecord DrainState)", 1
     )[0]
+    resolved_inputs = types_source.split("(defrecord ResolvedWorkItemInputs", 1)[1].split(
+        "(defrecord ImplementationPhaseResult)", 1
+    )[0]
     drain_summary = types_source.split("(defrecord DrainSummaryValue", 1)[1].split(
         "(defrecord WorkItemSummaryValue)", 1
     )[0]
@@ -4609,6 +4671,8 @@ def test_design_delta_parent_drain_types_expose_typed_summary_values_at_family_b
 
     assert "(summary WorkReport)" not in work_item_union
     assert "(summary WorkItemSummaryValue)" in work_item_union
+    assert "(item_summary_target_path WorkReport)" not in resolved_inputs
+    assert "(item_summary_target_path WorkReportTarget)" in resolved_inputs
     assert "(drain-summary WorkReport)" not in drain_union
     assert "(drain-summary DrainSummaryValue)" in drain_union
     assert "run_state_path" not in drain_summary
@@ -4623,12 +4687,83 @@ def test_design_delta_parent_drain_summary_cleanup_removes_helper_owned_summary_
         / "lisp_frontend_design_delta"
         / "transitions.orc"
     ).read_text(encoding="utf-8")
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+    stdlib_adapters_source = (
+        REPO_ROOT
+        / "workflows"
+        / "library"
+        / "lisp_frontend_design_delta"
+        / "stdlib_adapters.orc"
+    ).read_text(encoding="utf-8")
+    std_resource_source = (
+        REPO_ROOT
+        / "orchestrator"
+        / "workflow_lisp"
+        / "stdlib_modules"
+        / "std"
+        / "resource.orc"
+    ).read_text(encoding="utf-8")
+    route_blocked_stdlib = work_item_source.split(
+        "(defproc route-blocked-implementation-stdlib", 1
+    )[1].split("(defworkflow run-selected-item-stdlib", 1)[0]
+    run_selected_item_stdlib = work_item_source.split(
+        "(defworkflow run-selected-item-stdlib", 1
+    )[1].split("(defworkflow run-work-item", 1)[0]
+    run_work_item = work_item_source.split("(defworkflow run-work-item", 1)[1]
 
     assert "defrecord RenderedSummary" not in transitions_source
     assert "drain-summary-view" not in transitions_source
     assert "work-item-terminal-summary-view" not in transitions_source
     assert "work-item-blocked-recovery-summary-view" not in transitions_source
     assert "work-item-context-view" in transitions_source
+    assert "materialize-selected-item-summary-target" not in work_item_source
+    assert "materialize-work-item-summary-bridge" not in work_item_source
+    assert "materialize-view blocked-recovery-summary" not in work_item_source
+    assert '(defpath WorkReport\n    :kind relpath\n    :under "artifacts/work"\n    :must-exist true)' in std_resource_source
+    assert "materialize-view selected-item-summary" not in std_resource_source
+    assert "(writes blocked-recovery-summary)" not in work_item_source
+    assert "finalize-selected-item-compat" not in stdlib_adapters_source
+    assert "(writes selected-item-summary)" not in stdlib_adapters_source
+    assert "(writes selected-item-summary)" not in work_item_source
+    assert "(writes work-item-summary-bridge)" not in work_item_source
+    assert "(writes canonical-work-item-summary)" not in route_blocked_stdlib
+    assert "materialize-canonical-work-item-summary" not in route_blocked_stdlib
+    assert "materialize-canonical-work-item-summary" not in run_selected_item_stdlib
+    assert "materialize-canonical-work-item-summary" in run_work_item
+
+
+def test_design_delta_selected_item_stdlib_direct_route_returns_canonical_summary_bridge_path(
+    tmp_path: Path,
+) -> None:
+    workspace, state, provider_calls = _execute_design_delta_selected_item_stdlib_route(
+        tmp_path / "selected-item-stdlib-completed",
+        plan_variant="APPROVED",
+        implementation_variant="COMPLETED",
+        work_item_source="DRAFT_DESIGN_GAP",
+    )
+
+    assert state["status"] == "completed"
+    assert provider_calls == [
+        "fake-plan-draft",
+        "fake-plan-review",
+        "fake-implementation-execute",
+        "fake-implementation-review",
+    ]
+    assert state["workflow_outputs"]["return__variant"] == "CONTINUE"
+    assert (
+        state["workflow_outputs"]["return__summary-path"]
+        == "artifacts/work/item_summary.json"
+    )
+    summary_path = workspace / state["workflow_outputs"]["return__summary-path"]
+    assert summary_path.is_file()
+    assert json.loads(summary_path.read_text(encoding="utf-8")) == {
+        "work_item_id": "design-gap-work-item",
+        "work_item_source": "DESIGN_GAP",
+        "terminal_route": "COMPLETED",
+        "reason": "complete",
+    }
 
 
 def test_design_delta_parent_drain_summary_cleanup_removes_authored_summary_path_plumbing() -> None:
@@ -5110,10 +5245,9 @@ def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_r
     assert blocked_state["workflow_outputs"]["return__summary__work_item_source"] == "DESIGN_GAP"
     assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
     assert (blocked_workspace / "artifacts" / "work" / "item_summary.json").is_file()
-    assert not (blocked_workspace / "artifacts" / "review" / "implementation_review_report.md").exists()
 
 
-def test_design_delta_runtime_compile_bundle_carries_summary_bridge_steps(
+def test_design_delta_runtime_compile_bundle_removes_authored_summary_bridge_steps(
     tmp_path: Path,
 ) -> None:
     workflow_path, result = _compile_design_delta_work_item_runtime_entrypoint(tmp_path)
@@ -5122,16 +5256,13 @@ def test_design_delta_runtime_compile_bundle_carries_summary_bridge_steps(
     work_item_bundle = result.entry_result.validated_bundles[
         "lisp_frontend_design_delta/work_item::run-work-item"
     ]
-    work_item_bridge_step_ids = {
+    work_item_step_ids = {
         step.step_id
         for step in work_item_bundle.surface.steps
-        if isinstance(step.step_id, str) and step.step_id.startswith("compatibility_bridge__")
+        if isinstance(step.step_id, str)
     }
-    assert "compatibility_bridge__bridge-work-item-summary" in work_item_bridge_step_ids
-    assert (
-        "compatibility_bridge__bridge-work-item-summary-compiled-boundary"
-        in work_item_bridge_step_ids
-    )
+    assert not any("work-item-summary-bridge" in step_id for step_id in work_item_step_ids)
+    assert not any("selected-item-summary" in step_id for step_id in work_item_step_ids)
 
     drain_result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(
         tmp_path / "parent"
@@ -5142,16 +5273,13 @@ def test_design_delta_runtime_compile_bundle_carries_summary_bridge_steps(
     imported_work_item_bundle = drain_bundle.imports[
         "lisp_frontend_design_delta/work_item::run-work-item"
     ]
-    imported_bridge_step_ids = {
+    imported_step_ids = {
         step.step_id
         for step in imported_work_item_bundle.surface.steps
-        if isinstance(step.step_id, str) and step.step_id.startswith("compatibility_bridge__")
+        if isinstance(step.step_id, str)
     }
-    assert "compatibility_bridge__bridge-work-item-summary" in imported_bridge_step_ids
-    assert (
-        "compatibility_bridge__bridge-work-item-summary-compiled-boundary"
-        in imported_bridge_step_ids
-    )
+    assert not any("work-item-summary-bridge" in step_id for step_id in imported_step_ids)
+    assert not any("selected-item-summary" in step_id for step_id in imported_step_ids)
 
 
 def test_design_delta_runtime_compile_bundle_catalogs_agree_on_summary_bridge_steps(

@@ -284,53 +284,8 @@
       "bridge_id": "bridge.work_item.summary",
       "c0_row_id": "c0.work_item_summary_summary_path",
       "u0_row_id": "work_item.summary.summary_path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-      "bridge_owner": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-      "consumer": "standalone_summary_reader",
-      "file_shape": "compatibility_file",
-      "typed_value_source": {
-        "kind": "compatibility_value_ref",
-        "ref": "work_item.summary",
-        "value_document": {
-          "work_item_id": {
-            "ref": "root.steps.lisp_frontend_design_delta/work_item::run-work-item__match_plan.artifacts.return__summary__work_item_id"
-          },
-          "work_item_source": {
-            "ref": "root.steps.lisp_frontend_design_delta/work_item::run-work-item__match_plan.artifacts.return__summary__work_item_source"
-          },
-          "terminal_route": {
-            "ref": "root.steps.lisp_frontend_design_delta/work_item::run-work-item__match_plan.artifacts.return__summary__terminal_route"
-          },
-          "reason": {
-            "ref": "root.steps.lisp_frontend_design_delta/work_item::run-work-item__match_plan.artifacts.return__summary__reason"
-          }
-        }
-      },
-      "renderer": {
-        "renderer_id": "canonical-json",
-        "renderer_version": 1,
-        "accepted_shape": "any_pure_value"
-      },
-      "target": {
-        "kind": "generated_materialized_view",
-        "durability": "durable_bridge",
-        "authority_class": "compatibility_bridge",
-        "path_template": "artifacts/work/item_summary.json",
-        "runtime_target": {
-          "ref": "root.steps.lisp_frontend_design_delta/work_item::run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
-        }
-      },
-      "retirement": {
-        "allowed_when": "typed boundary consumers stop requiring the canonical item summary file",
-        "replacement_target": "Track C exact-path summary bridge retirement"
-      }
-    },
-    {
-      "bridge_id": "bridge.work_item.summary.compiled_boundary",
-      "c0_row_id": "c0.work_item_summary_summary_path_compiled_boundary",
-      "u0_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
-      "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
-      "bridge_owner": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+      "workflow_surface": "lisp_frontend_design_delta/work_item::run-work-item",
+      "bridge_owner": "lisp_frontend_design_delta/work_item::run-work-item",
       "consumer": "standalone_summary_reader",
       "file_shape": "compatibility_file",
       "typed_value_source": {

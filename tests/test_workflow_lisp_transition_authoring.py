@@ -364,29 +364,56 @@ def test_transition_authoring_report_rejects_source_shape_assertion_failures(
 
 def test_transition_authoring_report_records_selected_item_summary_carrier_path_without_render_authority() -> None:
     manifest = json.loads(TRANSITION_AUTHORING_MANIFEST_PATH.read_text(encoding="utf-8"))
-    assertion = manifest["selected_item_summary_path_assertions"][0]
-
-    assert assertion["workflow_surface"] == (
-        "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
-    )
-    assert assertion["compiled_boundary_row_id"] == (
-        "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path"
-    )
-    assert assertion["fulfilled_source_ref"].endswith(
-        "run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
-    )
-    assert assertion["authority_class"] == "compatibility_bridge"
+    assert manifest["selected_item_summary_path_assertions"] == [
+        {
+            "row_id": "selected_item.summary_path",
+            "workflow_surface": "lisp_frontend_design_delta/work_item::run-selected-item-stdlib",
+            "compiled_boundary_row_id": "compiled_boundary::lisp_frontend_design_delta/work_item::run-selected-item-stdlib::return__summary-path",
+            "fulfilled_source_ref": "root.steps.lisp_frontend_design_delta/work_item::run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path",
+            "authority_class": "compatibility_bridge",
+            "rejected_source_kinds": [
+                "phase_report_path",
+                "pointer_file",
+            ],
+        }
+    ]
 
 
 def test_transition_authoring_report_rejects_selected_item_summary_path_sourced_from_phase_report() -> None:
     manifest = json.loads(TRANSITION_AUTHORING_MANIFEST_PATH.read_text(encoding="utf-8"))
-    assertion = manifest["selected_item_summary_path_assertions"][0]
-
-    assert "phase_report_path" in assertion["rejected_source_kinds"]
+    assert (
+        manifest["selected_item_summary_path_assertions"][0]["rejected_source_kinds"]
+        == ["phase_report_path", "pointer_file"]
+    )
 
 
 def test_transition_authoring_report_rejects_selected_item_summary_path_sourced_from_pointer_file() -> None:
     manifest = json.loads(TRANSITION_AUTHORING_MANIFEST_PATH.read_text(encoding="utf-8"))
-    assertion = manifest["selected_item_summary_path_assertions"][0]
+    assert (
+        manifest["selected_item_summary_path_assertions"][0]["fulfilled_source_ref"]
+        == "root.steps.lisp_frontend_design_delta/work_item::run-selected-item-stdlib__resolved__call_lisp_frontend_design_delta/bootstrap::project-work-item-inputs.artifacts.return__item_summary_target_path"
+    )
 
-    assert "pointer_file" in assertion["rejected_source_kinds"]
+
+def test_transition_authoring_report_records_imported_finalize_selected_item_transition_origins(
+    tmp_path: Path,
+) -> None:
+    transition_authoring = _transition_authoring_module()
+    manifest = transition_authoring.load_transition_authoring_manifest(
+        TRANSITION_AUTHORING_MANIFEST_PATH
+    )
+    report = transition_authoring.build_transition_authoring_report(
+        workflow_family="design_delta_parent_drain",
+        checked_manifest=manifest,
+        source_map_payload=_design_delta_source_map_payload(tmp_path),
+    )
+
+    assert any(
+        row["workflow_name"]
+        == "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+        and row["module_name"] == "std/resource"
+        and row["step_kind"] == "resource_transition"
+        and "std_resource_finalize_selected_item_proc_" in row["step_id"]
+        and row["classification"] == "low_level_library"
+        for row in report["compiled_origins"]
+    )

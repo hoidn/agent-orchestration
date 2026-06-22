@@ -2,6 +2,8 @@
   (:language "0.1")
   (:target-dsl "2.14")
   (defmodule lisp_frontend_design_delta/types)
+  (import std/context :only (RunCtx))
+  (import std/resource :only (StateExisting))
   (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewReportPath))
   (export
     ArchitectureValidationResult
@@ -22,6 +24,10 @@
     DesignRevisionDecision
     DesignRevisionReviewDecision
     DesignRevisionResult
+    DesignDeltaDrainCtx
+    DesignDeltaGapPayload
+    DesignDeltaSelectedItemPayload
+    DesignDeltaSelectionResult
     DesignGapId
     DrainIterationStatus
     DrainResult
@@ -304,6 +310,44 @@
     (check_commands CheckCommandsValue)
     (architecture_path PlanDocTarget))
 
+  (defrecord DesignDeltaDrainCtx
+    (run RunCtx)
+    (state-root Path.state-root)
+    (manifest StateFileExisting)
+    (ledger Path.state-root)
+    (steering_path SteeringDoc)
+    (target_design_path TargetDesignDoc)
+    (baseline_design_path BaselineDesignDoc)
+    (progress_ledger_path ProgressLedger)
+    (run_state_path StateExisting)
+    (existing_architecture_index_path WorkReport))
+
+  (defrecord DesignDeltaSelectedItemPayload
+    (item-id String)
+    (item-state-root Path.state-root)
+    (work_item_bootstrap WorkItemBootstrapSeed)
+    (steering_path SteeringDoc)
+    (target_design_path TargetDesignDoc)
+    (baseline_design_path BaselineDesignDoc)
+    (progress_ledger_path ProgressLedger)
+    (run_state_path StateExisting))
+
+  (defrecord DesignDeltaGapPayload
+    (work_item_id String)
+    (plan_target_path PlanDocTarget)
+    (architecture_path PlanDocTarget))
+
+  (defunion DesignDeltaSelectionResult
+    (EMPTY
+      (run-state StateExisting))
+    (GAP
+      (gap DesignDeltaGapPayload))
+    (SELECTED
+      (selection DesignDeltaSelectedItemPayload))
+    (BLOCKED
+      (reason String)
+      (run-state StateExisting)))
+
   (defrecord SelectionPayload
     (work-item-id String)
     (work-item-state-root StateFile))
@@ -318,7 +362,7 @@
     (DRAFT_DESIGN_GAP
       (gap GapPayload))
     (DONE
-      (run-state RunStatePath))
+      (run-state StateExisting))
     (BLOCKED
       (reason String)))
 
@@ -349,7 +393,7 @@
   (defunion BlockedRecoveryOutcome
     (RECORDED_RECOVERY_EVENT
       (drain-status RecoveryDrainStatus)
-      (summary WorkReport))
+      (summary WorkReportTarget))
     (RETRY_READY
       (recovered-draft StateFileExisting)
       (architecture-bundle StateFileExisting)
@@ -360,7 +404,7 @@
       (record-status RecoveryStatus))
     (TERMINAL_BLOCK
       (reason BlockedRecoveryReason)
-      (terminal-summary WorkReport)))
+      (terminal-summary WorkReportTarget)))
 
   (defrecord DesignRevisionResult
     (decision DesignRevisionDecision)
@@ -407,21 +451,27 @@
   (defrecord ImplementationPhaseResult
     (implementation-state ImplementationState)
     (implementation-review-decision ImplementationReviewDecision)
-    (execution-report ArtifactWorkTargetPath)
-    (progress-report ArtifactWorkTargetPath)
-    (checks-report ArtifactChecksTargetPath)
-    (implementation-review-report ArtifactReviewTargetPath))
+    (blocker-class BlockerClass)
+    (execution-report std/resource/WorkReport)
+    (progress-report std/resource/WorkReport)
+    (checks-report ArtifactChecksPath)
+    (implementation-review-report ReviewReportPath))
 
   (defunion WorkItemResult
     (COMPLETED
       (reason String)
-      (summary WorkItemSummaryValue))
+      (summary WorkItemSummaryValue)
+      (summary-path std/resource/WorkReport))
     (TERMINAL_BLOCKED
       (reason String)
-      (summary WorkItemSummaryValue))
+      (summary WorkItemSummaryValue)
+      (blocker-class std/resource/BlockerClass)
+      (summary-path std/resource/WorkReport))
     (BLOCKED_RECOVERY
       (reason String)
-      (summary WorkItemSummaryValue)))
+      (summary WorkItemSummaryValue)
+      (blocker-class std/resource/BlockerClass)
+      (summary-path std/resource/WorkReport)))
 
   (defrecord DrainState
     (iteration-count Int)
@@ -479,13 +529,13 @@
 
   (defunion DrainResult
     (DONE
-      (run-state RunStatePath)
+      (run-state StateExisting)
       (drain-summary DrainSummaryValue))
     (BLOCKED
       (reason String)
-      (run-state RunStatePath)
+      (run-state StateExisting)
       (drain-summary DrainSummaryValue))
     (EXHAUSTED
       (reason String)
-      (run-state RunStatePath)
+      (run-state StateExisting)
       (drain-summary DrainSummaryValue))))

@@ -37,6 +37,13 @@
       "classification": "low_level_library",
       "module_name": "lisp_frontend_design_delta/transitions",
       "step_id_contains": "lisp_frontend_design_delta_transitions_record_work_item_blocked_recovery_summary"
+    },
+    {
+      "row_id": "low_level.imported_finalize_selected_item",
+      "classification": "low_level_library",
+      "module_name": "std/resource",
+      "step_kind": "resource_transition",
+      "step_id_contains": "std_resource_finalize_selected_item_proc_"
     }
   ],
   "source_shape_assertions": [

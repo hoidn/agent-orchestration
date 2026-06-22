@@ -5,9 +5,11 @@
   (import std/phase :only
     (BlockerClass ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewReportPath
       review-revise-loop with-phase))
+  (import std/resource :only (WorkReport))
   (import lisp_frontend_design_delta/types :only
-    (ArtifactReviewTargetPath BaselineDesignDoc PlanDoc PlanDocTarget PlanReviewDecision
-      ProgressLedger SteeringDoc TargetDesignDoc WorkItemContextValue))
+    (ArtifactReviewTargetPath ArtifactWorkTargetPath BaselineDesignDoc PlanDoc
+      PlanDocTarget PlanReviewDecision ProgressLedger SteeringDoc
+      TargetDesignDoc WorkItemContextValue))
   (export
     DesignDeltaPlanPhaseResult
     PhaseCtx
@@ -74,6 +76,13 @@
     (subject PlanFixPromptSubject)
     (targets PlanFixProviderTargets))
 
+  (defrecord PlanProgressReportValue
+    (status String)
+    (plan_path PlanDoc)
+    (review_report ReviewReportPath)
+    (blocker_class BlockerClass)
+    (reason String))
+
   (defrecord PlanPhaseInputs
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
@@ -81,6 +90,7 @@
     (work_item_context WorkItemContextValue)
     (progress_ledger ProgressLedger)
     (plan_target_path PlanDocTarget)
+    (progress_report_target_path ArtifactWorkTargetPath)
     (plan_review_report_target_path ArtifactReviewTargetPath))
 
   (defunion DesignDeltaPlanPhaseResult
@@ -91,11 +101,13 @@
       (findings ReviewFindings))
     (BLOCKED
       (blocked_plan_path PlanDoc)
+      (progress_report_path WorkReport)
       (blocked_plan_review_report_path ReviewReportPath)
       (blocker_class BlockerClass)
       (findings ReviewFindings))
     (EXHAUSTED
       (exhausted_plan_path PlanDoc)
+      (progress_report_path WorkReport)
       (last_plan_review_report_path ReviewReportPath)
       (reason String)
       (findings ReviewFindings)))
@@ -161,6 +173,7 @@
      (work_item_context WorkItemContextValue)
      (progress_ledger ProgressLedger)
      (plan_target_path PlanDocTarget)
+     (progress_report_target_path ArtifactWorkTargetPath)
      (plan_review_report_target_path ArtifactReviewTargetPath))
     -> DesignDeltaPlanPhaseResult
     (with-phase phase-ctx plan
@@ -194,6 +207,7 @@
                  :work_item_context work_item_context
                  :progress_ledger progress_ledger
                  :plan_target_path plan_target_path
+                 :progress_report_target_path progress_report_target_path
                  :plan_review_report_target_path plan_review_report_target_path))
              (review
                (review-revise-loop plan
@@ -214,20 +228,46 @@
                  :schema_version approved.findings.schema_version
                  :items_path approved.findings.items_path)))
           ((BLOCKED blocked)
-           (variant DesignDeltaPlanPhaseResult BLOCKED
-             :blocked_plan_path completed.plan_path
-             :blocked_plan_review_report_path blocked.review_report
-             :blocker_class blocked.blocker_class
-             :findings
-               (record ReviewFindings
-                 :schema_version blocked.findings.schema_version
-                 :items_path blocked.findings.items_path)))
+           (let* ((progress-report
+                    (materialize-view plan-progress-report
+                      :value (record PlanProgressReportValue
+                               :status "BLOCKED"
+                               :plan_path completed.plan_path
+                               :review_report blocked.review_report
+                               :blocker_class blocked.blocker_class
+                               :reason "plan_blocked")
+                      :renderer canonical-json
+                      :renderer-version 1
+                      :target inputs.progress_report_target_path
+                      :returns WorkReport)))
+             (variant DesignDeltaPlanPhaseResult BLOCKED
+               :blocked_plan_path completed.plan_path
+               :progress_report_path progress-report
+               :blocked_plan_review_report_path blocked.review_report
+               :blocker_class blocked.blocker_class
+               :findings
+                 (record ReviewFindings
+                   :schema_version blocked.findings.schema_version
+                   :items_path blocked.findings.items_path))))
           ((EXHAUSTED exhausted)
-           (variant DesignDeltaPlanPhaseResult EXHAUSTED
-             :exhausted_plan_path completed.plan_path
-             :last_plan_review_report_path exhausted.last_review_report
-             :reason exhausted.reason
-             :findings
-               (record ReviewFindings
-                 :schema_version exhausted.findings.schema_version
-                 :items_path exhausted.findings.items_path))))))))
+           (let* ((progress-report
+                    (materialize-view plan-progress-report
+                      :value (record PlanProgressReportValue
+                               :status "EXHAUSTED"
+                               :plan_path completed.plan_path
+                               :review_report exhausted.last_review_report
+                               :blocker_class BlockerClass.unrecoverable_after_fix_attempt
+                               :reason exhausted.reason)
+                      :renderer canonical-json
+                      :renderer-version 1
+                      :target inputs.progress_report_target_path
+                      :returns WorkReport)))
+             (variant DesignDeltaPlanPhaseResult EXHAUSTED
+               :exhausted_plan_path completed.plan_path
+               :progress_report_path progress-report
+               :last_plan_review_report_path exhausted.last_review_report
+               :reason exhausted.reason
+               :findings
+                 (record ReviewFindings
+                   :schema_version exhausted.findings.schema_version
+                   :items_path exhausted.findings.items_path)))))))))

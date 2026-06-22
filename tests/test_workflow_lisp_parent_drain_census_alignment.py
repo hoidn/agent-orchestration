@@ -358,7 +358,7 @@ def test_parent_drain_census_alignment_rejects_materialize_view_match_from_other
     target_row = next(
         row
         for row in consumer_rendering_census_payload["rows"]
-        if row["row_id"] == "c0.work_item_materialized_selected_item_summary"
+        if row["row_id"] == "c0.work_item_materialized_work_item_context_view"
     )
     target_workflow_surface = str(target_row["workflow_surface"])
     target_step_id_suffix = str(target_row["compiled_effect_match"]["step_id_suffix"])
@@ -385,7 +385,7 @@ def test_parent_drain_census_alignment_rejects_materialize_view_match_from_other
         diagnostic["code"] for diagnostic in report["diagnostics"]
     } >= {"parent_drain_census_materialize_view_unmatched"}
     assert any(
-        row["row_id"] == "c0.work_item_materialized_selected_item_summary"
+        row["row_id"] == "c0.work_item_materialized_work_item_context_view"
         for row in report["invalid_rows"]
     )
 

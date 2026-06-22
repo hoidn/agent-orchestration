@@ -3322,6 +3322,39 @@ def test_design_delta_work_item_runtime_context_inputs_stay_internal(
     )
 
 
+def test_design_delta_work_item_direct_entry_phase_context_binding_uses_runtime_bootstrap_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    built = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        resume_plumbing_retirement_manifest_payload=_aligned_design_delta_resume_plumbing_retirement_manifest(),
+    )
+    bundle = built.validated_bundle.imports[
+        "lisp_frontend_design_delta/work_item::run-work-item"
+    ]
+    boundary = _workflow_boundary_projection(bundle)
+
+    binding = next(
+        item for item in boundary.private_runtime_context_bindings if item.binding_id == "phase-ctx"
+    )
+
+    assert binding.bridge_class == "runtime_owned_context"
+    assert binding.projection_hints == {
+        "context_binding_schema_version": 1,
+        "context_input_roles": {
+            "phase-ctx__run__run-id": "run_anchor:run-id",
+            "phase-ctx__run__state-root": "run_anchor:state-root",
+            "phase-ctx__run__artifact-root": "run_anchor:artifact-root",
+            "phase-ctx__phase-name": "compile_time_default",
+            "phase-ctx__state-root": "compile_time_default",
+            "phase-ctx__artifact-root": "compile_time_default",
+        },
+    }
+
+
 def test_design_delta_plan_phase_boundary_hides_phase_context_and_bridge_inputs(
     tmp_path: Path,
 ) -> None:
@@ -6142,30 +6175,20 @@ def test_design_delta_parent_drain_build_reclassifies_work_item_summary_rows_to_
     assert cleanup_rows["c0.work_item_summary_summary_path"][
         "cleanup_decision"
     ] == "RETIRED_TO_BRIDGE_METADATA"
-    assert cleanup_rows["c0.work_item_summary_summary_path_compiled_boundary"][
-        "cleanup_decision"
-    ] == "RETIRED_TO_BRIDGE_METADATA"
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in cleanup_rows
     assert "c0.work_item_summary_summary_path" not in cleanup_payload[
         "surviving_body_materialization_row_ids"
     ]
-    assert "c0.work_item_summary_summary_path_compiled_boundary" not in cleanup_payload[
-        "surviving_body_materialization_row_ids"
-    ]
-    assert "c0.work_item_materialized_selected_item_summary" not in cleanup_payload[
-        "surviving_body_materialization_row_ids"
-    ]
     assert (
-        "c0.work_item_stdlib_materialized_selected_item_summary"
+        "c0.work_item_summary_summary_path_compiled_boundary"
         not in cleanup_payload["surviving_body_materialization_row_ids"]
     )
     assert (
         "c0.work_item_stdlib_materialized_blocked_recovery_summary"
         not in cleanup_payload["surviving_body_materialization_row_ids"]
     )
-    assert {
-        "c0.work_item_summary_summary_path",
-        "c0.work_item_summary_summary_path_compiled_boundary",
-    } <= generated_bridge_ids
+    assert "c0.work_item_summary_summary_path" in generated_bridge_ids
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in generated_bridge_ids
     assert bridge_rows["c0.work_item_summary_summary_path"]["target_binding"][
         "target_labels"
     ] == [
@@ -6174,7 +6197,7 @@ def test_design_delta_parent_drain_build_reclassifies_work_item_summary_rows_to_
     ]
     assert (
         bridge_rows["c0.work_item_summary_summary_path"]["consumer_lane"]
-        == "compatibility_bridge"
+        == "retirement_candidate"
     )
     assert (
         value_flow_rows["work_item.summary.summary_path"]["path_or_contract"]
@@ -6277,6 +6300,16 @@ def test_design_delta_parent_drain_build_emits_rendering_cleanup_report_artifact
         "build_default_resume_report",
         lambda **kwargs: {
             "schema_version": "workflow_lisp_default_resume_report.v1",
+            "workflow_family": "design_delta_parent_drain",
+            "status": "pass",
+            "diagnostics": [],
+        },
+    )
+    monkeypatch.setattr(
+        build,
+        "build_parent_drain_census_alignment_report",
+        lambda **kwargs: {
+            "schema_version": "workflow_lisp_parent_drain_census_alignment_report.v1",
             "workflow_family": "design_delta_parent_drain",
             "status": "pass",
             "diagnostics": [],
@@ -8025,9 +8058,10 @@ def test_design_delta_parent_drain_build_emits_transition_authoring_report_artif
     assert payload["schema_version"] == "workflow_lisp_transition_authoring_report.v1"
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
-    assert {
-        row["module_name"] for row in payload["compiled_origins"]
-    } == {"lisp_frontend_design_delta/transitions"}
+    assert {row["module_name"] for row in payload["compiled_origins"]} == {
+        "lisp_frontend_design_delta/transitions",
+        "std/resource",
+    }
     assert any(
         row["matched_row_id"] == "low_level.record_design_gap_progress"
         and row["workflow_name"]

@@ -393,7 +393,7 @@
   (defunion BlockedRecoveryOutcome
     (RECORDED_RECOVERY_EVENT
       (drain-status RecoveryDrainStatus)
-      (summary WorkReport))
+      (summary WorkReportTarget))
     (RETRY_READY
       (recovered-draft StateFileExisting)
       (architecture-bundle StateFileExisting)
@@ -404,7 +404,7 @@
       (record-status RecoveryStatus))
     (TERMINAL_BLOCK
       (reason BlockedRecoveryReason)
-      (terminal-summary WorkReport)))
+      (terminal-summary WorkReportTarget)))
 
   (defrecord DesignRevisionResult
     (decision DesignRevisionDecision)
@@ -460,13 +460,18 @@
   (defunion WorkItemResult
     (COMPLETED
       (reason String)
-      (summary WorkItemSummaryValue))
+      (summary WorkItemSummaryValue)
+      (summary-path std/resource/WorkReport))
     (TERMINAL_BLOCKED
       (reason String)
-      (summary WorkItemSummaryValue))
+      (summary WorkItemSummaryValue)
+      (blocker-class std/resource/BlockerClass)
+      (summary-path std/resource/WorkReport))
     (BLOCKED_RECOVERY
       (reason String)
-      (summary WorkItemSummaryValue)))
+      (summary WorkItemSummaryValue)
+      (blocker-class std/resource/BlockerClass)
+      (summary-path std/resource/WorkReport)))
 
   (defrecord DrainState
     (iteration-count Int)

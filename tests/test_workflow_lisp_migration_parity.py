@@ -3475,8 +3475,10 @@ def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed
         for row in payload["rows"]
         if row["row_id"]
         in {
+            "c0.stdlib_adapters_selected_item_summary_seed",
             "c0.drain_materialized_drain_summary",
             "c0.drain_materialized_drain_summary_compiled_boundary",
+            "c0.work_item_stdlib_materialized_blocked_recovery_summary",
             "c0.work_item_summary_summary_path",
             "c0.work_item_summary_summary_path_compiled_boundary",
         }
@@ -3487,6 +3489,15 @@ def test_design_delta_parent_drain_checked_parity_inputs_no_longer_rely_on_timed
     )
     assert summary_rows["c0.work_item_summary_summary_path"]["track_c_decision"] == (
         "RETIRE_TO_BRIDGE_METADATA"
+    )
+    assert "c0.stdlib_adapters_selected_item_summary_seed" not in summary_rows
+    assert "c0.work_item_materialized_selected_item_summary" not in summary_rows
+    assert "c0.work_item_stdlib_materialized_selected_item_summary" not in summary_rows
+    assert (
+        summary_rows.get(
+            "c0.work_item_stdlib_materialized_blocked_recovery_summary", {}
+        ).get("track_c_decision")
+        != "KEEP_TIMED_PUBLICATION"
     )
 
 

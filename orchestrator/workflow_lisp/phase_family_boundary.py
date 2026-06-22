@@ -252,15 +252,32 @@ def record_direct_entry_phase_context_binding(
         input_roles: dict[str, str] = {}
         carried_input_sources: dict[str, tuple[str, ...]] = {}
         has_non_bootstrap_leaf = False
+        entry_phase_identity = phase_family_entry_phase_identity(
+            typed_workflow.definition.name
+        )
         if structural_classification is not None:
             for field in flattened_fields:
-                carried_input_sources[field.generated_name] = field.source_path
+                contract_definition = dict(field.contract_definition)
+                if (
+                    requirement.context_kind == PHASE_CONTEXT_TYPE_NAME
+                    and entry_phase_identity is not None
+                ):
+                    relative_path = field.source_path[1:]
+                    if relative_path == ("phase-name",):
+                        contract_definition["default"] = entry_phase_identity
+                    elif relative_path == ("state-root",):
+                        contract_definition["default"] = f"state/{entry_phase_identity}"
+                    elif relative_path == ("artifact-root",):
+                        contract_definition["default"] = (
+                            f"artifacts/{entry_phase_identity}"
+                        )
                 role = _bootstrap_role_for_field(
                     source_path=field.source_path,
-                    contract_definition=field.contract_definition,
+                    contract_definition=contract_definition,
                     anchors=structural_classification.anchors,
                 )
                 if role is None:
+                    carried_input_sources[field.generated_name] = field.source_path
                     has_non_bootstrap_leaf = True
                     continue
                 input_roles[field.generated_name] = role
