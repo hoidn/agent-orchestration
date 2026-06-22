@@ -637,26 +637,35 @@ def _carry_callee_private_exec_context_bindings(
                 binding.bridge_class,
             )
             carried_bindings[generated_input_name] = {"ref": f"inputs.{generated_input_name}"}
+        preserve_full_projection_metadata = (
+            binding.bridge_class == "imported_adapter_carried_context"
+            and binding.source_param_name == "ctx"
+            and binding.context_family == "DrainCtx"
+        )
         carried_projection_hints = dict(binding.projection_hints)
-        carried_input_sources = carried_projection_hints.get("carried_input_sources")
-        if isinstance(carried_input_sources, Mapping):
-            carried_projection_hints["carried_input_sources"] = {
-                name: value
-                for name, value in carried_input_sources.items()
-                if name in missing_generated_inputs
-            }
-            if not carried_projection_hints["carried_input_sources"]:
-                carried_projection_hints.pop("carried_input_sources")
-        context_input_roles = carried_projection_hints.get("context_input_roles")
-        if isinstance(context_input_roles, Mapping):
-            carried_projection_hints["context_input_roles"] = {
-                name: value
-                for name, value in context_input_roles.items()
-                if name in missing_generated_inputs
-            }
-            if not carried_projection_hints["context_input_roles"]:
-                carried_projection_hints.pop("context_input_roles")
-        if not carried_projection_hints.get("context_input_roles"):
+        if not preserve_full_projection_metadata:
+            carried_input_sources = carried_projection_hints.get("carried_input_sources")
+            if isinstance(carried_input_sources, Mapping):
+                carried_projection_hints["carried_input_sources"] = {
+                    name: value
+                    for name, value in carried_input_sources.items()
+                    if name in missing_generated_inputs
+                }
+                if not carried_projection_hints["carried_input_sources"]:
+                    carried_projection_hints.pop("carried_input_sources")
+            context_input_roles = carried_projection_hints.get("context_input_roles")
+            if isinstance(context_input_roles, Mapping):
+                carried_projection_hints["context_input_roles"] = {
+                    name: value
+                    for name, value in context_input_roles.items()
+                    if name in missing_generated_inputs
+                }
+                if not carried_projection_hints["context_input_roles"]:
+                    carried_projection_hints.pop("context_input_roles")
+        if (
+            not carried_projection_hints.get("context_input_roles")
+            and not carried_projection_hints.get("carried_input_sources")
+        ):
             carried_projection_hints.pop("context_binding_schema_version", None)
         carried_binding = PrivateExecContextBinding(
             binding_id=binding.binding_id,

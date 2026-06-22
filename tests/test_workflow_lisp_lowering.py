@@ -5382,6 +5382,101 @@ def test_compile_stage3_entrypoint_imported_selector_ctx_carried_sources(
     }
 
 
+def test_carry_callee_private_exec_context_bindings_preserves_full_projection_metadata_for_prebound_inputs() -> None:
+    workflow_calls = importlib.import_module(
+        "orchestrator.workflow_lisp.lowering.workflow_calls"
+    )
+    surface_ast = importlib.import_module("orchestrator.workflow.surface_ast")
+
+    binding = surface_ast.PrivateExecContextBinding(
+        binding_id="ctx",
+        source_param_name="ctx",
+        context_family="DrainCtx",
+        bridge_class="imported_adapter_carried_context",
+        generated_input_names=(
+            "ctx__run__run-id",
+            "ctx__run__state-root",
+            "ctx__run__artifact-root",
+            "ctx__run_state_path",
+        ),
+        projection_hints={
+            "context_binding_schema_version": 1,
+            "context_input_roles": {
+                "ctx__run__run-id": "run_anchor:run-id",
+                "ctx__run__state-root": "run_anchor:state-root",
+                "ctx__run__artifact-root": "run_anchor:artifact-root",
+            },
+            "carried_input_sources": {
+                "ctx__run__run-id": ("ctx", "run", "run-id"),
+                "ctx__run__state-root": ("ctx", "run", "state-root"),
+                "ctx__run__artifact-root": ("ctx", "run", "artifact-root"),
+                "ctx__run_state_path": ("ctx", "run_state_path"),
+            },
+        },
+    )
+    lowered_callee = SimpleNamespace(
+        private_exec_context_bindings=(binding,),
+        boundary_projection=SimpleNamespace(
+            flattened_inputs=tuple(
+                SimpleNamespace(
+                    generated_name=name,
+                    contract_definition={"type": "string"},
+                )
+                for name in binding.generated_input_names
+            )
+        ),
+        authored_mapping={"inputs": {}},
+    )
+    source_expr = SimpleNamespace(
+        span=SourceSpan(
+            start=SourcePosition(
+                path="carry_private_exec_context_bindings.orc",
+                line=12,
+                column=4,
+                offset=0,
+            ),
+            end=SourcePosition(
+                path="carry_private_exec_context_bindings.orc",
+                line=12,
+                column=18,
+                offset=14,
+            ),
+        ),
+        form_path=("workflow-lisp", "defworkflow", "caller", "call"),
+    )
+    context = SimpleNamespace(
+        workflow_name="caller::entry",
+        origin_notes=(),
+        internal_generated_input_contracts={},
+        generated_input_spans={},
+        internal_generated_input_reasons={},
+        private_exec_context_bindings=[],
+    )
+
+    carried_bindings = workflow_calls._carry_callee_private_exec_context_bindings(
+        context=context,
+        source_expr=source_expr,
+        lowered_callee=lowered_callee,
+        imported_bundle=None,
+        already_bound={
+            "ctx__run__run-id",
+            "ctx__run__state-root",
+            "ctx__run__artifact-root",
+        },
+    )
+
+    assert carried_bindings == {
+        "ctx__run_state_path": {"ref": "inputs.ctx__run_state_path"}
+    }
+    assert context.internal_generated_input_contracts == {
+        "ctx__run_state_path": {"type": "string"}
+    }
+    assert len(context.private_exec_context_bindings) == 1
+    carried_binding = context.private_exec_context_bindings[0]
+    assert carried_binding.generated_input_names == ("ctx__run_state_path",)
+    assert carried_binding.projection_hints == binding.projection_hints
+
+
 def test_compile_stage3_entrypoint_item_ctx_child_phase_reuse_imported_backlog_drain_carries_derived_phase_context_bindings(
     tmp_path: Path,
 ) -> None:
