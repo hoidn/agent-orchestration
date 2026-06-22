@@ -13,10 +13,8 @@
   (import lisp_frontend_design_delta/projections :only
     (classify-work-item-terminal normalize-blocked-recovery-route))
   (import lisp_frontend_design_delta/stdlib_adapters :only
-    (project-blocked-implementation-compat project-blocker-class-from-reason
-      project-completed-implementation-compat project-plan-approved-compat
-      project-plan-blocked-compat project-selected-item-compat QueueTransitionCompat
-      RoadmapCompat SelectedItemImplementationCompat SelectedItemPlanCompat))
+    (project-blocker-class-from-reason QueueTransitionCompat RoadmapCompat
+      SelectedItemImplementationCompat SelectedItemPlanCompat SelectedItemStdlibCompat))
   (import lisp_frontend_design_delta/transitions :only
     (record-work-item-blocked-recovery-summary))
   (import lisp_frontend_design_delta/types :only
@@ -156,6 +154,52 @@
       ((BLOCKED_RECOVERY blocked_recovery)
        blocked_recovery.summary)))
 
+  (defproc build-finalizer-selected-item
+    ((selection DesignDeltaSelectedItemPayload))
+    -> SelectedItemStdlibCompat
+    :effects ()
+    :lowering inline
+    (record SelectedItemStdlibCompat
+      :item-id selection.item-id
+      :is-active false
+      :final-plan-gate-state selection.run_state_path))
+
+  (defproc build-finalizer-approved-plan
+    ((execution-report-path WorkReport))
+    -> SelectedItemPlanCompat
+    :effects ()
+    :lowering inline
+    (variant SelectedItemPlanCompat APPROVED
+      :execution-report-path execution-report-path))
+
+  (defproc build-finalizer-blocked-plan
+    ((progress-report-path WorkReport)
+     (blocker-class BlockerClass))
+    -> SelectedItemPlanCompat
+    :effects ()
+    :lowering inline
+    (variant SelectedItemPlanCompat BLOCKED
+      :progress-report-path progress-report-path
+      :blocker-class blocker-class))
+
+  (defproc build-finalizer-completed-implementation
+    ((execution-report-path WorkReport))
+    -> SelectedItemImplementationCompat
+    :effects ()
+    :lowering inline
+    (variant SelectedItemImplementationCompat COMPLETED
+      :execution-report-path execution-report-path))
+
+  (defproc build-finalizer-blocked-implementation
+    ((progress-report-path WorkReport)
+     (blocker-class BlockerClass))
+    -> SelectedItemImplementationCompat
+    :effects ()
+    :lowering inline
+    (variant SelectedItemImplementationCompat BLOCKED
+      :progress-report-path progress-report-path
+      :blocker-class blocker-class))
+
   (defproc materialize-pending-work-item-result
     ((result PendingWorkItemResult)
      (summary-path WorkReport))
@@ -201,7 +245,7 @@
     :effects ((uses-command apply_resource_transition))
     :lowering inline
     (let* ((selected
-             (project-selected-item-compat selection))
+             (build-finalizer-selected-item selection))
            (queue-transition
              (record QueueTransitionCompat
                :transition-id ""))
@@ -289,11 +333,11 @@
                classification.reason)))
       (match decision
         ((TERMINAL_BLOCKED terminal)
-         (let* ((plan
-                  (project-plan-approved-compat
+         (let* ((finalizer-plan
+                  (build-finalizer-approved-plan
                     implementation_phase_result.execution-report))
-                (implementation
-                  (project-blocked-implementation-compat
+                (finalizer-implementation
+                  (build-finalizer-blocked-implementation
                     implementation_phase_result.progress-report
                     BlockerClass.roadmap_conflict)))
            (finalize-selected-item-as-terminal-blocked
@@ -301,8 +345,8 @@
              resolved_inputs
              "implementation_blocked"
              BlockerClass.roadmap_conflict
-             plan
-             implementation)))
+             finalizer-plan
+             finalizer-implementation)))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
@@ -519,11 +563,11 @@
                         work-item-summary-path)))
                 (materialize-pending-work-item-result result summary-path)))
              ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
-              (let* ((plan-compat
-                       (project-plan-approved-compat
+              (let* ((finalizer-plan
+                       (build-finalizer-approved-plan
                          implementation.execution-report))
-                     (implementation-compat
-                       (project-blocked-implementation-compat
+                     (finalizer-implementation
+                       (build-finalizer-blocked-implementation
                          implementation.progress-report
                          BlockerClass.unrecoverable_after_fix_attempt))
                      (result
@@ -532,8 +576,8 @@
                          resolved
                          "plan_review_exhausted"
                          BlockerClass.unrecoverable_after_fix_attempt
-                         plan-compat
-                         implementation-compat))
+                         finalizer-plan
+                         finalizer-implementation))
                      (summary
                        (project-work-item-result-summary result))
                      (summary-path
@@ -542,11 +586,11 @@
                          work-item-summary-path)))
                 (materialize-pending-work-item-result result summary-path)))
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
-              (let* ((plan-compat
-                       (project-plan-approved-compat
+              (let* ((finalizer-plan
+                       (build-finalizer-approved-plan
                          implementation.execution-report))
-                     (implementation-compat
-                       (project-blocked-implementation-compat
+                     (finalizer-implementation
+                       (build-finalizer-blocked-implementation
                          implementation.progress-report
                          BlockerClass.unrecoverable_after_fix_attempt))
                      (result
@@ -555,8 +599,8 @@
                          resolved
                          "implementation_review_exhausted"
                          BlockerClass.unrecoverable_after_fix_attempt
-                         plan-compat
-                         implementation-compat))
+                         finalizer-plan
+                         finalizer-implementation))
                      (summary
                        (project-work-item-result-summary result))
                      (summary-path
@@ -565,18 +609,18 @@
                          work-item-summary-path)))
                 (materialize-pending-work-item-result result summary-path)))
              ((COMPLETE complete)
-              (let* ((plan-compat
-                       (project-plan-approved-compat
+              (let* ((finalizer-plan
+                       (build-finalizer-approved-plan
                          implementation.execution-report))
-                     (implementation-compat
-                       (project-completed-implementation-compat
+                     (finalizer-implementation
+                       (build-finalizer-completed-implementation
                          implementation.execution-report))
                      (result
                        (finalize-selected-item-as-completed
                          selection
                          resolved
-                         plan-compat
-                         implementation-compat))
+                         finalizer-plan
+                         finalizer-implementation))
                      (summary
                        (project-work-item-result-summary result))
                      (summary-path
@@ -585,12 +629,12 @@
                          work-item-summary-path)))
                 (materialize-pending-work-item-result result summary-path))))))
         ((BLOCKED blocked)
-         (let* ((plan-compat
-                  (project-plan-blocked-compat
+         (let* ((finalizer-plan
+                  (build-finalizer-blocked-plan
                     blocked.progress_report_path
                     BlockerClass.roadmap_conflict))
-                (implementation-compat
-                  (project-completed-implementation-compat
+                (finalizer-implementation
+                  (build-finalizer-completed-implementation
                     blocked.progress_report_path))
                 (result
                   (finalize-selected-item-as-terminal-blocked
@@ -598,8 +642,8 @@
                     resolved
                     "plan_blocked"
                     BlockerClass.roadmap_conflict
-                    plan-compat
-                    implementation-compat))
+                    finalizer-plan
+                    finalizer-implementation))
                 (summary
                   (project-work-item-result-summary result))
                 (summary-path
@@ -608,12 +652,12 @@
                     work-item-summary-path)))
            (materialize-pending-work-item-result result summary-path)))
         ((EXHAUSTED exhausted)
-         (let* ((plan-compat
-                  (project-plan-blocked-compat
+         (let* ((finalizer-plan
+                  (build-finalizer-blocked-plan
                     exhausted.progress_report_path
                     BlockerClass.unrecoverable_after_fix_attempt))
-                (implementation-compat
-                  (project-completed-implementation-compat
+                (finalizer-implementation
+                  (build-finalizer-completed-implementation
                     exhausted.progress_report_path))
                 (result
                   (finalize-selected-item-as-terminal-blocked
@@ -621,8 +665,8 @@
                     resolved
                     "plan_review_exhausted"
                     BlockerClass.unrecoverable_after_fix_attempt
-                    plan-compat
-                    implementation-compat))
+                    finalizer-plan
+                    finalizer-implementation))
                 (summary
                   (project-work-item-result-summary result))
                 (summary-path

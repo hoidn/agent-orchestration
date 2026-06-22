@@ -8,21 +8,14 @@
   (import lisp_frontend_design_delta/design_gap_architect :only
     (draft-design-gap-architecture-stdlib validate-design-gap-architecture-stdlib))
   (import lisp_frontend_design_delta/selector :only (select-next-work))
-  (import lisp_frontend_design_delta/transitions :only
-    (record-design-gap-progress record-drain-terminal-outcome-stdlib))
+  (import lisp_frontend_design_delta/transitions :only (record-design-gap-progress))
   (import lisp_frontend_design_delta/types :only
     (ArchitectureValidationResult BlockedRecoveryReason DesignDeltaDrainCtx
       DesignDeltaGapPayload DesignDeltaSelectedItemPayload DesignDeltaSelectionResult
       DrainSummaryValue))
   (export
     DesignDeltaGapResult
-    project-blocked-implementation-compat
     project-blocker-class-from-reason
-    project-completed-implementation-compat
-    project-drain-result-compat
-    project-plan-approved-compat
-    project-plan-blocked-compat
-    project-selected-item-compat
     QueueTransitionCompat
     RoadmapCompat
     SelectedItemImplementationCompat
@@ -144,52 +137,6 @@
             :progress-report-path blocked-progress-report
             :blocker-class BlockerClass.unrecoverable_after_fix_attempt)))))
 
-  (defproc project-selected-item-compat
-    ((selection DesignDeltaSelectedItemPayload))
-    -> SelectedItemStdlibCompat
-    :effects ()
-    :lowering inline
-    (record SelectedItemStdlibCompat
-      :item-id selection.item-id
-      :is-active false
-      :final-plan-gate-state selection.run_state_path))
-
-  (defproc project-plan-approved-compat
-    ((execution-report-path WorkReport))
-    -> SelectedItemPlanCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemPlanCompat APPROVED
-      :execution-report-path execution-report-path))
-
-  (defproc project-plan-blocked-compat
-    ((progress-report-path WorkReport)
-     (blocker-class BlockerClass))
-    -> SelectedItemPlanCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemPlanCompat BLOCKED
-      :progress-report-path progress-report-path
-      :blocker-class blocker-class))
-
-  (defproc project-completed-implementation-compat
-    ((execution-report-path WorkReport))
-    -> SelectedItemImplementationCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemImplementationCompat COMPLETED
-      :execution-report-path execution-report-path))
-
-  (defproc project-blocked-implementation-compat
-    ((progress-report-path WorkReport)
-     (blocker-class BlockerClass))
-    -> SelectedItemImplementationCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemImplementationCompat BLOCKED
-      :progress-report-path progress-report-path
-      :blocker-class blocker-class))
-
   (defproc project-blocker-class-from-reason
     ((reason BlockedRecoveryReason))
     -> BlockerClass
@@ -211,64 +158,4 @@
             BlockerClass.missing_resource
             (if is-unsupported
               BlockerClass.unrecoverable_after_fix_attempt
-              BlockerClass.roadmap_conflict))))))
-
-  (defproc project-drain-result-compat
-    ((run_state_path StateExisting)
-     (result DrainResult))
-    -> lisp_frontend_design_delta/types/DrainResult
-    :effects ()
-    :lowering inline
-    (match result
-      ((EMPTY empty)
-       (let* ((recorded
-                (record-drain-terminal-outcome-stdlib
-                  run_state_path
-                  lisp_frontend_design_delta/types/DrainTerminalStatus.DONE
-                  "")))
-         (variant lisp_frontend_design_delta/types/DrainResult DONE
-           :run-state run_state_path
-           :drain-summary (record DrainSummaryValue
-                            :drain_status recorded.drain_status
-                            :drain_status_reason recorded.drain_status_reason
-                            :state_version recorded.state_version))))
-      ((COMPLETED completed)
-       (let* ((recorded
-                (record-drain-terminal-outcome-stdlib
-                  run_state_path
-                  lisp_frontend_design_delta/types/DrainTerminalStatus.DONE
-                  "")))
-         (variant lisp_frontend_design_delta/types/DrainResult DONE
-           :run-state run_state_path
-           :drain-summary (record DrainSummaryValue
-                            :drain_status recorded.drain_status
-                            :drain_status_reason recorded.drain_status_reason
-                            :state_version recorded.state_version))))
-      ((BLOCKED blocked)
-       (let* ((is-exhausted
-                (= blocked.blocker-class BlockerClass.unrecoverable_after_fix_attempt)))
-         (if is-exhausted
-           (let* ((recorded
-                    (record-drain-terminal-outcome-stdlib
-                      run_state_path
-                      lisp_frontend_design_delta/types/DrainTerminalStatus.EXHAUSTED
-                      "max_iterations_exhausted")))
-             (variant lisp_frontend_design_delta/types/DrainResult EXHAUSTED
-               :reason "max_iterations_exhausted"
-               :run-state run_state_path
-               :drain-summary (record DrainSummaryValue
-                                :drain_status recorded.drain_status
-                                :drain_status_reason recorded.drain_status_reason
-                                :state_version recorded.state_version)))
-           (let* ((recorded
-                    (record-drain-terminal-outcome-stdlib
-                      run_state_path
-                      lisp_frontend_design_delta/types/DrainTerminalStatus.BLOCKED
-                      "selector_blocked")))
-             (variant lisp_frontend_design_delta/types/DrainResult BLOCKED
-               :reason "selector_blocked"
-               :run-state run_state_path
-               :drain-summary (record DrainSummaryValue
-                                :drain_status recorded.drain_status
-                                :drain_status_reason recorded.drain_status_reason
-                                :state_version recorded.state_version)))))))))
+              BlockerClass.roadmap_conflict)))))))

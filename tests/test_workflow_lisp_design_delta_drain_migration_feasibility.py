@@ -4554,6 +4554,32 @@ def test_design_delta_parent_drain_source_shape_centers_stdlib_owner_routes(
     assert work_item_source.count("record-work-item-terminal-outcome") <= 1
 
 
+def test_design_delta_parent_drain_source_shape_finalizer_compat_retirement_removes_helpers_from_ordinary_work_item_routes(
+) -> None:
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+    retired_helpers = (
+        "project-selected-item-compat",
+        "project-plan-approved-compat",
+        "project-plan-blocked-compat",
+        "project-completed-implementation-compat",
+        "project-blocked-implementation-compat",
+    )
+    ordinary_finalizer_sections = (
+        work_item_source.split("(defproc call-imported-finalize-selected-item", 1)[1].split(
+            "(defproc route-blocked-implementation", 1
+        )[0],
+        work_item_source.split("(defproc route-blocked-implementation", 1)[1].split(
+            "(defproc route-blocked-implementation-stdlib", 1
+        )[0],
+        work_item_source.split("(defworkflow run-work-item", 1)[1],
+    )
+
+    for helper_name in retired_helpers:
+        assert all(helper_name not in section for section in ordinary_finalizer_sections)
+
+
 def _design_delta_parent_drain_workflow_signature_block() -> str:
     drain_source = (
         REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc"
@@ -5430,7 +5456,15 @@ def test_design_delta_work_item_candidate_smokes_terminal_blocked_route(
     assert state["workflow_outputs"]["return__summary__work_item_source"] == "DESIGN_GAP"
     assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
-    assert not (workspace / "artifacts" / "work" / "progress_report.md").exists()
+    progress_report = workspace / "artifacts" / "work" / "progress_report.md"
+    assert progress_report.is_file()
+    assert json.loads(progress_report.read_text(encoding="utf-8")) == {
+        "blocker_class": "roadmap_conflict",
+        "plan_path": "docs/plans/generated_plan.md",
+        "reason": "plan_blocked",
+        "review_report": "artifacts/review/plan_review_report.md",
+        "status": "BLOCKED",
+    }
 
 def test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery_routes(
     tmp_path: Path,

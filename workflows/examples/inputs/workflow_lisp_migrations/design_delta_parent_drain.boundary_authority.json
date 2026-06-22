@@ -1037,7 +1037,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_4__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_4__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1048,7 +1048,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_4__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_4__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1059,7 +1059,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_4__match_plan__approved__match_implementation__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_4__match_plan__approved__match_implementation__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1070,7 +1070,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_4__match_plan__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_4__match_plan__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1081,7 +1081,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_4__match_plan__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_4__match_plan__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1092,7 +1092,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_4__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__complete__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_completed_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_4__selected__lisp_frontend_design_delta_work_item_build_finalizer_selected_item_4__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1224,7 +1224,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_1__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_1__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1235,7 +1235,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_1__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_1__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1246,7 +1246,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_1__match_plan__approved__match_implementation__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_1__match_plan__approved__match_implementation__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1257,7 +1257,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_1__match_plan__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_1__match_plan__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1268,7 +1268,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_1__match_plan__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_1__match_plan__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1279,7 +1279,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_1__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_blocked__result__lisp_frontend_design_delta_work_item_route_blocked_implementation_1__match_decision__terminal_blocked__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_1__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_1__selected__lisp_frontend_design_delta_work_item_build_finalizer_selected_item_1__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1301,7 +1301,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_3__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_3__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1312,7 +1312,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_3__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_3__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1323,7 +1323,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_3__match_plan__approved__match_implementation__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_3__match_plan__approved__match_implementation__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1334,7 +1334,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_3__match_plan__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_3__match_plan__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1345,7 +1345,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_3__match_plan__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_3__match_plan__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1356,7 +1356,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_3__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__implementation_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_3__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_3__selected__lisp_frontend_design_delta_work_item_build_finalizer_selected_item_3__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1378,7 +1378,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_2__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_2__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1389,7 +1389,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_2__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_2__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1400,7 +1400,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_2__match_plan__approved__match_implementation__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_2__match_plan__approved__match_implementation__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1411,7 +1411,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_2__match_plan__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_2__match_plan__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1422,7 +1422,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_2__match_plan__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_2__match_plan__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1433,7 +1433,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_2__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__approved__match_terminal__plan_review_exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_2__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_2__selected__lisp_frontend_design_delta_work_item_build_finalizer_selected_item_2__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1455,7 +1455,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_5__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_5__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1466,7 +1466,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_5__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_5__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1477,7 +1477,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_5__match_plan__approved__match_implementation__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_5__match_plan__approved__match_implementation__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1488,7 +1488,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_5__match_plan__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_5__match_plan__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1499,7 +1499,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_5__match_plan__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_5__match_plan__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1510,7 +1510,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_5__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__blocked__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_4__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_5__selected__lisp_frontend_design_delta_work_item_build_finalizer_selected_item_5__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,
@@ -1532,7 +1532,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_6__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_6__match_plan__approved__match_implementation__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1543,7 +1543,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_6__match_plan__approved__match_implementation__completed__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_6__match_plan__approved__match_implementation__completed__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1554,7 +1554,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_6__match_plan__approved__match_implementation__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_6__match_plan__approved__match_implementation__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1565,7 +1565,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_6__match_plan__blocked__outcome__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_6__match_plan__blocked__outcome__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1576,7 +1576,7 @@
     },
     {
       "workflow_name": "lisp_frontend_design_delta/work_item::run-work-item",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_3619d1ca5b4e_6__match_plan__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6___parametric_call_std_resource_finalize_selected_item_proc_610c76a35e64_6__match_plan__result_bundle",
       "surface_kind": "managed_write_root",
       "authority_class": "generated_internal",
       "path_like": true,
@@ -1587,7 +1587,7 @@
     },
     {
       "authority_class": "generated_internal",
-      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6__selected__lisp_frontend_design_delta_stdlib_adapters_project_selected_item_compat_6__terminal_projection__result_bundle",
+      "field_name": "__write_root__lisp_frontend_design_delta_work_item_run_work_item__match_plan__exhausted__result__lisp_frontend_design_delta_work_item_finalize_selected_item_as_terminal_blocked_5__finalized__lisp_frontend_design_delta_work_item_call_imported_finalize_selected_item_6__selected__lisp_frontend_design_delta_work_item_build_finalizer_selected_item_6__terminal_projection__result_bundle",
       "justification": "Checked compiled boundary projection row for current Design Delta parent drain evidence.",
       "owner": "workflow_lisp_generic_core_g0",
       "parity_constrained": true,

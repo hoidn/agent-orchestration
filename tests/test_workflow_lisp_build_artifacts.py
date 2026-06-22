@@ -7469,6 +7469,36 @@ def test_design_delta_parent_drain_boundary_authority_report_keeps_live_work_ite
     assert "run_state_path" in workflow_row["compatibility_bridge"]
 
 
+def test_design_delta_parent_drain_build_source_map_finalizer_compat_retirement_removes_helpers_from_ordinary_work_item_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    workflow = source_map["workflows"]["lisp_frontend_design_delta/work_item::run-work-item"]
+    retired_helpers = (
+        "project-selected-item-compat",
+        "project-plan-approved-compat",
+        "project-plan-blocked-compat",
+        "project-completed-implementation-compat",
+        "project-blocked-implementation-compat",
+    )
+    executable_names = [
+        str(node.get("presentation_name", ""))
+        for node in workflow.get("executable_nodes", [])
+    ]
+    generated_paths = json.dumps(workflow.get("generated_internal_inputs", {}), sort_keys=True)
+
+    for helper_name in retired_helpers:
+        assert all(helper_name not in name for name in executable_names)
+        assert helper_name not in generated_paths
+
+
 def test_design_delta_parent_drain_resume_plumbing_retirement_report_records_work_item_row_as_checked_compatibility(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

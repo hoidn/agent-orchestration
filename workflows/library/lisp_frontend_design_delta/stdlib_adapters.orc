@@ -15,12 +15,7 @@
       DrainSummaryValue))
   (export
     DesignDeltaGapResult
-    project-blocked-implementation-compat
     project-blocker-class-from-reason
-    project-completed-implementation-compat
-    project-plan-approved-compat
-    project-plan-blocked-compat
-    project-selected-item-compat
     QueueTransitionCompat
     RoadmapCompat
     SelectedItemImplementationCompat
@@ -141,52 +136,6 @@
           (variant DesignDeltaGapResult BLOCKED
             :progress-report-path blocked-progress-report
             :blocker-class BlockerClass.unrecoverable_after_fix_attempt)))))
-
-  (defproc project-selected-item-compat
-    ((selection DesignDeltaSelectedItemPayload))
-    -> SelectedItemStdlibCompat
-    :effects ()
-    :lowering inline
-    (record SelectedItemStdlibCompat
-      :item-id selection.item-id
-      :is-active false
-      :final-plan-gate-state selection.run_state_path))
-
-  (defproc project-plan-approved-compat
-    ((execution-report-path WorkReport))
-    -> SelectedItemPlanCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemPlanCompat APPROVED
-      :execution-report-path execution-report-path))
-
-  (defproc project-plan-blocked-compat
-    ((progress-report-path WorkReport)
-     (blocker-class BlockerClass))
-    -> SelectedItemPlanCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemPlanCompat BLOCKED
-      :progress-report-path progress-report-path
-      :blocker-class blocker-class))
-
-  (defproc project-completed-implementation-compat
-    ((execution-report-path WorkReport))
-    -> SelectedItemImplementationCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemImplementationCompat COMPLETED
-      :execution-report-path execution-report-path))
-
-  (defproc project-blocked-implementation-compat
-    ((progress-report-path WorkReport)
-     (blocker-class BlockerClass))
-    -> SelectedItemImplementationCompat
-    :effects ()
-    :lowering inline
-    (variant SelectedItemImplementationCompat BLOCKED
-      :progress-report-path progress-report-path
-      :blocker-class blocker-class))
 
   (defproc project-blocker-class-from-reason
     ((reason BlockedRecoveryReason))
