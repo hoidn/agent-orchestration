@@ -6,6 +6,11 @@ from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from typing import Any
 
+from orchestrator.contracts.prompt_contract import (
+    normalize_consume_prompt_policy,
+    selected_consumed_artifacts_for_prompt,
+    stringify_consumed_value,
+)
 from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 from orchestrator.workflow.view_renderer import (
@@ -21,6 +26,7 @@ from orchestrator.workflow.view_renderer import (
 TYPED_PROMPT_INPUT_SCHEMA_VERSION = "workflow_lisp_typed_prompt_input.v1"
 TYPED_PROMPT_INPUT_EVIDENCE_SCHEMA_VERSION = "workflow_lisp_typed_prompt_input_evidence.v1"
 TYPED_PROMPT_INPUT_REPORT_SCHEMA_VERSION = "workflow_lisp_typed_prompt_input_report.v1"
+_MISSING_SAMPLE_VALUE = object()
 
 
 def normalize_typed_prompt_input_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
@@ -178,8 +184,10 @@ def build_typed_prompt_input_report(
     """Reconcile checked prompt-injection rows with compiled typed prompt inputs."""
 
     selected_manifest_rows = _selected_typed_prompt_input_rows(checked_manifest)
+    selected_consume_prompt_rows = _selected_consumed_artifact_prompt_rows(checked_manifest)
     bundle_index = _bundle_index_by_surface_name(validated_bundles_by_name)
     selected_rows: list[dict[str, Any]] = []
+    consumed_artifact_prompt_rows: list[dict[str, Any]] = []
     missing_rows: list[dict[str, Any]] = []
     stale_rows: list[dict[str, Any]] = []
     invalid_rows: list[dict[str, Any]] = []
@@ -302,6 +310,104 @@ def build_typed_prompt_input_report(
             }
         )
 
+    for row in selected_consume_prompt_rows:
+        workflow_surface = row.get("workflow_surface")
+        artifact_name = row.get("artifact_name")
+        if not isinstance(workflow_surface, str) or not workflow_surface:
+            continue
+        if not isinstance(artifact_name, str) or not artifact_name:
+            continue
+        bundle = bundle_index.get(workflow_surface)
+        if bundle is None:
+            continue
+
+        matched_step: Any | None = None
+        matched_policy: Any | None = None
+        matched_consumes: Sequence[Any] = ()
+        for step in _iter_surface_steps(bundle.surface.steps):
+            if getattr(step, "kind", None) is not SurfaceStepKind.PROVIDER:
+                continue
+            consumes = _surface_step_consumes(step)
+            for consume in consumes:
+                if not isinstance(consume, Mapping):
+                    continue
+                policy = normalize_consume_prompt_policy(consume)
+                if policy.artifact_name != artifact_name:
+                    continue
+                matched_step = step
+                matched_policy = policy
+                matched_consumes = consumes
+                break
+            else:
+                continue
+            break
+
+        if matched_step is None or matched_policy is None:
+            missing_rows.append(
+                {
+                    "code": "typed_prompt_input_row_missing",
+                    "workflow_surface": workflow_surface,
+                    "c0_row_id": row.get("row_id"),
+                    "u0_row_id": row.get("u0_row_id"),
+                    "reason": "compiled provider step consumes row missing",
+                }
+            )
+            continue
+
+        sample_value = _consume_prompt_sample_value(row)
+        prompt_filter_omission = _consume_prompt_filter_omission_reason(
+            matched_step,
+            matched_consumes,
+            artifact_name=artifact_name,
+        )
+        omission_reason: str | None = prompt_filter_omission
+        rendered_policy = "omitted"
+        rendered_bytes_count: int | None = None
+        rendered_value_digest: str | None = None
+        rendered_value_reference: str | None = None
+        if omission_reason is None:
+            if matched_policy.mode == "none":
+                omission_reason = "mode_none"
+            elif sample_value is _MISSING_SAMPLE_VALUE:
+                omission_reason = "sample_value_missing"
+            else:
+                rendered_value = stringify_consumed_value(sample_value)
+                if rendered_value is None:
+                    omission_reason = "render_value_unavailable"
+                else:
+                    rendered_policy = (
+                        "rendered_reference"
+                        if matched_policy.mode == "reference"
+                        else "rendered_content"
+                    )
+                    rendered_bytes_count = len(rendered_value.encode("utf-8"))
+                    rendered_value_digest = typed_prompt_input_value_digest(sample_value)
+                    if matched_policy.mode == "reference" and isinstance(sample_value, str):
+                        rendered_value_reference = sample_value
+
+        evidence_row: dict[str, Any] = {
+            "workflow_surface": workflow_surface,
+            "provider_step_id": getattr(matched_step, "step_id", None),
+            "c0_row_id": row.get("row_id"),
+            "u0_row_id": row.get("u0_row_id"),
+            "artifact_name": artifact_name,
+            "mode": matched_policy.mode,
+            "label": matched_policy.label,
+            "role": matched_policy.role,
+            "value_kind": _consume_prompt_value_kind(
+                bundle,
+                artifact_name=artifact_name,
+                sample_value=sample_value,
+            ),
+            "rendered_policy": rendered_policy,
+            "rendered_bytes_count": rendered_bytes_count,
+            "rendered_value_digest": rendered_value_digest,
+            "omission_reason": omission_reason,
+        }
+        if rendered_value_reference is not None:
+            evidence_row["rendered_value_reference"] = rendered_value_reference
+        consumed_artifact_prompt_rows.append(evidence_row)
+
     return {
         "schema_version": TYPED_PROMPT_INPUT_REPORT_SCHEMA_VERSION,
         "workflow_family": workflow_family,
@@ -310,6 +416,7 @@ def build_typed_prompt_input_report(
             "sha256": checked_manifest_sha256,
         },
         "selected_rows": selected_rows,
+        "consumed_artifact_prompt_rows": consumed_artifact_prompt_rows,
         "missing_rows": missing_rows,
         "stale_rows": stale_rows,
         "invalid_rows": invalid_rows,
@@ -319,6 +426,133 @@ def build_typed_prompt_input_report(
 
 def cast_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
     return value
+
+
+def _surface_step_consumes(step: Any) -> Sequence[Any]:
+    consumes = getattr(step, "consumes", None)
+    if isinstance(consumes, Sequence) and not isinstance(consumes, (str, bytes)):
+        return consumes
+    common = getattr(step, "common", None)
+    common_consumes = getattr(common, "consumes", None)
+    if isinstance(common_consumes, Sequence) and not isinstance(common_consumes, (str, bytes)):
+        return common_consumes
+    return ()
+
+
+def _surface_step_provider_session(step: Any) -> Mapping[str, Any] | None:
+    provider_session = getattr(step, "provider_session", None)
+    if isinstance(provider_session, Mapping):
+        return provider_session
+    common = getattr(step, "common", None)
+    provider_session = getattr(common, "provider_session", None)
+    if isinstance(provider_session, Mapping):
+        return provider_session
+    return None
+
+
+def _consume_prompt_sample_value(row: Mapping[str, Any]) -> Any:
+    sample_source = row.get("typed_value_source")
+    if isinstance(sample_source, Mapping):
+        for field_name in ("value_document", "sample_value", "value"):
+            if field_name in sample_source:
+                return sample_source.get(field_name)
+    if "sample_value" in row:
+        return row.get("sample_value")
+    return _MISSING_SAMPLE_VALUE
+
+
+def _consume_prompt_filter_omission_reason(
+    step: Any,
+    consumes: Sequence[Any],
+    *,
+    artifact_name: str,
+) -> str | None:
+    if getattr(step, "inject_consumes", True) is False:
+        return "inject_consumes_disabled"
+
+    prompt_consumes = getattr(step, "prompt_consumes", None)
+    if prompt_consumes is not None:
+        if not isinstance(prompt_consumes, Sequence) or isinstance(prompt_consumes, (str, bytes)):
+            return "prompt_consumes_filtered"
+        allowed_names = {
+            name for name in prompt_consumes if isinstance(name, str) and name.strip()
+        }
+        if not allowed_names or artifact_name not in allowed_names:
+            return "prompt_consumes_filtered"
+
+    provider_session = _surface_step_provider_session(step)
+    if isinstance(provider_session, Mapping) and provider_session.get("mode") == "resume":
+        session_id_from = provider_session.get("session_id_from")
+        if isinstance(session_id_from, str) and session_id_from == artifact_name:
+            return "reserved_session_excluded"
+
+    step_mapping: dict[str, Any] = {
+        "consumes": list(consumes),
+    }
+    if prompt_consumes is not None:
+        step_mapping["prompt_consumes"] = list(prompt_consumes)
+    if provider_session is not None:
+        step_mapping["provider_session"] = dict(provider_session)
+    selected = {
+        policy.artifact_name
+        for policy, _ in selected_consumed_artifacts_for_prompt(
+            step_mapping,
+            {
+                normalize_consume_prompt_policy(consume).artifact_name: ""
+                for consume in consumes
+                if isinstance(consume, Mapping)
+                and normalize_consume_prompt_policy(consume).artifact_name
+            },
+        )
+    }
+    if artifact_name not in selected:
+        return "not_selected"
+    return None
+
+
+def _consume_prompt_value_kind(
+    bundle: Any,
+    *,
+    artifact_name: str,
+    sample_value: Any,
+) -> str | None:
+    surface = getattr(bundle, "surface", None)
+    artifacts = getattr(surface, "artifacts", None)
+    contract = artifacts.get(artifact_name) if isinstance(artifacts, Mapping) else None
+    for candidate in (
+        getattr(contract, "kind", None),
+        contract.get("kind") if isinstance(contract, Mapping) else None,
+        getattr(contract, "value_type", None),
+        (
+            contract.definition.get("type")
+            if hasattr(getattr(contract, "definition", None), "get")
+            else None
+        ),
+        (
+            contract.get("definition", {}).get("type")
+            if isinstance(contract, Mapping)
+            and isinstance(contract.get("definition"), Mapping)
+            else None
+        ),
+    ):
+        if isinstance(candidate, str) and candidate:
+            return candidate
+
+    if sample_value is _MISSING_SAMPLE_VALUE:
+        return None
+    if isinstance(sample_value, bool):
+        return "bool"
+    if isinstance(sample_value, int):
+        return "int"
+    if isinstance(sample_value, float):
+        return "float"
+    if isinstance(sample_value, str):
+        return "string"
+    if isinstance(sample_value, Mapping):
+        return "map"
+    if isinstance(sample_value, Sequence) and not isinstance(sample_value, (str, bytes)):
+        return "list"
+    return type(sample_value).__name__
 
 
 def _normalize_typed_prompt_input_binding_source(value_source: Mapping[str, Any]) -> dict[str, Any]:
@@ -356,6 +590,23 @@ def _selected_typed_prompt_input_rows(
         if isinstance(row, Mapping)
         and row.get("consumer_lane") == "prompt_injection"
         and row.get("track_c_decision") == "KEEP_TYPED"
+    ]
+
+
+def _selected_consumed_artifact_prompt_rows(
+    checked_manifest: Mapping[str, Any],
+) -> list[Mapping[str, Any]]:
+    rows = checked_manifest.get("rows")
+    if not isinstance(rows, Sequence):
+        return []
+    return [
+        row
+        for row in rows
+        if isinstance(row, Mapping)
+        and row.get("consumer_lane") == "prompt_injection"
+        and row.get("track_c_decision") == "RETIRED_TO_PROMPT_RENDERING"
+        and isinstance(row.get("artifact_name"), str)
+        and row.get("artifact_name")
     ]
 
 

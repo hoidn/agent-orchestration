@@ -5436,6 +5436,21 @@ class WorkflowLoader:
                 if guidance_key in entry and not isinstance(entry[guidance_key], str):
                     self._add_error(f"{context} '{guidance_key}' must be a string")
 
+            if 'prompt' in entry:
+                prompt = entry['prompt']
+                if not isinstance(prompt, dict):
+                    self._add_error(f"{context} consume prompt metadata must be a mapping")
+                else:
+                    mode = prompt.get('mode')
+                    if mode is not None:
+                        if not isinstance(mode, str):
+                            self._add_error(f"{context} consume prompt mode must be one of: content, reference, none")
+                        elif mode not in {'content', 'reference', 'none'}:
+                            self._add_error(f"{context} consume prompt mode must be one of: content, reference, none")
+                    for prompt_key in ('label', 'description', 'format_hint', 'example', 'role'):
+                        if prompt_key in prompt and not isinstance(prompt[prompt_key], str):
+                            self._add_error(f"{context} consume prompt '{prompt_key}' must be a string")
+
     def _get_publish_source_map(
         self,
         step: Dict[str, Any],

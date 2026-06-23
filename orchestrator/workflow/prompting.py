@@ -11,6 +11,9 @@ from ..contracts.prompt_contract import (
     render_output_bundle_contract_block,
     render_output_contract_block,
     render_variant_output_contract_block,
+    RenderedConsumedArtifact,
+    selected_consumed_artifacts_for_prompt,
+    stringify_consumed_value,
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
 
@@ -154,61 +157,32 @@ class PromptComposer:
         if not isinstance(step_consumed_values, dict) or not step_consumed_values:
             return prompt
 
-        prompt_consumes = step.get("prompt_consumes")
-        allowed_names: Optional[set[str]] = None
-        if prompt_consumes is not None:
-            if not isinstance(prompt_consumes, list):
-                return prompt
-            allowed_names = {
-                name for name in prompt_consumes
-                if isinstance(name, str) and name.strip()
-            }
-            if not allowed_names:
-                return prompt
-
-        reserved_session_artifact: Optional[str] = None
-        provider_session = step.get("provider_session")
-        if isinstance(provider_session, dict) and provider_session.get("mode") == "resume":
-            session_id_from = provider_session.get("session_id_from")
-            if isinstance(session_id_from, str) and session_id_from:
-                reserved_session_artifact = session_id_from
-
-        consumed_values: Dict[str, Any] = {}
-        for key, value in step_consumed_values.items():
-            if not isinstance(key, str):
-                continue
-            if reserved_session_artifact is not None and key == reserved_session_artifact:
-                continue
-            if allowed_names is not None and key not in allowed_names:
-                continue
-            if isinstance(value, (str, int, float, bool)):
-                consumed_values[key] = value
-                continue
-            if isinstance(value, (list, dict)):
-                consumed_values[key] = json.dumps(value, sort_keys=True)
-
-        if not consumed_values:
+        selected_consumes = selected_consumed_artifacts_for_prompt(step, step_consumed_values)
+        if not selected_consumes:
             return prompt
 
-        consumes_guidance: Dict[str, Dict[str, str]] = {}
-        for consume in consumes:
-            if not isinstance(consume, dict):
+        rendered_consumes: list[RenderedConsumedArtifact] = []
+        for policy, raw_value in selected_consumes:
+            rendered_value = stringify_consumed_value(raw_value)
+            if rendered_value is None or policy.mode == "none":
                 continue
-            artifact_name = consume.get("artifact")
-            if not isinstance(artifact_name, str):
-                continue
-            if artifact_name not in consumed_values:
-                continue
+            rendered_consumes.append(
+                RenderedConsumedArtifact(
+                    artifact_name=policy.artifact_name,
+                    mode=policy.mode,
+                    rendered_value=rendered_value,
+                    label=policy.label,
+                    description=policy.description,
+                    format_hint=policy.format_hint,
+                    example=policy.example,
+                    role=policy.role,
+                )
+            )
 
-            guidance: Dict[str, str] = {}
-            for guidance_key in ("description", "format_hint", "example"):
-                guidance_value = consume.get(guidance_key)
-                if isinstance(guidance_value, str):
-                    guidance[guidance_key] = guidance_value
-            if guidance:
-                consumes_guidance[artifact_name] = guidance
+        if not rendered_consumes:
+            return prompt
 
-        consumes_block = render_consumed_artifacts_block(consumed_values, consumes_guidance)
+        consumes_block = render_consumed_artifacts_block(rendered_consumes)
         position = step.get("consumes_injection_position", "prepend")
         if position == "append":
             if not prompt:

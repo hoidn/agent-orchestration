@@ -1374,6 +1374,61 @@ class TestLoaderValidation:
             for err in exc_info.value.errors
         )
 
+    def test_variant_output_allows_duplicate_field_name_across_distinct_variants(
+        self,
+    ):
+        """Variant-only fields may reuse one name and json_pointer on different variants."""
+        workflow = {
+            "version": "2.14",
+            "name": "variant-duplicate-field-across-variants",
+            "steps": [
+                {
+                    "name": "EmitBundle",
+                    "id": "emit_bundle",
+                    "command": ["echo", "ok"],
+                    "variant_output": {
+                        "path": "state/variant_bundle.json",
+                        "discriminant": {
+                            "name": "status",
+                            "json_pointer": "/status",
+                            "type": "enum",
+                            "allowed": ["EMPTY", "BLOCKED"],
+                        },
+                        "variants": {
+                            "EMPTY": {
+                                "fields": [
+                                    {
+                                        "name": "run_state",
+                                        "json_pointer": "/run_state",
+                                        "type": "relpath",
+                                        "under": "state",
+                                        "must_exist_target": False,
+                                    }
+                                ]
+                            },
+                            "BLOCKED": {
+                                "fields": [
+                                    {
+                                        "name": "run_state",
+                                        "json_pointer": "/run_state",
+                                        "type": "relpath",
+                                        "under": "state",
+                                        "must_exist_target": False,
+                                    }
+                                ]
+                            },
+                        },
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        loaded = self.loader.load(path)
+
+        assert loaded is not None
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {
@@ -4262,6 +4317,148 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any(f"'{field}' must be a string" in str(err.message)
                    for err in exc_info.value.errors)
+
+    def test_v12_consume_prompt_requires_mapping(self):
+        """consumes[*].prompt must be a mapping when provided."""
+        workflow = {
+            "version": "1.2",
+            "name": "consume-prompt-mapping-required",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                    "prompt": "reference",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consume prompt metadata must be a mapping" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_consume_prompt_mode_rejects_unknown_value(self):
+        """consumes[*].prompt.mode must be one of the supported rendering modes."""
+        workflow = {
+            "version": "1.2",
+            "name": "consume-prompt-mode-invalid",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                    "prompt": {
+                        "mode": "summary",
+                    },
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consume prompt mode must be one of: content, reference, none" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    @pytest.mark.parametrize(
+        "field,bad_value",
+        [
+            ("label", 7),
+            ("description", {"not": "string"}),
+            ("format_hint", ["not", "string"]),
+            ("example", 1),
+            ("role", False),
+        ],
+    )
+    def test_v12_consume_prompt_fields_require_strings(self, field, bad_value):
+        """Nested consumes[*].prompt guidance fields must be strings when present."""
+        workflow = {
+            "version": "1.2",
+            "name": "consume-prompt-field-invalid",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                    "prompt": {
+                        field: bad_value,
+                    },
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(f"consume prompt '{field}' must be a string" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_legacy_consume_guidance_without_prompt_remains_valid(self):
+        """Legacy row-level consume guidance remains valid when nested prompt metadata is absent."""
+        workflow = {
+            "version": "1.2",
+            "name": "consume-legacy-guidance-valid",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                    "description": "Primary execution log generated by ExecutePlan.",
+                    "format_hint": "Workspace-relative .log path",
+                    "example": "artifacts/work/latest-execution.log",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+        consume_spec = surface["steps"][0]["consumes"][0]
+
+        assert consume_spec["description"] == "Primary execution log generated by ExecutePlan."
+        assert consume_spec["format_hint"] == "Workspace-relative .log path"
+        assert consume_spec["example"] == "artifacts/work/latest-execution.log"
+        assert "prompt" not in consume_spec
 
     def test_v12_consumes_producer_can_reference_top_level_from_for_each_nested_step(self):
         """Nested for_each consumes may reference producers declared at top-level."""

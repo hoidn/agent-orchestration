@@ -35,6 +35,7 @@ from ..contracts.output_contract import (
     validate_output_bundle,
     validate_variant_output_bundle,
 )
+from ..contracts.prompt_contract import selected_consumed_artifacts_for_prompt
 from .pure_expr import (
     PureExprEvaluationError,
     canonical_json_for_pure_value,
@@ -7651,27 +7652,14 @@ class WorkflowExecutor:
             step_consumed_values = resolved_consumes.get(consume_identity, {})
         if not isinstance(step_consumed_values, dict) or not step_consumed_values:
             return {}, {}
-
-        prompt_consumes = step.get("prompt_consumes")
-        allowed_names: Optional[set[str]] = None
-        if prompt_consumes is not None:
-            if not isinstance(prompt_consumes, list):
-                return {}, {}
-            allowed_names = {
-                name for name in prompt_consumes
-                if isinstance(name, str) and name.strip()
-            }
-            if not allowed_names:
-                return {}, {}
+        selected_consumes = selected_consumed_artifacts_for_prompt(step, step_consumed_values)
+        if not selected_consumes:
+            return {}, {}
 
         injected_values: dict[str, Any] = {}
-        for key, value in step_consumed_values.items():
-            if not isinstance(key, str):
-                continue
-            if allowed_names is not None and key not in allowed_names:
-                continue
+        for policy, value in selected_consumes:
             if isinstance(value, (str, int, float, bool, list, dict)):
-                injected_values[key] = value
+                injected_values[policy.artifact_name] = value
 
         relpath_targets: dict[str, str] = {}
         for consume in consumes:

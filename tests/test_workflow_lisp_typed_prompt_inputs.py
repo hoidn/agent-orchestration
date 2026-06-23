@@ -326,6 +326,234 @@ def test_build_typed_prompt_input_report_indexes_imported_private_surfaces() -> 
     ]
 
 
+def test_build_typed_prompt_input_report_records_consume_prompt_mode_evidence_without_body_content() -> None:
+    module = _typed_prompt_inputs_module()
+    execution_log_body = "execute evidence\nsecond line\n"
+    private_notes_body = "private notes\n"
+    consume_bundle = SimpleNamespace(
+        surface=SimpleNamespace(
+            name="consume_prompt_demo::review",
+            artifacts={
+                "baseline_design": SimpleNamespace(kind="relpath", definition={"type": "relpath"}),
+                "execution_log": SimpleNamespace(kind="string", definition={"type": "string"}),
+                "private_notes": SimpleNamespace(kind="string", definition={"type": "string"}),
+                "filtered_attachment": SimpleNamespace(kind="string", definition={"type": "string"}),
+            },
+            steps=(
+                SimpleNamespace(
+                    kind=SurfaceStepKind.PROVIDER,
+                    step_id="root.review",
+                    prompt_consumes=(
+                        "baseline_design",
+                        "execution_log",
+                        "private_notes",
+                    ),
+                    typed_prompt_inputs=(),
+                    consumes=(
+                        {
+                            "artifact": "baseline_design",
+                            "prompt": {
+                                "mode": "reference",
+                                "label": "Baseline design",
+                                "role": "compatibility_baseline",
+                            },
+                        },
+                        {
+                            "artifact": "execution_log",
+                            "prompt": {"mode": "content"},
+                        },
+                        {
+                            "artifact": "private_notes",
+                            "prompt": {"mode": "none", "role": "internal_only"},
+                        },
+                        {
+                            "artifact": "filtered_attachment",
+                            "prompt": {"mode": "content"},
+                        },
+                    ),
+                ),
+            ),
+        ),
+        imports={},
+    )
+
+    report = module.build_typed_prompt_input_report(
+        workflow_family="consume_prompt_demo",
+        checked_manifest={
+            "rows": [
+                {
+                    "row_id": "c0.consume_prompt.baseline_design",
+                    "u0_row_id": "u0.consume_prompt.baseline_design",
+                    "workflow_surface": "consume_prompt_demo::review",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "RETIRED_TO_PROMPT_RENDERING",
+                    "artifact_name": "baseline_design",
+                    "typed_value_source": {
+                        "kind": "sample_value_document",
+                        "value_document": "docs/design/workflow_lisp_frontend_specification.md",
+                    },
+                },
+                {
+                    "row_id": "c0.consume_prompt.execution_log",
+                    "u0_row_id": "u0.consume_prompt.execution_log",
+                    "workflow_surface": "consume_prompt_demo::review",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "RETIRED_TO_PROMPT_RENDERING",
+                    "artifact_name": "execution_log",
+                    "typed_value_source": {
+                        "kind": "sample_value_document",
+                        "value_document": execution_log_body,
+                    },
+                },
+                {
+                    "row_id": "c0.consume_prompt.private_notes",
+                    "u0_row_id": "u0.consume_prompt.private_notes",
+                    "workflow_surface": "consume_prompt_demo::review",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "RETIRED_TO_PROMPT_RENDERING",
+                    "artifact_name": "private_notes",
+                    "typed_value_source": {
+                        "kind": "sample_value_document",
+                        "value_document": private_notes_body,
+                    },
+                },
+                {
+                    "row_id": "c0.consume_prompt.filtered_attachment",
+                    "u0_row_id": "u0.consume_prompt.filtered_attachment",
+                    "workflow_surface": "consume_prompt_demo::review",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "RETIRED_TO_PROMPT_RENDERING",
+                    "artifact_name": "filtered_attachment",
+                    "typed_value_source": {
+                        "kind": "sample_value_document",
+                        "value_document": "filtered body\n",
+                    },
+                }
+            ]
+        },
+        checked_manifest_path="checked.json",
+        checked_manifest_sha256="sha256:test",
+        validated_bundles_by_name={
+            consume_bundle.surface.name: consume_bundle,
+        },
+    )
+
+    rows_by_artifact = {
+        row["artifact_name"]: row for row in report["consumed_artifact_prompt_rows"]
+    }
+    assert set(rows_by_artifact) == {
+        "baseline_design",
+        "execution_log",
+        "private_notes",
+        "filtered_attachment",
+    }
+
+    baseline_design = rows_by_artifact["baseline_design"]
+    assert baseline_design == {
+        "workflow_surface": "consume_prompt_demo::review",
+        "provider_step_id": "root.review",
+        "c0_row_id": "c0.consume_prompt.baseline_design",
+        "u0_row_id": "u0.consume_prompt.baseline_design",
+        "artifact_name": "baseline_design",
+        "mode": "reference",
+        "label": "Baseline design",
+        "role": "compatibility_baseline",
+        "value_kind": "relpath",
+        "rendered_policy": "rendered_reference",
+        "rendered_bytes_count": len(
+            "docs/design/workflow_lisp_frontend_specification.md".encode("utf-8")
+        ),
+        "rendered_value_digest": module.typed_prompt_input_value_digest(
+            "docs/design/workflow_lisp_frontend_specification.md"
+        ),
+        "rendered_value_reference": "docs/design/workflow_lisp_frontend_specification.md",
+        "omission_reason": None,
+    }
+
+    execution_log = rows_by_artifact["execution_log"]
+    assert execution_log == {
+        "workflow_surface": "consume_prompt_demo::review",
+        "provider_step_id": "root.review",
+        "c0_row_id": "c0.consume_prompt.execution_log",
+        "u0_row_id": "u0.consume_prompt.execution_log",
+        "artifact_name": "execution_log",
+        "mode": "content",
+        "label": None,
+        "role": None,
+        "value_kind": "string",
+        "rendered_policy": "rendered_content",
+        "rendered_bytes_count": len(execution_log_body.encode("utf-8")),
+        "rendered_value_digest": module.typed_prompt_input_value_digest(execution_log_body),
+        "omission_reason": None,
+    }
+
+    private_notes = rows_by_artifact["private_notes"]
+    assert private_notes == {
+        "workflow_surface": "consume_prompt_demo::review",
+        "provider_step_id": "root.review",
+        "c0_row_id": "c0.consume_prompt.private_notes",
+        "u0_row_id": "u0.consume_prompt.private_notes",
+        "artifact_name": "private_notes",
+        "mode": "none",
+        "label": None,
+        "role": "internal_only",
+        "value_kind": "string",
+        "rendered_policy": "omitted",
+        "rendered_bytes_count": None,
+        "rendered_value_digest": None,
+        "omission_reason": "mode_none",
+    }
+
+    filtered_attachment = rows_by_artifact["filtered_attachment"]
+    assert filtered_attachment == {
+        "workflow_surface": "consume_prompt_demo::review",
+        "provider_step_id": "root.review",
+        "c0_row_id": "c0.consume_prompt.filtered_attachment",
+        "u0_row_id": "u0.consume_prompt.filtered_attachment",
+        "artifact_name": "filtered_attachment",
+        "mode": "content",
+        "label": None,
+        "role": None,
+        "value_kind": "string",
+        "rendered_policy": "omitted",
+        "rendered_bytes_count": None,
+        "rendered_value_digest": None,
+        "omission_reason": "prompt_consumes_filtered",
+    }
+
+    serialized_rows = json.dumps(report["consumed_artifact_prompt_rows"])
+    assert execution_log_body not in serialized_rows
+    assert private_notes_body not in serialized_rows
+
+
+def test_build_typed_prompt_input_report_keeps_design_delta_consume_prompt_rows_empty_until_authored_consumes_exist() -> None:
+    module = _typed_prompt_inputs_module()
+    report = module.build_typed_prompt_input_report(
+        workflow_family="design_delta_parent_drain",
+        checked_manifest={
+            "rows": [
+                {
+                    "row_id": "c0.plan_phase_prompt_draft",
+                    "u0_row_id": "plan_phase.prompt.draft",
+                    "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "KEEP_TYPED",
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                }
+            ]
+        },
+        checked_manifest_path="checked.json",
+        checked_manifest_sha256="sha256:test",
+        validated_bundles_by_name={},
+    )
+
+    assert report["consumed_artifact_prompt_rows"] == []
+
+
 def test_runtime_smoke_renders_typed_prompt_inputs_without_prompt_materialization(
     tmp_path: Path,
 ) -> None:

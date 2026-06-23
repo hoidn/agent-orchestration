@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+from ..contracts.prompt_contract import normalize_consume_prompt_policy
 
 from .core_ast import (
     CoreForEach,
@@ -151,6 +152,7 @@ class SemanticPromptSurface:
     input_file: Any = None
     asset_file: Any = None
     prompt_consumes: tuple[Any, ...] = ()
+    consumed_prompt_policies: tuple[Any, ...] = ()
     typed_prompt_inputs: tuple[Any, ...] = ()
     inject_output_contract: bool | None = None
     inject_consumes: bool | None = None
@@ -353,6 +355,21 @@ def derive_workflow_semantic_ir(
                 input_file=step.input_file,
                 asset_file=step.asset_file,
                 prompt_consumes=step.prompt_consumes or (),
+                consumed_prompt_policies=tuple(
+                    {
+                        "artifact_name": policy.artifact_name,
+                        "mode": policy.mode,
+                        "label": policy.label,
+                        "description": policy.description,
+                        "format_hint": policy.format_hint,
+                        "example": policy.example,
+                        "role": policy.role,
+                    }
+                    for consume in (step.common.consumes or ())
+                    if isinstance(consume, Mapping)
+                    for policy in (normalize_consume_prompt_policy(consume),)
+                    if policy.artifact_name
+                ),
                 typed_prompt_inputs=step.typed_prompt_inputs or (),
                 inject_output_contract=step.inject_output_contract,
                 inject_consumes=step.inject_consumes,
@@ -1092,7 +1109,52 @@ def validate_workflow_semantic_ir(
 
 
 def workflow_semantic_ir_to_json(semantic_ir: SemanticWorkflowIR) -> dict[str, Any]:
-    return _json_value(semantic_ir)
+    payload = _json_value(semantic_ir)
+    generated_compatibility_bridges = _generated_compatibility_bridges_from_payload(
+        payload
+    )
+    if generated_compatibility_bridges:
+        payload["generated_compatibility_bridges"] = generated_compatibility_bridges
+    return payload
+
+
+def _generated_compatibility_bridges_from_payload(
+    payload: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    effects = payload.get("effects")
+    if not isinstance(effects, Mapping):
+        return []
+    generated: list[dict[str, Any]] = []
+    for effect_id, effect in sorted(effects.items()):
+        if not isinstance(effect, Mapping):
+            continue
+        if effect.get("effect_kind") != "materialize_view":
+            continue
+        details = effect.get("details")
+        if not isinstance(details, Mapping):
+            continue
+        if details.get("authority_class") != "compatibility_bridge":
+            continue
+        bridge_id = details.get("bridge_id")
+        if not isinstance(bridge_id, str) or not bridge_id:
+            continue
+        generated.append(
+                {
+                    "bridge_id": bridge_id,
+                    "c0_row_id": details.get("c0_row_id"),
+                    "workflow_name": effect.get("workflow_name"),
+                    "step_id": effect.get("statement_id"),
+                    "effect_id": effect_id,
+                    "effect_kind": "materialize_view",
+                    "renderer_id": details.get("renderer_id"),
+                "renderer_version": details.get("renderer_version"),
+                "target_path": details.get("target_path"),
+                "target_allocation_id": details.get("target_allocation_id"),
+                "authority_class": "compatibility_bridge",
+                "value_type": _json_value(details.get("value_type")),
+            }
+        )
+    return generated
 
 
 def _iter_surface_steps(surface: SurfaceWorkflow) -> tuple[SurfaceStep, ...]:
@@ -2044,6 +2106,13 @@ def _generated_materialize_view_effect_details(
         "target_allocation_id": payload.get("target_allocation_id"),
         "authority_class": authority_class,
     }
+    if authority_class == "compatibility_bridge":
+        bridge_id = payload.get("bridge_id")
+        c0_row_id = payload.get("c0_row_id")
+        if isinstance(bridge_id, str) and bridge_id:
+            details["bridge_id"] = bridge_id
+        if isinstance(c0_row_id, str) and c0_row_id:
+            details["c0_row_id"] = c0_row_id
     publication = payload.get("publication")
     if isinstance(publication, Mapping):
         details["publication"] = dict(publication)

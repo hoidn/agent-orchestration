@@ -173,6 +173,74 @@ def _write_semantic_ir_workflow(workspace: Path) -> Path:
     )
 
 
+def _write_consume_prompt_semantic_ir_workflow(workspace: Path) -> Path:
+    (workspace / "prompts").mkdir(parents=True, exist_ok=True)
+    (workspace / "prompts" / "review.md").write_text(
+        "Review consumed artifacts.\n",
+        encoding="utf-8",
+    )
+    return _write_yaml(
+        workspace / "consume_prompt_workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "consume-prompt-semantic-ir",
+            "providers": {
+                "audit_provider": {
+                    "command": ["echo", "${PROMPT}"],
+                    "input_mode": "argv",
+                }
+            },
+            "artifacts": {
+                "baseline_design": {
+                    "pointer": "state/baseline_design.txt",
+                    "type": "relpath",
+                    "under": "docs",
+                },
+                "execution_log": {
+                    "pointer": "state/execution_log.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                },
+                "private_notes": {
+                    "pointer": "state/private_notes.txt",
+                    "type": "relpath",
+                    "under": "state",
+                },
+            },
+            "steps": [
+                {
+                    "name": "Review",
+                    "id": "review",
+                    "provider": "audit_provider",
+                    "input_file": "prompts/review.md",
+                    "prompt_consumes": [],
+                    "consumes": [
+                        {
+                            "artifact": "baseline_design",
+                            "prompt": {
+                                "mode": "reference",
+                                "label": "Baseline design",
+                                "role": "compatibility_baseline",
+                            },
+                        },
+                        {
+                            "artifact": "execution_log",
+                            "prompt": {"mode": "content"},
+                        },
+                        {
+                            "artifact": "private_notes",
+                            "prompt": {
+                                "mode": "none",
+                                "role": "internal_only",
+                            },
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+
 def _build_frontend_bundle_from_fixture(
     tmp_path: Path,
     *,
@@ -610,6 +678,32 @@ def test_semantic_ir_adds_typed_prompt_input_lineage_without_runtime_evidence(
         ("pre_snapshot", True),
         ("select_variant_output", True),
     }
+
+
+def test_semantic_ir_consume_prompt_surface_records_prompt_view_metadata_without_authority_leak(
+    tmp_path: Path,
+) -> None:
+    bundle = WorkflowLoader(tmp_path).load_bundle(
+        _write_consume_prompt_semantic_ir_workflow(tmp_path)
+    )
+
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+    prompt_surface = bundle.semantic_ir.prompt_surfaces[workflow.prompt_surface_ids[0]]
+
+    policies = getattr(prompt_surface, "consumed_prompt_policies")
+    by_artifact = {entry["artifact_name"]: entry for entry in policies}
+
+    assert prompt_surface.prompt_consumes == ()
+    assert by_artifact["baseline_design"]["mode"] == "reference"
+    assert by_artifact["baseline_design"]["label"] == "Baseline design"
+    assert by_artifact["baseline_design"]["role"] == "compatibility_baseline"
+    assert by_artifact["execution_log"]["mode"] == "content"
+    assert by_artifact["private_notes"]["mode"] == "none"
+    assert by_artifact["private_notes"]["role"] == "internal_only"
+    assert not any(
+        contract.contract_name == "compatibility_baseline"
+        for contract in bundle.semantic_ir.contracts.values()
+    )
 
 
 def test_semantic_ir_records_entry_publication_materialize_view_metadata(

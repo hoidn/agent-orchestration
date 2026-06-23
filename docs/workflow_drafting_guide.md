@@ -124,7 +124,7 @@ Provider prompt text is composed deterministically:
 | 1 | Read the base prompt source (`input_file` or `asset_file`) literally. | No variable substitution inside file contents. |
 | 2 | Prepend `asset_depends_on` blocks (v2.5+) if enabled. | Workflow-source-relative assets are injected in declared order before the base prompt. |
 | 3 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved workspace dependencies in-memory around the already-expanded prompt. |
-| 4 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
+| 4 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`, and per-row `consumes[*].prompt.mode`. Uses resolved consume values from preflight. |
 | 5 | Append `## Output Contract` if the provider/adjudicated-provider step has `expected_outputs`, `output_bundle`, or `variant_output`. | `inject_output_contract` controls suffix injection. Paths and field contracts are rendered after runtime path substitution. Command steps validate the same contracts without prompt injection. This is validation, not execution. |
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
@@ -219,7 +219,19 @@ Pointer ownership note (v1.4): consume preflight for relpath artifacts is read-o
 
 `expected_outputs`, `output_bundle`, and `variant_output` participate in output-contract prompt injection for provider and adjudicated-provider steps. `expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.
 
-`consumes` supports the same optional guidance fields (`description`, `format_hint`, `example`). When present, they are injected under each consumed artifact line in `## Consumed Artifacts` (subject to `prompt_consumes` filtering). They are prompt guidance only and do not change runtime consume preflight behavior.
+`consumes` supports the same optional guidance fields (`description`, `format_hint`, `example`) plus nested prompt-view metadata:
+
+```yaml
+consumes:
+  - artifact: baseline_design
+    prompt:
+      mode: reference
+      label: Baseline design
+      description: Accepted baseline contract for compatibility checks.
+      role: compatibility_baseline
+```
+
+Use `prompt.mode: content` when the resolved consume value should appear directly in the prompt, `reference` when you want lineage and artifact identity without treating the row as embedded prompt context, and `none` when the consume should still participate in lineage/freshness/`consume_bundle` but should not appear in candidate prompt text. Nested `prompt.description`, `prompt.format_hint`, and `prompt.example` override the legacy row-level guidance fields when both are present. These fields remain prompt guidance only and do not change runtime consume preflight behavior.
 
 ## 4) Deterministic Handoff Patterns
 

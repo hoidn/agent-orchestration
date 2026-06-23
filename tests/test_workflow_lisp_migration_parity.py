@@ -2735,6 +2735,7 @@ def _write_design_delta_g0_build_manifest(
                     ),
                     "sha256": "sha256:consumer-rendering-census",
                 },
+                "consumed_artifact_prompt_rows": [],
                 "selected_rows": [
                     {
                         "workflow_surface": "lisp_frontend_design_delta/plan_phase::run-plan-phase",
@@ -3371,6 +3372,17 @@ def test_run_parity_target_fails_when_typed_prompt_input_report_is_non_passing(
     )
 
     assert report["compile_artifacts"]["required"]["typed_prompt_input_report"]["status"] == "fail"
+
+
+def test_design_delta_consume_prompt_report_stays_empty_until_authored_consumes_exist(
+    tmp_path: Path,
+) -> None:
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    payload = json.loads(
+        (build_root / "typed_prompt_input_report.json").read_text(encoding="utf-8")
+    )
+
+    assert payload["consumed_artifact_prompt_rows"] == []
 
 
 def test_design_delta_parent_drain_target_requires_typed_prompt_input_compile_artifact() -> None:

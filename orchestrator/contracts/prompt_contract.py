@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import json
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 
 _RELPATH_GUIDANCE = (
@@ -11,6 +13,126 @@ _RELPATH_GUIDANCE = (
     "`artifacts/work/...`; for `under: artifacts/review`, write "
     "`artifacts/review/...`."
 )
+
+_CONTENT_ONLY_FOOTER = "Use these consumed artifacts as context for your work."
+_REFERENCE_ONLY_FOOTER = "These references preserve artifact lineage; open them only when needed."
+_MIXED_FOOTER = "Use embedded content as context and open referenced artifacts only when needed."
+
+
+@dataclass(frozen=True)
+class ConsumePromptPolicy:
+    artifact_name: str
+    mode: str = "content"
+    label: str | None = None
+    description: str | None = None
+    format_hint: str | None = None
+    example: str | None = None
+    role: str | None = None
+
+
+@dataclass(frozen=True)
+class RenderedConsumedArtifact:
+    artifact_name: str
+    mode: str
+    rendered_value: str
+    label: str | None = None
+    description: str | None = None
+    format_hint: str | None = None
+    example: str | None = None
+    role: str | None = None
+
+
+def _nested_prompt_mapping(consume: Mapping[str, Any]) -> Mapping[str, Any]:
+    prompt = consume.get("prompt")
+    if isinstance(prompt, Mapping):
+        return prompt
+    return {}
+
+
+def normalize_consume_prompt_policy(consume: Mapping[str, Any]) -> ConsumePromptPolicy:
+    """Merge legacy row guidance with nested prompt metadata."""
+    nested = _nested_prompt_mapping(consume)
+    artifact_name = str(consume.get("artifact", ""))
+    mode = nested.get("mode") if isinstance(nested.get("mode"), str) else "content"
+    if mode not in {"content", "reference", "none"}:
+        mode = "content"
+
+    def _guidance_value(field_name: str) -> str | None:
+        nested_value = nested.get(field_name)
+        if isinstance(nested_value, str):
+            return nested_value
+        legacy_value = consume.get(field_name)
+        if isinstance(legacy_value, str):
+            return legacy_value
+        return None
+
+    label = nested.get("label")
+    role = nested.get("role")
+    return ConsumePromptPolicy(
+        artifact_name=artifact_name,
+        mode=mode,
+        label=label if isinstance(label, str) else None,
+        description=_guidance_value("description"),
+        format_hint=_guidance_value("format_hint"),
+        example=_guidance_value("example"),
+        role=role if isinstance(role, str) else None,
+    )
+
+
+def selected_consumed_artifacts_for_prompt(
+    step: Mapping[str, Any],
+    step_consumed_values: Mapping[str, Any],
+) -> list[tuple[ConsumePromptPolicy, Any]]:
+    """Return consumes selected by prompt filters and reserved-session exclusion."""
+    consumes = step.get("consumes")
+    if not isinstance(consumes, Sequence) or isinstance(consumes, (str, bytes)):
+        return []
+    if not isinstance(step_consumed_values, Mapping):
+        return []
+
+    prompt_consumes = step.get("prompt_consumes")
+    allowed_names: set[str] | None = None
+    if prompt_consumes is not None:
+        if not isinstance(prompt_consumes, list):
+            return []
+        allowed_names = {
+            name for name in prompt_consumes
+            if isinstance(name, str) and name.strip()
+        }
+        if not allowed_names:
+            return []
+
+    reserved_session_artifact: str | None = None
+    provider_session = step.get("provider_session")
+    if isinstance(provider_session, Mapping) and provider_session.get("mode") == "resume":
+        session_id_from = provider_session.get("session_id_from")
+        if isinstance(session_id_from, str) and session_id_from:
+            reserved_session_artifact = session_id_from
+
+    selected: list[tuple[ConsumePromptPolicy, Any]] = []
+    for consume in consumes:
+        if not isinstance(consume, Mapping):
+            continue
+        policy = normalize_consume_prompt_policy(consume)
+        artifact_name = policy.artifact_name
+        if not artifact_name:
+            continue
+        if reserved_session_artifact is not None and artifact_name == reserved_session_artifact:
+            continue
+        if allowed_names is not None and artifact_name not in allowed_names:
+            continue
+        if artifact_name not in step_consumed_values:
+            continue
+        selected.append((policy, step_consumed_values[artifact_name]))
+    return selected
+
+
+def stringify_consumed_value(value: Any) -> str | None:
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, sort_keys=True)
+    return None
 
 
 def _append_field_constraints(lines: List[str], spec: Dict[str, Any], *, indent: int = 2) -> None:
@@ -133,20 +255,39 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
 
 
 def render_consumed_artifacts_block(
-    consumed: Dict[str, Any],
-    guidance_by_name: Optional[Dict[str, Dict[str, str]]] = None,
+    consumed: Sequence[RenderedConsumedArtifact],
 ) -> str:
     """Render a stable prompt block describing resolved consumed artifacts."""
     lines: List[str] = ["## Consumed Artifacts"]
-    guidance = guidance_by_name or {}
-    for name in sorted(consumed.keys()):
-        lines.append(f"- {name}: {consumed[name]}")
-        field_guidance = guidance.get(name, {})
-        if "description" in field_guidance:
-            lines.append(f"  description: {field_guidance['description']}")
-        if "format_hint" in field_guidance:
-            lines.append(f"  format_hint: {field_guidance['format_hint']}")
-        if "example" in field_guidance:
-            lines.append(f"  example: {field_guidance['example']}")
-    lines.append("Read these files before acting.")
+    sorted_consumed = sorted(consumed, key=lambda entry: entry.artifact_name)
+    rendered_modes: set[str] = set()
+    for entry in sorted_consumed:
+        rendered_modes.add(entry.mode)
+        if entry.mode == "reference":
+            lines.append(f"- {entry.artifact_name}:")
+            lines.append("  mode: reference")
+            if entry.label:
+                lines.append(f"  label: {entry.label}")
+            lines.append(f"  resolved_value: {entry.rendered_value}")
+            if entry.role:
+                lines.append(f"  role: {entry.role}")
+        else:
+            lines.append(f"- {entry.artifact_name}: {entry.rendered_value}")
+            if entry.label:
+                lines.append(f"  label: {entry.label}")
+            if entry.role:
+                lines.append(f"  role: {entry.role}")
+        if entry.description:
+            lines.append(f"  description: {entry.description}")
+        if entry.format_hint:
+            lines.append(f"  format_hint: {entry.format_hint}")
+        if entry.example:
+            lines.append(f"  example: {entry.example}")
+
+    if rendered_modes == {"content"}:
+        lines.append(_CONTENT_ONLY_FOOTER)
+    elif rendered_modes == {"reference"}:
+        lines.append(_REFERENCE_ONLY_FOOTER)
+    else:
+        lines.append(_MIXED_FOOTER)
     return "\n".join(lines) + "\n"

@@ -117,7 +117,7 @@ def test_adjudicated_provider_prompt_injection_renders_collection_consumed_value
     )
 
     assert prompt.startswith("Judge the candidate output.")
-    assert prompt.rstrip().endswith('Read these files before acting.')
+    assert prompt.rstrip().endswith('Use these consumed artifacts as context for your work.')
     assert '- context_docs: ["docs/design/runtime-foundation.md"]' in prompt
 
 
@@ -1783,7 +1783,7 @@ def test_provider_consumes_appends_consumed_artifacts_block_by_default(tmp_path:
     expected_prefix = (
         "## Consumed Artifacts\n"
         "- execution_log: artifacts/work/execute.log\n"
-        "Read these files before acting.\n"
+        "Use these consumed artifacts as context for your work.\n"
     )
     assert captured["prompt"].startswith(expected_prefix)
     assert original_prompt in captured["prompt"]
@@ -1878,7 +1878,7 @@ def test_provider_consumes_injection_still_works_in_v1_4(tmp_path: Path):
     expected_prefix = (
         "## Consumed Artifacts\n"
         "- execution_log: artifacts/work/execute.log\n"
-        "Read these files before acting.\n"
+        "Use these consumed artifacts as context for your work.\n"
     )
     assert captured["prompt"].startswith(expected_prefix)
     assert original_prompt in captured["prompt"]
@@ -2064,7 +2064,7 @@ def test_consumes_injection_position_append_places_block_after_prompt(tmp_path: 
     expected_suffix = (
         "## Consumed Artifacts\n"
         "- execution_log: artifacts/work/execute.log\n"
-        "Read these files before acting.\n"
+        "Use these consumed artifacts as context for your work.\n"
     )
     assert captured["prompt"].startswith(original_prompt)
     assert captured["prompt"].endswith(expected_suffix)
@@ -2521,6 +2521,206 @@ def test_prompt_consumes_empty_list_injects_no_consumed_artifacts_block(tmp_path
     state = executor.execute()
     assert state["steps"]["ReviewPlan"]["exit_code"] == 0
     assert captured["prompt"] == original_prompt
+
+
+def test_consume_prompt_modes_render_mixed_content_reference_and_none(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "baseline.md").write_text("baseline body\n", encoding="utf-8")
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [
+                {
+                    "artifact": "baseline_design",
+                    "prompt": {
+                        "mode": "reference",
+                        "label": "Baseline design",
+                        "role": "compatibility_baseline",
+                        "description": "Accepted baseline contract.",
+                    },
+                },
+                {
+                    "artifact": "execution_log",
+                    "prompt": {
+                        "mode": "content",
+                    },
+                },
+                {
+                    "artifact": "private_notes",
+                    "prompt": {
+                        "mode": "none",
+                    },
+                },
+            ],
+        },
+        "Review the implementation.\n",
+        resolved_consumes={
+            "root.review": {
+                "baseline_design": "docs/baseline.md",
+                "execution_log": "artifacts/work/execute.log",
+                "private_notes": "state/private_notes.txt",
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert "## Consumed Artifacts" in prompt
+    assert "- execution_log: artifacts/work/execute.log" in prompt
+    assert "- baseline_design:" in prompt
+    assert "mode: reference" in prompt
+    assert "label: Baseline design" in prompt
+    assert "role: compatibility_baseline" in prompt
+    assert "resolved_value: docs/baseline.md" in prompt
+    assert "private_notes" not in prompt
+    assert "Use embedded content as context and open referenced artifacts only when needed." in prompt
+
+
+def test_consume_prompt_nested_guidance_overrides_legacy_row_fields(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [
+                {
+                    "artifact": "execution_log",
+                    "description": "legacy description",
+                    "format_hint": "legacy hint",
+                    "example": "legacy-example.log",
+                    "prompt": {
+                        "mode": "reference",
+                        "description": "nested description",
+                        "format_hint": "nested hint",
+                        "example": "nested-example.log",
+                    },
+                },
+            ],
+        },
+        "Review the implementation.\n",
+        resolved_consumes={
+            "root.review": {
+                "execution_log": "artifacts/work/execute.log",
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert "description: nested description" in prompt
+    assert "format_hint: nested hint" in prompt
+    assert "example: nested-example.log" in prompt
+    assert "legacy description" not in prompt
+    assert "legacy hint" not in prompt
+    assert "legacy-example.log" not in prompt
+
+
+def test_reference_mode_omits_existing_target_file_body(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "baseline.md").write_text("sensitive baseline body\n", encoding="utf-8")
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [
+                {
+                    "artifact": "baseline_design",
+                    "prompt": {
+                        "mode": "reference",
+                    },
+                },
+            ],
+        },
+        "Review the implementation.\n",
+        resolved_consumes={
+            "root.review": {
+                "baseline_design": "docs/baseline.md",
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert "resolved_value: docs/baseline.md" in prompt
+    assert "sensitive baseline body" not in prompt
+    assert "These references preserve artifact lineage; open them only when needed." in prompt
+
+
+def test_content_only_consume_prompt_uses_content_footer(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [
+                {
+                    "artifact": "execution_log",
+                },
+            ],
+        },
+        "Review the implementation.\n",
+        resolved_consumes={
+            "root.review": {
+                "execution_log": "artifacts/work/execute.log",
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert "- execution_log: artifacts/work/execute.log" in prompt
+    assert "Use these consumed artifacts as context for your work." in prompt
+
+
+def test_prompt_consumes_filter_applies_before_row_modes(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Review",
+            "provider": "mock-provider",
+            "consumes": [
+                {
+                    "artifact": "baseline_design",
+                    "prompt": {
+                        "mode": "reference",
+                    },
+                },
+                {
+                    "artifact": "execution_log",
+                    "prompt": {
+                        "mode": "content",
+                    },
+                },
+            ],
+            "prompt_consumes": ["execution_log"],
+        },
+        "Review the implementation.\n",
+        resolved_consumes={
+            "root.review": {
+                "baseline_design": "docs/baseline.md",
+                "execution_log": "artifacts/work/execute.log",
+            }
+        },
+        step_name="Review",
+        consume_identity="root.review",
+        uses_qualified_identities=True,
+    )
+
+    assert "- execution_log: artifacts/work/execute.log" in prompt
+    assert "baseline_design" not in prompt
+    assert "Use these consumed artifacts as context for your work." in prompt
 
 
 def test_provider_execute_falls_back_when_stream_output_kwarg_unsupported(tmp_path: Path):

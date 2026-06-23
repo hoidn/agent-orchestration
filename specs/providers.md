@@ -69,9 +69,18 @@
     - Position with `consumes_injection_position: prepend|append` (default `prepend`).
     - Limit scope with `prompt_consumes: [artifact_name, ...]` to inject only selected consumed artifacts.
     - `prompt_consumes: []` suppresses the consumed-artifacts block entirely.
-    - Optional `consumes` guidance annotations (`description`, `format_hint`, `example`) are included per injected artifact when present.
-    - Scalar values render directly; list/map consume values render as deterministic JSON text, and collection values render deterministically when prompt injection is enabled. Prompt rendering is a view over resolved consume values, not semantic authority.
-    - These annotations are prompt guidance only and do not change runtime consume enforcement semantics.
+    - Each selected `consumes[*]` row may also declare `prompt.mode: content|reference|none` plus additive prompt guidance (`label`, `description`, `format_hint`, `example`, `role`).
+    - Omitted `prompt.mode` defaults to `content`. Nested `prompt.*` guidance overrides row-level `description`, `format_hint`, and `example` when both are present.
+    - `content` preserves ordinary consumed-artifact prompt rendering for the selected resolved value.
+    - `reference` renders deterministic metadata only (`mode: reference`, artifact identity, optional label/role/guidance, and the resolved value/path). It must not read or embed relpath target body content in the candidate prompt.
+    - `none` suppresses only candidate-prompt text for that consume row. It does not change consume selection, lineage, freshness, resolved values, or `consume_bundle`.
+    - If every selected consume row resolves to `mode: none`, omit the consumed-artifacts block entirely.
+    - Footer text depends on the rendered row mix:
+      - content-only rows: use the consumed artifacts as prompt context
+      - reference-only rows: open referenced artifacts only when needed
+      - mixed content/reference rows: use embedded content as context and open references only when needed
+    - Scalar values render directly; list/map consume values render as deterministic JSON text. Prompt rendering is a view over resolved consume values, not semantic authority.
+    - These annotations and render modes are prompt guidance only and do not change runtime consume enforcement semantics.
     - v2.10 resume steps reserve the `session_id_from` consume for runtime `${SESSION_ID}` binding; that consume is excluded from prompt injection and `consume_bundle`.
   - If the step defines `expected_outputs`, `output_bundle`, or `variant_output` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` or `Variant Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints) or the required JSON bundle (`path`, `fields[*].json_pointer`, `fields[*].type`, optional constraints).
     - `expected_outputs.path`, `output_bundle.path`, and `variant_output.path` entries in this suffix are rendered after applying the same runtime variable substitution used for output-contract validation, so provider prompts show workspace-relative concrete paths rather than unresolved `${...}` templates.
@@ -83,7 +92,8 @@
   - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.
   - Candidate provider commands run with `cwd` set to that candidate's isolated workspace. Provider templates, provider params, env, secrets, and prompt transport otherwise follow the normal provider contract.
   - The evaluator prompt is composed from the declared evaluator prompt source plus one runtime-built `Evaluator Packet` block. The evaluator output is strict JSON and does not use the adjudicated step's `output_capture`, `allow_parse_error`, `expected_outputs`, or `output_bundle` settings.
-  - Evaluator scoring uses the persisted scorer snapshot and complete embedded score-critical evidence only: rendered candidate prompt, declared output value files, required relpath targets, bundle JSON and required bundle targets, optional rubric content, and injected consume relpath target content when applicable.
+  - Evaluator scoring uses the persisted scorer snapshot and complete embedded score-critical evidence only: rendered candidate prompt, declared output value files, required relpath targets, bundle JSON and required bundle targets, optional rubric content, and selected consume values plus consume relpath target content when applicable.
+  - Candidate-prompt consume rendering modes do not weaken evaluator evidence. After reserved-session exclusion and `prompt_consumes` filtering choose the selected consume rows, evaluator packets continue to carry the normalized selected consume values and any selected relpath target file content even when the candidate prompt rendered a row as `reference` or suppressed it with `none`.
   - Evaluators must not depend on reading candidate or parent workspace files, bounded prompt previews, candidate stdout/stderr, transport logs, or other non-scoring sidecars. Those paths may be retained for audit, but they are not score-critical evidence.
 
 - Reusable-call provider boundary

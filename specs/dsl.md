@@ -265,9 +265,18 @@
       - `producers: string[]` (optional producer step-name filter)
       - `policy: latest_successful` (MVP)
       - `freshness: any|since_last_consume` (default `any`)
+      - `prompt` (optional additive prompt-view metadata for provider/adjudicated-provider consume injection; v1.2+)
+        - `mode: content|reference|none` (optional; default `content`)
+        - `label: string` (optional)
+        - `description: string` (optional prompt guidance only)
+        - `format_hint: string` (optional prompt guidance only)
+        - `example: string` (optional prompt guidance only)
+        - `role: string` (optional prompt guidance only)
       - `description: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
       - `format_hint: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
       - `example: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
+      - nested `prompt.*` guidance overrides row-level `description`, `format_hint`, and `example` when both are present
+      - `prompt.mode: none` suppresses only prompt text; it does not change consume lineage, freshness, resolved values, or `consume_bundle`
       - runtime preflight:
         - `kind: relpath` artifacts:
           - `version: "1.2"` / `"1.3"`: materialize the selected value to the canonical pointer file

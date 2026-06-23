@@ -164,7 +164,8 @@ def materialize_execution_config_for_test(
             step["inject_output_contract"] = config.inject_output_contract
         if config.inject_consumes is not None:
             step["inject_consumes"] = config.inject_consumes
-        _set_runtime_field(step, "prompt_consumes", config.prompt_consumes)
+        _set_runtime_field(step, "prompt_consumes", config.prompt_consumes, include_empty=True)
+        _set_runtime_field(step, "typed_prompt_inputs", config.typed_prompt_inputs)
         if config.consumes_injection_position is not None:
             step["consumes_injection_position"] = config.consumes_injection_position
         _set_runtime_field(step, "managed_jobs", config.managed_jobs)

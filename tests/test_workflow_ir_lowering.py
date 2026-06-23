@@ -309,6 +309,56 @@ def _write_ir_workflow(workspace: Path) -> Path:
     )
 
 
+def _write_consume_prompt_ir_workflow(workspace: Path) -> Path:
+    return _write_yaml(
+        workspace / "consume_prompt_workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "consume-prompt-ir",
+            "providers": {
+                "audit_provider": {
+                    "command": ["echo", "${PROMPT}"],
+                    "input_mode": "argv",
+                }
+            },
+            "artifacts": {
+                "baseline_design": {
+                    "pointer": "state/baseline_design.txt",
+                    "type": "relpath",
+                    "under": "docs",
+                },
+                "execution_log": {
+                    "pointer": "state/execution_log.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                },
+            },
+            "steps": [
+                {
+                    "name": "Review",
+                    "id": "review",
+                    "provider": "audit_provider",
+                    "input_file": "prompts/review.md",
+                    "prompt_consumes": [],
+                    "consumes": [
+                        {
+                            "artifact": "baseline_design",
+                            "prompt": {
+                                "mode": "reference",
+                                "label": "Baseline design",
+                            },
+                        },
+                        {
+                            "artifact": "execution_log",
+                            "prompt": {"mode": "content"},
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+
+
 def test_executable_ir_does_not_export_legacy_runtime_materializer():
     assert not hasattr(executable_ir, "materialize_execution_config")
 
@@ -809,6 +859,28 @@ def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(
         "required": ["data.txt"],
         "inject": True,
     }
+
+
+def test_ir_lowering_preserves_consume_prompt_metadata_and_empty_prompt_consumes(
+    tmp_path: Path,
+):
+    workflow_path = _write_consume_prompt_ir_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    review_step = bundle.surface.steps[0]
+    review_node = bundle.ir.nodes[review_step.step_id]
+
+    assert isinstance(review_node.execution_config, ProviderStepConfig)
+    materialized_provider = materialize_execution_config_for_test(
+        review_node.execution_config,
+        step_name="Review",
+        step_id=review_step.step_id,
+    )
+
+    assert materialized_provider["prompt_consumes"] == []
+    assert materialized_provider["consumes"][0]["prompt"]["mode"] == "reference"
+    assert materialized_provider["consumes"][0]["prompt"]["label"] == "Baseline design"
+    assert materialized_provider["consumes"][1]["prompt"]["mode"] == "content"
 
 
 def test_managed_jobs_lowers_to_provider_config_and_routes(tmp_path: Path):

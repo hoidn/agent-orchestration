@@ -14,6 +14,7 @@ from orchestrator.workflow.adjudication import (
     candidate_paths,
 )
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.prompting import PromptComposer
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
@@ -279,6 +280,197 @@ def test_evaluator_packet_includes_consumed_relpath_target_content(tmp_path: Pat
     result = state["steps"]["Draft"]
     assert result["status"] == "completed"
     assert result["adjudication"]["selected_score"] == 1.0
+
+
+def test_adjudicated_reference_mode_omits_candidate_prompt_body_but_keeps_evaluator_evidence(
+    tmp_path: Path,
+) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Draft",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [
+                {
+                    "artifact": "source_doc",
+                    "prompt": {
+                        "mode": "reference",
+                    },
+                },
+            ],
+        },
+        "Draft the best possible artifact.\n",
+        resolved_consumes={
+            "root.draft": {
+                "source_doc": "docs/source.md",
+            }
+        },
+        step_name="Draft",
+        consume_identity="root.draft",
+        uses_qualified_identities=True,
+    )
+
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.workflow_artifacts = {
+        "source_doc": {
+            "kind": "relpath",
+            "type": "relpath",
+        }
+    }
+    executor.private_workflow_artifacts = {}
+    executor._uses_qualified_identities = lambda: True
+    consumed_artifacts, consumed_relpath_targets = executor._adjudication_consumed_artifacts_for_prompt(
+        {
+            "name": "Draft",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [
+                {
+                    "artifact": "source_doc",
+                    "prompt": {
+                        "mode": "reference",
+                    },
+                },
+            ],
+        },
+        {
+            "_resolved_consumes": {
+                "root.draft": {
+                    "source_doc": "docs/source.md",
+                }
+            }
+        },
+        step_name="Draft",
+        consume_identity="root.draft",
+    )
+
+    assert "mode: reference" in prompt
+    assert "source evidence" not in prompt
+    assert consumed_artifacts == {"source_doc": "docs/source.md"}
+    assert consumed_relpath_targets == {"source_doc": "docs/source.md"}
+
+
+def test_adjudicated_none_mode_suppresses_candidate_prompt_but_keeps_selected_evaluator_inputs() -> None:
+    composer = PromptComposer(workspace=Path("."), asset_resolver=None)
+    prompt = composer.apply_consumes_prompt_injection(
+        {
+            "name": "Draft",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [
+                {
+                    "artifact": "source_doc",
+                    "prompt": {
+                        "mode": "none",
+                    },
+                },
+            ],
+        },
+        "Draft the best possible artifact.\n",
+        resolved_consumes={
+            "root.draft": {
+                "source_doc": "docs/source.md",
+            }
+        },
+        step_name="Draft",
+        consume_identity="root.draft",
+        uses_qualified_identities=True,
+    )
+
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.workflow_artifacts = {
+        "source_doc": {
+            "kind": "relpath",
+            "type": "relpath",
+        }
+    }
+    executor.private_workflow_artifacts = {}
+    executor._uses_qualified_identities = lambda: True
+    consumed_artifacts, consumed_relpath_targets = executor._adjudication_consumed_artifacts_for_prompt(
+        {
+            "name": "Draft",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [
+                {
+                    "artifact": "source_doc",
+                    "prompt": {
+                        "mode": "none",
+                    },
+                },
+            ],
+        },
+        {
+            "_resolved_consumes": {
+                "root.draft": {
+                    "source_doc": "docs/source.md",
+                }
+            }
+        },
+        step_name="Draft",
+        consume_identity="root.draft",
+    )
+
+    assert "## Consumed Artifacts" not in prompt
+    assert consumed_artifacts == {"source_doc": "docs/source.md"}
+    assert consumed_relpath_targets == {"source_doc": "docs/source.md"}
+
+
+def test_adjudicated_prompt_consume_filters_and_reserved_session_exclusion_still_gate_evidence() -> None:
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    executor.workflow_artifacts = {
+        "source_doc": {"kind": "relpath", "type": "relpath"},
+        "session_handle": {"kind": "scalar", "type": "string"},
+    }
+    executor.private_workflow_artifacts = {}
+    executor._uses_qualified_identities = lambda: True
+
+    consumed_artifacts, consumed_relpath_targets = executor._adjudication_consumed_artifacts_for_prompt(
+        {
+            "name": "Draft",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "provider_session": {
+                "mode": "resume",
+                "session_id_from": "session_handle",
+            },
+            "consumes": [
+                {"artifact": "source_doc"},
+                {"artifact": "session_handle"},
+            ],
+            "prompt_consumes": ["source_doc", "session_handle"],
+        },
+        {
+            "_resolved_consumes": {
+                "root.draft": {
+                    "source_doc": "docs/source.md",
+                    "session_handle": "sess-123",
+                }
+            }
+        },
+        step_name="Draft",
+        consume_identity="root.draft",
+    )
+
+    assert consumed_artifacts == {"source_doc": "docs/source.md"}
+    assert consumed_relpath_targets == {"source_doc": "docs/source.md"}
+
+    empty_artifacts, empty_targets = executor._adjudication_consumed_artifacts_for_prompt(
+        {
+            "name": "Draft",
+            "adjudicated_provider": {"provider": "mock-provider"},
+            "consumes": [{"artifact": "source_doc"}],
+            "prompt_consumes": [],
+        },
+        {
+            "_resolved_consumes": {
+                "root.draft": {
+                    "source_doc": "docs/source.md",
+                }
+            }
+        },
+        step_name="Draft",
+        consume_identity="root.draft",
+    )
+
+    assert empty_artifacts == {}
+    assert empty_targets == {}
 
 
 def test_score_ledger_path_is_substituted_before_mirror_materialization(tmp_path: Path) -> None:
