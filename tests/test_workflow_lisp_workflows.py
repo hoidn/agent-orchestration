@@ -22,8 +22,20 @@ from orchestrator.workflow_lisp.expressions import (
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, RecordTypeRef, UnionTypeRef
+from orchestrator.workflow_lisp.type_env import (
+    FrontendTypeEnvironment,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    UnionTypeRef,
+    WorkflowRefTypeRef,
+)
+from orchestrator.workflow_lisp.workflow_refs import (
+    ResolvedWorkflowRef,
+    WorkflowExternRebindingPlan,
+    WorkflowRefAuthoritySource,
+)
 from orchestrator.workflow_lisp.workflows import (
     ExternEnvironment,
     ExternalToolBinding,
@@ -31,8 +43,12 @@ from orchestrator.workflow_lisp.workflows import (
     ProviderExtern,
     WorkflowCatalog,
     WorkflowDef,
+    WorkflowSignature,
+    _merged_private_compatibility_bridge_types_by_workflow,
+    _workflow_omits_private_compatibility_bridge_via_workflow_ref,
     build_workflow_catalog,
     elaborate_workflow_definitions,
+    specialized_private_compatibility_bridge_callees,
     typecheck_workflow_definitions,
 )
 
@@ -91,6 +107,36 @@ def _expression_syntax(source: str, *, form_path: tuple[str, ...] = FORM_PATH) -
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _inline_span(path: str = "inline_workflow_expression.orc") -> SourceSpan:
+    return SourceSpan(
+        start=SourcePosition(path=path, line=1, column=0, offset=0),
+        end=SourcePosition(path=path, line=1, column=1, offset=1),
+    )
+
+
+def _inline_name(name: str) -> NameExpr:
+    return NameExpr(name=name, span=_inline_span(), form_path=FORM_PATH)
+
+
+def _inline_call(callee_name: str, *binding_names: str) -> CallExpr:
+    return CallExpr(
+        callee_name=callee_name,
+        bindings=tuple((binding_name, _inline_name(binding_name)) for binding_name in binding_names),
+        span=_inline_span(),
+        form_path=FORM_PATH,
+    )
+
+
+def _workflow_output_type() -> RecordTypeRef:
+    output_type = _build_type_env(WORKFLOW_REF_FIXTURE).resolve_type(
+        "WorkflowOutput",
+        span=_inline_span(),
+        form_path=FORM_PATH,
+    )
+    assert isinstance(output_type, RecordTypeRef)
+    return output_type
 
 
 def test_elaborate_workflow_definitions_builds_record_only_same_file_catalog() -> None:
@@ -938,6 +984,119 @@ def test_compile_stage3_strips_workflow_ref_params_from_lowered_runtime_boundari
 
     for lowered in result.lowered_workflows:
         assert "runner" not in lowered.authored_mapping["inputs"]
+
+
+def test_workflow_ref_bridge_omission_helpers_track_specialized_hidden_bridge_targets() -> None:
+    span = _inline_span()
+    output_type = _workflow_output_type()
+    string_type = PrimitiveTypeRef("String")
+    bridge_type = PrimitiveTypeRef("StateExisting")
+    callee_signature = WorkflowSignature(
+        name="project-selected-compat",
+        params=(("item-id", string_type), ("run_state_path", bridge_type)),
+        return_type_ref=output_type,
+        span=span,
+        form_path=FORM_PATH,
+        private_compatibility_bridge_types={"run_state_path": bridge_type},
+    )
+    wrapper_signature = WorkflowSignature(
+        name="invoke-runner",
+        params=(
+            (
+                "runner",
+                WorkflowRefTypeRef(
+                    name="WorkflowRef[(String StateExisting) -> WorkflowOutput]",
+                    param_type_refs=(string_type, bridge_type),
+                    return_type_ref=output_type,
+                ),
+            ),
+            ("item-id", string_type),
+        ),
+        return_type_ref=output_type,
+        span=span,
+        form_path=FORM_PATH,
+    )
+    wrapper_def = WorkflowDef(
+        name="invoke-runner",
+        params=(),
+        return_type_name="WorkflowOutput",
+        body=_inline_call("runner", "item-id"),
+        span=span,
+        form_path=FORM_PATH,
+    )
+
+    assert _workflow_omits_private_compatibility_bridge_via_workflow_ref(
+        wrapper_def,
+        signatures_by_name={"invoke-runner": wrapper_signature},
+    )
+    assert specialized_private_compatibility_bridge_callees(
+        wrapper_def,
+        base_signature=wrapper_signature,
+        workflow_ref_bindings={
+            "runner": ResolvedWorkflowRef(
+                workflow_name="project-selected-compat",
+                signature_params=callee_signature.params,
+                return_type_ref=output_type,
+                authority_source=WorkflowRefAuthoritySource(
+                    kind="local",
+                    workflow_name="project-selected-compat",
+                ),
+                extern_rebinding_plan=WorkflowExternRebindingPlan(
+                    provider_bindings={},
+                    prompt_bindings={},
+                ),
+            )
+        },
+        signatures_by_name={"project-selected-compat": callee_signature},
+    ) == frozenset({"project-selected-compat"})
+
+
+def test_private_bridge_type_helper_merges_omitted_local_callee_bridge_inputs() -> None:
+    span = _inline_span()
+    output_type = _workflow_output_type()
+    string_type = PrimitiveTypeRef("String")
+    bridge_type = PrimitiveTypeRef("StateExisting")
+    callee_signature = WorkflowSignature(
+        name="project-selected-compat",
+        params=(("item-id", string_type), ("run_state_path", bridge_type)),
+        return_type_ref=output_type,
+        span=span,
+        form_path=FORM_PATH,
+        private_compatibility_bridge_types={"run_state_path": bridge_type},
+    )
+    wrapper_signature = WorkflowSignature(
+        name="invoke-selected-compat",
+        params=(("item-id", string_type),),
+        return_type_ref=output_type,
+        span=span,
+        form_path=FORM_PATH,
+    )
+    callee_def = WorkflowDef(
+        name="project-selected-compat",
+        params=(),
+        return_type_name="WorkflowOutput",
+        body=_inline_name("item-id"),
+        span=span,
+        form_path=FORM_PATH,
+    )
+    wrapper_def = WorkflowDef(
+        name="invoke-selected-compat",
+        params=(),
+        return_type_name="WorkflowOutput",
+        body=_inline_call("project-selected-compat", "item-id"),
+        span=span,
+        form_path=FORM_PATH,
+    )
+
+    assert _merged_private_compatibility_bridge_types_by_workflow(
+        workflow_defs=(callee_def, wrapper_def),
+        signatures_by_name={
+            "project-selected-compat": callee_signature,
+            "invoke-selected-compat": wrapper_signature,
+        },
+    ) == {
+        "invoke-selected-compat": {"run_state_path": bridge_type}
+    }
 
 
 def test_workflow_boundary_rejects_top_level_proc_ref_params(tmp_path: Path) -> None:
