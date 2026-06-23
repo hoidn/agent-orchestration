@@ -18,6 +18,9 @@ block `DONE`, while `deferred_promotion_gate` rows do not. Durable evidence may
 include source, docs, fixtures, tests, ledgers, run state, parity reports, the
 reconciled inventory, and accepted waivers. Do not require every obligation to
 have the same evidence shape; use the evidence appropriate to that obligation.
+Before approving, directly compare the target design's success criteria and
+prohibited/final-shape clauses against the current source tree; do not approve
+solely because run state, inventory, parity, or focused tests show no gaps.
 
 Return `REJECT_DONE` when one next bounded target design gap remains. On
 rejection, identify exactly one gap for the existing design-gap architect step
