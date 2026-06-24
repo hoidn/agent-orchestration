@@ -475,6 +475,14 @@ def _build_design_delta_parent_drain(
     consumer_rendering_census_payload: dict[str, object] | None = None,
     resume_plumbing_retirement_manifest_payload: dict[str, object] | None = None,
     command_boundaries_path: Path | None = None,
+    run_state_path: Path | None = None,
+    drain_summary_path: Path | None = None,
+    design_gap_summary_root: Path | None = None,
+    architecture_index_path: Path | None = None,
+    target_design_path: Path | None = None,
+    parity_report_json_path: Path | None = None,
+    parity_report_markdown_path: Path | None = None,
+    parity_index_path: Path | None = None,
 ):
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
@@ -546,6 +554,62 @@ def _build_design_delta_parent_drain(
             consumer_path,
             raising=False,
         )
+    if run_state_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_RUN_STATE_PATH",
+            run_state_path,
+            raising=False,
+        )
+    if drain_summary_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_DRAIN_SUMMARY_PATH",
+            drain_summary_path,
+            raising=False,
+        )
+    if design_gap_summary_root is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT",
+            design_gap_summary_root,
+            raising=False,
+        )
+    if architecture_index_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH",
+            architecture_index_path,
+            raising=False,
+        )
+    if target_design_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_TARGET_DESIGN_PATH",
+            target_design_path,
+            raising=False,
+        )
+    if parity_report_json_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH",
+            parity_report_json_path,
+            raising=False,
+        )
+    if parity_report_markdown_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH",
+            parity_report_markdown_path,
+            raising=False,
+        )
+    if parity_index_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_PARITY_INDEX_PATH",
+            parity_index_path,
+            raising=False,
+        )
     return build_frontend_bundle(
         _design_delta_parent_drain_request(
             tmp_path,
@@ -556,6 +620,31 @@ def _build_design_delta_parent_drain(
 
 def _load_design_delta_boundary_authority_registry() -> dict[str, object]:
     return json.loads(DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH.read_text(encoding="utf-8"))
+
+
+def _aligned_reference_family_drain_summary(tmp_path: Path) -> Path:
+    payload = json.loads(
+        (
+            REPO_ROOT
+            / "artifacts"
+            / "work"
+            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+            / "drain-summary.json"
+        ).read_text(encoding="utf-8")
+    )
+    run_state = json.loads(
+        (
+            REPO_ROOT
+            / "state"
+            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+            / "drain"
+            / "run_state.json"
+        ).read_text(encoding="utf-8")
+    )
+    payload["completed_design_gaps"] = list(run_state["completed_design_gaps"])
+    path = tmp_path / "reference-family-drain-summary.json"
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def _load_design_delta_value_flow_census() -> dict[str, object]:
@@ -7378,6 +7467,161 @@ def test_design_delta_parent_drain_build_emits_parent_drain_census_alignment_rep
     )
     assert payload["workflow_family"] == "design_delta_parent_drain"
     assert payload["status"] == "pass"
+
+
+def test_design_delta_parent_drain_build_emits_reference_family_conformance_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _build_design_delta_parent_drain(
+        tmp_path,
+        monkeypatch,
+        registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+    )
+
+    assert "reference_family_conformance_profile" in result.artifact_paths
+    assert (
+        result.manifest.artifact_status["reference_family_conformance_profile"]
+        == "emitted"
+    )
+    payload = json.loads(
+        result.artifact_paths["reference_family_conformance_profile"].read_text(
+            encoding="utf-8"
+        )
+    )
+    assert payload["schema_id"] == "workflow_lisp_reference_family_conformance_profile.v1"
+    assert payload["profile_status"] == "pass"
+    assert payload["completed_gap_reconciliation"]["missing_from_drain_summary"] == []
+    assert payload["parity_surface_reconciliation"]["derived_primary_surface"] == "yaml"
+
+
+def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_summary_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    drain_summary_path = _aligned_reference_family_drain_summary(tmp_path)
+    payload = json.loads(drain_summary_path.read_text(encoding="utf-8"))
+    payload["completed_design_gaps"].remove(
+        "workflow-lisp-runtime-native-drain-consumed-artifact-prompt-rendering-modes"
+    )
+    drain_summary_path.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            drain_summary_path=drain_summary_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "reference_family_conformance_invalid"
+    assert (
+        "reference_family_completed_gap_summary_mismatch"
+        in excinfo.value.diagnostics[0].message
+    )
+
+
+def test_design_delta_parent_drain_build_rejects_reference_family_parity_surface_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown_path = tmp_path / "design_delta_parent_drain.md"
+    markdown_path.write_text(
+        (
+            REPO_ROOT
+            / "artifacts"
+            / "work"
+            / "review-parity-check"
+            / "design_delta_parent_drain.md"
+        ).read_text(encoding="utf-8").replace(
+            "- Primary surface: `yaml`",
+            "- Primary surface: `orc`",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+            parity_report_markdown_path=markdown_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "reference_family_conformance_invalid"
+    assert (
+        "reference_family_parity_surface_mismatch"
+        in excinfo.value.diagnostics[0].message
+    )
+
+
+def test_design_delta_parent_drain_build_rejects_reference_family_invalid_parity_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parity_json_path = tmp_path / "design_delta_parent_drain.json"
+    payload = json.loads(
+        (
+            REPO_ROOT
+            / "artifacts"
+            / "work"
+            / "review-parity-check"
+            / "design_delta_parent_drain.json"
+        ).read_text(encoding="utf-8")
+    )
+    del payload["target_identity"]["required_family_evidence_roles"]
+    parity_json_path.write_text(
+        json.dumps(payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+            parity_report_json_path=parity_json_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "reference_family_conformance_invalid"
+    assert "reference_family_parity_report_invalid" in excinfo.value.diagnostics[0].message
+
+
+def test_design_delta_parent_drain_build_rejects_reference_family_malformed_parity_markdown(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markdown_path = tmp_path / "design_delta_parent_drain.md"
+    markdown_path.write_text(
+        (
+            REPO_ROOT
+            / "artifacts"
+            / "work"
+            / "review-parity-check"
+            / "design_delta_parent_drain.md"
+        ).read_text(encoding="utf-8").replace(
+            "- Promotion eligible: `false`\n",
+            "",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+            parity_report_markdown_path=markdown_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "reference_family_conformance_invalid"
+    assert "reference_family_parity_report_invalid" in excinfo.value.diagnostics[0].message
 
 
 def test_design_delta_parent_drain_build_rejects_parent_drain_census_alignment_drift(

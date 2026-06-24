@@ -756,6 +756,36 @@ def render_gate_evaluation(
     }
 
 
+def validate_report_for_target(
+    report: Mapping[str, Any],
+    *,
+    target: ParityTarget,
+    targets_file: Path,
+    repo_root: Path,
+    today: date | None = None,
+    fail_closed_for_stale_evidence: bool = False,
+) -> ValidatedGateRow:
+    return _validate_report_for_gate(
+        report,
+        target=target,
+        targets_file=targets_file,
+        repo_root=repo_root,
+        today=today or date.today(),
+        fail_closed_for_stale_evidence=fail_closed_for_stale_evidence,
+    )
+
+
+def derive_primary_surface(
+    *,
+    non_regressive: bool,
+    eligible_for_primary_surface: bool,
+) -> str:
+    return _primary_surface_for_non_regressive_and_eligibility(
+        non_regressive=non_regressive,
+        eligible_for_primary_surface=eligible_for_primary_surface,
+    )
+
+
 def write_reports(
     reports: Sequence[Mapping[str, Any]],
     *,

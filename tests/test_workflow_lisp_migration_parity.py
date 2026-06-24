@@ -1778,6 +1778,18 @@ def test_render_parity_index_keeps_yaml_for_ineligible_target() -> None:
     assert index["targets"][0]["primary_surface"] == "yaml"
 
 
+def test_derive_primary_surface_keeps_yaml_for_non_promotable_non_regressive_target() -> None:
+    module = _parity_module()
+
+    assert (
+        module.derive_primary_surface(
+            non_regressive=True,
+            eligible_for_primary_surface=False,
+        )
+        == "yaml"
+    )
+
+
 def test_rendered_parity_surfaces_do_not_publish_hidden_managed_write_root_inputs() -> None:
     module = _parity_module()
     report = _valid_report_payload()

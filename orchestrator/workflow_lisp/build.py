@@ -88,6 +88,9 @@ from .typed_prompt_inputs import (
     build_typed_prompt_input_report,
     normalize_typed_prompt_input_entry,
 )
+from .reference_family_conformance import (
+    build_reference_family_conformance_profile,
+)
 from .rendering_cleanup import (
     build_rendering_cleanup_report,
     load_rendering_cleanup_manifest,
@@ -114,8 +117,9 @@ from .wcc.route import LoweringRoute
 
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -123,7 +127,7 @@ DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH = (
     / "design_delta_parent_drain.commands.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -131,7 +135,7 @@ DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
     / "design_delta_parent_drain.boundary_authority.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -139,7 +143,7 @@ DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH = (
     / "design_delta_parent_drain.value_flow_census.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -147,7 +151,7 @@ DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH = (
     / "design_delta_parent_drain.consumer_rendering_census.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -155,7 +159,7 @@ DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH = (
     / "design_delta_parent_drain.compatibility_bridges.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -163,7 +167,7 @@ DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH = (
     / "design_delta_parent_drain.rendering_cleanup.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -171,7 +175,7 @@ DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH = (
     / "design_delta_parent_drain.rendering_ergonomics.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -179,7 +183,7 @@ DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH = (
     / "design_delta_parent_drain.transition_authoring.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -187,7 +191,7 @@ DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_VECTORS_PATH = (
     / "design_delta_view_dual_run_vectors.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "artifacts"
     / "work"
     / "LISP-GENERIC-CORE-EXPR-ADAPTER-DRAIN"
@@ -195,7 +199,7 @@ DESIGN_DELTA_PARENT_DRAIN_VIEW_DUAL_RUN_REPORT_PATH = (
     / "design_delta_parent_drain_view_dual_run_report.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -203,7 +207,7 @@ DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH = (
     / "design_delta_parent_drain.resume_plumbing_retirement.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
@@ -211,12 +215,78 @@ DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
     / "design_delta_parent_drain.observability_old_writer_comparisons.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_BLOCKED_IMPLEMENTATION_CHECKS_REPORT_LEGACY_PAYLOAD_PATH = (
-    Path(__file__).resolve().parents[2]
+    REPO_ROOT
     / "workflows"
     / "examples"
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.blocked_implementation_checks_report.legacy_writer_payload.json"
+)
+REFERENCE_FAMILY_RUN_STATE_PATH = (
+    REPO_ROOT
+    / "state"
+    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+    / "drain"
+    / "run_state.json"
+)
+REFERENCE_FAMILY_DRAIN_SUMMARY_PATH = (
+    REPO_ROOT
+    / "artifacts"
+    / "work"
+    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+    / "drain-summary.json"
+)
+REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT = (
+    REPO_ROOT
+    / "artifacts"
+    / "work"
+    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+    / "design-gaps"
+)
+REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT = (
+    REPO_ROOT
+    / "docs"
+    / "plans"
+    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+    / "design-gaps"
+)
+REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH = (
+    REPO_ROOT
+    / "state"
+    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+    / "drain"
+    / "iterations"
+    / "10"
+    / "design-gap-architect"
+    / "existing-architecture-index.md"
+)
+REFERENCE_FAMILY_TARGET_DESIGN_PATH = (
+    REPO_ROOT / "docs" / "design" / "workflow_lisp_runtime_native_drain_authoring.md"
+)
+REFERENCE_FAMILY_PARITY_TARGETS_PATH = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "parity_targets.json"
+)
+REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH = (
+    REPO_ROOT
+    / "artifacts"
+    / "work"
+    / "review-parity-check"
+    / "design_delta_parent_drain.json"
+)
+REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH = (
+    REPO_ROOT
+    / "artifacts"
+    / "work"
+    / "review-parity-check"
+    / "design_delta_parent_drain.md"
+)
+REFERENCE_FAMILY_PARITY_INDEX_PATH = (
+    REPO_ROOT / "artifacts" / "work" / "review-parity-check" / "index.json"
 )
 DESIGN_DELTA_G8_REMOVED_MANIFEST_ROWS = (
     "classify_lisp_frontend_work_item_terminal",
@@ -586,6 +656,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     transition_authoring_report_payload = None
     resume_plumbing_retirement_report_payload = None
     parent_drain_census_alignment_report_payload = None
+    reference_family_conformance_profile_payload = None
     default_resume_report_payload = None
     checkpoint_points_payload = None
     checkpoint_shadow_report_payload = None
@@ -1326,6 +1397,78 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             g8_deletion_evidence_payload = _serialize_design_delta_g8_deletion_evidence(
                 command_boundary_manifest=command_boundary_manifest,
             )
+            reference_family_conformance_profile_payload = (
+                build_reference_family_conformance_profile(
+                    workflow_family="design_delta_parent_drain",
+                    run_state_path=REFERENCE_FAMILY_RUN_STATE_PATH,
+                    drain_summary_path=REFERENCE_FAMILY_DRAIN_SUMMARY_PATH,
+                    design_gap_summary_root=REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT,
+                    implementation_architecture_root=REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT,
+                    architecture_index_path=REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH,
+                    target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
+                    parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
+                    parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
+                    parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
+                    parity_index_path=REFERENCE_FAMILY_PARITY_INDEX_PATH,
+                    checked_manifest_paths={
+                        "boundary_authority_manifest": DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH,
+                        "command_boundaries_manifest": DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH,
+                        "value_flow_census": DESIGN_DELTA_PARENT_DRAIN_VALUE_FLOW_CENSUS_PATH,
+                        "consumer_rendering_census": DESIGN_DELTA_PARENT_DRAIN_CONSUMER_RENDERING_CENSUS_PATH,
+                        "compatibility_bridges_manifest": DESIGN_DELTA_PARENT_DRAIN_COMPATIBILITY_BRIDGES_PATH,
+                        "rendering_cleanup_manifest": DESIGN_DELTA_PARENT_DRAIN_RENDERING_CLEANUP_PATH,
+                        "rendering_ergonomics_manifest": DESIGN_DELTA_PARENT_DRAIN_RENDERING_ERGONOMICS_PATH,
+                        "transition_authoring_manifest": DESIGN_DELTA_PARENT_DRAIN_TRANSITION_AUTHORING_PATH,
+                        "resume_plumbing_retirement_manifest": DESIGN_DELTA_PARENT_DRAIN_RESUME_PLUMBING_RETIREMENT_PATH,
+                        "observability_old_writer_comparisons": DESIGN_DELTA_PARENT_DRAIN_OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
+                    },
+                    owner_reports={
+                        "boundary_authority_report": dict(boundary_authority_report_payload or {}),
+                        "compatibility_bridge_report": dict(compatibility_bridge_report_payload or {}),
+                        "typed_prompt_input_report": dict(typed_prompt_input_report_payload or {}),
+                        "rendering_cleanup_report": dict(rendering_cleanup_report_payload or {}),
+                        "rendering_ergonomics_report": dict(rendering_ergonomics_report_payload or {}),
+                        "transition_authoring_report": dict(transition_authoring_report_payload or {}),
+                        "resume_plumbing_retirement_report": dict(resume_plumbing_retirement_report_payload or {}),
+                        "observability_summary_report": dict(observability_summary_report_payload or {}),
+                        "parent_drain_census_alignment_report": dict(parent_drain_census_alignment_report_payload or {}),
+                    },
+                    repo_root=REPO_ROOT,
+                )
+            )
+            reference_family_conformance_profile_payload = _with_report_path(
+                reference_family_conformance_profile_payload,
+                report_paths["reference_family_conformance_profile"],
+            )
+            if (
+                reference_family_conformance_profile_payload.get("profile_status")
+                != "pass"
+            ):
+                diagnostics_bucket = reference_family_conformance_profile_payload.get(
+                    "diagnostics", []
+                )
+                first = (
+                    diagnostics_bucket[0]
+                    if isinstance(diagnostics_bucket, list) and diagnostics_bucket
+                    else {}
+                )
+                first_code = (
+                    str(first.get("code"))
+                    if isinstance(first, Mapping) and first.get("code")
+                    else "reference_family_conformance_failed"
+                )
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="reference_family_conformance_invalid",
+                            message=(
+                                "design-delta reference-family conformance profile failed: "
+                                f"{first_code}"
+                            ),
+                            path=REFERENCE_FAMILY_DRAIN_SUMMARY_PATH,
+                        ),
+                    )
+                )
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
         compile_result=compile_result,
@@ -1351,6 +1494,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         transition_authoring_report_payload=transition_authoring_report_payload,
         resume_plumbing_retirement_report_payload=resume_plumbing_retirement_report_payload,
         parent_drain_census_alignment_report_payload=parent_drain_census_alignment_report_payload,
+        reference_family_conformance_profile_payload=reference_family_conformance_profile_payload,
         default_resume_report_payload=default_resume_report_payload,
         g8_deletion_evidence_payload=g8_deletion_evidence_payload,
     )
@@ -3328,6 +3472,9 @@ def _design_delta_prerequisite_report_paths(
         "parent_drain_census_alignment_report": str(
             relative / "parent_drain_census_alignment_report.json"
         ),
+        "reference_family_conformance_profile": str(
+            relative / "reference_family_conformance_profile.json"
+        ),
     }
 
 
@@ -4474,6 +4621,7 @@ def _write_build_artifacts(
     transition_authoring_report_payload: Mapping[str, object] | None,
     resume_plumbing_retirement_report_payload: Mapping[str, object] | None,
     parent_drain_census_alignment_report_payload: Mapping[str, object] | None,
+    reference_family_conformance_profile_payload: Mapping[str, object] | None,
     default_resume_report_payload: Mapping[str, object] | None,
     g8_deletion_evidence_payload: Mapping[str, object] | None,
 ) -> Mapping[str, Path]:
@@ -4540,6 +4688,10 @@ def _write_build_artifacts(
     if parent_drain_census_alignment_report_payload is not None:
         artifact_paths["parent_drain_census_alignment_report"] = (
             build_root / "parent_drain_census_alignment_report.json"
+        )
+    if reference_family_conformance_profile_payload is not None:
+        artifact_paths["reference_family_conformance_profile"] = (
+            build_root / "reference_family_conformance_profile.json"
         )
     if default_resume_report_payload is not None:
         artifact_paths["lexical_checkpoint_default_resume_report"] = (
@@ -4619,6 +4771,10 @@ def _write_build_artifacts(
     if parent_drain_census_alignment_report_payload is not None:
         payloads["parent_drain_census_alignment_report"] = _json_data(
             parent_drain_census_alignment_report_payload
+        )
+    if reference_family_conformance_profile_payload is not None:
+        payloads["reference_family_conformance_profile"] = _json_data(
+            reference_family_conformance_profile_payload
         )
     if default_resume_report_payload is not None:
         payloads["lexical_checkpoint_default_resume_report"] = _json_data(
