@@ -53,20 +53,22 @@ def test_entry_publication_helpers_select_only_c3_rows_from_checked_census() -> 
 
     assert selected_row_ids == {
         "c0.drain_materialized_drain_summary",
-        "c0.drain_materialized_drain_summary_compiled_boundary",
-        "c0.drain_output_return_run_state",
-        "c0.drain_output_return_run_state_compiled_boundary",
-        "c0.plan_phase_output_approved_plan_path",
-        "c0.plan_phase_output_approved_plan_path_compiled_boundary",
-        "c0.plan_phase_output_return_blocked_plan_path",
-        "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary",
-        "c0.plan_phase_output_return_exhausted_plan_path",
-        "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary",
-        "c0.plan_phase_output_return_findings_items_path",
-        "c0.plan_phase_output_return_findings_items_path_compiled_boundary",
         "c0.selector_output_return_selection_bundle_path",
         "c0.selector_output_return_selection_bundle_path_compiled_boundary",
     }
+    assert "c0.drain_output_return_run_state" not in selected_row_ids
+    assert "c0.drain_output_return_run_state_compiled_boundary" not in selected_row_ids
+    assert "c0.plan_phase_output_approved_plan_path" not in selected_row_ids
+    assert "c0.plan_phase_output_approved_plan_path_compiled_boundary" not in selected_row_ids
+    assert "c0.plan_phase_output_return_blocked_plan_path" not in selected_row_ids
+    assert "c0.plan_phase_output_return_blocked_plan_path_compiled_boundary" not in selected_row_ids
+    assert "c0.plan_phase_output_return_exhausted_plan_path" not in selected_row_ids
+    assert "c0.plan_phase_output_return_exhausted_plan_path_compiled_boundary" not in selected_row_ids
+    assert "c0.plan_phase_output_return_findings_items_path" not in selected_row_ids
+    assert (
+        "c0.plan_phase_output_return_findings_items_path_compiled_boundary"
+        not in selected_row_ids
+    )
 
 
 def test_checked_design_delta_entry_publication_rows_include_real_drain_summary_candidates() -> None:
@@ -77,9 +79,15 @@ def test_checked_design_delta_entry_publication_rows_include_real_drain_summary_
     selected_row_ids = {row["row_id"] for row in selected_rows}
 
     assert "c0.drain_materialized_drain_summary" in selected_row_ids
-    assert "c0.drain_materialized_drain_summary_compiled_boundary" in selected_row_ids
-    assert "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary" not in selected_row_ids
-    assert "c0.drain_output_return_drain_summary_summary_target_compiled_boundary" not in selected_row_ids
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in selected_row_ids
+    assert (
+        "c0.drain_output_return_drain_summary_run_state_path_compiled_boundary"
+        not in selected_row_ids
+    )
+    assert (
+        "c0.drain_output_return_drain_summary_summary_target_compiled_boundary"
+        not in selected_row_ids
+    )
     assert "c0.work_item_summary_summary_path" not in selected_row_ids
     assert "c0.work_item_summary_summary_path_compiled_boundary" not in selected_row_ids
 
