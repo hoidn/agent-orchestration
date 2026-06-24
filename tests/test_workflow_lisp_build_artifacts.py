@@ -7678,11 +7678,9 @@ def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_
 ) -> None:
     drain_summary_path = _aligned_reference_family_drain_summary(tmp_path)
     payload = json.loads(drain_summary_path.read_text(encoding="utf-8"))
-    for gap_id in (
-        "workflow-lisp-runtime-native-drain-reference-family-completed-gap-summary-alignment-after-parent-callable-smoke",
-        "workflow-lisp-runtime-native-drain-documentation-impact-alignment",
-    ):
-        payload["completed_design_gaps"].remove(gap_id)
+    payload["completed_design_gaps"].remove(
+        "workflow-lisp-runtime-native-drain-reference-family-completion-inventory-realignment-after-final-gap-closures"
+    )
     drain_summary_path.write_text(
         json.dumps(payload, indent=2) + "\n",
         encoding="utf-8",

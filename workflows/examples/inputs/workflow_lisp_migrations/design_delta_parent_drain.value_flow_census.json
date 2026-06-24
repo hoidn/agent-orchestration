@@ -6325,7 +6325,7 @@
       "workflow_surface": "lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery"
     },
     {
-      "boundary_authority_class": "materialized_view",
+      "boundary_authority_class": "compatibility_bridge",
       "bridge": {
         "bridge_owner": "lisp_frontend_design_delta/work_item::run-work-item",
         "consumer": "standalone_summary_reader",
