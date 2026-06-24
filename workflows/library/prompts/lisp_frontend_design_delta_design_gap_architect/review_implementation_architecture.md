@@ -20,6 +20,8 @@ Approve only if the architecture:
 - makes ownership boundaries explicit;
 - follows the command-adapter contract when scripts, commands, adapters, or
   runtime-native effects are in scope;
+- treats temporary workarounds as things to remove or confine, not as architecture
+  to elaborate;
 - avoids report parsing, pointer files, debug projections, or inline glue as
   semantic authority;
 - gives concrete implementation deliverables and deterministic verification

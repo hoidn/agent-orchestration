@@ -39,8 +39,9 @@ with stale prerequisite state as the reason.
 
 Refactoring may be selected when it is the best next step toward completing the
 target design, but only as a bounded expansion-enabling pass.
-Do not select proof-only or compatibility-preservation work unless it directly
-enables deletion, quarantine, replacement, promotion safety, or a behavior fix.
+Do not select work that only preserves a temporary workaround. Select it only if
+it removes the workaround, confines it to an external boundary, or removes a
+specific blocker to deleting it.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select target design feature work, `DONE`, or `BLOCKED`.
