@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -234,6 +235,41 @@ def _state_contains_failed_contract_violation(state: object, *, reason: str) -> 
     if isinstance(state, list):
         return any(_state_contains_failed_contract_violation(value, reason=reason) for value in state)
     return False
+
+
+def _iter_call_frame_snapshots(state: object):
+    if not isinstance(state, dict):
+        return
+    call_frames = state.get("call_frames")
+    if not isinstance(call_frames, dict):
+        return
+    for frame in call_frames.values():
+        if not isinstance(frame, dict):
+            continue
+        yield frame
+        nested_state = frame.get("state")
+        if isinstance(nested_state, dict):
+            yield from _iter_call_frame_snapshots(nested_state)
+
+
+def _call_frame_snapshot_for_import_alias(
+    state: dict[str, object], import_alias: str
+) -> dict[str, object]:
+    for frame in _iter_call_frame_snapshots(state):
+        if frame.get("import_alias") == import_alias:
+            return frame
+    raise AssertionError(f"expected call frame for import alias {import_alias!r}")
+
+
+def _call_frame_bound_inputs_for_import_alias(
+    state: dict[str, object], import_alias: str
+) -> dict[str, object]:
+    bound_inputs = _call_frame_snapshot_for_import_alias(state, import_alias).get(
+        "bound_inputs"
+    )
+    if isinstance(bound_inputs, dict):
+        return bound_inputs
+    raise AssertionError(f"expected bound inputs for import alias {import_alias!r}")
 
 
 def _design_delta_provider_externs() -> dict[str, str]:
@@ -763,6 +799,19 @@ def _copy_design_delta_work_item_runtime_modules(
     return module_dir / "work_item.orc"
 
 
+def _copy_design_delta_parent_drain_runtime_modules(tmp_path: Path) -> Path:
+    module_dir = tmp_path / "lisp_frontend_design_delta"
+    source_dir = DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta"
+    module_dir.mkdir(parents=True, exist_ok=True)
+    for source in sorted(source_dir.glob("*.orc")):
+        _write_module(module_dir / source.name, source.read_text(encoding="utf-8"))
+    _write_module(
+        module_dir / "drain.orc",
+        (DESIGN_DELTA_WORK_ITEM_LIBRARY_ROOT / "drain.orc").read_text(encoding="utf-8"),
+    )
+    return module_dir / "drain.orc"
+
+
 def _compile_design_delta_work_item_entrypoint(tmp_path: Path):
     result = compile_stage3_entrypoint(
         DESIGN_DELTA_WORK_ITEM_CANDIDATE_ROOT / "lisp_frontend_design_delta" / "work_item.orc",
@@ -808,6 +857,25 @@ def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
         for workflow in compiled.lowered_workflows
     }
     return result, lowered_by_name
+
+
+def _compile_design_delta_parent_drain_runtime_entrypoint(tmp_path: Path):
+    module_path = _copy_design_delta_parent_drain_runtime_modules(tmp_path)
+    result = compile_stage3_entrypoint(
+        module_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_parent_drain_provider_externs(),
+        prompt_externs=_design_delta_parent_drain_prompt_externs(),
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+    return module_path, result, lowered_by_name
 
 
 def _compile_design_delta_stdlib_payloads_entrypoint(tmp_path: Path):
@@ -2163,6 +2231,12 @@ def _design_delta_parent_drain_controlled_smoke_bound_inputs() -> dict[str, obje
     return {
         **_design_delta_parent_drain_bound_inputs(),
         "run_state_path": "state/run_state.json",
+        "item-ctx__state-root": "state/item",
+        "phase-ctx__plan__run__run-id": "work-item-approved",
+        "phase-ctx__implementation__run__run-id": "work-item-approved",
+        "phase-ctx__work-item__phase-name": "work-item",
+        "phase-ctx__work-item__state-root": "state/work-item",
+        "phase-ctx__work-item__artifact-root": "artifacts/work-item",
     }
 
 
@@ -2299,6 +2373,7 @@ def _execute_design_delta_work_item_bundle(
     work_item_id: str = "design-gap-work-item",
     selector_mode: str = "tuple",
     selector_observations: list[dict[str, object]] | None = None,
+    patch_child_runtime_bindings: bool = True,
 ):
 
     _write_design_delta_work_item_runtime_prompt_assets(tmp_path / "lisp_frontend_design_delta")
@@ -2706,9 +2781,15 @@ def _execute_design_delta_work_item_bundle(
     previous_cwd = Path.cwd()
     os.chdir(tmp_path)
     try:
-        with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
-            ProviderExecutor, "execute", _execute_provider
-        ), patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs):
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation)
+            )
+            stack.enter_context(patch.object(ProviderExecutor, "execute", _execute_provider))
+            if patch_child_runtime_bindings:
+                stack.enter_context(
+                    patch.object(CallExecutor, "resolve_bound_inputs", _resolve_bound_inputs)
+                )
             try:
                 state = WorkflowExecutor(
                     bundle,
@@ -2775,17 +2856,13 @@ def _execute_design_delta_parent_drain_route(
     selector_mode: str = "tuple",
     selector_observations: list[dict[str, object]] | None = None,
 ):
-    result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(tmp_path)
+    workflow_path, result, _lowered_by_name = _compile_design_delta_parent_drain_runtime_entrypoint(
+        tmp_path
+    )
     bundle = result.entry_result.validated_bundles["lisp_frontend_design_delta/drain::drain"]
     return _execute_design_delta_work_item_bundle(
         tmp_path,
-        workflow_path=(
-            REPO_ROOT
-            / "workflows"
-            / "library"
-            / "lisp_frontend_design_delta"
-            / "drain.orc"
-        ),
+        workflow_path=workflow_path,
         bundle=bundle,
         bound_inputs=_design_delta_parent_drain_controlled_smoke_bound_inputs(),
         plan_variant=plan_variant,
@@ -2800,6 +2877,7 @@ def _execute_design_delta_parent_drain_route(
         work_item_id=work_item_id,
         selector_mode=selector_mode,
         selector_observations=selector_observations,
+        patch_child_runtime_bindings=False,
     )
 
 
@@ -4269,8 +4347,8 @@ def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume
         "fake-selector",
     ]
 
-    compile_result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(
-        runtime_workspace
+    _module_path, compile_result, _lowered_by_name = (
+        _compile_design_delta_parent_drain_runtime_entrypoint(runtime_workspace)
     )
     bundle = compile_result.entry_result.validated_bundles[
         "lisp_frontend_design_delta/drain::drain"
@@ -4344,6 +4422,60 @@ def test_design_delta_parent_drain_build_and_execution_smoke_emit_default_resume
     assert runtime_report["schema_version"] == (
         "workflow_lisp_checkpoint_default_resume_report.v1"
     )
+    assert isinstance(runtime_report.get("call_frame_bound_inputs"), list)
+
+
+def test_design_delta_parent_drain_resume_rejects_persisted_extra_public_child_input(
+    tmp_path: Path,
+) -> None:
+    _copy_design_delta_parent_drain_runtime_modules(tmp_path)
+    plan_phase_path = tmp_path / "lisp_frontend_design_delta" / "plan_phase.orc"
+    result = compile_stage3_entrypoint(
+        plan_phase_path,
+        source_roots=(tmp_path,),
+        provider_externs=_design_delta_parent_drain_provider_externs(),
+        prompt_externs=_design_delta_parent_drain_prompt_externs(),
+        command_boundaries=_design_delta_parent_drain_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    bundle = result.validated_bundles_by_name[
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase"
+    ]
+
+    class _FakeExecutor:
+        def __init__(self, workspace: Path) -> None:
+            self.workspace = workspace
+            self.resume_mode = True
+            self.current_step = 0
+            self.state_manager = SimpleNamespace(
+                calculate_checksum=lambda _path: "sha256:noop"
+            )
+
+        def _json_safe_runtime_value(self, value):
+            return value
+
+    error, validation = CallExecutor(_FakeExecutor(tmp_path)).validate_resume_bound_inputs(
+        step_name="CallPlan",
+        call_alias="plan_phase",
+        frame_id="frame-1",
+        imported_workflow=bundle,
+        existing_frame={
+            "bound_inputs": {
+                "phase-ctx__run__run-id": "run-1",
+                "progress_ledger": "state/progress_ledger.json",
+            }
+        },
+        expected_bound_inputs={"phase-ctx__run__run-id": "run-1"},
+    )
+
+    assert error is not None
+    assert error["error"]["type"] == "call_resume_bound_input_extra"
+    assert error["error"]["context"]["input"] == "progress_ledger"
+    assert validation == {
+        "status": "extra",
+        "diagnostics": ["call_resume_bound_input_extra"],
+    }
 
 
 def test_design_delta_runtime_transition_fixture_exposes_public_wrapper_input(
@@ -4634,6 +4766,18 @@ def test_design_delta_parent_drain_controlled_smoke_helper_seeds_hidden_run_stat
     bound_inputs = _design_delta_parent_drain_controlled_smoke_bound_inputs()
 
     assert bound_inputs["run_state_path"] == "state/run_state.json"
+    assert bound_inputs["item-ctx__state-root"] == "state/item"
+    assert bound_inputs["phase-ctx__plan__run__run-id"] == "work-item-approved"
+    assert (
+        bound_inputs["phase-ctx__implementation__run__run-id"]
+        == "work-item-approved"
+    )
+    assert bound_inputs["phase-ctx__work-item__phase-name"] == "work-item"
+    assert bound_inputs["phase-ctx__work-item__state-root"] == "state/work-item"
+    assert (
+        bound_inputs["phase-ctx__work-item__artifact-root"]
+        == "artifacts/work-item"
+    )
     assert set(bound_inputs).issuperset(_design_delta_parent_drain_bound_inputs())
 
 
@@ -5597,6 +5741,39 @@ def test_design_delta_parent_drain_smokes_selected_item_completed_path(
     assert "return__drain-summary__summary_target" not in state["workflow_outputs"]
     assert (workspace / "artifacts" / "work" / "drain_summary.json").is_file()
     assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    plan_bound_inputs = _call_frame_bound_inputs_for_import_alias(
+        state,
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+    )
+    plan_frame = _call_frame_snapshot_for_import_alias(
+        state,
+        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
+    )
+    assert plan_bound_inputs["phase-ctx__run__run-id"] == "work-item-approved"
+    assert plan_bound_inputs["phase-ctx__phase-name"] == "phase"
+    assert plan_bound_inputs["phase-ctx__state-root"] == "state/phase"
+    assert plan_bound_inputs["phase-ctx__artifact-root"] == "artifacts/phase"
+    assert plan_frame["workflow_file"] == "lisp_frontend_design_delta/plan_phase.orc"
+    assert any(name.startswith("__write_root__") for name in plan_bound_inputs)
+    assert not any(
+        isinstance(value, str) and value.startswith("state/test-smoke/")
+        for name, value in plan_bound_inputs.items()
+        if isinstance(name, str) and name.startswith("__write_root__")
+    )
+    implementation_bound_inputs = _call_frame_bound_inputs_for_import_alias(
+        state,
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+    )
+    implementation_frame = _call_frame_snapshot_for_import_alias(
+        state,
+        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
+    )
+    assert implementation_bound_inputs["phase-ctx__run__run-id"] == "work-item-approved"
+    assert implementation_bound_inputs["phase-ctx__phase-name"] == "phase"
+    assert implementation_bound_inputs["phase-ctx__state-root"] == "state/phase"
+    assert implementation_bound_inputs["phase-ctx__artifact-root"] == "artifacts/phase"
+    assert implementation_frame["workflow_file"] == "lisp_frontend_design_delta/implementation_phase.orc"
+    assert any(name.startswith("__write_root__") for name in implementation_bound_inputs)
 
 
 def test_design_delta_parent_drain_continues_after_selected_item_completion(

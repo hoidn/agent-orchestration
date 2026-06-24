@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
@@ -14,11 +15,15 @@ from .executable_ir import (
     WorkflowInputAddress,
 )
 from .loaded_bundle import (
+    workflow_boundary_projection,
     workflow_bundle,
+    workflow_generated_path_allocations,
     workflow_import_bundle,
+    workflow_import_metadata,
     workflow_managed_write_root_inputs,
     workflow_provenance,
     workflow_runtime_input_contracts,
+    workflow_runtime_context_inputs,
 )
 from .predicates import PredicateEvaluationError
 from .references import ReferenceResolutionError
@@ -110,7 +115,11 @@ class CallExecutor:
         step_visits = state.get("step_visits", {})
         visit_count = step_visits.get(effective_step_name, 1) if isinstance(step_visits, dict) else 1
         effective_step_id = step_id or self.executor._step_id(step)
-        return f"{effective_step_id}::visit::{visit_count}"
+        frame_id = f"{effective_step_id}::visit::{visit_count}"
+        parent_frame_id = getattr(self.executor.state_manager, "frame_id", None)
+        if isinstance(parent_frame_id, str) and parent_frame_id:
+            return f"{parent_frame_id}.{frame_id}"
+        return frame_id
 
     def resolve_bound_inputs(
         self,
@@ -188,6 +197,128 @@ class CallExecutor:
                 )
 
         return bound_inputs, None
+
+    def _managed_write_root_allocations(
+        self,
+        *,
+        step: Dict[str, Any],
+        imported_workflow: Any,
+    ) -> Dict[str, Any]:
+        allocations: Dict[str, Any] = {}
+        call_alias = step.get("call")
+        if isinstance(call_alias, str):
+            import_metadata = workflow_import_metadata(self.executor.loaded_bundle, call_alias)
+            if import_metadata is not None:
+                for allocation in import_metadata.generated_path_allocations:
+                    input_name = getattr(allocation, "generated_input_name", None)
+                    if isinstance(input_name, str) and input_name:
+                        allocations.setdefault(input_name, allocation)
+        for allocation in workflow_generated_path_allocations(imported_workflow):
+            input_name = getattr(allocation, "generated_input_name", None)
+            if isinstance(input_name, str) and input_name:
+                allocations.setdefault(input_name, allocation)
+        return allocations
+
+    def _managed_write_root_value(
+        self,
+        *,
+        frame_id: str,
+        input_name: str,
+        imported_workflow: Any,
+        contract: Mapping[str, Any] | None,
+        allocation: Any | None,
+    ) -> str:
+        from .executor import _path_safe_frame_scope_token
+
+        frame_token = _path_safe_frame_scope_token(frame_id)
+        workflow_name = getattr(getattr(imported_workflow, "surface", None), "name", None)
+        workflow_token = (
+            "".join(char if char.isalnum() else "-" for char in workflow_name).strip("-")
+            if isinstance(workflow_name, str)
+            else ""
+        ) or "workflow"
+        filename = f"{hashlib.sha1(input_name.encode('utf-8')).hexdigest()[:16]}.json"
+        under_root = contract.get("under") if isinstance(contract, Mapping) else None
+        if isinstance(under_root, str) and under_root:
+            base_root = Path(under_root) / "workflow_lisp" / "calls"
+        else:
+            base_root = Path("state") / "workflow_lisp" / "calls"
+        return (
+            base_root
+            / self.executor.state_manager.run_id
+            / frame_token
+            / workflow_token
+            / filename
+        ).as_posix()
+
+    def finalize_bound_inputs(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+        frame_id: str,
+        imported_workflow: Any,
+        bound_inputs: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        contracts = workflow_runtime_input_contracts(imported_workflow)
+        finalized = dict(bound_inputs)
+        allocation_by_input = self._managed_write_root_allocations(
+            step=step,
+            imported_workflow=imported_workflow,
+        )
+        for input_name in workflow_managed_write_root_inputs(imported_workflow):
+            contract = contracts.get(input_name, {})
+            allocation = allocation_by_input.get(input_name)
+            expected_value = self._managed_write_root_value(
+                frame_id=frame_id,
+                input_name=input_name,
+                imported_workflow=imported_workflow,
+                contract=contract if isinstance(contract, Mapping) else None,
+                allocation=allocation,
+            )
+            finalized[input_name] = expected_value
+
+        for binding in workflow_boundary_projection(imported_workflow).private_runtime_context_bindings:
+            for input_name in binding.generated_input_names:
+                if not isinstance(input_name, str):
+                    continue
+                contract = contracts.get(input_name, {})
+                expected_value = self.executor._private_exec_context_binding_value(
+                    binding=binding,
+                    input_name=input_name,
+                    contract=contract,
+                    bound_inputs=finalized,
+                )
+                if expected_value is None and isinstance(contract, Mapping):
+                    expected_value = contract.get("default")
+                if expected_value is None:
+                    if input_name not in finalized:
+                        return None, self.executor._contract_violation_result(
+                            "Call input binding failed",
+                            {
+                                "step": step_name,
+                                "reason": "call_runtime_context_binding_invalid",
+                                "input": input_name,
+                                "binding_id": getattr(binding, "binding_id", None),
+                            },
+                        )
+                    continue
+                finalized[input_name] = expected_value
+
+        for input_name in workflow_runtime_context_inputs(imported_workflow):
+            if input_name in finalized:
+                continue
+            return None, self.executor._contract_violation_result(
+                "Call input binding failed",
+                {
+                    "step": step_name,
+                    "reason": "call_runtime_context_binding_invalid",
+                    "input": input_name,
+                    "detail": "missing_runtime_context_binding",
+                },
+            )
+
+        return finalized, None
 
     def validate_write_root_bindings(
         self,
@@ -321,6 +452,150 @@ class CallExecutor:
             "exports": exports,
             "nested_call_frames": nested_frames,
         }
+
+    def resume_bound_input_mismatch_result(
+        self,
+        *,
+        error_type: str,
+        step_name: str,
+        call_alias: Any,
+        frame_id: str,
+        input_name: str,
+        persisted_value: Any = None,
+        expected_value: Any = None,
+        detail: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        message_by_type = {
+            "call_resume_bound_input_missing": "Called workflow is missing persisted bound inputs required for resume",
+            "call_resume_bound_input_mismatch": "Called workflow bound inputs changed since the run started",
+            "call_resume_bound_input_extra": "Called workflow persisted unexpected bound inputs for resume",
+            "call_resume_bound_input_unknown": "Called workflow persisted unsupported hidden inputs for resume",
+        }
+        return {
+            "status": "failed",
+            "exit_code": 2,
+            "duration_ms": 0,
+            "error": {
+                "type": error_type,
+                "message": message_by_type.get(
+                    error_type,
+                    "Called workflow bound inputs failed resume validation",
+                ),
+                "context": {
+                    "step": step_name,
+                    "call": call_alias,
+                    "call_frame_id": frame_id,
+                    "input": input_name,
+                    "persisted": self.executor._json_safe_runtime_value(persisted_value),
+                    "expected": self.executor._json_safe_runtime_value(expected_value),
+                    "detail": detail,
+                },
+            },
+        }
+
+    def validate_resume_bound_inputs(
+        self,
+        *,
+        step_name: str,
+        call_alias: Any,
+        frame_id: str,
+        imported_workflow: Any,
+        existing_frame: Optional[Dict[str, Any]],
+        expected_bound_inputs: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+        validation_payload = {
+            "status": "fresh",
+            "diagnostics": [],
+        }
+        if not getattr(self.executor, "resume_mode", False) or not isinstance(existing_frame, dict):
+            return None, validation_payload
+
+        persisted_bound_inputs = existing_frame.get("bound_inputs")
+        if not isinstance(persisted_bound_inputs, dict):
+            persisted_state = existing_frame.get("state")
+            persisted_bound_inputs = (
+                persisted_state.get("bound_inputs")
+                if isinstance(persisted_state, dict)
+                else None
+            )
+        if not isinstance(persisted_bound_inputs, dict):
+            validation_payload["status"] = "missing"
+            validation_payload["diagnostics"] = ["call_resume_bound_input_missing"]
+            return (
+                self.resume_bound_input_mismatch_result(
+                    error_type="call_resume_bound_input_missing",
+                    step_name=step_name,
+                    call_alias=call_alias,
+                    frame_id=frame_id,
+                    input_name="*",
+                    detail="missing_persisted_bound_inputs",
+                ),
+                validation_payload,
+            )
+
+        for input_name, expected_value in expected_bound_inputs.items():
+            if input_name not in persisted_bound_inputs:
+                validation_payload["status"] = "missing"
+                validation_payload["diagnostics"] = ["call_resume_bound_input_missing"]
+                return (
+                    self.resume_bound_input_mismatch_result(
+                        error_type="call_resume_bound_input_missing",
+                        step_name=step_name,
+                        call_alias=call_alias,
+                        frame_id=frame_id,
+                        input_name=input_name,
+                        expected_value=expected_value,
+                    ),
+                    validation_payload,
+                )
+            persisted_value = persisted_bound_inputs[input_name]
+            if persisted_value != expected_value:
+                validation_payload["status"] = "mismatch"
+                validation_payload["diagnostics"] = ["call_resume_bound_input_mismatch"]
+                return (
+                    self.resume_bound_input_mismatch_result(
+                        error_type="call_resume_bound_input_mismatch",
+                        step_name=step_name,
+                        call_alias=call_alias,
+                        frame_id=frame_id,
+                        input_name=input_name,
+                        persisted_value=persisted_value,
+                        expected_value=expected_value,
+                    ),
+                    validation_payload,
+                )
+
+        managed_inputs = set(workflow_managed_write_root_inputs(imported_workflow))
+        runtime_context_inputs = set(workflow_runtime_context_inputs(imported_workflow))
+        compatibility_inputs = set(
+            workflow_boundary_projection(imported_workflow).private_compatibility_bridge_inputs
+        )
+        known_hidden_inputs = managed_inputs | runtime_context_inputs | compatibility_inputs
+        for input_name in persisted_bound_inputs:
+            if input_name in expected_bound_inputs:
+                continue
+            detail = (
+                "persisted_hidden_input_not_declared"
+                if input_name in known_hidden_inputs
+                else "persisted_unexpected_input"
+            )
+            validation_payload["status"] = "extra"
+            validation_payload["diagnostics"] = ["call_resume_bound_input_extra"]
+            return (
+                self.resume_bound_input_mismatch_result(
+                    error_type="call_resume_bound_input_extra",
+                    step_name=step_name,
+                    call_alias=call_alias,
+                    frame_id=frame_id,
+                    input_name=input_name,
+                    persisted_value=persisted_bound_inputs[input_name],
+                    detail=detail,
+                ),
+                validation_payload,
+            )
+
+        validation_payload["status"] = "reused"
+        return None, validation_payload
 
     def resume_checksum_mismatch_result(
         self,
@@ -477,6 +752,17 @@ class CallExecutor:
             call_frames = {}
             state["call_frames"] = call_frames
 
+        bound_inputs, finalization_error = self.finalize_bound_inputs(
+            step=step,
+            step_name=step_name,
+            frame_id=frame_id,
+            imported_workflow=imported_target,
+            bound_inputs=bound_inputs,
+        )
+        if finalization_error is not None:
+            return finalization_error
+        assert bound_inputs is not None
+
         write_root_error = self.validate_write_root_bindings(
             step_name=step_name,
             frame_id=frame_id,
@@ -497,6 +783,17 @@ class CallExecutor:
         if checksum_error is not None:
             return checksum_error
 
+        resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
+            step_name=step_name,
+            call_alias=call_alias,
+            frame_id=frame_id,
+            imported_workflow=imported_target,
+            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
+            expected_bound_inputs=bound_inputs,
+        )
+        if resume_bound_input_error is not None:
+            return resume_bound_input_error
+
         child_state_manager = _CallFrameStateManager(
             parent_manager=self.executor.state_manager,
             workflow=imported_target,
@@ -507,6 +804,14 @@ class CallExecutor:
             bound_inputs=bound_inputs,
             existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
             observability=self.executor.observability,
+        )
+        child_state_manager.update_bound_input_resume_validation(
+            status=str(resume_validation.get("status", "fresh")),
+            diagnostics=[
+                str(item)
+                for item in resume_validation.get("diagnostics", ())
+                if isinstance(item, str)
+            ],
         )
         child_executor = WorkflowExecutor(
             workflow=imported_bundle or imported_workflow,
@@ -549,6 +854,11 @@ class CallExecutor:
         workflow_outputs = child_state.get("workflow_outputs", {})
         if not isinstance(workflow_outputs, dict):
             workflow_outputs = {}
+        else:
+            workflow_outputs = dict(workflow_outputs)
+        selected_variant = workflow_outputs.get("return__variant")
+        if isinstance(selected_variant, str) and "variant" not in workflow_outputs:
+            workflow_outputs["variant"] = selected_variant
         return {
             "status": "completed",
             "exit_code": 0,

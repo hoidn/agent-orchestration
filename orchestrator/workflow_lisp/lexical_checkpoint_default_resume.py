@@ -257,6 +257,7 @@ def build_runtime_default_resume_report(
     workflow_name: str,
     decision: Mapping[str, Any],
     workflow_family: str | None = None,
+    call_frame_bound_inputs: list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     route = {
         **_mapping(decision.get("route")),
@@ -313,6 +314,9 @@ def build_runtime_default_resume_report(
             "restart_node_id": decision.get("restart_node_id"),
             "source_map_origin_key": decision.get("source_map_origin_key"),
             "compatibility_reason": decision.get("compatibility_reason"),
+            "call_frame_bound_inputs": [
+                dict(entry) for entry in (call_frame_bound_inputs or [])
+            ],
         }
     )
     return report

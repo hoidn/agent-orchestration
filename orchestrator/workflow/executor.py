@@ -247,6 +247,18 @@ class _CallFrameStateManager:
         self.logs_dir = self.run_root / "logs"
         self.run_root.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
+        recorded_validation = (
+            existing_frame.get("bound_input_resume_validation")
+            if isinstance(existing_frame, dict)
+            else None
+        )
+        if isinstance(recorded_validation, dict):
+            self.bound_input_resume_validation = dict(recorded_validation)
+        else:
+            self.bound_input_resume_validation = {
+                "status": "fresh",
+                "diagnostics": [],
+            }
 
         existing_state = existing_frame.get("state") if isinstance(existing_frame, dict) else None
         if isinstance(existing_state, dict):
@@ -302,12 +314,29 @@ class _CallFrameStateManager:
             "finalization_status": finalization_status,
             "export_status": export_status,
             "bound_inputs": dict(self.state.bound_inputs),
+            "bound_input_resume_validation": dict(self.bound_input_resume_validation),
             "current_step": self.state.current_step,
             "state": self.state.to_dict(),
         }
 
     def _persist(self) -> None:
         self.parent_manager.update_call_frame(self.frame_id, self._snapshot())
+
+    def _write_state(self) -> None:
+        """Persist the nested call-frame state through the parent manager."""
+        self._persist()
+
+    def update_bound_input_resume_validation(
+        self,
+        *,
+        status: str,
+        diagnostics: Optional[list[str]] = None,
+    ) -> None:
+        self.bound_input_resume_validation = {
+            "status": status,
+            "diagnostics": list(diagnostics or []),
+        }
+        self._persist()
 
     def load(self) -> RunState:
         return self.state
@@ -1855,8 +1884,38 @@ class WorkflowExecutor:
                 workflow_name=self.workflow_name,
                 workflow_family=self.workflow_name,
                 decision=decision,
+                call_frame_bound_inputs=self._runtime_default_resume_call_frame_evidence(),
             ),
         )
+
+    def _runtime_default_resume_call_frame_evidence(self) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = []
+
+        def _walk_call_frames(state: Mapping[str, Any]) -> None:
+            call_frames = state.get("call_frames")
+            if not isinstance(call_frames, Mapping):
+                return
+            for frame_id, frame in call_frames.items():
+                if not isinstance(frame, Mapping):
+                    continue
+                validation = frame.get("bound_input_resume_validation")
+                validation_payload = validation if isinstance(validation, Mapping) else {}
+                payload.append(
+                    {
+                        "call_frame_id": str(frame.get("call_frame_id") or frame_id),
+                        "call_step_id": frame.get("call_step_id"),
+                        "call_step_name": frame.get("call_step_name"),
+                        "import_alias": frame.get("import_alias"),
+                        "status": validation_payload.get("status", "fresh"),
+                        "diagnostics": list(validation_payload.get("diagnostics", ()) or ()),
+                    }
+                )
+                nested_state = frame.get("state")
+                if isinstance(nested_state, Mapping):
+                    _walk_call_frames(nested_state)
+
+        _walk_call_frames(self.state_manager.load().to_dict())
+        return payload
 
     def _activate_resume_restore_overlay(self, decision: Any) -> None:
         from orchestrator.workflow_lisp.lexical_checkpoint_restore import resolve_binding_restore_value
@@ -2486,6 +2545,7 @@ class WorkflowExecutor:
                     binding=binding,
                     input_name=input_name,
                     contract=contract,
+                    bound_inputs=bound_inputs,
                 )
                 if derived_value is not None:
                     bindings[input_name] = derived_value
@@ -2501,11 +2561,19 @@ class WorkflowExecutor:
         binding: Any,
         input_name: str,
         contract: Any | None = None,
+        bound_inputs: Mapping[str, Any] | None = None,
     ) -> Any:
         """Derive one runtime-owned hidden context value from structured binding metadata."""
 
-        if not isinstance(self.state_manager, StateManager):
+        if not hasattr(self.state_manager, "run_id"):
             return None
+        carried_value = self._private_exec_context_carried_input_value(
+            binding=binding,
+            input_name=input_name,
+            bound_inputs=bound_inputs,
+        )
+        if carried_value is not None:
+            return carried_value
         role_metadata = self._private_exec_context_role_metadata(binding)
         if role_metadata is not None:
             schema_version, roles = role_metadata
@@ -2600,6 +2668,26 @@ class WorkflowExecutor:
             normalized[name] = tuple(str(part) for part in source_path)
         return normalized
 
+    def _private_exec_context_carried_input_value(
+        self,
+        *,
+        binding: Any,
+        input_name: str,
+        bound_inputs: Mapping[str, Any] | None,
+    ) -> Any:
+        if not isinstance(bound_inputs, Mapping):
+            return None
+        carried_input_sources = self._private_exec_context_carried_input_sources(binding)
+        if not isinstance(carried_input_sources, Mapping):
+            return None
+        source_path = carried_input_sources.get(input_name)
+        if not isinstance(source_path, tuple) or not source_path:
+            return None
+        if source_path[0] != getattr(binding, "source_param_name", None):
+            return None
+        candidate_name = "__".join(str(part) for part in source_path)
+        return bound_inputs.get(candidate_name)
+
     def _private_exec_context_binding_supported(
         self,
         *,
@@ -2610,7 +2698,6 @@ class WorkflowExecutor:
         """Return whether one hidden context binding can be resolved on this runtime."""
 
         role_metadata = self._private_exec_context_role_metadata(binding)
-        carried_input_sources = self._private_exec_context_carried_input_sources(binding)
         if role_metadata is not None:
             schema_version, roles = role_metadata
             if schema_version != 1 or roles is None:
@@ -2630,12 +2717,11 @@ class WorkflowExecutor:
                         if not isinstance(contract, dict) or "default" not in contract:
                             return False
                     continue
-                if (
-                    isinstance(carried_input_sources, Mapping)
-                    and input_name in carried_input_sources
-                    and isinstance(bound_inputs, Mapping)
-                    and input_name in bound_inputs
-                ):
+                if self._private_exec_context_carried_input_value(
+                    binding=binding,
+                    input_name=input_name,
+                    bound_inputs=bound_inputs,
+                ) is not None:
                     continue
                 return False
             return True
