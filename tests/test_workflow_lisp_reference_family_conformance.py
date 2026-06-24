@@ -91,14 +91,17 @@ OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.observability_old_writer_comparisons.json"
 )
-REFERENCE_FAMILY_COMPLETED_GAP_IDS = [
-    "workflow-lisp-runtime-native-drain-typed-provider-request-records",
-    "workflow-lisp-runtime-native-drain-projection-retirement-parity-evidence-reconciliation",
-    "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
-]
+REFERENCE_FAMILY_RUN_STATE_RELATIVE_PATH = (
+    "state/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/drain/run_state.json"
+)
+REFERENCE_FAMILY_COMPLETED_GAP_IDS = json.loads(
+    (
+        REPO_ROOT
+        / REFERENCE_FAMILY_RUN_STATE_RELATIVE_PATH
+    ).read_text(encoding="utf-8")
+)["completed_design_gaps"]
 LIVE_MISSING_GAP_IDS = [
-    "workflow-lisp-runtime-native-drain-projection-retirement-parity-evidence-reconciliation",
-    "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
+    "workflow-lisp-runtime-native-drain-parent-callable-runtime-smoke-and-call-frame-bound-input-persistence",
 ]
 CHECKED_MANIFEST_SOURCE_PATHS = {
     "boundary_authority_manifest": BOUNDARY_AUTHORITY_PATH,
@@ -145,6 +148,15 @@ def _copy_json(path: Path, destination: Path) -> Path:
 def _copy_tree(source: Path, destination: Path) -> Path:
     shutil.copytree(source, destination)
     return destination
+
+
+def _completed_gap_summary_payload(gap_id: str) -> dict[str, str]:
+    return {
+        "work_item_id": gap_id,
+        "work_item_source": "DESIGN_GAP",
+        "item_status": "COMPLETED",
+        "run_state_path": REFERENCE_FAMILY_RUN_STATE_RELATIVE_PATH,
+    }
 
 
 def _copy_checked_manifests(repo_root: Path) -> dict[str, Path]:
@@ -428,7 +440,7 @@ def _reference_family_fixture(tmp_path: Path) -> dict[str, object]:
     for gap_id in REFERENCE_FAMILY_COMPLETED_GAP_IDS:
         _write_json(
             design_gap_summary_root / f"{gap_id}-summary.json",
-            {"gap_id": gap_id, "status": "done"},
+            _completed_gap_summary_payload(gap_id),
         )
         architecture_path = (
             implementation_architecture_root / gap_id / "implementation_architecture.md"
@@ -533,6 +545,8 @@ def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
     assert profile["schema_version"] == "workflow_lisp_reference_family_conformance_profile.v1"
     assert "schema_id" not in profile
     assert profile["profile_status"] == "pass"
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == 38
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 38
     assert profile["target_design"] == "docs/design/workflow_lisp_runtime_native_drain_authoring.md"
     assert profile["baseline_design"] == "docs/design/workflow_lisp_frontend_specification.md"
     assert isinstance(profile["generated_at"], str) and profile["generated_at"]
@@ -574,7 +588,7 @@ def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
         assert surfaces_by_id[surface_id]["evidence_paths"] != []
 
 
-def test_build_reference_family_conformance_profile_reports_live_two_gap_omission(
+def test_build_reference_family_conformance_profile_reports_live_single_gap_omission(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
@@ -593,6 +607,8 @@ def test_build_reference_family_conformance_profile_reports_live_two_gap_omissio
     )
 
     assert profile["profile_status"] == "fail"
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == 38
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 37
     assert profile["completed_gap_reconciliation"]["missing_from_drain_summary"] == LIVE_MISSING_GAP_IDS
     assert [
         diagnostic["code"] for diagnostic in profile["diagnostics"]
@@ -618,6 +634,54 @@ def test_build_reference_family_conformance_profile_reports_missing_per_gap_summ
     assert profile["completed_gap_reconciliation"]["missing_summary_artifacts"] == [
         missing_gap_id
     ]
+    assert [
+        diagnostic["code"] for diagnostic in profile["diagnostics"]
+    ] == ["reference_family_completed_gap_artifact_missing"]
+
+
+def test_build_reference_family_conformance_profile_rejects_incomplete_per_gap_summary_metadata(
+    tmp_path: Path,
+) -> None:
+    module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
+    summary_root = _copy_tree(
+        fixture["design_gap_summary_root"], tmp_path / "design-gap-summaries"
+    )
+    invalid_gap_id = LIVE_MISSING_GAP_IDS[0]
+    summary_path = summary_root / f"{invalid_gap_id}-summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["item_status"] = "IN_PROGRESS"
+    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    profile = module.build_reference_family_conformance_profile(
+        **_reference_family_inputs(fixture, design_gap_summary_root=summary_root)
+    )
+
+    assert profile["profile_status"] == "fail"
+    assert [
+        diagnostic["code"] for diagnostic in profile["diagnostics"]
+    ] == ["reference_family_completed_gap_artifact_missing"]
+
+
+def test_build_reference_family_conformance_profile_rejects_per_gap_summary_run_state_drift(
+    tmp_path: Path,
+) -> None:
+    module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
+    summary_root = _copy_tree(
+        fixture["design_gap_summary_root"], tmp_path / "design-gap-summaries"
+    )
+    invalid_gap_id = LIVE_MISSING_GAP_IDS[0]
+    summary_path = summary_root / f"{invalid_gap_id}-summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    payload["run_state_path"] = "state/other/run_state.json"
+    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    profile = module.build_reference_family_conformance_profile(
+        **_reference_family_inputs(fixture, design_gap_summary_root=summary_root)
+    )
+
+    assert profile["profile_status"] == "fail"
     assert [
         diagnostic["code"] for diagnostic in profile["diagnostics"]
     ] == ["reference_family_completed_gap_artifact_missing"]

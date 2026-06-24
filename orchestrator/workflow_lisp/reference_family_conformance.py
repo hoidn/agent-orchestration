@@ -394,12 +394,18 @@ def _scan_summary_directory(
             details={},
         )
         evidence_inputs.append(record)
-        return {"record": record, "files_by_gap_id": {}}
-    files_by_gap_id = {
-        child.name.removesuffix("-summary.json"): child
-        for child in sorted(path.glob("*-summary.json"))
-        if child.is_file()
-    }
+        return {"record": record, "files_by_gap_id": {}, "payloads_by_gap_id": {}}
+    files_by_gap_id: dict[str, Path] = {}
+    payloads_by_gap_id: dict[str, object] = {}
+    for child in sorted(path.glob("*-summary.json")):
+        if not child.is_file():
+            continue
+        gap_id = child.name.removesuffix("-summary.json")
+        files_by_gap_id[gap_id] = child
+        try:
+            payloads_by_gap_id[gap_id] = json.loads(child.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            payloads_by_gap_id[gap_id] = None
     record = EvidenceInput(
         input_id=input_id,
         input_kind="directory",
@@ -409,7 +415,11 @@ def _scan_summary_directory(
         details={"file_count": len(files_by_gap_id)},
     )
     evidence_inputs.append(record)
-    return {"record": record, "files_by_gap_id": files_by_gap_id}
+    return {
+        "record": record,
+        "files_by_gap_id": files_by_gap_id,
+        "payloads_by_gap_id": payloads_by_gap_id,
+    }
 
 
 def _scan_implementation_architectures(
@@ -540,8 +550,28 @@ def _reconcile_completed_gaps(
     ordered_list_matches = run_completed == summary_completed
 
     summary_files = summary_inventory.get("files_by_gap_id", {})
+    summary_payloads = summary_inventory.get("payloads_by_gap_id", {})
     missing_summary_artifacts = sorted(
         gap_id for gap_id in run_completed if gap_id not in summary_files
+    )
+    expected_run_state_path = (
+        _relative_or_absolute_path(Path(str(run_state["record"].path)), repo_root)
+        if run_state["record"].path
+        else None
+    )
+    stale_summary_metadata = sorted(
+        gap_id
+        for gap_id in run_completed
+        if gap_id not in missing_summary_artifacts
+        and (
+            not isinstance(summary_payloads.get(gap_id), dict)
+            or summary_payloads[gap_id].get("item_status") != "COMPLETED"
+            or (
+                isinstance(expected_run_state_path, str)
+                and summary_payloads[gap_id].get("run_state_path")
+                != expected_run_state_path
+            )
+        )
     )
     implementation_paths = implementation_architectures.get("paths_by_gap_id", {})
     missing_architecture_files = sorted(
@@ -583,16 +613,18 @@ def _reconcile_completed_gaps(
             )
         )
 
-    if missing_summary_artifacts or missing_architecture_files:
+    if missing_summary_artifacts or stale_summary_metadata or missing_architecture_files:
         diagnostics.append(
             Diagnostic(
                 code="reference_family_completed_gap_artifact_missing",
-                message="one or more completed gaps are missing checked evidence artifacts",
+                message="one or more completed gaps are missing or stale in checked evidence artifacts",
                 severity="error",
                 details={
                     "evidence_path": implementation_architectures["record"].path,
                     "comparison_path": summary_inventory["record"].path,
                     "missing_summary_artifacts": missing_summary_artifacts,
+                    "stale_summary_metadata": stale_summary_metadata,
+                    "expected_run_state_path": expected_run_state_path,
                     "missing_architecture_files": missing_architecture_files,
                     "related_surface_id": "completion_inventory",
                     "suggested_owner_lane": "reference-family conformance profile reconciliation",
@@ -607,6 +639,7 @@ def _reconcile_completed_gaps(
             or extra_in_summary
             or not ordered_list_matches
             or missing_summary_artifacts
+            or stale_summary_metadata
             or missing_architecture_files
         )
         else "fail"
@@ -618,6 +651,7 @@ def _reconcile_completed_gaps(
         "extra_in_drain_summary": extra_in_summary,
         "ordered_list_matches": ordered_list_matches,
         "missing_summary_artifacts": missing_summary_artifacts,
+        "stale_summary_metadata": stale_summary_metadata,
         "missing_architecture_files": missing_architecture_files,
         "missing_from_architecture_index": missing_from_architecture_index,
         "evidence_paths": sorted(

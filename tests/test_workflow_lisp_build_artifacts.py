@@ -7624,6 +7624,8 @@ def test_design_delta_parent_drain_build_emits_reference_family_conformance_prof
         tmp_path,
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+        drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+        architecture_index_path=_aligned_reference_family_architecture_index(tmp_path),
     )
 
     assert "reference_family_conformance_profile" in result.artifact_paths
@@ -7677,7 +7679,7 @@ def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_
     drain_summary_path = _aligned_reference_family_drain_summary(tmp_path)
     payload = json.loads(drain_summary_path.read_text(encoding="utf-8"))
     payload["completed_design_gaps"].remove(
-        "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation"
+        "workflow-lisp-runtime-native-drain-parent-callable-runtime-smoke-and-call-frame-bound-input-persistence"
     )
     drain_summary_path.write_text(
         json.dumps(payload, indent=2) + "\n",
