@@ -1,0 +1,155 @@
+version: "2.14"
+name: "non-progress-step-back-demo"
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "BLOCKED"]
+    from:
+      ref: root.steps.RouteNonProgress.artifacts.drain_status
+
+artifacts:
+  non_progress_route:
+    kind: scalar
+    type: enum
+    allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED", "TERMINAL_HUMAN_DECISION"]
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "BLOCKED"]
+
+steps:
+  - name: WriteSyntheticSignals
+    id: write_synthetic_signals
+    command:
+      - python
+      - workflows/library/scripts/write_workflow_non_progress_demo_inputs.py
+      - signals
+      - --run-id
+      - ${run.id}
+      - --output
+      - state/non-progress-step-back-demo/signals.json
+      - --state-output
+      - state/non-progress-step-back-demo/run_state.json
+    output_bundle:
+      path: state/non-progress-step-back-demo/signals.json
+      fields:
+        - name: progress_signals_schema
+          json_pointer: /schema
+          type: string
+        - name: event_count
+          json_pointer: /event_count
+          type: integer
+
+  - name: EvaluateNonProgress
+    id: evaluate_non_progress
+    command:
+      - python
+      - workflows/library/scripts/evaluate_workflow_non_progress.py
+      - --signals
+      - state/non-progress-step-back-demo/signals.json
+      - --output
+      - state/non-progress-step-back-demo/non-progress-decision.json
+    output_bundle:
+      path: state/non-progress-step-back-demo/non-progress-decision.json
+      fields:
+        - name: non_progress_route
+          json_pointer: /route
+          type: enum
+          allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED", "TERMINAL_HUMAN_DECISION"]
+        - name: failure_fingerprint
+          json_pointer: /failure_fingerprint
+          type: string
+
+  - name: RouteNonProgress
+    id: route_non_progress
+    match:
+      ref: root.steps.EvaluateNonProgress.artifacts.non_progress_route
+      cases:
+        NORMAL_CONTINUE:
+          id: normal_continue_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteContinue.artifacts.drain_status
+          steps:
+            - name: WriteContinue
+              id: write_continue
+              set_scalar:
+                artifact: drain_status
+                value: CONTINUE
+        STEP_BACK_REQUIRED:
+          id: step_back_required_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.RecordStepBackOutcome.artifacts.drain_status
+          steps:
+            - name: WriteDeterministicDiagnosis
+              id: write_deterministic_diagnosis
+              command:
+                - python
+                - workflows/library/scripts/write_workflow_non_progress_demo_inputs.py
+                - diagnosis
+                - --output
+                - state/non-progress-step-back-demo/diagnosis.json
+              output_bundle:
+                path: state/non-progress-step-back-demo/diagnosis.json
+                fields:
+                  - name: step_back_action
+                    json_pointer: /action
+                    type: enum
+                    allowed: ["FIX_WORKFLOW_MECHANICS"]
+                  - name: rationale
+                    json_pointer: /rationale
+                    type: string
+            - name: RecordStepBackOutcome
+              id: record_step_back_outcome
+              command:
+                - python
+                - workflows/library/scripts/record_workflow_step_back_outcome.py
+                - --state-path
+                - state/non-progress-step-back-demo/run_state.json
+                - --decision-path
+                - state/non-progress-step-back-demo/non-progress-decision.json
+                - --diagnosis-path
+                - state/non-progress-step-back-demo/diagnosis.json
+                - --summary-path
+                - artifacts/work/non-progress-step-back-demo/summary.json
+                - --drain-status-path
+                - state/non-progress-step-back-demo/drain-status.txt
+                - --iteration
+                - "2"
+              output_bundle:
+                path: artifacts/work/non-progress-step-back-demo/summary.json
+                fields:
+                  - name: record_status
+                    json_pointer: /record_status
+                    type: enum
+                    allowed: ["STEP_BACK_RECORDED"]
+                  - name: drain_status
+                    json_pointer: /drain_status
+                    type: enum
+                    allowed: ["CONTINUE", "BLOCKED"]
+        TERMINAL_HUMAN_DECISION:
+          id: terminal_human_decision_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteBlocked.artifacts.drain_status
+          steps:
+            - name: WriteBlocked
+              id: write_blocked
+              set_scalar:
+                artifact: drain_status
+                value: BLOCKED

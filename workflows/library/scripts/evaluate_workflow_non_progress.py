@@ -34,9 +34,41 @@ def _no_accepted_change(event: Mapping[str, Any]) -> bool:
     return not bool(event.get("accepted_change")) and not str(event.get("commit_hash") or "").strip()
 
 
+def _work_item_key(event: Mapping[str, Any]) -> tuple[str, str]:
+    return (
+        str(event.get("work_item_id") or "").strip(),
+        str(event.get("phase") or "").strip(),
+    )
+
+
+def _revision_contradicted_by_later_block(
+    event: Mapping[str, Any],
+    later_events: list[dict[str, Any]],
+) -> bool:
+    if not bool(event.get("plan_revised")):
+        return False
+    key = _work_item_key(event)
+    if not key[0]:
+        return False
+    return any(
+        _work_item_key(later) == key
+        and str(later.get("outcome") or "").strip() == "blocked"
+        for later in later_events
+    )
+
+
+def _accepted_change_resolves_history(
+    event: Mapping[str, Any],
+    later_events: list[dict[str, Any]],
+) -> bool:
+    if _no_accepted_change(event):
+        return False
+    return not _revision_contradicted_by_later_block(event, later_events)
+
+
 def _unresolved_suffix(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for index in range(len(events) - 1, -1, -1):
-        if not _no_accepted_change(events[index]):
+        if _accepted_change_resolves_history(events[index], events[index + 1 :]):
             return events[index + 1 :]
     return events
 

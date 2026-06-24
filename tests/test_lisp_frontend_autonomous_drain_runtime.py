@@ -594,6 +594,63 @@ def test_recovered_design_gap_materializer_reconstructs_missing_prior_bundle(tmp
     assert f"test -f {architecture_path.relative_to(workspace).as_posix()}" in checks
 
 
+def test_blocked_recovery_detector_honors_generic_step_back_decision(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    decision = workspace / "state/non-progress-decision.json"
+    output = workspace / "state/blocked-recovery.json"
+    run_state.parent.mkdir(parents=True)
+    run_state.write_text(
+        json.dumps(
+            {
+                "blocked_design_gaps": {
+                    "gap-a": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                        "recovery_event_id": "run:gap-a:blocked",
+                    }
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    decision.write_text(
+        json.dumps(
+            {
+                "route": "STEP_BACK_REQUIRED",
+                "trigger_codes": ["same_work_item_repeatedly_blocked"],
+                "failure_fingerprint": "same-work",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--architecture-index-root",
+        "docs/plans/design-gaps",
+        "--non-progress-decision-path",
+        decision.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "BLOCKED"
+    assert payload["recovery_status"] == "STEP_BACK_REQUIRED"
+    assert payload["blocker_class"] == "workflow_non_progress"
+    assert payload["block_reason"] == "same-work"
+
+
 def test_recovered_design_gap_materializer_ignores_stale_prior_bundle_paths(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)

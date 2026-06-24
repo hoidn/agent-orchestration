@@ -256,6 +256,53 @@ def test_evaluator_only_counts_unresolved_history_after_latest_accepted_change()
     assert decision["route"] == "NORMAL_CONTINUE"
 
 
+def test_evaluator_treats_revision_then_same_work_block_as_unresolved():
+    from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
+
+    decision = evaluate_non_progress(
+        _signals(
+            [
+                _event(iteration=1, work_item_id="item-a"),
+                _event(
+                    iteration=2,
+                    work_item_id="item-a",
+                    accepted_change=True,
+                    outcome="changed",
+                    plan_revised=True,
+                ),
+                _event(iteration=3, work_item_id="item-a"),
+            ]
+        ),
+        repeated_blocker_threshold=2,
+    )
+
+    assert decision["route"] == "STEP_BACK_REQUIRED"
+    assert "same_work_item_repeatedly_blocked" in decision["trigger_codes"]
+
+
+def test_evaluator_allows_revision_before_different_work_block():
+    from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
+
+    decision = evaluate_non_progress(
+        _signals(
+            [
+                _event(iteration=1, work_item_id="item-a"),
+                _event(
+                    iteration=2,
+                    work_item_id="item-a",
+                    accepted_change=True,
+                    outcome="changed",
+                    plan_revised=True,
+                ),
+                _event(iteration=3, work_item_id="item-b"),
+            ]
+        ),
+        repeated_blocker_threshold=2,
+    )
+
+    assert decision["route"] == "NORMAL_CONTINUE"
+
+
 def test_evaluator_preserves_signal_order_across_restarted_iteration_numbers():
     from workflows.library.scripts.evaluate_workflow_non_progress import evaluate_non_progress
 

@@ -249,6 +249,51 @@ steps:
                 type: relpath
                 under: state
 
+        - name: ProjectProgressSignals
+          id: project_progress_signals
+          command:
+            - python
+            - workflows/library/scripts/project_lisp_frontend_progress_signals.py
+            - --run-id
+            - ${run.id}
+            - --run-state-path
+            - ${inputs.run_state_target_path}
+            - --current-iteration
+            - ${loop.index}
+            - --artifact-work-root
+            - ${inputs.artifact_work_root}
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/progress-signals.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/progress-signals.json
+            fields:
+              - name: progress_signals_schema
+                json_pointer: /schema
+                type: string
+              - name: event_count
+                json_pointer: /event_count
+                type: integer
+
+        - name: EvaluateNonProgress
+          id: evaluate_non_progress
+          command:
+            - python
+            - workflows/library/scripts/evaluate_workflow_non_progress.py
+            - --signals
+            - ${inputs.drain_state_root}/iterations/${loop.index}/progress-signals.json
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
+            fields:
+              - name: non_progress_route
+                json_pointer: /route
+                type: enum
+                allowed: ["NORMAL_CONTINUE", "STEP_BACK_REQUIRED", "TERMINAL_HUMAN_DECISION"]
+              - name: failure_fingerprint
+                json_pointer: /failure_fingerprint
+                type: string
+
         - name: DetectBlockedDesignGapRecovery
           id: detect_blocked_design_gap_recovery
           command:
@@ -260,6 +305,8 @@ steps:
             - ${inputs.artifact_work_root}
             - --architecture-index-root
             - ${inputs.architecture_index_root}
+            - --non-progress-decision-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
             - --output
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
           output_bundle:
@@ -333,6 +380,88 @@ steps:
               - name: retry_target_source
                 json_pointer: /retry_target_source
                 type: string
+
+        - name: DiagnoseNonProgress
+          id: diagnose_non_progress
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: BLOCKED
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: eq
+                  right: STEP_BACK_REQUIRED
+          provider: ${inputs.implementation_review_provider}
+          input_file: workflows/library/prompts/workflow_step_back/diagnose_non_progress.md
+          timeout_sec: 1800
+          depends_on:
+            required:
+              - ${inputs.drain_state_root}/iterations/${loop.index}/progress-signals.json
+              - ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
+            inject:
+              mode: content
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/step-back-diagnosis.json
+            fields:
+              - name: step_back_action
+                json_pointer: /action
+                type: enum
+                allowed:
+                  - REDRAFT_PLAN
+                  - REVISE_REQUIREMENTS
+                  - SPLIT_WORK_ITEM
+                  - DROP_OR_DEMOTE_WORK_ITEM
+                  - FIX_WORKFLOW_MECHANICS
+                  - CONTINUE_WITH_CURRENT_PLAN
+                  - NEEDS_HUMAN_DECISION
+              - name: rationale
+                json_pointer: /rationale
+                type: string
+
+        - name: RecordStepBackOutcome
+          id: record_step_back_outcome
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: BLOCKED
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                  op: eq
+                  right: STEP_BACK_REQUIRED
+          command:
+            - python
+            - workflows/library/scripts/record_workflow_step_back_outcome.py
+            - --state-path
+            - ${inputs.run_state_target_path}
+            - --decision-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
+            - --diagnosis-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/step-back-diagnosis.json
+            - --summary-path
+            - ${inputs.artifact_work_root}/iterations/${loop.index}/step-back-summary.json
+            - --drain-status-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/step-back-drain-status.txt
+            - --iteration
+            - ${loop.index}
+          output_bundle:
+            path: ${inputs.artifact_work_root}/iterations/${loop.index}/step-back-summary.json
+            fields:
+              - name: step_back_record_status
+                json_pointer: /record_status
+                type: enum
+                allowed: ["STEP_BACK_RECORDED"]
+              - name: step_back_drain_status
+                json_pointer: /drain_status
+                type: enum
+                allowed: ["CONTINUE", "BLOCKED"]
 
         - name: SelectNextWork
           id: select_next_work
@@ -1351,6 +1480,8 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
             - --recovered-work-item-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
+            - --step-back-status-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/step-back-drain-status.txt
             - --output
             - ${inputs.drain_state_root}/iterations/${loop.index}/drain-status.txt
           expected_outputs:

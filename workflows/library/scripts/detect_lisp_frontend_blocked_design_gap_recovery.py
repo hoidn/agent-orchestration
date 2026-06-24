@@ -89,6 +89,28 @@ def _block_payload(reason: str) -> dict[str, str]:
     }
 
 
+def _step_back_payload(decision: dict[str, Any]) -> dict[str, str]:
+    payload = _block_payload("workflow_non_progress")
+    payload.update(
+        {
+            "recovery_status": "STEP_BACK_REQUIRED",
+            "blocker_class": "workflow_non_progress",
+            "block_reason": str(decision.get("failure_fingerprint") or "workflow_non_progress").strip(),
+            "recovery_event_id": str(decision.get("failure_fingerprint") or "workflow_non_progress").strip(),
+        }
+    )
+    return payload
+
+
+def _non_progress_payload(path: Path | None) -> dict[str, str] | None:
+    if path is None or not path.exists():
+        return None
+    decision = _load_json(path)
+    if str(decision.get("route") or "").strip() == "STEP_BACK_REQUIRED":
+        return _step_back_payload(decision)
+    return None
+
+
 def _requires_user_input(entry: dict[str, Any]) -> bool:
     recovery_reason = str(entry.get("recovery_reason") or "").strip()
     recovery_status = str(entry.get("recovery_status") or "").strip()
@@ -171,7 +193,12 @@ def _recovery_payload(
     progress_copy_path: Path,
     architecture_copy_path: Path,
     plan_copy_path: Path,
+    non_progress_decision_path: Path | None = None,
 ) -> dict[str, str]:
+    non_progress = _non_progress_payload(non_progress_decision_path)
+    if non_progress is not None:
+        return non_progress
+
     state = _load_json(run_state_path)
     blocked = state.get("blocked_design_gaps") or {}
     for design_gap_id in sorted(blocked):
@@ -258,6 +285,7 @@ def main() -> int:
     parser.add_argument("--run-state-path", required=True)
     parser.add_argument("--artifact-work-root", required=True)
     parser.add_argument("--architecture-index-root", default="")
+    parser.add_argument("--non-progress-decision-path", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -274,6 +302,7 @@ def main() -> int:
         progress_copy_path,
         architecture_copy_path,
         plan_copy_path,
+        Path(args.non_progress_decision_path) if args.non_progress_decision_path else None,
     )
     output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return 0
