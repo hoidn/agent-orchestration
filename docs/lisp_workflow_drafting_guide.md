@@ -35,7 +35,9 @@ Use this guide for authoring judgment. Use
 [Capability Status Matrix](capability_status_matrix.md) for current
 availability and copy-safety status. Use the component-contract docs for
 current-checkout behavior. Use the unified design for future or deferred
-surfaces. Use `specs/` for normative runtime and DSL behavior.
+surfaces. Use [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
+as the concrete checklist for Design Delta Drain-style authoring shape.
+Use `specs/` for normative runtime and DSL behavior.
 
 During the coexistence period, use [Workflow Drafting Guide](workflow_drafting_guide.md)
 for YAML-specific authoring guidance. When the YAML guide is deprecated, preserve

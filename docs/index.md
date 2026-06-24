@@ -284,7 +284,7 @@ document owns the answer.
 **Use this when:** Planning or reviewing the combined cleanup of resume-only and render-only path plumbing from Workflow Lisp workflows.
 
 ### [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
-**Description:** Draft target for proving the runtime-native authoring shape on a working Design Delta Drain `.orc` family: typed provider request records, private runtime context, consumer-side rendering, typed projections, resource transitions, and certified adapter boundaries.
+**Description:** Concrete reference target / regression checklist for runtime-native drain authoring on a working Design Delta Drain `.orc` family: typed provider request records, private runtime context, consumer-side rendering, typed projections, resource transitions, and certified adapter boundaries.
 **Keywords:** lisp-frontend, drain, runtime-native, typed-values, provider-inputs, private-context, consumer-rendering, resource-transitions, adapter-retirement
 **Use this when:** Planning or reviewing the concrete reference-family acceptance target for a principled Design Delta Drain `.orc` translation.
 

@@ -35,6 +35,10 @@ Authority:
   values-before-artifacts migration idiom. This document supplies a later
   substrate for removing resume-only and render-only authored plumbing; it does
   not replace promotion gates.
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` is the
+  concrete Design Delta Drain reference-family acceptance target that consumes
+  this umbrella's private-checkpoint and consumer-rendering tracks; it does
+  not replace this umbrella's future-target substrate.
 - `docs/design/workflow_lisp_lexical_execution_checkpoints.md` and
   `docs/design/workflow_lisp_consumer_side_rendering.md` are predecessor draft
   targets whose contracts are absorbed here as two independent tracks. They
@@ -47,6 +51,7 @@ Related docs:
 - `docs/design/workflow_lisp_state_layout.md`
 - `docs/design/workflow_lisp_runtime_migration_foundation.md`
 - `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
 - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
 - `docs/design/workflow_lisp_consumer_side_rendering.md`
 - `docs/design/workflow_command_adapter_contract.md`
