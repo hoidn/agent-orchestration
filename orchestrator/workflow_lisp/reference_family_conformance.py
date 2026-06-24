@@ -545,8 +545,14 @@ def _reconcile_completed_gaps(
     summary_completed = _normalize_string_list(
         drain_summary_payload.get("completed_design_gaps")
     )
-    missing_from_summary = sorted(set(run_completed) - set(summary_completed))
-    extra_in_summary = sorted(set(summary_completed) - set(run_completed))
+    summary_completed_set = set(summary_completed)
+    run_completed_set = set(run_completed)
+    missing_from_summary = [
+        gap_id for gap_id in run_completed if gap_id not in summary_completed_set
+    ]
+    extra_in_summary = [
+        gap_id for gap_id in summary_completed if gap_id not in run_completed_set
+    ]
     ordered_list_matches = run_completed == summary_completed
 
     summary_files = summary_inventory.get("files_by_gap_id", {})

@@ -101,7 +101,8 @@ REFERENCE_FAMILY_COMPLETED_GAP_IDS = json.loads(
     ).read_text(encoding="utf-8")
 )["completed_design_gaps"]
 LIVE_MISSING_GAP_IDS = [
-    "workflow-lisp-runtime-native-drain-parent-callable-runtime-smoke-and-call-frame-bound-input-persistence",
+    "workflow-lisp-runtime-native-drain-reference-family-completed-gap-summary-alignment-after-parent-callable-smoke",
+    "workflow-lisp-runtime-native-drain-documentation-impact-alignment",
 ]
 CHECKED_MANIFEST_SOURCE_PATHS = {
     "boundary_authority_manifest": BOUNDARY_AUTHORITY_PATH,
@@ -545,8 +546,8 @@ def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
     assert profile["schema_version"] == "workflow_lisp_reference_family_conformance_profile.v1"
     assert "schema_id" not in profile
     assert profile["profile_status"] == "pass"
-    assert profile["completed_gap_reconciliation"]["run_state_count"] == 38
-    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 38
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == 40
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 40
     assert profile["target_design"] == "docs/design/workflow_lisp_runtime_native_drain_authoring.md"
     assert profile["baseline_design"] == "docs/design/workflow_lisp_frontend_specification.md"
     assert isinstance(profile["generated_at"], str) and profile["generated_at"]
@@ -588,7 +589,7 @@ def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
         assert surfaces_by_id[surface_id]["evidence_paths"] != []
 
 
-def test_build_reference_family_conformance_profile_reports_live_single_gap_omission(
+def test_build_reference_family_conformance_profile_reports_live_two_gap_omission(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
@@ -607,8 +608,8 @@ def test_build_reference_family_conformance_profile_reports_live_single_gap_omis
     )
 
     assert profile["profile_status"] == "fail"
-    assert profile["completed_gap_reconciliation"]["run_state_count"] == 38
-    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 37
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == 40
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 38
     assert profile["completed_gap_reconciliation"]["missing_from_drain_summary"] == LIVE_MISSING_GAP_IDS
     assert [
         diagnostic["code"] for diagnostic in profile["diagnostics"]
