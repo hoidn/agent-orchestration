@@ -168,6 +168,10 @@ def render_typed_prompt_inputs(
                 "u0_row_id": entry["u0_row_id"],
                 "c0_row_id": entry["c0_row_id"],
                 "injection_order": entry["injection_order"],
+                "request_field_evidence": _request_field_evidence_rows(
+                    entry=entry,
+                    resolved_value=resolved_value,
+                ),
             }
         )
     return "\n\n".join(rendered_blocks), evidence_payloads
@@ -296,19 +300,30 @@ def build_typed_prompt_input_report(
             )
             continue
 
-        selected_rows.append(
-            {
-                "workflow_surface": workflow_surface,
-                "provider_step_id": provider_step_id,
-                "c0_row_id": row.get("row_id"),
-                "u0_row_id": row.get("u0_row_id"),
-                "binding_names": [entry["binding_name"] for entry in matching_entries],
-                "renderer": dict(matching_entries[0]["renderer"]),
-                "source_map_origin_keys": sorted(
-                    {entry["source_map_origin_key"] for entry in matching_entries}
-                ),
-            }
+        compiled_request_fields = _compiled_request_fields(matching_entries)
+        hidden_bridge_diagnostics = _validate_hidden_bridge_request_fields(
+            row=row,
+            compiled_request_fields=compiled_request_fields,
+            workflow_surface=workflow_surface,
         )
+        if hidden_bridge_diagnostics:
+            invalid_rows.extend(hidden_bridge_diagnostics)
+            continue
+
+        selected_row = {
+            "workflow_surface": workflow_surface,
+            "provider_step_id": provider_step_id,
+            "c0_row_id": row.get("row_id"),
+            "u0_row_id": row.get("u0_row_id"),
+            "binding_names": [entry["binding_name"] for entry in matching_entries],
+            "renderer": dict(matching_entries[0]["renderer"]),
+            "source_map_origin_keys": sorted(
+                {entry["source_map_origin_key"] for entry in matching_entries}
+            ),
+        }
+        if compiled_request_fields:
+            selected_row["request_fields"] = compiled_request_fields
+        selected_rows.append(selected_row)
 
     for row in selected_consume_prompt_rows:
         workflow_surface = row.get("workflow_surface")
@@ -426,6 +441,156 @@ def build_typed_prompt_input_report(
 
 def cast_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
     return value
+
+
+def _request_field_evidence_rows(
+    *,
+    entry: Mapping[str, Any],
+    resolved_value: Any,
+) -> list[dict[str, Any]]:
+    request_fields = entry.get("request_fields")
+    if not isinstance(request_fields, Mapping):
+        return []
+    field_authority = request_fields.get("field_authority")
+    if not isinstance(field_authority, Mapping):
+        return []
+    evidence_rows: list[dict[str, Any]] = []
+    for field_path in sorted(
+        str(path) for path in field_authority if isinstance(path, str) and path
+    ):
+        metadata = field_authority.get(field_path)
+        if not isinstance(metadata, Mapping):
+            continue
+        leaf_value = _resolve_request_field_value(resolved_value, field_path)
+        evidence_row = {
+            "field_path": field_path,
+            "authority_class": str(metadata.get("authority_class", "")),
+            "source_binding": str(metadata.get("source_binding", "")),
+            "bridge_field_name": str(metadata.get("bridge_field_name", "")),
+            "rendered_leaf_shape": _rendered_leaf_shape(
+                leaf_value,
+                field_path=field_path,
+            ),
+            "rendered_leaf_digest": typed_prompt_input_value_digest(leaf_value),
+        }
+        checked_row_id = metadata.get("checked_row_id")
+        if isinstance(checked_row_id, str) and checked_row_id:
+            evidence_row["checked_row_id"] = checked_row_id
+        evidence_rows.append(evidence_row)
+    return evidence_rows
+
+
+def _resolve_request_field_value(value: Any, field_path: str) -> Any:
+    current = value
+    for segment in field_path.split("."):
+        if not isinstance(current, Mapping) or segment not in current:
+            raise ValueError(
+                "typed_prompt_input_hidden_bridge_field_missing: "
+                f"missing rendered request field `{field_path}`"
+            )
+        current = current[segment]
+    return current
+
+
+def _rendered_leaf_shape(value: Any, *, field_path: str) -> str:
+    if isinstance(value, str):
+        return "scalar_path"
+    if isinstance(value, Mapping) and isinstance(value.get("ref"), str):
+        return "ref_object"
+    raise ValueError(
+        "typed_prompt_input_hidden_bridge_leaf_shape_invalid: "
+        f"rendered request field `{field_path}` is not path-like"
+    )
+
+
+def _compiled_request_fields(entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    if not entries:
+        return {}
+    request_fields = entries[0].get("request_fields")
+    return dict(request_fields) if isinstance(request_fields, Mapping) else {}
+
+
+def _validate_hidden_bridge_request_fields(
+    *,
+    row: Mapping[str, Any],
+    compiled_request_fields: Mapping[str, Any],
+    workflow_surface: str,
+) -> list[dict[str, Any]]:
+    expectations = row.get("request_field_expectations")
+    if not isinstance(expectations, Sequence) or isinstance(expectations, (str, bytes)):
+        return []
+    field_authority = (
+        dict(compiled_request_fields.get("field_authority", {}))
+        if isinstance(compiled_request_fields.get("field_authority"), Mapping)
+        else {}
+    )
+    diagnostics: list[dict[str, Any]] = []
+    for expectation in expectations:
+        if not isinstance(expectation, Mapping):
+            continue
+        field_path = expectation.get("field_path")
+        if not isinstance(field_path, str) or not field_path:
+            continue
+        compiled = field_authority.get(field_path)
+        if not isinstance(compiled, Mapping):
+            diagnostics.append(
+                {
+                    "code": "typed_prompt_input_hidden_bridge_field_missing",
+                    "workflow_surface": workflow_surface,
+                    "c0_row_id": row.get("row_id"),
+                    "u0_row_id": row.get("u0_row_id"),
+                    "field_path": field_path,
+                }
+            )
+            continue
+        expected_authority = expectation.get("authority_class")
+        if isinstance(expected_authority, str) and expected_authority:
+            observed_authority = compiled.get("authority_class")
+            if observed_authority != expected_authority:
+                diagnostics.append(
+                    {
+                        "code": "typed_prompt_input_hidden_bridge_authority_mismatch",
+                        "workflow_surface": workflow_surface,
+                        "c0_row_id": row.get("row_id"),
+                        "u0_row_id": row.get("u0_row_id"),
+                        "field_path": field_path,
+                        "expected_authority_class": expected_authority,
+                        "observed_authority_class": observed_authority,
+                    }
+                )
+                continue
+        expected_source = expectation.get("source_binding")
+        if isinstance(expected_source, str) and expected_source:
+            observed_source = compiled.get("source_binding")
+            if observed_source != expected_source:
+                diagnostics.append(
+                    {
+                        "code": "typed_prompt_input_hidden_bridge_source_unmapped",
+                        "workflow_surface": workflow_surface,
+                        "c0_row_id": row.get("row_id"),
+                        "u0_row_id": row.get("u0_row_id"),
+                        "field_path": field_path,
+                        "expected_source_binding": expected_source,
+                        "observed_source_binding": observed_source,
+                    }
+                )
+                continue
+        expected_bridge_field = expectation.get("bridge_field_name")
+        if isinstance(expected_bridge_field, str) and expected_bridge_field:
+            observed_bridge_field = compiled.get("bridge_field_name")
+            if observed_bridge_field != expected_bridge_field:
+                diagnostics.append(
+                    {
+                        "code": "typed_prompt_input_hidden_bridge_bridge_field_mismatch",
+                        "workflow_surface": workflow_surface,
+                        "c0_row_id": row.get("row_id"),
+                        "u0_row_id": row.get("u0_row_id"),
+                        "field_path": field_path,
+                        "expected_bridge_field_name": expected_bridge_field,
+                        "observed_bridge_field_name": observed_bridge_field,
+                    }
+                )
+    return diagnostics
 
 
 def _surface_step_consumes(step: Any) -> Sequence[Any]:

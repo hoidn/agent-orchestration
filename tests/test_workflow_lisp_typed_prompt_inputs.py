@@ -102,6 +102,45 @@ def test_normalize_typed_prompt_input_entry_canonicalizes_metadata() -> None:
     assert normalized["source_map_origin_key"].startswith("typed_prompt_input_phase::")
 
 
+def test_normalize_typed_prompt_input_entry_preserves_request_field_authority() -> None:
+    module = _typed_prompt_inputs_module()
+    normalized = module.normalize_typed_prompt_input_entry(
+        {
+            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+            "binding_name": "request",
+            "renderer": {
+                "renderer_id": "canonical-json",
+                "renderer_version": 1,
+                "accepted_shape": "any_pure_value",
+            },
+            "value_source": {"kind": "typed_binding_ref", "binding": {"subject": {"run_state": {"ref": "inputs.ctx__run_state_path"}}}},
+            "value_type_name": "SelectorRequest",
+            "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
+            "u0_row_id": "selector.prompt.select_next_work",
+            "c0_row_id": "c0.selector_prompt_select_next_work",
+            "injection_order": 0,
+            "request_fields": {
+                "field_names": ["subject"],
+                "has_subject": True,
+                "has_targets": False,
+                "field_authority": {
+                    "subject.run_state": {
+                        "authority_class": "compatibility_bridge",
+                        "source_binding": "ctx.run_state_path",
+                        "bridge_field_name": "run_state_path",
+                    }
+                },
+            },
+        }
+    )
+
+    assert normalized["request_fields"]["field_authority"]["subject.run_state"] == {
+        "authority_class": "compatibility_bridge",
+        "source_binding": "ctx.run_state_path",
+        "bridge_field_name": "run_state_path",
+    }
+
+
 def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
     module = _typed_prompt_inputs_module()
     prompt_block, evidence = module.render_typed_prompt_inputs(
@@ -139,6 +178,67 @@ def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
     assert evidence
     assert evidence[0]["schema_version"] == "workflow_lisp_typed_prompt_input_evidence.v1"
     assert evidence[0]["binding_name"] == "prompt_context"
+
+
+def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> None:
+    module = _typed_prompt_inputs_module()
+    prompt_block, evidence = module.render_typed_prompt_inputs(
+        [
+            module.normalize_typed_prompt_input_entry(
+                {
+                    "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                    "binding_name": "request",
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "value_source": {
+                        "kind": "typed_binding_ref",
+                        "binding": {
+                            "subject": {"run_state": {"ref": "inputs.ctx__run_state_path"}}
+                        },
+                    },
+                    "value_type_name": "SelectorRequest",
+                    "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
+                    "u0_row_id": "selector.prompt.select_next_work",
+                    "c0_row_id": "c0.selector_prompt_select_next_work",
+                    "injection_order": 0,
+                    "request_fields": {
+                        "field_names": ["subject"],
+                        "has_subject": True,
+                        "has_targets": False,
+                        "field_authority": {
+                            "subject.run_state": {
+                                "authority_class": "compatibility_bridge",
+                                "source_binding": "ctx.run_state_path",
+                                "bridge_field_name": "run_state_path",
+                            }
+                        },
+                    },
+                }
+            )
+        ],
+        resolved_typed_values={
+            "request": {"subject": {"run_state": "state/run_state.json"}}
+        },
+        workflow_name="lisp_frontend_design_delta/selector::select-next-work",
+        step_id="root.select-next-work__decision",
+    )
+
+    assert '"run_state":"state/run_state.json"' in prompt_block
+    assert evidence[0]["request_field_evidence"] == [
+        {
+            "field_path": "subject.run_state",
+            "authority_class": "compatibility_bridge",
+            "source_binding": "ctx.run_state_path",
+            "bridge_field_name": "run_state_path",
+            "rendered_leaf_shape": "scalar_path",
+            "rendered_leaf_digest": module.typed_prompt_input_value_digest(
+                "state/run_state.json"
+            ),
+        }
+    ]
 
 
 def test_normalize_typed_prompt_input_entry_rejects_missing_lineage() -> None:
@@ -324,6 +424,217 @@ def test_build_typed_prompt_input_report_indexes_imported_private_surfaces() -> 
             ],
         }
     ]
+
+
+def test_build_typed_prompt_input_report_records_hidden_bridge_field_expectation() -> None:
+    module = _typed_prompt_inputs_module()
+    selector_bundle = SimpleNamespace(
+        surface=SimpleNamespace(
+            name="lisp_frontend_design_delta/selector::select-next-work",
+            steps=(
+                SimpleNamespace(
+                    kind=SurfaceStepKind.PROVIDER,
+                    step_id="root.select-next-work__decision",
+                    typed_prompt_inputs=(
+                        {
+                            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                            "binding_name": "request",
+                            "renderer": {
+                                "renderer_id": "canonical-json",
+                                "renderer_version": 1,
+                                "accepted_shape": "any_pure_value",
+                            },
+                            "value_source": {
+                                "kind": "typed_binding_ref",
+                                "binding": {
+                                    "subject": {
+                                        "run_state": {
+                                            "ref": "inputs.ctx__run_state_path"
+                                        }
+                                    }
+                                },
+                            },
+                            "value_type_name": "SelectorRequest",
+                            "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
+                            "u0_row_id": "selector.prompt.select_next_work",
+                            "c0_row_id": "c0.selector_prompt_select_next_work",
+                            "injection_order": 0,
+                            "request_fields": {
+                                "field_names": ["subject"],
+                                "has_subject": True,
+                                "has_targets": False,
+                                "field_authority": {
+                                    "subject.run_state": {
+                                        "authority_class": "compatibility_bridge",
+                                        "source_binding": "ctx.run_state_path",
+                                        "bridge_field_name": "run_state_path",
+                                    }
+                                },
+                            },
+                        },
+                    ),
+                ),
+            ),
+        ),
+        imports={},
+    )
+
+    report = module.build_typed_prompt_input_report(
+        workflow_family="design_delta_parent_drain",
+        checked_manifest={
+            "rows": [
+                {
+                    "row_id": "c0.selector_prompt_select_next_work",
+                    "u0_row_id": "selector.prompt.select_next_work",
+                    "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "KEEP_TYPED",
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "request_field_expectations": [
+                        {
+                            "field_path": "subject.run_state",
+                            "authority_class": "compatibility_bridge",
+                            "source_binding": "ctx.run_state_path",
+                            "bridge_field_name": "run_state_path",
+                        }
+                    ],
+                }
+            ]
+        },
+        checked_manifest_path="checked.json",
+        checked_manifest_sha256="sha256:test",
+        validated_bundles_by_name={selector_bundle.surface.name: selector_bundle},
+    )
+
+    selector_row = report["selected_rows"][0]
+    assert selector_row["request_fields"]["field_authority"]["subject.run_state"] == {
+        "authority_class": "compatibility_bridge",
+        "source_binding": "ctx.run_state_path",
+        "bridge_field_name": "run_state_path",
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_authority", "expected_code"),
+    [
+        (
+            {
+                "subject.run_state": {
+                    "authority_class": "compatibility_bridge",
+                    "bridge_field_name": "run_state_path",
+                }
+            },
+            "typed_prompt_input_hidden_bridge_source_unmapped",
+        ),
+        (
+            {
+                "subject.run_state": {
+                    "authority_class": "runtime_derived",
+                    "source_binding": "ctx.run_state_path",
+                    "bridge_field_name": "run_state_path",
+                }
+            },
+            "typed_prompt_input_hidden_bridge_authority_mismatch",
+        ),
+        (
+            {
+                "subject.run_state": {
+                    "authority_class": "compatibility_bridge",
+                    "source_binding": "ctx.run_state_path",
+                    "bridge_field_name": "wrong_field_name",
+                }
+            },
+            "typed_prompt_input_hidden_bridge_bridge_field_mismatch",
+        ),
+    ],
+)
+def test_build_typed_prompt_input_report_fails_closed_on_hidden_bridge_field_drift(
+    field_authority: dict[str, dict[str, str]],
+    expected_code: str,
+) -> None:
+    module = _typed_prompt_inputs_module()
+    selector_bundle = SimpleNamespace(
+        surface=SimpleNamespace(
+            name="lisp_frontend_design_delta/selector::select-next-work",
+            steps=(
+                SimpleNamespace(
+                    kind=SurfaceStepKind.PROVIDER,
+                    step_id="root.select-next-work__decision",
+                    typed_prompt_inputs=(
+                        {
+                            "schema_version": "workflow_lisp_typed_prompt_input.v1",
+                            "binding_name": "request",
+                            "renderer": {
+                                "renderer_id": "canonical-json",
+                                "renderer_version": 1,
+                                "accepted_shape": "any_pure_value",
+                            },
+                            "value_source": {
+                                "kind": "typed_binding_ref",
+                                "binding": {
+                                    "subject": {
+                                        "run_state": {
+                                            "ref": "inputs.ctx__run_state_path"
+                                        }
+                                    }
+                                },
+                            },
+                            "value_type_name": "SelectorRequest",
+                            "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
+                            "u0_row_id": "selector.prompt.select_next_work",
+                            "c0_row_id": "c0.selector_prompt_select_next_work",
+                            "injection_order": 0,
+                            "request_fields": {
+                                "field_names": ["subject"],
+                                "has_subject": True,
+                                "has_targets": False,
+                                "field_authority": field_authority,
+                            },
+                        },
+                    ),
+                ),
+            ),
+        ),
+        imports={},
+    )
+
+    report = module.build_typed_prompt_input_report(
+        workflow_family="design_delta_parent_drain",
+        checked_manifest={
+            "rows": [
+                {
+                    "row_id": "c0.selector_prompt_select_next_work",
+                    "u0_row_id": "selector.prompt.select_next_work",
+                    "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work",
+                    "consumer_lane": "prompt_injection",
+                    "track_c_decision": "KEEP_TYPED",
+                    "renderer": {
+                        "renderer_id": "canonical-json",
+                        "renderer_version": 1,
+                        "accepted_shape": "any_pure_value",
+                    },
+                    "request_field_expectations": [
+                        {
+                            "field_path": "subject.run_state",
+                            "authority_class": "compatibility_bridge",
+                            "source_binding": "ctx.run_state_path",
+                            "bridge_field_name": "run_state_path",
+                        }
+                    ],
+                }
+            ]
+        },
+        checked_manifest_path="checked.json",
+        checked_manifest_sha256="sha256:test",
+        validated_bundles_by_name={selector_bundle.surface.name: selector_bundle},
+    )
+
+    assert report["status"] == "fail"
+    assert any(row["code"] == expected_code for row in report["invalid_rows"])
 
 
 def test_build_typed_prompt_input_report_records_consume_prompt_mode_evidence_without_body_content() -> None:

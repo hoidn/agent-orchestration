@@ -1574,6 +1574,14 @@
           "prompt": "selector.select_next_work"
         }
       },
+      "request_field_expectations": [
+        {
+          "authority_class": "compatibility_bridge",
+          "bridge_field_name": "run_state_path",
+          "field_path": "subject.run_state",
+          "source_binding": "ctx.run_state_path"
+        }
+      ],
       "u0_row_id": "selector.prompt.select_next_work",
       "workflow_surface": "lisp_frontend_design_delta/selector::select-next-work"
     },

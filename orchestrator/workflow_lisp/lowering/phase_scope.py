@@ -1399,6 +1399,8 @@ def _request_field_metadata_for_prompt_input(
     expr: Any,
     *,
     context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    preserved_value_source: Any | None = None,
 ) -> dict[str, Any]:
     type_ref = _type_ref_for_prompt_input(expr, context=context)
     if not isinstance(type_ref, RecordTypeRef):
@@ -1425,7 +1427,169 @@ def _request_field_metadata_for_prompt_input(
         if isinstance(targets_type, RecordTypeRef):
             metadata["write_target_field_count"] = len(targets_type.field_types)
 
+    field_authority = _collect_preserved_request_field_authority(
+        expr,
+        context=context,
+        local_values=local_values,
+    )
+    if not field_authority and preserved_value_source is not None:
+        field_authority = _collect_request_field_authority_from_value_source(
+            preserved_value_source
+        )
+    if field_authority:
+        metadata["field_authority"] = field_authority
+
     return metadata
+
+
+def _collect_preserved_request_field_authority(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    field_path: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    if isinstance(expr, NameExpr):
+        bound_value = local_values.get(expr.name)
+        if bound_value is not None and bound_value is not expr:
+            return _collect_preserved_request_field_authority(
+                bound_value,
+                context=context,
+                local_values=local_values,
+                field_path=field_path,
+            )
+
+    if isinstance(expr, RecordExpr):
+        metadata: dict[str, Any] = {}
+        for field_name, field_expr in expr.fields:
+            metadata.update(
+                _collect_preserved_request_field_authority(
+                    field_expr,
+                    context=context,
+                    local_values=local_values,
+                    field_path=field_path + (field_name,),
+                )
+            )
+        return metadata
+
+    if (
+        isinstance(expr, Mapping)
+        and set(expr) == {"ref"}
+        and isinstance(expr.get("ref"), str)
+    ):
+        compatibility_bridge = _compatibility_bridge_request_field_authority_from_ref(
+            str(expr["ref"])
+        )
+        if compatibility_bridge is not None and field_path:
+            return {".".join(field_path): compatibility_bridge}
+        return {}
+
+    if isinstance(expr, Mapping):
+        metadata: dict[str, Any] = {}
+        for field_name, field_expr in expr.items():
+            metadata.update(
+                _collect_preserved_request_field_authority(
+                    field_expr,
+                    context=context,
+                    local_values=local_values,
+                    field_path=field_path + (str(field_name),),
+                )
+            )
+        return metadata
+
+    if isinstance(expr, tuple):
+        metadata: dict[str, Any] = {}
+        for index, item in enumerate(expr):
+            metadata.update(
+                _collect_preserved_request_field_authority(
+                    item,
+                    context=context,
+                    local_values=local_values,
+                    field_path=field_path + (str(index),),
+                )
+            )
+        return metadata
+
+    compatibility_bridge = _compatibility_bridge_request_field_authority(expr)
+    if compatibility_bridge is not None and field_path:
+        return {".".join(field_path): compatibility_bridge}
+
+    inline_value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if inline_value is not expr and isinstance(inline_value, (Mapping, RecordExpr, tuple)):
+        return _collect_preserved_request_field_authority(
+            inline_value,
+            context=context,
+            local_values=local_values,
+            field_path=field_path,
+        )
+    return {}
+
+
+def _compatibility_bridge_request_field_authority(expr: Any) -> dict[str, str] | None:
+    if not isinstance(expr, FieldAccessExpr):
+        return None
+    base_name: str | None = None
+    if isinstance(expr.base, NameExpr):
+        base_name = expr.base.name
+    fields = tuple(str(field) for field in expr.fields)
+    if base_name == "ctx" and fields == ("run_state_path",):
+        return {
+            "authority_class": "compatibility_bridge",
+            "source_binding": "ctx.run_state_path",
+            "bridge_field_name": "run_state_path",
+        }
+    if base_name == "inputs" and fields == ("ctx", "run_state_path"):
+        return {
+            "authority_class": "compatibility_bridge",
+            "source_binding": "ctx.run_state_path",
+            "bridge_field_name": "run_state_path",
+        }
+    return None
+
+
+def _compatibility_bridge_request_field_authority_from_ref(
+    ref: str,
+) -> dict[str, str] | None:
+    if ref == "inputs.ctx__run_state_path":
+        return {
+            "authority_class": "compatibility_bridge",
+            "source_binding": "ctx.run_state_path",
+            "bridge_field_name": "run_state_path",
+        }
+    return None
+
+
+def _collect_request_field_authority_from_value_source(
+    value: Any,
+    *,
+    field_path: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    if isinstance(value, Mapping) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
+        metadata = _compatibility_bridge_request_field_authority_from_ref(str(value["ref"]))
+        if metadata is not None and field_path:
+            return {".".join(field_path): metadata}
+        return {}
+    if isinstance(value, Mapping):
+        metadata: dict[str, Any] = {}
+        for field_name, item in value.items():
+            metadata.update(
+                _collect_request_field_authority_from_value_source(
+                    item,
+                    field_path=field_path + (str(field_name),),
+                )
+            )
+        return metadata
+    if isinstance(value, (list, tuple)):
+        metadata: dict[str, Any] = {}
+        for index, item in enumerate(value):
+            metadata.update(
+                _collect_request_field_authority_from_value_source(
+                    item,
+                    field_path=field_path + (str(index),),
+                )
+            )
+        return metadata
+    return {}
 
 
 def _typed_prompt_input_source_from_inline_value(
@@ -1640,6 +1804,8 @@ def _build_typed_prompt_inputs_for_prompt_specs(
                     "request_fields": _request_field_metadata_for_prompt_input(
                         input_expr,
                         context=context,
+                        local_values=local_values,
+                        preserved_value_source=value_source,
                     ),
                 }
             )

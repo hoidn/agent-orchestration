@@ -627,6 +627,7 @@ def _provider_input_shape_rows(
             "targets_type_name": expected_targets_type,
             "semantic_field_count": 0,
             "write_target_field_count": 0,
+            "hidden_bridge_fields": [],
             "binding_names": list(c1_row.get("binding_names", []))
             if isinstance(c1_row, Mapping)
             and isinstance(c1_row.get("binding_names"), Sequence)
@@ -677,6 +678,12 @@ def _provider_input_shape_rows(
         row["write_target_field_count"] = int(
             request_fields.get("write_target_field_count", 0) or 0
         )
+        observed_hidden_bridge_fields = [
+            dict(item)
+            for item in request_fields.get("hidden_bridge_fields", [])
+            if isinstance(item, Mapping)
+        ]
+        row["hidden_bridge_fields"] = observed_hidden_bridge_fields
 
         binding_count = observation.get("binding_count")
         if binding_count != 1:
@@ -763,6 +770,54 @@ def _provider_input_shape_rows(
             )
             row["diagnostics"].append(row_diag)
             diagnostics.append(row_diag)
+
+        expected_hidden_bridge_fields = [
+            dict(item)
+            for item in request_shape.get("hidden_bridge_fields", [])
+            if isinstance(item, Mapping)
+        ]
+        for expected_field in expected_hidden_bridge_fields:
+            field_path = str(expected_field.get("field_path", ""))
+            observed_field = next(
+                (
+                    item
+                    for item in observed_hidden_bridge_fields
+                    if str(item.get("field_path", "")) == field_path
+                ),
+                None,
+            )
+            if observed_field is None:
+                row_diag = _diagnostic(
+                    "rendering_ergonomics_provider_hidden_bridge_field_missing",
+                    str(slot.get("slot_id", "")),
+                    "provider request is missing a required hidden compatibility-bridge field",
+                    c0_row_id=c0_row_id,
+                    field_path=field_path,
+                )
+                row["diagnostics"].append(row_diag)
+                diagnostics.append(row_diag)
+                continue
+            mismatched_field = next(
+                (
+                    key
+                    for key in ("authority_class", "source_binding", "bridge_field_name")
+                    if expected_field.get(key) != observed_field.get(key)
+                ),
+                None,
+            )
+            if mismatched_field is not None:
+                row_diag = _diagnostic(
+                    "rendering_ergonomics_provider_hidden_bridge_field_mismatch",
+                    str(slot.get("slot_id", "")),
+                    "provider request hidden compatibility-bridge field metadata drifted",
+                    c0_row_id=c0_row_id,
+                    field_path=field_path,
+                    mismatch_field=mismatched_field,
+                    expected_value=expected_field.get(mismatched_field),
+                    observed_value=observed_field.get(mismatched_field),
+                )
+                row["diagnostics"].append(row_diag)
+                diagnostics.append(row_diag)
 
         if row["diagnostics"]:
             row["status"] = "fail"

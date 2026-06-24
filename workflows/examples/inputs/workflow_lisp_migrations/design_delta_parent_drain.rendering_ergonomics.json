@@ -1419,6 +1419,14 @@
         "override_allowed": true
       },
       "request_shape": {
+        "hidden_bridge_fields": [
+          {
+            "authority_class": "compatibility_bridge",
+            "bridge_field_name": "run_state_path",
+            "field_path": "subject.run_state",
+            "source_binding": "ctx.run_state_path"
+          }
+        ],
         "request_type_name": "SelectorRequest",
         "requires_request_record": true,
         "requires_target_split": false,

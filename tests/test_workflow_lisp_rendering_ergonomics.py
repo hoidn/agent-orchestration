@@ -92,34 +92,15 @@ def test_checked_design_delta_summary_slots_use_entry_publication_and_bridge_lan
         slots_by_row["c0.drain_materialized_drain_summary"]["consumer_lane"]
         == "typed_step"
     )
-    assert (
-        slots_by_row["c0.drain_materialized_drain_summary_compiled_boundary"][
-            "consumer_lane"
-        ]
-        == "typed_step"
-    )
+    assert "c0.drain_materialized_drain_summary_compiled_boundary" not in slots_by_row
     assert (
         slots_by_row["c0.work_item_summary_summary_path"]["consumer_lane"]
         == "compatibility_bridge"
     )
-    assert (
-        slots_by_row["c0.work_item_summary_summary_path_compiled_boundary"][
-            "consumer_lane"
-        ]
-        == "compatibility_bridge"
-    )
-    assert (
-        slots_by_row.get("c0.work_item_materialized_selected_item_summary", {}).get(
-            "consumer_lane"
-        )
-        != "timed_body_materialization"
-    )
-    assert (
-        slots_by_row.get(
-            "c0.work_item_stdlib_materialized_selected_item_summary", {}
-        ).get("consumer_lane")
-        != "timed_body_materialization"
-    )
+    assert "c0.work_item_summary_summary_path_compiled_boundary" not in slots_by_row
+    assert "c0.work_item_materialized_selected_item_summary" not in slots_by_row
+    assert "c0.stdlib_adapters_selected_item_summary_seed" not in slots_by_row
+    assert "c0.work_item_stdlib_materialized_selected_item_summary" not in slots_by_row
     assert (
         slots_by_row.get(
             "c0.work_item_stdlib_materialized_blocked_recovery_summary", {}
@@ -266,7 +247,11 @@ def test_unknown_override_renderer_is_rejected():
 def _min_reports(**overrides):
     base = {
         "consumer_rendering_census_report": {"status": "pass", "rows": []},
-        "typed_prompt_input_report": {"status": "pass", "selected_rows": []},
+        "typed_prompt_input_report": {
+            "status": "pass",
+            "selected_rows": [],
+            "consumed_artifact_prompt_rows": [],
+        },
         "observability_summary_report": {"status": "pass", "selected_c0_row_ids": []},
         "entry_publication_report": {"status": "pass", "selected_c0_rows": []},
         "compatibility_bridge_report": {
@@ -278,6 +263,12 @@ def _min_reports(**overrides):
     }
     base.update(overrides)
     return base
+
+
+def test_consume_prompt_prerequisite_reports_reserve_an_explicit_empty_lane() -> None:
+    reports = _min_reports()
+
+    assert reports["typed_prompt_input_report"]["consumed_artifact_prompt_rows"] == []
 
 
 def _typed_step_policy():
@@ -745,6 +736,185 @@ def test_provider_input_shapes_fail_when_targets_split_is_missing():
         d["code"] == "rendering_ergonomics_provider_write_target_unclassified"
         for d in report["diagnostics"]
     )
+
+
+def test_provider_input_shapes_validate_selector_hidden_bridge_field():
+    slot = _prompt_slot("c0.selector_prompt_select_next_work")
+    slot["slot_id"] = "selector.prompt.select_next_work"
+    slot["workflow_surface"] = "lisp_frontend_design_delta/selector::select-next-work"
+    slot["u0_row_id"] = "selector.prompt.select_next_work"
+    slot["source_form"]["provider_call_locator"] = "providers.selector"
+    slot["request_shape"] = {
+        "request_type_name": "SelectorRequest",
+        "subject_type_name": "SelectorPromptSubject",
+        "requires_request_record": True,
+        "requires_target_split": False,
+        "hidden_bridge_fields": [
+            {
+                "field_path": "subject.run_state",
+                "authority_class": "compatibility_bridge",
+                "source_binding": "ctx.run_state_path",
+                "bridge_field_name": "run_state_path",
+            }
+        ],
+    }
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [{"c0_row_id": slot["c0_row_id"]}],
+        },
+    )
+
+    report = build_rendering_ergonomics_report(
+        policy=policy,
+        prerequisite_reports=reports,
+        provider_input_observations=[
+            {
+                "workflow_surface": slot["workflow_surface"],
+                "provider_call_locator": "providers.selector",
+                "provider_step_id": "root.select-next-work__decision",
+                "c0_row_id": slot["c0_row_id"],
+                "binding_names": ["request"],
+                "binding_count": 1,
+                "value_type_name": "SelectorRequest",
+                "request_fields": {
+                    "field_names": ["subject"],
+                    "subject_type_name": "SelectorPromptSubject",
+                    "hidden_bridge_fields": [
+                        {
+                            "field_path": "subject.run_state",
+                            "authority_class": "compatibility_bridge",
+                            "source_binding": "ctx.run_state_path",
+                            "bridge_field_name": "run_state_path",
+                        }
+                    ],
+                },
+            }
+        ],
+    )
+
+    selector_row = report["provider_input_shapes"][0]
+    assert report["status"] == "pass"
+    assert selector_row["hidden_bridge_fields"] == [
+        {
+            "field_path": "subject.run_state",
+            "authority_class": "compatibility_bridge",
+            "source_binding": "ctx.run_state_path",
+            "bridge_field_name": "run_state_path",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("hidden_bridge_fields", "expected_code"),
+    [
+        ([], "rendering_ergonomics_provider_hidden_bridge_field_missing"),
+        (
+            [
+                {
+                    "field_path": "subject.run_state",
+                    "authority_class": "runtime_derived",
+                    "source_binding": "ctx.run_state_path",
+                    "bridge_field_name": "run_state_path",
+                }
+            ],
+            "rendering_ergonomics_provider_hidden_bridge_field_mismatch",
+        ),
+        (
+            [
+                {
+                    "field_path": "subject.run_state.path",
+                    "authority_class": "compatibility_bridge",
+                    "source_binding": "ctx.run_state_path",
+                    "bridge_field_name": "run_state_path",
+                }
+            ],
+            "rendering_ergonomics_provider_hidden_bridge_field_missing",
+        ),
+        (
+            [
+                {
+                    "field_path": "run_state",
+                    "authority_class": "compatibility_bridge",
+                    "source_binding": "ctx.run_state_path",
+                    "bridge_field_name": "run_state_path",
+                }
+            ],
+            "rendering_ergonomics_provider_hidden_bridge_field_missing",
+        ),
+    ],
+)
+def test_provider_input_shapes_fail_when_selector_hidden_bridge_field_drifts(
+    hidden_bridge_fields,
+    expected_code,
+):
+    slot = _prompt_slot("c0.selector_prompt_select_next_work")
+    slot["slot_id"] = "selector.prompt.select_next_work"
+    slot["workflow_surface"] = "lisp_frontend_design_delta/selector::select-next-work"
+    slot["u0_row_id"] = "selector.prompt.select_next_work"
+    slot["source_form"]["provider_call_locator"] = "providers.selector"
+    slot["request_shape"] = {
+        "request_type_name": "SelectorRequest",
+        "subject_type_name": "SelectorPromptSubject",
+        "requires_request_record": True,
+        "requires_target_split": False,
+        "hidden_bridge_fields": [
+            {
+                "field_path": "subject.run_state",
+                "authority_class": "compatibility_bridge",
+                "source_binding": "ctx.run_state_path",
+                "bridge_field_name": "run_state_path",
+            }
+        ],
+    }
+    policy = {
+        "schema_version": RENDERING_ERGONOMICS_POLICY_SCHEMA_VERSION,
+        "target_family": "lisp_frontend_design_delta_parent_drain",
+        "consumer_slots": [slot],
+    }
+    reports = _min_reports(
+        consumer_rendering_census_report={
+            "status": "pass",
+            "rows": [{"row_id": slot["c0_row_id"], "consumer_lane": "prompt_injection"}],
+        },
+        typed_prompt_input_report={
+            "status": "pass",
+            "selected_rows": [{"c0_row_id": slot["c0_row_id"]}],
+        },
+    )
+
+    report = build_rendering_ergonomics_report(
+        policy=policy,
+        prerequisite_reports=reports,
+        provider_input_observations=[
+            {
+                "workflow_surface": slot["workflow_surface"],
+                "provider_call_locator": "providers.selector",
+                "provider_step_id": "root.select-next-work__decision",
+                "c0_row_id": slot["c0_row_id"],
+                "binding_names": ["request"],
+                "binding_count": 1,
+                "value_type_name": "SelectorRequest",
+                "request_fields": {
+                    "field_names": ["subject"],
+                    "subject_type_name": "SelectorPromptSubject",
+                    "hidden_bridge_fields": hidden_bridge_fields,
+                },
+            }
+        ],
+    )
+
+    assert report["status"] == "fail"
+    assert any(d["code"] == expected_code for d in report["diagnostics"])
 
 
 # --------------------------------------------------------------------------- #

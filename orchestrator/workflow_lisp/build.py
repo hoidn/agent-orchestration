@@ -2776,6 +2776,33 @@ def _provider_request_field_observation(
         "semantic_field_count": len(subject) if isinstance(subject, Mapping) else 0,
         "write_target_field_count": len(targets) if isinstance(targets, Mapping) else 0,
     }
+    field_authority = (
+        dict(compiled_request_fields.get("field_authority", {}))
+        if isinstance(compiled_request_fields.get("field_authority"), Mapping)
+        else {}
+    )
+    hidden_bridge_fields = [
+        {
+            "field_path": field_path,
+            **{
+                key: value
+                for key, value in metadata.items()
+                if key
+                in {
+                    "authority_class",
+                    "source_binding",
+                    "bridge_field_name",
+                    "checked_row_id",
+                }
+            },
+        }
+        for field_path, metadata in sorted(field_authority.items())
+        if isinstance(field_path, str)
+        and isinstance(metadata, Mapping)
+        and metadata.get("authority_class") == "compatibility_bridge"
+    ]
+    if hidden_bridge_fields:
+        observation["hidden_bridge_fields"] = hidden_bridge_fields
     for nested_type_key in ("subject_type_name", "targets_type_name"):
         nested_type_name = compiled_request_fields.get(nested_type_key)
         if isinstance(nested_type_name, str) and nested_type_name:
@@ -5355,6 +5382,12 @@ def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
     if not private_bridge_inputs:
         return
 
+    registry_path = None
+    if isinstance(boundary_authority_registry, Mapping):
+        raw_registry_path = boundary_authority_registry.get("__registry_path__")
+        if isinstance(raw_registry_path, (str, Path)) and str(raw_registry_path):
+            registry_path = Path(str(raw_registry_path))
+
     allowed_public_bridge_inputs = {
         str(row.get("field_name"))
         for row in (boundary_authority_registry or {}).get("rows", [])
@@ -5369,12 +5402,6 @@ def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
     )
     if not publicly_authored_hidden_bridges:
         return
-
-    registry_path = None
-    if isinstance(boundary_authority_registry, Mapping):
-        raw_registry_path = boundary_authority_registry.get("__registry_path__")
-        if isinstance(raw_registry_path, (str, Path)) and str(raw_registry_path):
-            registry_path = Path(str(raw_registry_path))
     raise LispFrontendCompileError(
         (
             _cli_request_diagnostic(
