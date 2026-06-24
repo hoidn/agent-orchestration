@@ -4,78 +4,13 @@ import copy
 import importlib
 import json
 import shutil
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RUN_STATE_PATH = (
-    REPO_ROOT
-    / "state"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain"
-    / "run_state.json"
-)
-DRAIN_SUMMARY_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain-summary.json"
-)
-DESIGN_GAP_SUMMARY_ROOT = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "design-gaps"
-)
-IMPLEMENTATION_ARCHITECTURE_ROOT = (
-    REPO_ROOT
-    / "docs"
-    / "plans"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "design-gaps"
-)
-ARCHITECTURE_INDEX_PATH = (
-    REPO_ROOT
-    / "state"
-    / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
-    / "drain"
-    / "iterations"
-    / "10"
-    / "design-gap-architect"
-    / "existing-architecture-index.md"
-)
-TARGET_DESIGN_PATH = (
-    REPO_ROOT / "docs" / "design" / "workflow_lisp_runtime_native_drain_authoring.md"
-)
-PARITY_TARGETS_PATH = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "parity_targets.json"
-)
-PARITY_REPORT_JSON_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "review-parity-check"
-    / "design_delta_parent_drain.json"
-)
-PARITY_REPORT_MARKDOWN_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "review-parity-check"
-    / "design_delta_parent_drain.md"
-)
-PARITY_INDEX_PATH = (
-    REPO_ROOT / "artifacts" / "work" / "review-parity-check" / "index.json"
-)
 BOUNDARY_AUTHORITY_PATH = (
     REPO_ROOT
     / "workflows"
@@ -156,18 +91,49 @@ OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH = (
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.observability_old_writer_comparisons.json"
 )
-LIVE_MISSING_GAP_IDS = [
-    "workflow-lisp-runtime-native-drain-consumed-artifact-prompt-rendering-modes",
-    "workflow-lisp-runtime-native-drain-high-level-boundary-state-path-retirement",
-    "workflow-lisp-runtime-native-drain-shared-hidden-carried-compatibility-bridge-prompt-request-rendering",
-    "workflow-lisp-runtime-native-drain-stdlib-selected-item-contract-without-item-state-root",
+REFERENCE_FAMILY_COMPLETED_GAP_IDS = [
+    "workflow-lisp-runtime-native-drain-typed-provider-request-records",
+    "workflow-lisp-runtime-native-drain-projection-retirement-parity-evidence-reconciliation",
+    "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
 ]
+LIVE_MISSING_GAP_IDS = [
+    "workflow-lisp-runtime-native-drain-projection-retirement-parity-evidence-reconciliation",
+    "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
+]
+CHECKED_MANIFEST_SOURCE_PATHS = {
+    "boundary_authority_manifest": BOUNDARY_AUTHORITY_PATH,
+    "command_boundaries_manifest": COMMAND_BOUNDARIES_PATH,
+    "value_flow_census": VALUE_FLOW_CENSUS_PATH,
+    "consumer_rendering_census": CONSUMER_RENDERING_CENSUS_PATH,
+    "compatibility_bridges_manifest": COMPATIBILITY_BRIDGES_PATH,
+    "rendering_cleanup_manifest": RENDERING_CLEANUP_PATH,
+    "rendering_ergonomics_manifest": RENDERING_ERGONOMICS_PATH,
+    "transition_authoring_manifest": TRANSITION_AUTHORING_PATH,
+    "resume_plumbing_retirement_manifest": RESUME_PLUMBING_RETIREMENT_PATH,
+    "observability_old_writer_comparisons": OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
+}
 
 
 def _reference_family_module():
     return importlib.import_module(
         "orchestrator.workflow_lisp.reference_family_conformance"
     )
+
+
+def _migration_parity_module():
+    return importlib.import_module("orchestrator.workflow_lisp.migration_parity")
+
+
+def _write_json(path: Path, payload: object) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 def _copy_json(path: Path, destination: Path) -> Path:
@@ -181,98 +147,439 @@ def _copy_tree(source: Path, destination: Path) -> Path:
     return destination
 
 
-def _owner_reports() -> dict[str, dict[str, object]]:
+def _copy_checked_manifests(repo_root: Path) -> dict[str, Path]:
+    copied: dict[str, Path] = {}
+    for input_id, source_path in CHECKED_MANIFEST_SOURCE_PATHS.items():
+        destination = (
+            repo_root
+            / "workflows"
+            / "examples"
+            / "inputs"
+            / "workflow_lisp_migrations"
+            / source_path.name
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_path, destination)
+        copied[input_id] = destination
+    return copied
+
+
+def _owner_reports(repo_root: Path) -> dict[str, dict[str, object]]:
     report = {"workflow_family": "design_delta_parent_drain", "status": "pass"}
     return {
         "boundary_authority_report": {
             "workflow_family": "design_delta_parent_drain",
+            "path": "artifacts/work/review-parity-check/boundary_authority_report.json",
             "workflows": [{"workflow_name": "lisp_frontend_design_delta/drain::drain"}],
         },
-        "compatibility_bridge_report": dict(report),
-        "typed_prompt_input_report": dict(report),
-        "rendering_cleanup_report": dict(report),
-        "rendering_ergonomics_report": dict(report),
-        "transition_authoring_report": dict(report),
-        "resume_plumbing_retirement_report": dict(report),
-        "observability_summary_report": dict(report),
-        "parent_drain_census_alignment_report": dict(report),
+        "compatibility_bridge_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/compatibility_bridge_report.json",
+        },
+        "typed_prompt_input_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/typed_prompt_input_report.json",
+        },
+        "rendering_cleanup_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/rendering_cleanup_report.json",
+        },
+        "rendering_ergonomics_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/rendering_ergonomics_report.json",
+        },
+        "transition_authoring_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/transition_authoring_report.json",
+        },
+        "resume_plumbing_retirement_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/resume_plumbing_retirement_report.json",
+        },
+        "observability_summary_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/observability_summary_report.json",
+        },
+        "parent_drain_census_alignment_report": {
+            **dict(report),
+            "path": "artifacts/work/review-parity-check/parent_drain_census_alignment_report.json",
+        },
     }
 
 
-def _aligned_drain_summary_copy(tmp_path: Path) -> Path:
-    payload = json.loads(DRAIN_SUMMARY_PATH.read_text(encoding="utf-8"))
-    run_state = json.loads(RUN_STATE_PATH.read_text(encoding="utf-8"))
-    payload["completed_design_gaps"] = list(run_state["completed_design_gaps"])
-    summary_path = tmp_path / "drain-summary.json"
-    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return summary_path
+def _write_parity_fixture(repo_root: Path) -> dict[str, Path]:
+    migration_parity = _migration_parity_module()
+    _write_text(
+        repo_root / "workflows" / "library" / "lisp_frontend_design_delta" / "drain.orc",
+        "(defworkflow drain ())\n",
+    )
+    _write_text(
+        repo_root / "workflows" / "examples" / "lisp_frontend_design_delta_drain.yaml",
+        "steps: []\n",
+    )
+    targets_path = _write_json(
+        repo_root
+        / "workflows"
+        / "examples"
+        / "inputs"
+        / "workflow_lisp_migrations"
+        / "parity_targets.json",
+        {
+            "schema_version": "workflow_lisp_migration_parity_targets.v1",
+            "targets": [
+                {
+                    "workflow_family": "design_delta_parent_drain",
+                    "candidate": "workflows/library/lisp_frontend_design_delta/drain.orc",
+                    "yaml_primary": "workflows/examples/lisp_frontend_design_delta_drain.yaml",
+                    "entry_workflow": "lisp_frontend_design_delta/drain::drain",
+                    "baseline_characterization": {
+                        "inputs": ["progress_report", "execution_report", "backlog_item"],
+                        "outputs": ["execution_report", "implementation_state"],
+                        "terminal_states": ["completed", "failed"],
+                        "artifacts": ["execution_report.md", "implementation_state.json"],
+                        "resume_behavior": [
+                            "resume reuses approved upstream artifacts"
+                        ],
+                    },
+                    "accepted_differences": [],
+                    "deprecated_yaml_mechanics": [
+                        {
+                            "mechanic": "manual markdown parity summary",
+                            "replacement": "machine-readable parity JSON report",
+                        }
+                    ],
+                    "promotion_eligibility": {
+                        "eligible_for_primary_surface": False,
+                        "blocked_reason": "parent-family candidate only",
+                    },
+                    "compile_artifacts": {
+                        "required": ["core_workflow_ast", "semantic_ir", "source_map"],
+                        "optional": [],
+                    },
+                    "evidence_commands": {
+                        "compile": ["python", "-m", "orchestrator", "compile"],
+                        "dry_run": ["python", "-m", "orchestrator", "run", "--dry-run"],
+                        "smoke_or_integration": ["python", "-m", "pytest", "-q"],
+                        "output_contract_parity": ["python", "-m", "pytest", "-q"],
+                        "terminal_state_parity": ["python", "-m", "pytest", "-q"],
+                        "artifact_parity": ["python", "-m", "pytest", "-q"],
+                        "resume_parity": ["python", "-m", "pytest", "-q"],
+                    },
+                }
+            ],
+        },
+    )
+    target = migration_parity.load_parity_targets(targets_path)[0]
+    report_root = repo_root / "artifacts" / "work" / "review-parity-check"
+    build_root = report_root / "build"
+    required_artifact_paths = {
+        "core_workflow_ast": build_root / "core_workflow_ast.json",
+        "semantic_ir": build_root / "semantic_ir.json",
+        "source_map": build_root / "source_map.json",
+    }
+    for artifact_name, artifact_path in required_artifact_paths.items():
+        _write_json(artifact_path, {"artifact": artifact_name, "status": "pass"})
+    command_logs: dict[str, dict[str, str]] = {}
+    evidence_refs: dict[str, dict[str, dict[str, str]]] = {}
+    for role in (
+        "compile",
+        "dry_run",
+        "smoke_or_integration",
+        "output_contract_parity",
+        "terminal_state_parity",
+        "artifact_parity",
+        "resume_parity",
+    ):
+        stdout_path = report_root / "logs" / "design_delta_parent_drain" / f"{role}.stdout.log"
+        stderr_path = report_root / "logs" / "design_delta_parent_drain" / f"{role}.stderr.log"
+        _write_text(stdout_path, f"{role} stdout\n")
+        _write_text(stderr_path, f"{role} stderr\n")
+        stdout_rel = stdout_path.relative_to(repo_root).as_posix()
+        stderr_rel = stderr_path.relative_to(repo_root).as_posix()
+        command_logs[role] = {"stdout": stdout_rel, "stderr": stderr_rel}
+        evidence_refs[role] = {
+            "stdout": {"path": stdout_rel, "sha256": migration_parity._sha256_file(stdout_path)},
+            "stderr": {"path": stderr_rel, "sha256": migration_parity._sha256_file(stderr_path)},
+        }
+    report_path = report_root / "design_delta_parent_drain.json"
+    generated_at = "2026-06-24T00:00:00Z"
+    report = {
+        "schema_version": "workflow_lisp_migration_parity_report.v2",
+        "workflow_family": "design_delta_parent_drain",
+        "candidate": target.candidate,
+        "yaml_primary": target.yaml_primary,
+        "tool_version": "workflow_lisp_migration_parity.v2",
+        "dsl_version": "2.14",
+        "generated_at": generated_at,
+        "generated_by": ["python", "-m", "orchestrator", "migration-parity"],
+        "report_path": report_path.relative_to(repo_root).as_posix(),
+        "target_identity": migration_parity._build_target_identity(
+            target,
+            repo_root=repo_root,
+            targets_file=targets_path,
+        ),
+        "evidence_freshness": {
+            "generated_at": generated_at,
+            "required_artifacts": {
+                artifact_name: {
+                    "status": "pass",
+                    "path": artifact_path.relative_to(repo_root).as_posix(),
+                    "sha256": migration_parity._sha256_file(artifact_path),
+                }
+                for artifact_name, artifact_path in required_artifact_paths.items()
+            },
+            "evidence_refs": evidence_refs,
+        },
+        "command_logs": command_logs,
+        "accepted_differences": [dict(entry) for entry in target.accepted_differences],
+        "deprecated_yaml_mechanics": [
+            dict(entry) for entry in target.deprecated_yaml_mechanics
+        ],
+        "promotion_eligibility": dict(target.promotion_eligibility),
+        "compile_artifacts": {
+            "required": {
+                artifact_name: {
+                    "status": "pass",
+                    "path": artifact_path.relative_to(repo_root).as_posix(),
+                }
+                for artifact_name, artifact_path in required_artifact_paths.items()
+            },
+            "optional": {},
+        },
+        "evidence": {
+            role: {
+                "status": "pass",
+                "argv": ["python", "-m", "pytest", role],
+                "exit_code": 0,
+                "elapsed_seconds": 0.1,
+            }
+            for role in (
+                "compile",
+                "dry_run",
+                "smoke_or_integration",
+                "output_contract_parity",
+                "terminal_state_parity",
+                "artifact_parity",
+                "resume_parity",
+            )
+        },
+        "non_regressive": True,
+    }
+    report["evidence"]["shared_validation"] = {"status": "pass"}
+    report["evidence"]["baseline_characterization"] = {
+        "status": "pass",
+        **{
+            field_name: list(values)
+            for field_name, values in target.baseline_characterization.items()
+        },
+    }
+    _write_json(report_path, report)
+    _write_text(report_path.with_suffix(".md"), migration_parity.render_parity_markdown(report))
+    gate_row = migration_parity.validate_report_for_target(
+        report,
+        target=target,
+        targets_file=targets_path,
+        repo_root=repo_root,
+        today=date(2026, 6, 24),
+    )
+    index_path = report_root / "index.json"
+    _write_json(index_path, migration_parity.render_parity_index([gate_row]))
+    return {
+        "parity_targets_path": targets_path,
+        "parity_report_json_path": report_path,
+        "parity_report_markdown_path": report_path.with_suffix(".md"),
+        "parity_index_path": index_path,
+    }
+
+
+def _reference_family_fixture(tmp_path: Path) -> dict[str, object]:
+    repo_root = tmp_path / "repo"
+    run_state_path = _write_json(
+        repo_root
+        / "state"
+        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+        / "drain"
+        / "run_state.json",
+        {"completed_design_gaps": list(REFERENCE_FAMILY_COMPLETED_GAP_IDS)},
+    )
+    drain_summary_path = _write_json(
+        repo_root
+        / "artifacts"
+        / "work"
+        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+        / "drain-summary.json",
+        {"completed_design_gaps": list(REFERENCE_FAMILY_COMPLETED_GAP_IDS)},
+    )
+    design_gap_summary_root = (
+        repo_root
+        / "artifacts"
+        / "work"
+        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+        / "design-gaps"
+    )
+    implementation_architecture_root = (
+        repo_root
+        / "docs"
+        / "plans"
+        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+        / "design-gaps"
+    )
+    architecture_index_lines: list[str] = []
+    for gap_id in REFERENCE_FAMILY_COMPLETED_GAP_IDS:
+        _write_json(
+            design_gap_summary_root / f"{gap_id}-summary.json",
+            {"gap_id": gap_id, "status": "done"},
+        )
+        architecture_path = (
+            implementation_architecture_root / gap_id / "implementation_architecture.md"
+        )
+        _write_text(architecture_path, f"# {gap_id}\n")
+        architecture_index_lines.append(
+            architecture_path.relative_to(repo_root).as_posix()
+        )
+    architecture_index_path = _write_text(
+        repo_root
+        / "state"
+        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+        / "drain"
+        / "iterations"
+        / "12"
+        / "done-review"
+        / "design-gap-architect"
+        / "existing-architecture-index.md",
+        "\n".join(f"- {line}" for line in architecture_index_lines) + "\n",
+    )
+    target_design_path = _write_text(
+        repo_root / "docs" / "design" / "workflow_lisp_runtime_native_drain_authoring.md",
+        "# Target design\n",
+    )
+    baseline_design_path = _write_text(
+        repo_root / "docs" / "design" / "workflow_lisp_frontend_specification.md",
+        "# Baseline design\n",
+    )
+    command_adapter_contract_path = _write_text(
+        repo_root / "docs" / "design" / "workflow_command_adapter_contract.md",
+        "# Command adapter contract\n",
+    )
+    parity_paths = _write_parity_fixture(repo_root)
+    return {
+        "repo_root": repo_root,
+        "run_state_path": run_state_path,
+        "drain_summary_path": drain_summary_path,
+        "design_gap_summary_root": design_gap_summary_root,
+        "implementation_architecture_root": implementation_architecture_root,
+        "architecture_index_path": architecture_index_path,
+        "target_design_path": target_design_path,
+        "baseline_design_path": baseline_design_path,
+        "command_adapter_contract_path": command_adapter_contract_path,
+        "checked_manifest_paths": _copy_checked_manifests(repo_root),
+        "owner_reports": _owner_reports(repo_root),
+        **parity_paths,
+    }
 
 
 def _reference_family_inputs(
-    tmp_path: Path,
+    fixture: dict[str, object],
     *,
     drain_summary_path: Path | None = None,
     design_gap_summary_root: Path | None = None,
     architecture_index_path: Path | None = None,
     target_design_path: Path | None = None,
+    baseline_design_path: Path | None = None,
+    command_adapter_contract_path: Path | None = None,
     parity_report_json_path: Path | None = None,
     parity_report_markdown_path: Path | None = None,
     parity_index_path: Path | None = None,
 ) -> dict[str, object]:
     return {
         "workflow_family": "design_delta_parent_drain",
-        "run_state_path": RUN_STATE_PATH,
-        "drain_summary_path": drain_summary_path or _aligned_drain_summary_copy(tmp_path),
-        "design_gap_summary_root": design_gap_summary_root or DESIGN_GAP_SUMMARY_ROOT,
-        "implementation_architecture_root": IMPLEMENTATION_ARCHITECTURE_ROOT,
-        "architecture_index_path": architecture_index_path or ARCHITECTURE_INDEX_PATH,
-        "target_design_path": target_design_path or TARGET_DESIGN_PATH,
-        "parity_targets_path": PARITY_TARGETS_PATH,
-        "parity_report_json_path": parity_report_json_path or PARITY_REPORT_JSON_PATH,
+        "run_state_path": fixture["run_state_path"],
+        "drain_summary_path": drain_summary_path or fixture["drain_summary_path"],
+        "design_gap_summary_root": design_gap_summary_root
+        or fixture["design_gap_summary_root"],
+        "implementation_architecture_root": fixture["implementation_architecture_root"],
+        "architecture_index_path": architecture_index_path
+        or fixture["architecture_index_path"],
+        "target_design_path": target_design_path or fixture["target_design_path"],
+        "baseline_design_path": baseline_design_path or fixture["baseline_design_path"],
+        "command_adapter_contract_path": command_adapter_contract_path
+        or fixture["command_adapter_contract_path"],
+        "parity_targets_path": fixture["parity_targets_path"],
+        "parity_report_json_path": parity_report_json_path
+        or fixture["parity_report_json_path"],
         "parity_report_markdown_path": parity_report_markdown_path
-        or PARITY_REPORT_MARKDOWN_PATH,
-        "parity_index_path": parity_index_path or PARITY_INDEX_PATH,
-        "checked_manifest_paths": {
-            "boundary_authority_manifest": BOUNDARY_AUTHORITY_PATH,
-            "command_boundaries_manifest": COMMAND_BOUNDARIES_PATH,
-            "value_flow_census": VALUE_FLOW_CENSUS_PATH,
-            "consumer_rendering_census": CONSUMER_RENDERING_CENSUS_PATH,
-            "compatibility_bridges_manifest": COMPATIBILITY_BRIDGES_PATH,
-            "rendering_cleanup_manifest": RENDERING_CLEANUP_PATH,
-            "rendering_ergonomics_manifest": RENDERING_ERGONOMICS_PATH,
-            "transition_authoring_manifest": TRANSITION_AUTHORING_PATH,
-            "resume_plumbing_retirement_manifest": RESUME_PLUMBING_RETIREMENT_PATH,
-            "observability_old_writer_comparisons": OBSERVABILITY_OLD_WRITER_COMPARISONS_PATH,
-        },
-        "owner_reports": _owner_reports(),
-        "repo_root": REPO_ROOT,
+        or fixture["parity_report_markdown_path"],
+        "parity_index_path": parity_index_path or fixture["parity_index_path"],
+        "checked_manifest_paths": fixture["checked_manifest_paths"],
+        "owner_reports": fixture["owner_reports"],
+        "repo_root": fixture["repo_root"],
     }
+
+
+def _aligned_drain_summary_copy(fixture: dict[str, object], destination: Path) -> Path:
+    return _copy_json(fixture["drain_summary_path"], destination)
 
 
 def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
 
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path)
+        **_reference_family_inputs(fixture)
     )
 
-    assert profile["schema_id"] == "workflow_lisp_reference_family_conformance_profile.v1"
+    assert profile["schema_version"] == "workflow_lisp_reference_family_conformance_profile.v1"
+    assert "schema_id" not in profile
     assert profile["profile_status"] == "pass"
+    assert profile["target_design"] == "docs/design/workflow_lisp_runtime_native_drain_authoring.md"
+    assert profile["baseline_design"] == "docs/design/workflow_lisp_frontend_specification.md"
+    assert isinstance(profile["generated_at"], str) and profile["generated_at"]
     assert profile["completed_gap_reconciliation"]["missing_from_drain_summary"] == []
     assert profile["parity_surface_reconciliation"]["derived_primary_surface"] == "yaml"
     assert {row["input_id"] for row in profile["evidence_inputs"]} >= {
         "architecture_index",
         "target_design",
+        "baseline_design",
+        "command_adapter_contract",
     }
+    assert "surface_rows" not in profile
+    assert {
+        row["surface_id"] for row in profile["conformance_surfaces"]
+    } == {
+        "parent_callable_orc_route",
+        "public_private_boundary",
+        "hidden_compatibility_bridge_carriage",
+        "hidden_compatibility_bridge_evidence_alignment",
+        "observability_old_writer_retirement",
+        "provider_inputs",
+        "provider_write_targets",
+        "body_renderings",
+        "compatibility_files",
+        "deterministic_helpers",
+        "durable_state_changes",
+        "source_shape_gate",
+        "completion_inventory",
+        "migration_parity_surface",
+    }
+    surfaces_by_id = {
+        row["surface_id"]: row for row in profile["conformance_surfaces"]
+    }
+    for surface_id in (
+        "parent_callable_orc_route",
+        "completion_inventory",
+        "migration_parity_surface",
+    ):
+        assert surfaces_by_id[surface_id]["evidence_paths"] != []
 
 
-def test_build_reference_family_conformance_profile_reports_known_four_gap_omission(
+def test_build_reference_family_conformance_profile_reports_live_two_gap_omission(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
-    summary_copy = _aligned_drain_summary_copy(tmp_path)
+    fixture = _reference_family_fixture(tmp_path)
+    summary_copy = _aligned_drain_summary_copy(fixture, tmp_path / "drain-summary.json")
     payload = json.loads(summary_copy.read_text(encoding="utf-8"))
     payload["completed_design_gaps"] = [
         gap_id
@@ -282,7 +589,7 @@ def test_build_reference_family_conformance_profile_reports_known_four_gap_omiss
     summary_copy.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path, drain_summary_path=summary_copy)
+        **_reference_family_inputs(fixture, drain_summary_path=summary_copy)
     )
 
     assert profile["profile_status"] == "fail"
@@ -296,12 +603,15 @@ def test_build_reference_family_conformance_profile_reports_missing_per_gap_summ
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
-    summary_root = _copy_tree(DESIGN_GAP_SUMMARY_ROOT, tmp_path / "design-gap-summaries")
+    fixture = _reference_family_fixture(tmp_path)
+    summary_root = _copy_tree(
+        fixture["design_gap_summary_root"], tmp_path / "design-gap-summaries"
+    )
     missing_gap_id = "workflow-lisp-runtime-native-drain-typed-provider-request-records"
     (summary_root / f"{missing_gap_id}-summary.json").unlink()
 
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path, design_gap_summary_root=summary_root)
+        **_reference_family_inputs(fixture, design_gap_summary_root=summary_root)
     )
 
     assert profile["profile_status"] == "fail"
@@ -313,11 +623,47 @@ def test_build_reference_family_conformance_profile_reports_missing_per_gap_summ
     ] == ["reference_family_completed_gap_artifact_missing"]
 
 
+def test_build_reference_family_conformance_profile_reports_missing_implementation_architecture(
+    tmp_path: Path,
+) -> None:
+    module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
+    architecture_root = tmp_path / "implementation-architectures"
+    _copy_tree(fixture["implementation_architecture_root"], architecture_root)
+    missing_gap_id = "workflow-lisp-runtime-native-drain-typed-provider-request-records"
+    (
+        architecture_root / missing_gap_id / "implementation_architecture.md"
+    ).unlink()
+
+    profile = module.build_reference_family_conformance_profile(
+        **{
+            **_reference_family_inputs(fixture),
+            "implementation_architecture_root": architecture_root,
+        }
+    )
+
+    assert profile["profile_status"] == "fail"
+    assert profile["completed_gap_reconciliation"]["missing_architecture_files"] == [
+        missing_gap_id
+    ]
+    assert [
+        diagnostic["code"] for diagnostic in profile["diagnostics"]
+    ] == ["reference_family_completed_gap_artifact_missing"]
+
+
 @pytest.mark.parametrize(
-    ("missing_input_id", "architecture_index_path", "target_design_path"),
+    (
+        "missing_input_id",
+        "architecture_index_path",
+        "target_design_path",
+        "baseline_design_path",
+        "command_adapter_contract_path",
+    ),
     [
-        ("architecture_index", Path("/does/not/exist.md"), None),
-        ("target_design", None, Path("/does/not/exist.md")),
+        ("architecture_index", Path("/does/not/exist.md"), None, None, None),
+        ("target_design", None, Path("/does/not/exist.md"), None, None),
+        ("baseline_design", None, None, Path("/does/not/exist.md"), None),
+        ("command_adapter_contract", None, None, None, Path("/does/not/exist.md")),
     ],
 )
 def test_build_reference_family_conformance_profile_fails_closed_when_required_evidence_input_is_missing(
@@ -325,14 +671,19 @@ def test_build_reference_family_conformance_profile_fails_closed_when_required_e
     missing_input_id: str,
     architecture_index_path: Path | None,
     target_design_path: Path | None,
+    baseline_design_path: Path | None,
+    command_adapter_contract_path: Path | None,
 ) -> None:
     module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
 
     profile = module.build_reference_family_conformance_profile(
         **_reference_family_inputs(
-            tmp_path,
+            fixture,
             architecture_index_path=architecture_index_path,
             target_design_path=target_design_path,
+            baseline_design_path=baseline_design_path,
+            command_adapter_contract_path=command_adapter_contract_path,
         )
     )
 
@@ -342,7 +693,7 @@ def test_build_reference_family_conformance_profile_fails_closed_when_required_e
     )
     assert evidence_row["load_status"] == "missing"
     assert any(
-        diagnostic["code"] == "reference_family_evidence_input_missing"
+        diagnostic["code"] == "reference_family_conformance_input_missing"
         and diagnostic["input_id"] == missing_input_id
         for diagnostic in profile["diagnostics"]
     )
@@ -352,8 +703,9 @@ def test_build_reference_family_conformance_profile_rejects_parity_surface_metad
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
     markdown_path = _copy_json(
-        PARITY_REPORT_MARKDOWN_PATH, tmp_path / "design_delta_parent_drain.md"
+        fixture["parity_report_markdown_path"], tmp_path / "design_delta_parent_drain.md"
     )
     text = markdown_path.read_text(encoding="utf-8").replace(
         "- Primary surface: `yaml`",
@@ -362,23 +714,28 @@ def test_build_reference_family_conformance_profile_rejects_parity_surface_metad
     markdown_path.write_text(text, encoding="utf-8")
 
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path, parity_report_markdown_path=markdown_path)
+        **_reference_family_inputs(
+            fixture,
+            parity_report_markdown_path=markdown_path,
+        )
     )
 
     assert profile["profile_status"] == "fail"
     assert profile["parity_surface_reconciliation"]["derived_primary_surface"] == "yaml"
     assert profile["parity_surface_reconciliation"]["markdown_primary_surface"] == "orc"
-    assert [
-        diagnostic["code"] for diagnostic in profile["diagnostics"]
-    ] == ["reference_family_parity_surface_mismatch"]
+    assert {diagnostic["code"] for diagnostic in profile["diagnostics"]} == {
+        "reference_family_parity_surface_mismatch",
+        "reference_family_conformance_surface_failed",
+    }
 
 
 def test_build_reference_family_conformance_profile_rejects_malformed_parity_markdown_metadata(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
     markdown_path = _copy_json(
-        PARITY_REPORT_MARKDOWN_PATH, tmp_path / "design_delta_parent_drain.md"
+        fixture["parity_report_markdown_path"], tmp_path / "design_delta_parent_drain.md"
     )
     text = markdown_path.read_text(encoding="utf-8").replace(
         "- Promotion eligible: `false`\n",
@@ -387,17 +744,22 @@ def test_build_reference_family_conformance_profile_rejects_malformed_parity_mar
     markdown_path.write_text(text, encoding="utf-8")
 
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path, parity_report_markdown_path=markdown_path)
+        **_reference_family_inputs(
+            fixture,
+            parity_report_markdown_path=markdown_path,
+        )
     )
 
     assert profile["profile_status"] == "fail"
     assert profile["parity_surface_reconciliation"]["status"] == "fail"
     assert (
-        profile["parity_surface_reconciliation"]["eligible_for_primary_surface"] is None
+        profile["parity_surface_reconciliation"]["json_eligible_for_primary_surface"]
+        is False
     )
-    assert [
-        diagnostic["code"] for diagnostic in profile["diagnostics"]
-    ] == ["reference_family_parity_report_invalid"]
+    assert {diagnostic["code"] for diagnostic in profile["diagnostics"]} == {
+        "reference_family_parity_report_invalid",
+        "reference_family_conformance_surface_failed",
+    }
     assert "missing metadata bullets: promotion_eligible" in profile["diagnostics"][0][
         "message"
     ]
@@ -407,62 +769,66 @@ def test_build_reference_family_conformance_profile_rejects_parity_report_that_f
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
     json_path = _copy_json(
-        PARITY_REPORT_JSON_PATH, tmp_path / "design_delta_parent_drain.json"
+        fixture["parity_report_json_path"], tmp_path / "design_delta_parent_drain.json"
     )
     payload = json.loads(json_path.read_text(encoding="utf-8"))
-    del payload["target_identity"]["required_family_evidence_roles"]
+    del payload["target_identity"]["candidate_sha256"]
     json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path, parity_report_json_path=json_path)
+        **_reference_family_inputs(fixture, parity_report_json_path=json_path)
     )
 
     assert profile["profile_status"] == "fail"
     assert profile["parity_surface_reconciliation"]["status"] == "fail"
     assert profile["parity_surface_reconciliation"]["derived_primary_surface"] is None
-    assert [
-        diagnostic["code"] for diagnostic in profile["diagnostics"]
-    ] == ["reference_family_parity_report_invalid"]
+    assert {diagnostic["code"] for diagnostic in profile["diagnostics"]} == {
+        "reference_family_parity_report_invalid",
+        "reference_family_conformance_surface_failed",
+    }
 
 
 def test_build_reference_family_conformance_profile_requires_explicit_passing_owner_reports(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
-    owner_reports = copy.deepcopy(_owner_reports())
+    fixture = _reference_family_fixture(tmp_path)
+    owner_reports = copy.deepcopy(fixture["owner_reports"])
     owner_reports["typed_prompt_input_report"] = {}
     owner_reports["rendering_ergonomics_report"] = {}
 
     profile = module.build_reference_family_conformance_profile(
         **{
-            **_reference_family_inputs(tmp_path),
+            **_reference_family_inputs(fixture),
             "owner_reports": owner_reports,
         }
     )
 
     assert profile["profile_status"] == "fail"
     surface_rows = {
-        row["surface_id"]: row["status"] for row in profile["surface_rows"]
+        row["surface_id"]: row["status"] for row in profile["conformance_surfaces"]
     }
     assert surface_rows["provider_inputs"] == "fail"
     assert surface_rows["provider_write_targets"] == "fail"
-    assert [
-        diagnostic["code"] for diagnostic in profile["diagnostics"]
-    ] == ["reference_family_surface_incomplete"]
+    assert {diagnostic["code"] for diagnostic in profile["diagnostics"]} == {
+        "reference_family_conformance_surface_failed"
+    }
 
 
 def test_build_reference_family_conformance_profile_derives_yaml_primary_for_non_promotable_report(
     tmp_path: Path,
 ) -> None:
     module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
     profile = module.build_reference_family_conformance_profile(
-        **_reference_family_inputs(tmp_path)
+        **_reference_family_inputs(fixture)
     )
 
     parity = profile["parity_surface_reconciliation"]
 
-    assert parity["eligible_for_primary_surface"] is False
+    assert parity["json_eligible_for_primary_surface"] is False
     assert parity["derived_primary_surface"] == "yaml"
 
 

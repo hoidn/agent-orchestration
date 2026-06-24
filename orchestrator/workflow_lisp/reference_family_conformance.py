@@ -4,20 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from . import migration_parity
 
 
-SCHEMA_ID = "workflow_lisp_reference_family_conformance_profile.v1"
-GOVERNING_SECTION_IDS = (
-    "2.1 Reference-Family Conformance Profile",
-    "13.3 Authoring Ergonomics Gate",
-    "15. Success Criteria",
-)
+SCHEMA_VERSION = "workflow_lisp_reference_family_conformance_profile.v1"
 SURFACE_IDS = (
     "parent_callable_orc_route",
     "public_private_boundary",
@@ -34,11 +30,79 @@ SURFACE_IDS = (
     "completion_inventory",
     "migration_parity_surface",
 )
-REQUIRED_TEXT_SECTION_HEADINGS = {
-    "2.1 Reference-Family Conformance Profile": "### 2.1 Reference-Family Conformance Profile",
-    "13.3 Authoring Ergonomics Gate": "### 13.3 Authoring Ergonomics Gate",
-    "15. Success Criteria": "## 15. Success Criteria",
+SURFACE_QUESTIONS = {
+    "parent_callable_orc_route": "Does the parent family compile and smoke through WCC as one family?",
+    "public_private_boundary": "Are public inputs limited to authored values and labeled compatibility bridges?",
+    "hidden_compatibility_bridge_carriage": "Does retained compatibility bridge carriage stay scoped without widening authored signatures?",
+    "hidden_compatibility_bridge_evidence_alignment": "Do compiled and checked bridge evidence lanes stay fingerprint-aligned?",
+    "observability_old_writer_retirement": "Does observability retirement evidence stay aligned across the checked and compiled lanes?",
+    "provider_inputs": "Do nontrivial provider calls use typed prompt-subject records?",
+    "provider_write_targets": "Are write targets classified separately from prompt facts?",
+    "body_renderings": "Are remaining body renderings limited to justified publications or compatibility seams?",
+    "compatibility_files": "Are compatibility files generated from typed values with clear ownership metadata?",
+    "deterministic_helpers": "Are deterministic helpers retired to typed projection or certified command boundaries?",
+    "durable_state_changes": "Do durable state changes use typed transitions or certified transition adapters?",
+    "source_shape_gate": "Does the reference family preserve the approved source-shape evidence lane?",
+    "completion_inventory": "Does the checked completed-gap inventory match canonical run-state evidence?",
+    "migration_parity_surface": "Do checked migration parity artifacts agree with validated gate-derived results?",
 }
+SURFACE_OWNER_LANES = {
+    "parent_callable_orc_route": ("migration_parity",),
+    "public_private_boundary": (
+        "workflow-lisp-runtime-native-drain-design-delta-parent-drain-public-boundary-and-terminal-compat-retirement",
+    ),
+    "hidden_compatibility_bridge_carriage": (
+        "workflow-lisp-runtime-native-drain-shared-hidden-compatibility-bridge-carriage-over-fixed-run-item",
+    ),
+    "hidden_compatibility_bridge_evidence_alignment": (
+        "workflow-lisp-runtime-native-drain-resume-plumbing-retirement-evidence-alignment-for-hidden-run-item-compatibility-bridge",
+    ),
+    "observability_old_writer_retirement": (
+        "workflow-lisp-runtime-native-drain-observability-summary-old-writer-comparison-for-implementation-phase-checks-report",
+    ),
+    "provider_inputs": (
+        "workflow-lisp-runtime-native-drain-typed-provider-request-records",
+    ),
+    "provider_write_targets": (
+        "workflow-lisp-runtime-native-drain-entry-boundary-publication-adoption",
+    ),
+    "body_renderings": (
+        "workflow-lisp-runtime-native-drain-consumed-artifact-prompt-rendering-modes",
+    ),
+    "compatibility_files": (
+        "workflow-lisp-runtime-native-drain-shared-hidden-carried-compatibility-bridge-prompt-request-rendering",
+    ),
+    "deterministic_helpers": (
+        "workflow-lisp-runtime-native-drain-projection-retirement-parity-evidence-reconciliation",
+    ),
+    "durable_state_changes": (
+        "workflow-lisp-runtime-native-drain-domain-transition-operations",
+    ),
+    "source_shape_gate": (
+        "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
+    ),
+    "completion_inventory": (
+        "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
+    ),
+    "migration_parity_surface": (
+        "workflow-lisp-runtime-native-drain-reference-family-conformance-profile-reconciliation",
+    ),
+}
+CHECKED_MANIFEST_INPUT_IDS = {
+    "boundary_authority_manifest": "boundary_authority",
+    "command_boundaries_manifest": "command_boundaries",
+    "value_flow_census": "value_flow_census",
+    "consumer_rendering_census": "consumer_rendering_census",
+    "compatibility_bridges_manifest": "compatibility_bridges",
+    "rendering_cleanup_manifest": "rendering_cleanup",
+    "rendering_ergonomics_manifest": "rendering_ergonomics",
+    "transition_authoring_manifest": "transition_authoring",
+    "resume_plumbing_retirement_manifest": "resume_plumbing_retirement",
+    "observability_old_writer_comparisons": "observability_old_writer_comparisons",
+}
+LEGACY_GATE_OWNED_REPORT_FIELDS = frozenset(
+    {"primary_surface", "report_valid", "evidence_complete"}
+)
 
 
 @dataclass(frozen=True)
@@ -48,14 +112,15 @@ class EvidenceInput:
     path: str | None
     load_status: str
     sha256: str | None
-    details: dict[str, object]
+    details: Mapping[str, object]
 
 
 @dataclass(frozen=True)
 class Diagnostic:
     code: str
     message: str
-    details: dict[str, object]
+    severity: str
+    details: Mapping[str, object]
 
 
 def parse_parity_markdown_metadata(text: str) -> dict[str, object]:
@@ -63,14 +128,21 @@ def parse_parity_markdown_metadata(text: str) -> dict[str, object]:
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if line.startswith("- Non-regressive: `") and line.endswith("`"):
-            metadata["non_regressive"] = line.removeprefix("- Non-regressive: `").removesuffix("`") == "true"
+            metadata["non_regressive"] = (
+                line.removeprefix("- Non-regressive: `").removesuffix("`") == "true"
+            )
         elif line.startswith("- Promotion eligible: `") and line.endswith("`"):
             metadata["promotion_eligible"] = (
-                line.removeprefix("- Promotion eligible: `").removesuffix("`") == "true"
+                line.removeprefix("- Promotion eligible: `").removesuffix("`")
+                == "true"
             )
         elif line.startswith("- Primary surface: `") and line.endswith("`"):
-            metadata["primary_surface"] = line.removeprefix("- Primary surface: `").removesuffix("`")
-    missing = sorted({"non_regressive", "promotion_eligible", "primary_surface"} - set(metadata))
+            metadata["primary_surface"] = (
+                line.removeprefix("- Primary surface: `").removesuffix("`")
+            )
+    missing = sorted(
+        {"non_regressive", "promotion_eligible", "primary_surface"} - set(metadata)
+    )
     if missing:
         raise ValueError("parity markdown is missing metadata bullets: " + ", ".join(missing))
     return metadata
@@ -85,6 +157,8 @@ def build_reference_family_conformance_profile(
     implementation_architecture_root: Path,
     architecture_index_path: Path,
     target_design_path: Path,
+    baseline_design_path: Path,
+    command_adapter_contract_path: Path,
     parity_targets_path: Path,
     parity_report_json_path: Path,
     parity_report_markdown_path: Path,
@@ -95,31 +169,54 @@ def build_reference_family_conformance_profile(
 ) -> dict[str, object]:
     diagnostics: list[Diagnostic] = []
     evidence_inputs: list[EvidenceInput] = []
+    generated_at = _iso8601_now()
 
+    run_state = _load_json_input(evidence_inputs, "run_state", run_state_path)
+    drain_summary = _load_json_input(evidence_inputs, "drain_summary", drain_summary_path)
+    summary_inventory = _scan_summary_directory(
+        evidence_inputs,
+        "design_gap_summary_directory",
+        design_gap_summary_root,
+    )
+    implementation_architectures = _scan_implementation_architectures(
+        evidence_inputs,
+        "implementation_architecture_directory",
+        implementation_architecture_root,
+    )
     architecture_index = _load_text_input(
         evidence_inputs, "architecture_index", architecture_index_path
     )
     target_design = _load_text_input(evidence_inputs, "target_design", target_design_path)
-    run_state = _load_json_input(evidence_inputs, "run_state", run_state_path)
-    drain_summary = _load_json_input(evidence_inputs, "drain_summary", drain_summary_path)
-    summary_inventory = _scan_summary_directory(
-        evidence_inputs, "design_gap_summary_root", design_gap_summary_root
+    baseline_design = _load_text_input(
+        evidence_inputs, "baseline_design", baseline_design_path
     )
-    implementation_architectures = _scan_implementation_architectures(
+    command_adapter_contract = _load_text_input(
         evidence_inputs,
-        "implementation_architecture_root",
-        implementation_architecture_root,
+        "command_adapter_contract",
+        command_adapter_contract_path,
     )
-    parity_targets = _load_json_input(evidence_inputs, "parity_targets", parity_targets_path)
+    parity_targets = _load_json_input(
+        evidence_inputs,
+        "parity_targets",
+        parity_targets_path,
+    )
     parity_report_json = _load_json_input(
-        evidence_inputs, "parity_report_json", parity_report_json_path
+        evidence_inputs,
+        "parity_json_report",
+        parity_report_json_path,
     )
     parity_report_markdown = _load_text_input(
-        evidence_inputs, "parity_report_markdown", parity_report_markdown_path
+        evidence_inputs,
+        "parity_markdown_report",
+        parity_report_markdown_path,
     )
     parity_index = _load_json_input(evidence_inputs, "parity_index", parity_index_path)
     checked_manifests = {
-        input_id: _load_input_by_suffix(evidence_inputs, input_id, path)
+        CHECKED_MANIFEST_INPUT_IDS.get(input_id, input_id): _load_input_by_suffix(
+            evidence_inputs,
+            CHECKED_MANIFEST_INPUT_IDS.get(input_id, input_id),
+            path,
+        )
         for input_id, path in sorted(checked_manifest_paths.items())
     }
     inline_owner_reports = {
@@ -127,18 +224,19 @@ def build_reference_family_conformance_profile(
         for input_id, payload in sorted(owner_reports.items())
     }
 
-    _require_loaded(
-        diagnostics,
+    for required_input in (
+        run_state,
+        drain_summary,
+        summary_inventory,
+        implementation_architectures,
         architecture_index,
-        message="reviewed architecture index is required for completed-gap discoverability",
-    )
-    _require_loaded(
-        diagnostics,
         target_design,
-        message="target design is required for governing source sections",
-    )
+        baseline_design,
+        command_adapter_contract,
+        parity_targets,
+    ):
+        _require_loaded(diagnostics, required_input)
 
-    governing_sections = _extract_governing_sections(target_design, diagnostics)
     completed_gap_reconciliation = _reconcile_completed_gaps(
         run_state=run_state,
         drain_summary=drain_summary,
@@ -147,19 +245,18 @@ def build_reference_family_conformance_profile(
         architecture_index=architecture_index,
         repo_root=repo_root,
         diagnostics=diagnostics,
-        governing_sections=governing_sections,
     )
     parity_surface_reconciliation = _reconcile_parity_surface(
         workflow_family=workflow_family,
         parity_targets_path=parity_targets_path,
+        parity_targets=parity_targets,
         parity_report_json=parity_report_json,
         parity_report_markdown=parity_report_markdown,
         parity_index=parity_index,
         repo_root=repo_root,
         diagnostics=diagnostics,
-        governing_sections=governing_sections,
     )
-    surfaces = _build_surface_rows(
+    conformance_surfaces = _build_conformance_surfaces(
         workflow_family=workflow_family,
         checked_manifests=checked_manifests,
         owner_reports=inline_owner_reports,
@@ -169,18 +266,21 @@ def build_reference_family_conformance_profile(
     )
     profile_status = (
         "pass"
-        if not diagnostics and all(row["status"] == "pass" for row in surfaces)
+        if not diagnostics and all(row["status"] == "pass" for row in conformance_surfaces)
         else "fail"
     )
+
     return {
-        "schema_id": SCHEMA_ID,
+        "schema_version": SCHEMA_VERSION,
         "workflow_family": workflow_family,
+        "generated_at": generated_at,
         "profile_status": profile_status,
-        "governing_source_sections": list(governing_sections),
+        "target_design": _relative_or_absolute_path(target_design_path, repo_root),
+        "baseline_design": _relative_or_absolute_path(baseline_design_path, repo_root),
         "evidence_inputs": [_evidence_input_to_json(item) for item in evidence_inputs],
         "completed_gap_reconciliation": completed_gap_reconciliation,
+        "conformance_surfaces": conformance_surfaces,
         "parity_surface_reconciliation": parity_surface_reconciliation,
-        "surface_rows": surfaces,
         "diagnostics": [_diagnostic_to_json(item) for item in diagnostics],
     }
 
@@ -224,6 +324,7 @@ def _load_json_input(
             details={},
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        payload = None
         record = EvidenceInput(
             input_id=input_id,
             input_kind="json",
@@ -232,7 +333,6 @@ def _load_json_input(
             sha256=_sha256_bytes(raw_bytes),
             details={"error": str(exc)},
         )
-        payload = None
     evidence_inputs.append(record)
     return {"record": record, "payload": payload}
 
@@ -266,6 +366,7 @@ def _load_text_input(
             details={},
         )
     except UnicodeDecodeError as exc:
+        text = None
         record = EvidenceInput(
             input_id=input_id,
             input_kind="text",
@@ -274,7 +375,6 @@ def _load_text_input(
             sha256=_sha256_bytes(raw_bytes),
             details={"error": str(exc)},
         )
-        text = None
     evidence_inputs.append(record)
     return {"record": record, "text": text}
 
@@ -296,8 +396,9 @@ def _scan_summary_directory(
         evidence_inputs.append(record)
         return {"record": record, "files_by_gap_id": {}}
     files_by_gap_id = {
-        file_path.name.removesuffix("-summary.json"): file_path
-        for file_path in sorted(path.glob("*-summary.json"))
+        child.name.removesuffix("-summary.json"): child
+        for child in sorted(path.glob("*-summary.json"))
+        if child.is_file()
     }
     record = EvidenceInput(
         input_id=input_id,
@@ -357,11 +458,10 @@ def _record_inline_report_input(
         and bool(payload.get("workflows"))
     )
     load_status = "loaded" if status is not None or is_boundary_authority_report else "invalid"
-    details: dict[str, object] = {"status": status}
-    if load_status == "invalid":
-        details["error"] = "inline owner report must include a string status"
     encoded = json.dumps(
-        _json_compatible(payload), sort_keys=True, separators=(",", ":")
+        _json_compatible(payload),
+        sort_keys=True,
+        separators=(",", ":"),
     ).encode("utf-8")
     record = EvidenceInput(
         input_id=input_id,
@@ -369,36 +469,40 @@ def _record_inline_report_input(
         path=str(payload.get("path")) if isinstance(payload.get("path"), str) else None,
         load_status=load_status,
         sha256=_sha256_bytes(encoded),
-        details=details,
+        details={"status": status},
     )
     evidence_inputs.append(record)
     return {"record": record, "payload": payload}
 
 
-def _extract_governing_sections(
-    target_design: dict[str, object],
+def _require_loaded(
     diagnostics: list[Diagnostic],
-) -> tuple[str, ...]:
-    text = target_design.get("text")
-    record = target_design["record"]
-    if not isinstance(text, str):
-        return ()
-    found: list[str] = []
-    for section_id, heading in REQUIRED_TEXT_SECTION_HEADINGS.items():
-        if heading in text:
-            found.append(section_id)
-            continue
-        diagnostics.append(
-            Diagnostic(
-                code="reference_family_target_design_section_missing",
-                message=f"target design is missing governing section `{section_id}`",
-                details={
-                    "section_id": section_id,
-                    "path": record.path,
-                },
-            )
+    loaded_input: dict[str, object],
+) -> None:
+    record = loaded_input["record"]
+    if record.load_status == "loaded":
+        return
+    code = (
+        "reference_family_conformance_input_missing"
+        if record.load_status == "missing"
+        else "reference_family_conformance_input_invalid"
+    )
+    message = (
+        f"required evidence input `{record.input_id}` is missing"
+        if record.load_status == "missing"
+        else f"required evidence input `{record.input_id}` is invalid"
+    )
+    diagnostics.append(
+        Diagnostic(
+            code=code,
+            message=message,
+            severity="error",
+            details={
+                "input_id": record.input_id,
+                "evidence_path": record.path,
+            },
         )
-    return tuple(found)
+    )
 
 
 def _reconcile_completed_gaps(
@@ -410,104 +514,92 @@ def _reconcile_completed_gaps(
     architecture_index: dict[str, object],
     repo_root: Path,
     diagnostics: list[Diagnostic],
-    governing_sections: tuple[str, ...],
 ) -> dict[str, object]:
     run_state_payload = run_state.get("payload")
     drain_summary_payload = drain_summary.get("payload")
     if not isinstance(run_state_payload, dict) or not isinstance(drain_summary_payload, dict):
         return {
-            "status": "fail",
-            "run_state_completed_count": 0,
-            "drain_summary_completed_count": 0,
+            "run_state_count": 0,
+            "drain_summary_count": 0,
             "missing_from_drain_summary": [],
             "extra_in_drain_summary": [],
             "ordered_list_matches": False,
             "missing_summary_artifacts": [],
-            "missing_implementation_architectures": [],
+            "missing_architecture_files": [],
             "missing_from_architecture_index": [],
+            "evidence_paths": [],
+            "status": "fail",
         }
-    run_completed = [
-        str(item) for item in run_state_payload.get("completed_design_gaps", []) if isinstance(item, str)
-    ]
-    summary_completed = [
-        str(item)
-        for item in drain_summary_payload.get("completed_design_gaps", [])
-        if isinstance(item, str)
-    ]
+
+    run_completed = _normalize_string_list(run_state_payload.get("completed_design_gaps"))
+    summary_completed = _normalize_string_list(
+        drain_summary_payload.get("completed_design_gaps")
+    )
     missing_from_summary = sorted(set(run_completed) - set(summary_completed))
     extra_in_summary = sorted(set(summary_completed) - set(run_completed))
     ordered_list_matches = run_completed == summary_completed
-    if missing_from_summary or extra_in_summary or not ordered_list_matches:
-        diagnostics.append(
-            Diagnostic(
-                code="reference_family_completed_gap_summary_mismatch",
-                message="drain summary completed-gap inventory does not match run state",
-                details={
-                    "missing_gap_ids": missing_from_summary,
-                    "extra_gap_ids": extra_in_summary,
-                    "ordered_list_matches": ordered_list_matches,
-                    "governing_sections": list(governing_sections),
-                },
-            )
-        )
+
     summary_files = summary_inventory.get("files_by_gap_id", {})
     missing_summary_artifacts = sorted(
         gap_id for gap_id in run_completed if gap_id not in summary_files
     )
-    if missing_summary_artifacts:
-        diagnostics.append(
-            Diagnostic(
-                code="reference_family_completed_gap_artifact_missing",
-                message="one or more completed gaps are missing checked summary artifacts",
-                details={
-                    "missing_gap_ids": missing_summary_artifacts,
-                    "governing_sections": list(governing_sections),
-                },
-            )
-        )
     implementation_paths = implementation_architectures.get("paths_by_gap_id", {})
-    missing_implementation_architectures = sorted(
+    missing_architecture_files = sorted(
         gap_id
         for gap_id in run_completed
         if not isinstance(implementation_paths.get(gap_id), Path)
         or not implementation_paths[gap_id].is_file()
     )
-    if missing_implementation_architectures:
-        diagnostics.append(
-            Diagnostic(
-                code="reference_family_completed_gap_implementation_architecture_missing",
-                message="one or more completed gaps are missing implementation architecture files",
-                details={
-                    "missing_gap_ids": missing_implementation_architectures,
-                    "governing_sections": list(governing_sections),
-                },
-            )
-        )
-    architecture_index_text = architecture_index.get("text")
+
     missing_from_architecture_index: list[str] = []
+    architecture_index_text = architecture_index.get("text")
     if isinstance(architecture_index_text, str):
         for gap_id in run_completed:
             expected_path = implementation_paths.get(gap_id)
+            relpath = gap_id
             if isinstance(expected_path, Path):
-                try:
-                    relpath = str(expected_path.resolve().relative_to(repo_root.resolve()))
-                except ValueError:
-                    relpath = gap_id
-            else:
-                relpath = gap_id
-            if relpath not in architecture_index_text and gap_id not in architecture_index_text:
+                relpath = _relative_or_absolute_path(expected_path, repo_root)
+            if gap_id not in architecture_index_text and relpath not in architecture_index_text:
                 missing_from_architecture_index.append(gap_id)
-    if missing_from_architecture_index:
+
+    if missing_from_summary or extra_in_summary or not ordered_list_matches:
         diagnostics.append(
             Diagnostic(
-                code="reference_family_completed_gap_architecture_index_missing",
-                message="reviewed architecture index does not list every completed gap architecture",
+                code="reference_family_completed_gap_summary_mismatch",
+                message="drain summary completed-gap inventory does not match run state",
+                severity="error",
                 details={
-                    "missing_gap_ids": missing_from_architecture_index,
-                    "governing_sections": list(governing_sections),
+                    "evidence_path": run_state["record"].path,
+                    "comparison_path": drain_summary["record"].path,
+                    "json_pointer": "/completed_design_gaps",
+                    "expected_value": f"{len(run_completed)} completed gaps from run_state",
+                    "actual_value": f"{len(summary_completed)} completed gaps",
+                    "missing_from_drain_summary": missing_from_summary,
+                    "extra_in_drain_summary": extra_in_summary,
+                    "ordered_list_matches": ordered_list_matches,
+                    "related_surface_id": "completion_inventory",
+                    "suggested_owner_lane": "reference-family conformance profile reconciliation",
                 },
             )
         )
+
+    if missing_summary_artifacts or missing_architecture_files:
+        diagnostics.append(
+            Diagnostic(
+                code="reference_family_completed_gap_artifact_missing",
+                message="one or more completed gaps are missing checked evidence artifacts",
+                severity="error",
+                details={
+                    "evidence_path": implementation_architectures["record"].path,
+                    "comparison_path": summary_inventory["record"].path,
+                    "missing_summary_artifacts": missing_summary_artifacts,
+                    "missing_architecture_files": missing_architecture_files,
+                    "related_surface_id": "completion_inventory",
+                    "suggested_owner_lane": "reference-family conformance profile reconciliation",
+                },
+            )
+        )
+
     status = (
         "pass"
         if not (
@@ -515,21 +607,33 @@ def _reconcile_completed_gaps(
             or extra_in_summary
             or not ordered_list_matches
             or missing_summary_artifacts
-            or missing_implementation_architectures
-            or missing_from_architecture_index
+            or missing_architecture_files
         )
         else "fail"
     )
     return {
-        "status": status,
-        "run_state_completed_count": len(run_completed),
-        "drain_summary_completed_count": len(summary_completed),
+        "run_state_count": len(run_completed),
+        "drain_summary_count": len(summary_completed),
         "missing_from_drain_summary": missing_from_summary,
         "extra_in_drain_summary": extra_in_summary,
         "ordered_list_matches": ordered_list_matches,
         "missing_summary_artifacts": missing_summary_artifacts,
-        "missing_implementation_architectures": missing_implementation_architectures,
+        "missing_architecture_files": missing_architecture_files,
         "missing_from_architecture_index": missing_from_architecture_index,
+        "evidence_paths": sorted(
+            {
+                path
+                for path in (
+                    run_state["record"].path,
+                    drain_summary["record"].path,
+                    summary_inventory["record"].path,
+                    implementation_architectures["record"].path,
+                    architecture_index["record"].path,
+                )
+                if isinstance(path, str) and path
+            }
+        ),
+        "status": status,
     }
 
 
@@ -537,33 +641,130 @@ def _reconcile_parity_surface(
     *,
     workflow_family: str,
     parity_targets_path: Path,
+    parity_targets: dict[str, object],
     parity_report_json: dict[str, object],
     parity_report_markdown: dict[str, object],
     parity_index: dict[str, object],
     repo_root: Path,
     diagnostics: list[Diagnostic],
-    governing_sections: tuple[str, ...],
 ) -> dict[str, object]:
     report_payload = parity_report_json.get("payload")
-    parity_index_payload = parity_index.get("payload")
-    if not isinstance(report_payload, dict):
+    index_payload = parity_index.get("payload")
+    result = {
+        "workflow_family": workflow_family,
+        "json_report": _relative_or_absolute_path(parity_report_json_path := Path(str(parity_report_json["record"].path)), repo_root)
+        if parity_report_json["record"].path
+        else None,
+        "markdown_report": _relative_or_absolute_path(parity_markdown_path := Path(str(parity_report_markdown["record"].path)), repo_root)
+        if parity_report_markdown["record"].path
+        else None,
+        "index_report": _relative_or_absolute_path(parity_index_path := Path(str(parity_index["record"].path)), repo_root)
+        if parity_index["record"].path
+        else None,
+        "json_non_regressive": None,
+        "json_eligible_for_primary_surface": None,
+        "derived_primary_surface": None,
+        "markdown_primary_surface": None,
+        "index_primary_surface": None,
+        "evidence_paths": sorted(
+            {
+                path
+                for path in (
+                    _relative_or_absolute_path(parity_targets_path, repo_root),
+                    _relative_or_absolute_path(
+                        Path(str(parity_report_json["record"].path)),
+                        repo_root,
+                    )
+                    if parity_report_json["record"].path
+                    else None,
+                    _relative_or_absolute_path(
+                        Path(str(parity_report_markdown["record"].path)),
+                        repo_root,
+                    )
+                    if parity_report_markdown["record"].path
+                    else None,
+                    _relative_or_absolute_path(
+                        Path(str(parity_index["record"].path)),
+                        repo_root,
+                    )
+                    if parity_index["record"].path
+                    else None,
+                )
+                if isinstance(path, str) and path
+            }
+        ),
+        "status": "fail",
+    }
+
+    targets = _load_validated_parity_targets(
+        parity_targets_path=parity_targets_path,
+        parity_targets=parity_targets,
+        diagnostics=diagnostics,
+    )
+    if targets is None:
+        return result
+
+    for evidence_input, code_missing, code_invalid in (
+        (
+            parity_report_json,
+            "reference_family_parity_report_missing",
+            "reference_family_parity_report_invalid",
+        ),
+        (
+            parity_report_markdown,
+            "reference_family_parity_report_missing",
+            "reference_family_parity_report_invalid",
+        ),
+        (
+            parity_index,
+            "reference_family_parity_report_missing",
+            "reference_family_parity_report_invalid",
+        ),
+    ):
+        record = evidence_input["record"]
+        if record.load_status == "loaded":
+            continue
         diagnostics.append(
             Diagnostic(
-                code="reference_family_parity_report_invalid",
-                message="checked parity JSON report is missing or invalid",
-                details={"governing_sections": list(governing_sections)},
+                code=code_missing if record.load_status == "missing" else code_invalid,
+                message=(
+                    f"required parity evidence `{record.input_id}` is missing"
+                    if record.load_status == "missing"
+                    else f"required parity evidence `{record.input_id}` is invalid"
+                ),
+                severity="error",
+                details={
+                    "input_id": record.input_id,
+                    "evidence_path": record.path,
+                    "related_surface_id": "migration_parity_surface",
+                },
             )
         )
-        return {
-            "status": "fail",
-            "non_regressive": None,
-            "eligible_for_primary_surface": None,
-            "derived_primary_surface": None,
-            "markdown_primary_surface": None,
-            "index_primary_surface": None,
-        }
+        return result
+
+    if not isinstance(report_payload, Mapping):
+        return result
+    if not isinstance(index_payload, Mapping):
+        return result
+
+    if LEGACY_GATE_OWNED_REPORT_FIELDS & set(report_payload):
+        diagnostics.append(
+            Diagnostic(
+                code="reference_family_primary_surface_authored",
+                message="parity report must not author gate-owned primary-surface fields",
+                severity="error",
+                details={
+                    "evidence_path": parity_report_json["record"].path,
+                    "authored_fields": sorted(
+                        LEGACY_GATE_OWNED_REPORT_FIELDS & set(report_payload)
+                    ),
+                    "related_surface_id": "migration_parity_surface",
+                },
+            )
+        )
+        return result
+
     try:
-        targets = migration_parity.load_parity_targets(parity_targets_path)
         target = next(item for item in targets if item.workflow_family == workflow_family)
         gate_row = migration_parity.validate_report_for_target(
             report_payload,
@@ -572,96 +773,125 @@ def _reconcile_parity_surface(
             repo_root=repo_root,
             today=date.today(),
         )
-        non_regressive = gate_row.non_regressive
-        eligible_for_primary_surface = gate_row.eligible_for_primary_surface
-        derived_primary_surface = gate_row.primary_surface
     except (StopIteration, ValueError) as exc:
         diagnostics.append(
             Diagnostic(
                 code="reference_family_parity_report_invalid",
                 message=f"checked parity JSON report is invalid: {exc}",
-                details={"governing_sections": list(governing_sections)},
+                severity="error",
+                details={
+                    "evidence_path": parity_report_json["record"].path,
+                    "related_surface_id": "migration_parity_surface",
+                },
             )
         )
-        return {
-            "status": "fail",
-            "non_regressive": None,
-            "eligible_for_primary_surface": None,
-            "derived_primary_surface": None,
-            "markdown_primary_surface": None,
-            "index_primary_surface": None,
-        }
-    markdown_primary_surface = None
-    markdown_non_regressive = None
-    markdown_promotion_eligible = None
+        return result
+
+    derived_primary_surface = migration_parity.derive_primary_surface(
+        non_regressive=gate_row.non_regressive,
+        eligible_for_primary_surface=gate_row.eligible_for_primary_surface,
+    )
+    result["json_non_regressive"] = gate_row.non_regressive
+    result["json_eligible_for_primary_surface"] = gate_row.eligible_for_primary_surface
+    result["derived_primary_surface"] = derived_primary_surface
+
     markdown_text = parity_report_markdown.get("text")
-    if isinstance(markdown_text, str):
-        try:
-            metadata = parse_parity_markdown_metadata(markdown_text)
-        except ValueError as exc:
-            diagnostics.append(
-                Diagnostic(
-                    code="reference_family_parity_report_invalid",
-                    message=f"checked parity markdown metadata is invalid: {exc}",
-                    details={"governing_sections": list(governing_sections)},
-                )
+    if not isinstance(markdown_text, str):
+        return result
+    try:
+        metadata = parse_parity_markdown_metadata(markdown_text)
+    except ValueError as exc:
+        diagnostics.append(
+            Diagnostic(
+                code="reference_family_parity_report_invalid",
+                message=f"checked parity markdown metadata is invalid: {exc}",
+                severity="error",
+                details={
+                    "evidence_path": parity_report_markdown["record"].path,
+                    "related_surface_id": "migration_parity_surface",
+                },
             )
-            return {
-                "status": "fail",
-                "non_regressive": None,
-                "eligible_for_primary_surface": None,
-                "derived_primary_surface": None,
-                "markdown_primary_surface": None,
-                "index_primary_surface": None,
-            }
-        markdown_primary_surface = metadata["primary_surface"]
-        markdown_non_regressive = metadata["non_regressive"]
-        markdown_promotion_eligible = metadata["promotion_eligible"]
+        )
+        return result
+
+    result["markdown_primary_surface"] = metadata["primary_surface"]
+
     index_primary_surface = None
     index_non_regressive = None
-    index_promotion_eligible = None
-    if isinstance(parity_index_payload, dict):
-        for row in parity_index_payload.get("targets", []):
-            if not isinstance(row, dict) or row.get("workflow_family") != workflow_family:
+    index_eligible = None
+    targets_payload = index_payload.get("targets")
+    if isinstance(targets_payload, list):
+        for row in targets_payload:
+            if not isinstance(row, Mapping) or row.get("workflow_family") != workflow_family:
                 continue
             index_primary_surface = row.get("primary_surface")
             index_non_regressive = row.get("non_regressive")
             promotion = row.get("promotion_eligibility")
-            if isinstance(promotion, dict):
-                index_promotion_eligible = promotion.get("eligible_for_primary_surface")
+            if isinstance(promotion, Mapping):
+                index_eligible = promotion.get("eligible_for_primary_surface")
             break
-    mismatch = (
-        markdown_primary_surface != derived_primary_surface
-        or markdown_non_regressive != non_regressive
-        or markdown_promotion_eligible != eligible_for_primary_surface
-        or index_primary_surface != derived_primary_surface
-        or index_non_regressive != non_regressive
-        or index_promotion_eligible != eligible_for_primary_surface
+    result["index_primary_surface"] = index_primary_surface
+
+    mismatch = any(
+        (
+            metadata["non_regressive"] != gate_row.non_regressive,
+            metadata["promotion_eligible"] != gate_row.eligible_for_primary_surface,
+            metadata["primary_surface"] != derived_primary_surface,
+            index_non_regressive != gate_row.non_regressive,
+            index_eligible != gate_row.eligible_for_primary_surface,
+            index_primary_surface != derived_primary_surface,
+        )
     )
     if mismatch:
         diagnostics.append(
             Diagnostic(
                 code="reference_family_parity_surface_mismatch",
                 message="checked parity JSON, markdown metadata, and index row do not agree",
+                severity="error",
                 details={
+                    "evidence_path": parity_report_json["record"].path,
+                    "markdown_path": parity_report_markdown["record"].path,
+                    "index_path": parity_index["record"].path,
                     "derived_primary_surface": derived_primary_surface,
-                    "markdown_primary_surface": markdown_primary_surface,
+                    "markdown_primary_surface": metadata["primary_surface"],
                     "index_primary_surface": index_primary_surface,
-                    "governing_sections": list(governing_sections),
+                    "related_surface_id": "migration_parity_surface",
+                    "suggested_owner_lane": "reference-family conformance profile reconciliation",
                 },
             )
         )
-    return {
-        "status": "pass" if not mismatch else "fail",
-        "non_regressive": non_regressive,
-        "eligible_for_primary_surface": eligible_for_primary_surface,
-        "derived_primary_surface": derived_primary_surface,
-        "markdown_primary_surface": markdown_primary_surface,
-        "index_primary_surface": index_primary_surface,
-    }
+        return result
+
+    result["status"] = "pass"
+    return result
 
 
-def _build_surface_rows(
+def _load_validated_parity_targets(
+    *,
+    parity_targets_path: Path,
+    parity_targets: dict[str, object],
+    diagnostics: list[Diagnostic],
+) -> list[migration_parity.ParityTarget] | None:
+    if parity_targets["record"].load_status != "loaded":
+        return None
+    try:
+        return migration_parity.load_parity_targets(parity_targets_path)
+    except ValueError as exc:
+        diagnostics.append(
+            Diagnostic(
+                code="reference_family_conformance_input_invalid",
+                message=f"required evidence input `parity_targets` is invalid: {exc}",
+                severity="error",
+                details={
+                    "input_id": "parity_targets",
+                    "evidence_path": parity_targets["record"].path,
+                },
+            )
+        )
+        return None
+
+
+def _build_conformance_surfaces(
     *,
     workflow_family: str,
     checked_manifests: dict[str, dict[str, object]],
@@ -670,98 +900,202 @@ def _build_surface_rows(
     parity_surface_reconciliation: dict[str, object],
     diagnostics: list[Diagnostic],
 ) -> list[dict[str, object]]:
-    def owner_status(report_id: str) -> bool:
-        report = owner_reports.get(report_id, {})
-        payload = report.get("payload")
-        record = report.get("record")
-        if report_id == "boundary_authority_report":
-            return (
-                isinstance(record, EvidenceInput)
-                and record.load_status == "loaded"
-                and isinstance(payload, dict)
-                and payload.get("workflow_family") == workflow_family
-                and isinstance(payload.get("workflows"), list)
-                and bool(payload.get("workflows"))
-            )
-        return (
-            isinstance(record, EvidenceInput)
-            and record.load_status == "loaded"
-            and isinstance(payload, dict)
-            and payload.get("status") == "pass"
-        )
-
-    def manifest_loaded(input_id: str) -> bool:
-        record = checked_manifests.get(input_id, {}).get("record")
-        return isinstance(record, EvidenceInput) and record.load_status == "loaded"
-
     surfaces: list[dict[str, object]] = []
+
     for surface_id in SURFACE_IDS:
-        status = "fail"
+        failures: list[str] = []
+        missing_evidence: list[str] = []
+        evidence_paths: list[str] = []
+
+        def require_manifest(input_id: str) -> bool:
+            loaded = checked_manifests.get(input_id, {})
+            record = loaded.get("record")
+            if isinstance(record, EvidenceInput) and record.path:
+                evidence_paths.append(record.path)
+            if isinstance(record, EvidenceInput) and record.load_status == "loaded":
+                return True
+            missing_evidence.append(input_id)
+            return False
+
+        def require_owner_report(report_id: str) -> bool:
+            report = owner_reports.get(report_id, {})
+            record = report.get("record")
+            payload = report.get("payload")
+            if isinstance(record, EvidenceInput) and record.path:
+                evidence_paths.append(record.path)
+            if not isinstance(record, EvidenceInput):
+                failures.append(report_id)
+                return False
+            if report_id == "boundary_authority_report":
+                passed = (
+                    record.load_status == "loaded"
+                    and isinstance(payload, Mapping)
+                    and payload.get("workflow_family") == workflow_family
+                    and isinstance(payload.get("workflows"), list)
+                    and bool(payload.get("workflows"))
+                )
+            else:
+                passed = (
+                    record.load_status == "loaded"
+                    and isinstance(payload, Mapping)
+                    and payload.get("status") == "pass"
+                )
+            if not passed:
+                failures.append(report_id)
+            return passed
+
+        passed = False
         if surface_id == "parent_callable_orc_route":
-            status = "pass" if parity_surface_reconciliation["status"] == "pass" else "fail"
+            evidence_paths.extend(
+                path
+                for path in parity_surface_reconciliation.get("evidence_paths", [])
+                if isinstance(path, str)
+            )
+            passed = parity_surface_reconciliation.get("status") == "pass"
         elif surface_id == "public_private_boundary":
-            status = "pass" if manifest_loaded("boundary_authority_manifest") and owner_status("boundary_authority_report") else "fail"
+            passed = require_manifest("boundary_authority") and require_owner_report(
+                "boundary_authority_report"
+            )
         elif surface_id == "hidden_compatibility_bridge_carriage":
-            status = "pass" if manifest_loaded("compatibility_bridges_manifest") and owner_status("compatibility_bridge_report") else "fail"
+            passed = require_manifest("compatibility_bridges") and require_owner_report(
+                "compatibility_bridge_report"
+            )
         elif surface_id == "hidden_compatibility_bridge_evidence_alignment":
-            status = "pass" if manifest_loaded("resume_plumbing_retirement_manifest") and owner_status("resume_plumbing_retirement_report") else "fail"
+            passed = require_manifest("resume_plumbing_retirement") and require_owner_report(
+                "resume_plumbing_retirement_report"
+            )
         elif surface_id == "observability_old_writer_retirement":
-            status = "pass" if manifest_loaded("observability_old_writer_comparisons") and owner_status("observability_summary_report") and owner_status("rendering_cleanup_report") else "fail"
+            passed = (
+                require_manifest("observability_old_writer_comparisons")
+                and require_owner_report("observability_summary_report")
+                and require_owner_report("rendering_cleanup_report")
+            )
         elif surface_id == "provider_inputs":
-            status = "pass" if owner_status("typed_prompt_input_report") else "fail"
+            passed = require_owner_report("typed_prompt_input_report")
         elif surface_id == "provider_write_targets":
-            status = "pass" if owner_status("typed_prompt_input_report") and owner_status("rendering_ergonomics_report") else "fail"
+            passed = require_owner_report("typed_prompt_input_report") and require_owner_report(
+                "rendering_ergonomics_report"
+            )
         elif surface_id == "body_renderings":
-            status = "pass" if manifest_loaded("consumer_rendering_census") and owner_status("rendering_cleanup_report") else "fail"
+            passed = require_manifest("consumer_rendering_census") and require_owner_report(
+                "rendering_cleanup_report"
+            )
         elif surface_id == "compatibility_files":
-            status = "pass" if owner_status("compatibility_bridge_report") else "fail"
+            passed = require_manifest("compatibility_bridges") and require_owner_report(
+                "compatibility_bridge_report"
+            )
         elif surface_id == "deterministic_helpers":
-            status = "pass" if manifest_loaded("command_boundaries_manifest") else "fail"
+            passed = require_manifest("command_boundaries")
+            if passed and not _command_boundaries_are_certified(
+                checked_manifests.get("command_boundaries", {}).get("payload")
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        code="reference_family_command_boundary_uncertified",
+                        message="deterministic helper evidence includes uncertified command boundary rows",
+                        severity="error",
+                        details={
+                            "related_surface_id": surface_id,
+                            "suggested_owner_lane": "reference-family conformance profile reconciliation",
+                        },
+                    )
+                )
+                passed = False
+                failures.append("command_boundaries")
         elif surface_id == "durable_state_changes":
-            status = "pass" if owner_status("transition_authoring_report") else "fail"
+            passed = require_manifest("transition_authoring") and require_owner_report(
+                "transition_authoring_report"
+            )
         elif surface_id == "source_shape_gate":
-            status = "pass" if owner_status("parent_drain_census_alignment_report") else "fail"
+            passed = require_manifest("value_flow_census") and require_owner_report(
+                "parent_drain_census_alignment_report"
+            )
         elif surface_id == "completion_inventory":
-            status = str(completed_gap_reconciliation.get("status", "fail"))
+            evidence_paths.extend(
+                path
+                for path in completed_gap_reconciliation.get("evidence_paths", [])
+                if isinstance(path, str)
+            )
+            passed = completed_gap_reconciliation.get("status") == "pass"
         elif surface_id == "migration_parity_surface":
-            status = str(parity_surface_reconciliation.get("status", "fail"))
+            evidence_paths.extend(
+                path
+                for path in parity_surface_reconciliation.get("evidence_paths", [])
+                if isinstance(path, str)
+            )
+            passed = parity_surface_reconciliation.get("status") == "pass"
+
+        if not passed:
+            if missing_evidence:
+                diagnostics.append(
+                    Diagnostic(
+                        code="reference_family_conformance_surface_missing",
+                        message="required conformance surface evidence is missing",
+                        severity="error",
+                        details={
+                            "related_surface_id": surface_id,
+                            "missing_evidence_inputs": sorted(set(missing_evidence)),
+                            "suggested_owner_lane": "reference-family conformance profile reconciliation",
+                        },
+                    )
+                )
+            elif surface_id not in {"completion_inventory", "migration_parity_surface"}:
+                diagnostics.append(
+                    Diagnostic(
+                        code="reference_family_conformance_surface_failed",
+                        message="required conformance surface evidence did not pass",
+                        severity="error",
+                        details={
+                            "related_surface_id": surface_id,
+                            "failed_evidence_inputs": sorted(set(failures)),
+                            "suggested_owner_lane": "reference-family conformance profile reconciliation",
+                        },
+                    )
+                )
+
         surfaces.append(
             {
                 "surface_id": surface_id,
-                "workflow_family": workflow_family,
-                "status": status,
+                "question": SURFACE_QUESTIONS[surface_id],
+                "owner_lanes": list(SURFACE_OWNER_LANES[surface_id]),
+                "status": "pass" if passed else "fail",
+                "evidence_paths": sorted(
+                    {
+                        _normalize_surface_path(path)
+                        for path in evidence_paths
+                        if isinstance(path, str) and path
+                    }
+                ),
+                "diagnostics": [
+                    diag.code
+                    for diag in diagnostics
+                    if diag.details.get("related_surface_id") == surface_id
+                ],
             }
         )
-    if any(row["status"] == "fail" for row in surfaces) and not diagnostics:
-        diagnostics.append(
-            Diagnostic(
-                code="reference_family_surface_incomplete",
-                message="one or more conformance surfaces are missing required evidence inputs or passing owner-lane status",
-                details={"failed_surface_ids": [row["surface_id"] for row in surfaces if row["status"] == "fail"]},
-            )
-        )
+
     return surfaces
 
 
-def _require_loaded(
-    diagnostics: list[Diagnostic],
-    loaded_input: dict[str, object],
-    *,
-    message: str,
-) -> None:
-    record = loaded_input["record"]
-    if record.load_status == "loaded":
-        return
-    diagnostics.append(
-        Diagnostic(
-            code="reference_family_evidence_input_missing",
-            message=message,
-            details={
-                "input_id": record.input_id,
-                "path": record.path,
-            },
-        )
-    )
+def _command_boundaries_are_certified(payload: object) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    for row in payload.values():
+        if not isinstance(row, Mapping):
+            return False
+        if not isinstance(row.get("stable_command"), list):
+            return False
+    return True
+
+
+def _normalize_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _iso8601_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -779,6 +1113,17 @@ def _sha256_directory(path: Path, *, pattern: str) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _relative_or_absolute_path(path: Path, repo_root: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(repo_root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _normalize_surface_path(path: str) -> str:
+    return str(Path(path))
+
+
 def _evidence_input_to_json(item: EvidenceInput) -> dict[str, object]:
     return {
         "input_id": item.input_id,
@@ -794,17 +1139,14 @@ def _diagnostic_to_json(item: Diagnostic) -> dict[str, object]:
     return {
         "code": item.code,
         "message": item.message,
+        "severity": item.severity,
         **dict(item.details),
     }
 
 
 def _json_compatible(value: Any) -> Any:
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {str(key): _json_compatible(item) for key, item in value.items()}
-    if hasattr(value, "items"):
-        return {
-            str(key): _json_compatible(item) for key, item in value.items()
-        }
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_json_compatible(item) for item in value]
     if isinstance(value, Path):

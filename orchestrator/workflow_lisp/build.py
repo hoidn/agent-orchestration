@@ -256,12 +256,19 @@ REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH = (
     / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
     / "drain"
     / "iterations"
-    / "10"
+    / "12"
+    / "done-review"
     / "design-gap-architect"
     / "existing-architecture-index.md"
 )
 REFERENCE_FAMILY_TARGET_DESIGN_PATH = (
     REPO_ROOT / "docs" / "design" / "workflow_lisp_runtime_native_drain_authoring.md"
+)
+REFERENCE_FAMILY_BASELINE_DESIGN_PATH = (
+    REPO_ROOT / "docs" / "design" / "workflow_lisp_frontend_specification.md"
+)
+REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH = (
+    REPO_ROOT / "docs" / "design" / "workflow_command_adapter_contract.md"
 )
 REFERENCE_FAMILY_PARITY_TARGETS_PATH = (
     REPO_ROOT
@@ -1406,6 +1413,8 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                     implementation_architecture_root=REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT,
                     architecture_index_path=REFERENCE_FAMILY_ARCHITECTURE_INDEX_PATH,
                     target_design_path=REFERENCE_FAMILY_TARGET_DESIGN_PATH,
+                    baseline_design_path=REFERENCE_FAMILY_BASELINE_DESIGN_PATH,
+                    command_adapter_contract_path=REFERENCE_FAMILY_COMMAND_ADAPTER_CONTRACT_PATH,
                     parity_targets_path=REFERENCE_FAMILY_PARITY_TARGETS_PATH,
                     parity_report_json_path=REFERENCE_FAMILY_PARITY_REPORT_JSON_PATH,
                     parity_report_markdown_path=REFERENCE_FAMILY_PARITY_REPORT_MARKDOWN_PATH,
