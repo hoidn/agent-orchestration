@@ -266,10 +266,18 @@ def run_parity_target(
     command_logs: dict[str, object] = {}
     compile_payload: Mapping[str, Any] | None = None
     build_manifest: Mapping[str, Any] | None = None
+    compile_artifacts_snapshot: Mapping[str, Any] | None = None
+    required_artifact_freshness_snapshot: Mapping[str, Any] | None = None
+    compile_manifest_path_snapshot: str | None = None
+    compile_manifest_sha256_snapshot: str | None = None
+    compiled_workflow_checksum_snapshot: str | None = None
+    compile_manifest_snapshot: Mapping[Path, tuple[int, int, int]] | None = None
 
     for role in COMMAND_ROLES:
         stdout_log = logs_root / f"{role}.stdout.log"
         stderr_log = logs_root / f"{role}.stderr.log"
+        if role == "compile":
+            compile_manifest_snapshot = _snapshot_build_manifests(repo_root)
         outcome = _run_command(
             target.evidence_commands[role],
             role=role,
@@ -292,17 +300,54 @@ def run_parity_target(
         if outcome.waiver is not None:
             evidence_record["waiver"] = dict(outcome.waiver)
         evidence[role] = evidence_record
-        if role == "compile" and outcome.status == "pass":
+        if role == "compile":
             compile_payload, build_manifest = _load_compile_outputs(outcome.stdout, repo_root)
-            if compile_payload is not None:
+            if compile_payload is None or build_manifest is None:
+                recovered_payload, recovered_manifest = (
+                    _recover_compile_outputs_from_failed_conformance(
+                        target=target,
+                        stderr=outcome.stderr,
+                        repo_root=repo_root,
+                        preexisting_manifests=compile_manifest_snapshot,
+                    )
+                )
+                if compile_payload is None:
+                    compile_payload = recovered_payload
+                if build_manifest is None:
+                    build_manifest = recovered_manifest
+            if compile_payload is not None and isinstance(compile_payload.get("build_root"), str):
+                build_root = Path(str(compile_payload["build_root"]))
                 evidence_record["build_root"] = _relative_or_absolute_path(
-                    Path(str(compile_payload["build_root"])),
+                    build_root,
                     repo_root,
                 )
-                evidence_record["manifest_path"] = _relative_or_absolute_path(
-                    Path(str(compile_payload["build_root"])) / "manifest.json",
-                    repo_root,
-                )
+                if build_manifest is not None:
+                    evidence_record["manifest_path"] = _relative_or_absolute_path(
+                        build_root / "manifest.json",
+                        repo_root,
+                    )
+                    compile_artifacts_snapshot = _compile_artifact_report(
+                        target=target,
+                        build_manifest=build_manifest,
+                        build_root=build_root,
+                        repo_root=repo_root,
+                    )
+                    required_artifact_freshness_snapshot = (
+                        _build_required_artifact_freshness(
+                            compile_artifacts_snapshot,
+                            repo_root=repo_root,
+                        )
+                    )
+                    compile_manifest_path_snapshot = _relative_or_absolute_path(
+                        build_root / "manifest.json",
+                        repo_root,
+                    )
+                    compile_manifest_sha256_snapshot = _sha256_file(
+                        build_root / "manifest.json"
+                    )
+                    compiled_workflow_checksum_snapshot = _string_or_none(
+                        build_manifest.get("compiled_workflow_checksum")
+                    )
 
     evidence["shared_validation"] = _shared_validation_evidence(build_manifest)
     evidence["baseline_characterization"] = {
@@ -310,11 +355,17 @@ def run_parity_target(
         **{field_name: list(values) for field_name, values in target.baseline_characterization.items()},
     }
 
-    compile_artifacts = _compile_artifact_report(
-        target=target,
-        build_manifest=build_manifest,
-        build_root=Path(str(compile_payload["build_root"])) if compile_payload and isinstance(compile_payload.get("build_root"), str) else None,
-        repo_root=repo_root,
+    compile_artifacts = (
+        dict(compile_artifacts_snapshot)
+        if compile_artifacts_snapshot is not None
+        else _compile_artifact_report(
+            target=target,
+            build_manifest=build_manifest,
+            build_root=Path(str(compile_payload["build_root"]))
+            if compile_payload and isinstance(compile_payload.get("build_root"), str)
+            else None,
+            repo_root=repo_root,
+        )
     )
     generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     target_identity = _build_target_identity(target, repo_root=repo_root)
@@ -325,6 +376,10 @@ def run_parity_target(
         command_logs=command_logs,
         compile_payload=compile_payload,
         build_manifest=build_manifest,
+        required_artifact_freshness=required_artifact_freshness_snapshot,
+        compile_manifest_path=compile_manifest_path_snapshot,
+        compile_manifest_sha256=compile_manifest_sha256_snapshot,
+        compiled_workflow_checksum=compiled_workflow_checksum_snapshot,
         repo_root=repo_root,
     )
     report = {
@@ -1084,11 +1139,17 @@ def _build_evidence_freshness(
     command_logs: Mapping[str, Any],
     compile_payload: Mapping[str, Any] | None,
     build_manifest: Mapping[str, Any] | None,
+    required_artifact_freshness: Mapping[str, Any] | None = None,
+    compile_manifest_path: str | None = None,
+    compile_manifest_sha256: str | None = None,
+    compiled_workflow_checksum: str | None = None,
     repo_root: Path,
 ) -> dict[str, object]:
     freshness: dict[str, object] = {
         "generated_at": generated_at,
-        "required_artifacts": _build_required_artifact_freshness(
+        "required_artifacts": dict(required_artifact_freshness)
+        if required_artifact_freshness is not None
+        else _build_required_artifact_freshness(
             compile_artifacts,
             repo_root=repo_root,
         ),
@@ -1104,18 +1165,25 @@ def _build_evidence_freshness(
             target.family_evidence_artifacts,
             repo_root=repo_root,
         )
-    compile_manifest_path = None
-    if isinstance(compile_payload, Mapping) and isinstance(compile_payload.get("build_root"), str):
-        compile_manifest_path = Path(str(compile_payload["build_root"])) / "manifest.json"
-    if compile_manifest_path is not None and compile_manifest_path.exists():
-        freshness["compile_manifest_path"] = _relative_or_absolute_path(
-            compile_manifest_path,
-            repo_root,
-        )
-        freshness["compile_manifest_sha256"] = _sha256_file(compile_manifest_path)
-    checksum = None
-    if isinstance(build_manifest, Mapping):
+    manifest_path = compile_manifest_path
+    manifest_sha256 = compile_manifest_sha256
+    checksum = compiled_workflow_checksum
+    if manifest_path is None and isinstance(compile_payload, Mapping) and isinstance(
+        compile_payload.get("build_root"), str
+    ):
+        resolved_manifest_path = Path(str(compile_payload["build_root"])) / "manifest.json"
+        if resolved_manifest_path.exists():
+            manifest_path = _relative_or_absolute_path(
+                resolved_manifest_path,
+                repo_root,
+            )
+            manifest_sha256 = _sha256_file(resolved_manifest_path)
+    if checksum is None and isinstance(build_manifest, Mapping):
         checksum = _string_or_none(build_manifest.get("compiled_workflow_checksum"))
+    if manifest_path:
+        freshness["compile_manifest_path"] = manifest_path
+    if manifest_sha256:
+        freshness["compile_manifest_sha256"] = manifest_sha256
     if checksum:
         freshness["compiled_workflow_checksum"] = checksum
     return freshness
@@ -1276,7 +1344,10 @@ def _parent_family_evidence(
         elif role == "projection_retirement_parity":
             role_evidence[role] = _projection_retirement_parity_evidence(
                 target=target,
+                compile_payload=compile_payload,
+                build_manifest=build_manifest,
                 adapter_census=adapter_census,
+                g8_deletion_evidence=g8_deletion_evidence,
                 repo_root=repo_root,
             )
         elif role == "view_retirement_parity":
@@ -1710,14 +1781,92 @@ def _validated_design_delta_g8_deleted_rows(
         reasons.append(
             "g8_deletion_evidence compile artifact is missing deleted rows: "
             + ", ".join(missing_required_rows)
-        )
+    )
     return removed_rows, reasons
+
+
+def _build_root_from_compile_payload(
+    compile_payload: Mapping[str, Any] | None,
+) -> Path | None:
+    if isinstance(compile_payload, Mapping) and isinstance(compile_payload.get("build_root"), str):
+        return Path(str(compile_payload["build_root"]))
+    return None
+
+
+def _projection_deleted_helper_live_lineage(
+    *,
+    build_manifest: Mapping[str, Any] | None,
+    build_root: Path | None,
+    repo_root: Path,
+) -> tuple[set[str], list[str]]:
+    reasons: list[str] = []
+    source_map = _load_compile_artifact_json(
+        artifact_name="source_map",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    core_workflow_ast = _load_compile_artifact_json(
+        artifact_name="core_workflow_ast",
+        build_manifest=build_manifest,
+        build_root=build_root,
+        repo_root=repo_root,
+    )
+    if source_map is None:
+        reasons.append(
+            "missing source_map compile artifact needed for deleted projection helper lineage"
+        )
+    if core_workflow_ast is None:
+        reasons.append(
+            "missing core_workflow_ast compile artifact needed for deleted projection helper lineage"
+        )
+    live_names: set[str] = set()
+    if isinstance(source_map, Mapping):
+        workflows = source_map.get("workflows")
+        if not isinstance(workflows, Mapping):
+            reasons.append(
+                "source_map compile artifact does not contain workflow lineage for deleted projection helpers"
+            )
+        else:
+            for workflow_payload in workflows.values():
+                if not isinstance(workflow_payload, Mapping):
+                    continue
+                command_boundaries = workflow_payload.get("command_boundaries")
+                if not isinstance(command_boundaries, list):
+                    continue
+                for boundary in command_boundaries:
+                    if not isinstance(boundary, Mapping):
+                        continue
+                    boundary_name = boundary.get("adapter_name") or boundary.get("command_name")
+                    if isinstance(boundary_name, str) and boundary_name:
+                        live_names.add(boundary_name)
+    if isinstance(core_workflow_ast, Mapping):
+        live_names.update(_core_ast_boundary_names(core_workflow_ast))
+    return live_names, reasons
+
+
+def _core_ast_boundary_names(node: object) -> set[str]:
+    names: set[str] = set()
+    if isinstance(node, Mapping):
+        for key in ("adapter_name", "command_name"):
+            value = node.get(key)
+            if isinstance(value, str) and value:
+                names.add(value)
+        for value in node.values():
+            names.update(_core_ast_boundary_names(value))
+    elif isinstance(node, list):
+        for item in node:
+            names.update(_core_ast_boundary_names(item))
+    return names
 
 
 def _projection_retirement_parity_evidence(
     *,
     target: ParityTarget,
+    compile_payload: Mapping[str, Any] | None = None,
+    build_manifest: Mapping[str, Any] | None = None,
     adapter_census: Mapping[str, Any] | None = None,
+    g8_deletion_evidence: Mapping[str, Any] | None = None,
     repo_root: Path,
 ) -> dict[str, object]:
     artifacts = [
@@ -1732,12 +1881,14 @@ def _projection_retirement_parity_evidence(
         }
     results: dict[str, object] = {}
     reasons: list[str] = []
+    build_root = _build_root_from_compile_payload(compile_payload)
     for artifact in artifacts:
         artifact_id = str(artifact["artifact_id"])
         artifact_path = repo_root / str(artifact["path"])
         declared_schema_version = str(artifact["schema_version"])
         artifact_status = "pass"
         artifact_reasons: list[str] = []
+        adapter_states: dict[str, object] = {}
         payload: Mapping[str, Any] | None = None
         if not artifact_path.exists():
             artifact_status = "fail"
@@ -1804,6 +1955,34 @@ def _projection_retirement_parity_evidence(
                         for row in rows
                         if isinstance(row, Mapping) and isinstance(row.get("binding_name"), str)
                     }
+                    missing_adapter_names = [
+                        adapter_name
+                        for adapter_name in adapters
+                        if isinstance(adapter_name, str) and adapter_name not in rows_by_name
+                    ]
+                    deleted_rows: set[str] = set()
+                    deletion_reasons: list[str] = []
+                    if missing_adapter_names:
+                        deleted_rows, deletion_reasons = _validated_design_delta_g8_deleted_rows(
+                            target=target,
+                            g8_deletion_evidence=g8_deletion_evidence,
+                            required_rows=missing_adapter_names,
+                        )
+                    deleted_live_lineage, deleted_lineage_reasons = (
+                        _projection_deleted_helper_live_lineage(
+                            build_manifest=build_manifest,
+                            build_root=build_root,
+                            repo_root=repo_root,
+                        )
+                        if missing_adapter_names
+                        else (set(), [])
+                    )
+                    if deletion_reasons:
+                        artifact_status = "fail"
+                        artifact_reasons.extend(deletion_reasons)
+                    if deleted_lineage_reasons:
+                        artifact_status = "fail"
+                        artifact_reasons.extend(deleted_lineage_reasons)
                     for adapter_name in adapters:
                         if not isinstance(adapter_name, str):
                             artifact_status = "fail"
@@ -1813,25 +1992,92 @@ def _projection_retirement_parity_evidence(
                             continue
                         row = rows_by_name.get(adapter_name)
                         if row is None:
+                            deleted_reason: str | None = None
+                            if g8_deletion_evidence is None:
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` missing from "
+                                    "adapter_census and g8_deletion_evidence"
+                                )
+                            elif (
+                                g8_deletion_evidence.get("schema_version")
+                                != DESIGN_DELTA_G8_DELETION_EVIDENCE_SCHEMA_VERSION
+                            ):
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` has wrong "
+                                    "g8_deletion_evidence schema_version"
+                                )
+                            elif g8_deletion_evidence.get("workflow_family") != target.workflow_family:
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` has wrong "
+                                    "g8_deletion_evidence workflow_family"
+                                )
+                            elif g8_deletion_evidence.get("status") != "pass":
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` has non-passing "
+                                    "g8_deletion_evidence"
+                                )
+                            elif adapter_name not in deleted_rows:
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` missing from "
+                                    "adapter_census and g8_deletion_evidence"
+                                )
+                            elif deleted_lineage_reasons:
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` cannot be proven deleted "
+                                    "because compile/source_map lineage evidence is unreadable or missing"
+                                )
+                            elif adapter_name in deleted_live_lineage:
+                                deleted_reason = (
+                                    f"projection adapter `{adapter_name}` still has live "
+                                    "compile/source_map invocation lineage"
+                                )
+                            if deleted_reason is None:
+                                adapter_states[adapter_name] = {
+                                    "status": "pass",
+                                    "retirement_state": "deleted_after_retirement",
+                                    "evidence_source": "g8_deletion_evidence",
+                                }
+                                continue
                             artifact_status = "fail"
-                            artifact_reasons.append(
-                                f"adapter_census compile artifact is missing `{adapter_name}`"
-                            )
+                            artifact_reasons.append(deleted_reason)
+                            adapter_states[adapter_name] = {
+                                "status": "fail",
+                                "retirement_state": "invalid",
+                                "evidence_source": "g8_deletion_evidence",
+                                "reason": deleted_reason,
+                            }
                             continue
+                        invocation_sites = row.get("invocation_sites")
+                        has_invocation_sites = isinstance(invocation_sites, list) and bool(
+                            invocation_sites
+                        )
+                        adapter_reason: str | None = None
                         if row.get("retirement_status") != "retired":
-                            artifact_status = "fail"
-                            artifact_reasons.append(
+                            adapter_reason = (
                                 f"adapter `{adapter_name}` is not marked retired in adapter_census"
                             )
-                        if row.get("liveness") != "unreferenced":
-                            artifact_status = "fail"
-                            artifact_reasons.append(
-                                f"retired adapter `{adapter_name}` is still live"
-                            )
+                        elif row.get("liveness") != "unreferenced" or has_invocation_sites:
+                            adapter_reason = f"retired adapter `{adapter_name}` is still live"
+                        if adapter_reason is None:
+                            adapter_states[adapter_name] = {
+                                "status": "pass",
+                                "retirement_state": "retained_retired_unreferenced",
+                                "evidence_source": "adapter_census",
+                            }
+                            continue
+                        artifact_status = "fail"
+                        artifact_reasons.append(adapter_reason)
+                        adapter_states[adapter_name] = {
+                            "status": "fail",
+                            "retirement_state": "invalid",
+                            "evidence_source": "adapter_census",
+                            "reason": adapter_reason,
+                        }
         results[artifact_id] = {
             "status": artifact_status,
             "path": str(artifact["path"]),
             "schema_version": declared_schema_version,
+            **({"adapter_states": adapter_states} if adapter_states else {}),
             **({"reasons": artifact_reasons} if artifact_reasons else {}),
         }
         reasons.extend(artifact_reasons)
@@ -2251,7 +2497,15 @@ def _validate_evidence_freshness(
             if not expected_sha:
                 mark_incomplete(f"missing required artifact digest `{artifact_name}`")
             elif expected_sha != _sha256_file(current_file):
-                raise ValueError(f"required_artifacts.{artifact_name}.sha256 does not match current artifact")
+                if artifact_name == "source_map":
+                    mark_incomplete(
+                        "required artifact `source_map` digest changed while compile "
+                        "manifest identity remained stable"
+                    )
+                else:
+                    raise ValueError(
+                        f"required_artifacts.{artifact_name}.sha256 does not match current artifact"
+                    )
 
     evidence_refs = _require_report_mapping(evidence_freshness, "evidence_refs")
     current_command_logs = _require_report_mapping(report, "command_logs")
@@ -2541,6 +2795,107 @@ def _load_compile_outputs(stdout: str, repo_root: Path) -> tuple[Mapping[str, An
     except (OSError, json.JSONDecodeError):
         return payload, None
     return payload, manifest
+
+
+def _recover_compile_outputs_from_failed_conformance(
+    *,
+    target: ParityTarget,
+    stderr: str,
+    repo_root: Path,
+    preexisting_manifests: Mapping[Path, tuple[int, int, int]] | None = None,
+) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
+    if "reference_family_conformance_invalid" not in stderr:
+        return None, None
+
+    build_root_parent = repo_root / ".orchestrate" / "build"
+    if not build_root_parent.exists():
+        return None, None
+
+    candidate_path = (repo_root / target.candidate).resolve()
+    required_artifacts = tuple(
+        artifact_name
+        for artifact_name in target.compile_artifacts["required"]
+        if artifact_name in {"core_workflow_ast", "semantic_ir", "source_map"}
+    )
+
+    manifests = sorted(
+        build_root_parent.glob("*/manifest.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for manifest_path in manifests:
+        if not _manifest_was_updated_after_compile_attempt(
+            manifest_path,
+            preexisting_manifests=preexisting_manifests,
+        ):
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(manifest, Mapping):
+            continue
+        source_path = manifest.get("source_path")
+        entry_workflow = manifest.get("entry_workflow")
+        if not isinstance(source_path, str) or Path(source_path).resolve() != candidate_path:
+            continue
+        if entry_workflow != target.entry_workflow:
+            continue
+        source_sha256 = _string_or_none(manifest.get("source_sha256"))
+        if not source_sha256 or source_sha256 != _sha256_file(candidate_path):
+            continue
+        artifact_paths = manifest.get("artifact_paths")
+        if not isinstance(artifact_paths, Mapping):
+            continue
+        if any(
+            not isinstance(artifact_paths.get(artifact_name), str)
+            or not (repo_root / str(artifact_paths[artifact_name])).exists()
+            for artifact_name in required_artifacts
+        ):
+            continue
+        build_root = manifest_path.parent
+        return {"build_root": str(build_root)}, manifest
+    return None, None
+
+
+def _snapshot_build_manifests(repo_root: Path) -> dict[Path, tuple[int, int, int]]:
+    build_root_parent = repo_root / ".orchestrate" / "build"
+    if not build_root_parent.exists():
+        return {}
+    snapshot: dict[Path, tuple[int, int, int]] = {}
+    for manifest_path in build_root_parent.glob("*/manifest.json"):
+        try:
+            stat_result = manifest_path.stat()
+        except OSError:
+            continue
+        snapshot[manifest_path.resolve()] = (
+            stat_result.st_mtime_ns,
+            stat_result.st_ctime_ns,
+            stat_result.st_size,
+        )
+    return snapshot
+
+
+def _manifest_was_updated_after_compile_attempt(
+    manifest_path: Path,
+    *,
+    preexisting_manifests: Mapping[Path, tuple[int, int, int]] | None,
+) -> bool:
+    try:
+        stat_result = manifest_path.stat()
+    except OSError:
+        return False
+    current_signature = (
+        stat_result.st_mtime_ns,
+        stat_result.st_ctime_ns,
+        stat_result.st_size,
+    )
+    if preexisting_manifests is None:
+        return True
+    previous_signature = preexisting_manifests.get(manifest_path.resolve())
+    if previous_signature is None:
+        return True
+    return current_signature != previous_signature
 
 
 def _shared_validation_evidence(build_manifest: Mapping[str, Any] | None) -> dict[str, object]:

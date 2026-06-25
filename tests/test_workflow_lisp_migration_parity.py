@@ -1364,17 +1364,20 @@ def test_run_parity_target_records_parent_family_evidence_roles(
     )
     _write_json(tmp_path / str(target.command_boundaries_file), checked_in_commands)
     build_root = _write_design_delta_g0_build_manifest(tmp_path)
-    runtime_audit_artifact = target.runtime_audit_artifacts[0]
+    runtime_audit_path = tmp_path / target.runtime_audit_artifacts[0]["path"]
     _write_text(
-        tmp_path / runtime_audit_artifact["path"],
-        json.dumps(
-            {
-                "transition_name": runtime_audit_artifact["transition_name"],
-                "resource_kind": runtime_audit_artifact["resource_kind"],
-                "outcome_code": "committed",
-            }
-        )
-        + "\n",
+        runtime_audit_path,
+        "".join(
+            json.dumps(
+                {
+                    "transition_name": artifact["transition_name"],
+                    "resource_kind": artifact["resource_kind"],
+                    "outcome_code": "committed",
+                }
+            )
+            + "\n"
+            for artifact in target.runtime_audit_artifacts
+        ),
     )
     for artifact in target.family_evidence_artifacts:
         payload = {
@@ -2520,6 +2523,38 @@ def _design_delta_g8_deletion_evidence_payload(
     }
 
 
+def _design_delta_projection_dual_run_report_payload(
+    *,
+    adapters: Mapping[str, Mapping[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        "schema_version": "workflow_lisp_projection_dual_run_report.v1",
+        "artifact_id": "projection_dual_run_report",
+        "workflow_family": "design_delta_parent_drain",
+        "overall_status": "pass",
+        "all_passed": True,
+        "adapters": dict(adapters)
+        if adapters is not None
+        else {
+            "project_lisp_frontend_selector_action": {
+                "status": "pass",
+                "comparison_mapping_id": "selector_action_projection.v1",
+                "cases": [],
+            },
+            "classify_lisp_frontend_work_item_terminal": {
+                "status": "pass",
+                "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                "cases": [],
+            },
+            "select_lisp_frontend_blocked_recovery_route": {
+                "status": "pass",
+                "comparison_mapping_id": "blocked_recovery_route_projection.v1",
+                "cases": [],
+            },
+        },
+    }
+
+
 def _write_design_delta_g0_build_manifest(
     tmp_path: Path,
     *,
@@ -2534,6 +2569,7 @@ def _write_design_delta_g0_build_manifest(
     include_transition_authoring_report: bool = True,
     include_g8_deletion_evidence: bool = True,
     g8_removed_manifest_rows: list[str] | None = None,
+    source_map_command_boundaries: list[dict[str, object]] | None = None,
     boundary_unclassified: list[str] | None = None,
     boundary_public_leaks: list[str] | None = None,
     value_flow_workflow_surfaces: list[str] | None = None,
@@ -2586,8 +2622,17 @@ def _write_design_delta_g0_build_manifest(
             ]
         },
     )
-    for artifact_name in ("semantic_ir", "source_map"):
-        _write_json(build_root / f"{artifact_name}.json", {})
+    _write_json(build_root / "semantic_ir.json", {})
+    _write_json(
+        build_root / "source_map.json",
+        {
+            "workflows": {
+                "lisp_frontend_design_delta/work_item::run-work-item": {
+                    "command_boundaries": source_map_command_boundaries or [],
+                }
+            }
+        },
+    )
     _write_json(
         build_root / "workflow_boundary_projection.json",
         {
@@ -3166,6 +3211,360 @@ def test_run_parity_target_loads_design_delta_g0_artifacts_into_report(
     ]
 
 
+def test_run_parity_target_recovers_compile_artifacts_after_reference_family_conformance_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    original_build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    build_root = tmp_path / ".orchestrate" / "build" / "recovered"
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        if role == "compile":
+            build_root.mkdir(parents=True, exist_ok=True)
+            for artifact_path in original_build_root.iterdir():
+                destination = build_root / artifact_path.name
+                destination.write_bytes(artifact_path.read_bytes())
+            manifest_file = build_root / "manifest.json"
+            manifest_payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+            manifest_payload["artifact_paths"] = {
+                artifact_name: str(build_root / Path(path).name)
+                for artifact_name, path in manifest_payload["artifact_paths"].items()
+            }
+            manifest_payload["source_path"] = str((tmp_path / target.candidate).resolve())
+            manifest_payload["entry_workflow"] = target.entry_workflow
+            manifest_payload["source_sha256"] = _sha256_file(tmp_path / str(target.candidate))
+            manifest_file.write_text(
+                json.dumps(manifest_payload, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            stdout = ""
+            stderr = (
+                "artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/drain-summary.json:1:1: "
+                "[reference_family_conformance_invalid] design-delta reference-family conformance "
+                "profile failed: reference_family_parity_report_invalid\n"
+            )
+            status = "fail"
+            exit_code = 2
+        else:
+            stdout = ""
+            stderr = ""
+            status = "pass"
+            exit_code = 0
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text(stderr, encoding="utf-8")
+        return module.CommandOutcome(
+            status=status,
+            argv=("python", role),
+            exit_code=exit_code,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert report["evidence"]["compile"]["status"] == "fail"
+    assert report["evidence"]["compile"]["build_root"] == ".orchestrate/build/recovered"
+    assert (
+        report["evidence"]["compile"]["manifest_path"]
+        == ".orchestrate/build/recovered/manifest.json"
+    )
+    assert (
+        report["compile_artifacts"]["required"]["source_map"]["path"]
+        == ".orchestrate/build/recovered/source_map.json"
+    )
+    assert (
+        report["evidence_freshness"]["required_artifacts"]["source_map"]["path"]
+        == ".orchestrate/build/recovered/source_map.json"
+    )
+
+    gate_row = module.validate_report_for_target(
+        report,
+        target=target,
+        targets_file=manifest_path,
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert gate_row.report_valid is True
+
+
+def test_run_parity_target_rejects_recovered_compile_artifacts_after_candidate_source_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    original_build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    candidate_path = tmp_path / str(target.candidate)
+    build_root = tmp_path / ".orchestrate" / "build" / "recovered"
+    build_root.mkdir(parents=True, exist_ok=True)
+    for artifact_path in original_build_root.iterdir():
+        destination = build_root / artifact_path.name
+        destination.write_bytes(artifact_path.read_bytes())
+    manifest_file = build_root / "manifest.json"
+    manifest_payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+    manifest_payload["artifact_paths"] = {
+        artifact_name: str(build_root / Path(path).name)
+        for artifact_name, path in manifest_payload["artifact_paths"].items()
+    }
+    manifest_payload["source_path"] = str(candidate_path.resolve())
+    manifest_payload["entry_workflow"] = target.entry_workflow
+    manifest_payload["source_sha256"] = _sha256_file(candidate_path)
+    manifest_file.write_text(
+        json.dumps(manifest_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _write_text(candidate_path, "(workflow-lisp)\n(changed-source)\n")
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        if role == "compile":
+            stdout = ""
+            stderr = (
+                "artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/drain-summary.json:1:1: "
+                "[reference_family_conformance_invalid] design-delta reference-family conformance "
+                "profile failed: reference_family_parity_report_invalid\n"
+            )
+            status = "fail"
+            exit_code = 2
+        else:
+            stdout = ""
+            stderr = ""
+            status = "pass"
+            exit_code = 0
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text(stderr, encoding="utf-8")
+        return module.CommandOutcome(
+            status=status,
+            argv=("python", role),
+            exit_code=exit_code,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert "build_root" not in report["evidence"]["compile"]
+
+    gate_row = module.validate_report_for_target(
+        report,
+        target=target,
+        targets_file=manifest_path,
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert gate_row.report_valid is True
+    assert gate_row.evidence_complete is False
+
+
+def test_run_parity_target_rejects_recovered_compile_artifacts_after_command_boundary_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    original_build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    build_root = tmp_path / ".orchestrate" / "build" / "recovered"
+    build_root.mkdir(parents=True, exist_ok=True)
+    for artifact_path in original_build_root.iterdir():
+        destination = build_root / artifact_path.name
+        destination.write_bytes(artifact_path.read_bytes())
+    manifest_file = build_root / "manifest.json"
+    manifest_payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+    manifest_payload["artifact_paths"] = {
+        artifact_name: str(build_root / Path(path).name)
+        for artifact_name, path in manifest_payload["artifact_paths"].items()
+    }
+    manifest_payload["source_path"] = str((tmp_path / target.candidate).resolve())
+    manifest_payload["entry_workflow"] = target.entry_workflow
+    manifest_payload["source_sha256"] = _sha256_file(tmp_path / str(target.candidate))
+    manifest_file.write_text(
+        json.dumps(manifest_payload, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    _write_json(
+        tmp_path / str(target.command_boundaries_file),
+        {
+            "mutated_after_cached_build": {
+                "kind": "certified_adapter",
+                "behavior_class": "structured_result",
+            }
+        },
+    )
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        if role == "compile":
+            stdout = ""
+            stderr = (
+                "artifacts/work/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/drain-summary.json:1:1: "
+                "[reference_family_conformance_invalid] design-delta reference-family conformance "
+                "profile failed: reference_family_parity_report_invalid\n"
+            )
+            status = "fail"
+            exit_code = 2
+        else:
+            stdout = ""
+            stderr = ""
+            status = "pass"
+            exit_code = 0
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text(stderr, encoding="utf-8")
+        return module.CommandOutcome(
+            status=status,
+            argv=("python", role),
+            exit_code=exit_code,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert "build_root" not in report["evidence"]["compile"]
+
+    gate_row = module.validate_report_for_target(
+        report,
+        target=target,
+        targets_file=manifest_path,
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert gate_row.report_valid is True
+    assert gate_row.evidence_complete is False
+
+
+def test_run_parity_target_snapshots_compile_artifact_freshness_before_later_roles_mutate_build_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    source_map_path = build_root / "source_map.json"
+    original_sha256 = _sha256_bytes(source_map_path.read_bytes())
+
+    def _fake_run_command(
+        command: object,
+        *,
+        role: str,
+        repo_root: Path,
+        stdout_log: Path,
+        stderr_log: Path,
+    ):
+        stdout_log.parent.mkdir(parents=True, exist_ok=True)
+        stderr_log.parent.mkdir(parents=True, exist_ok=True)
+        if role == "compile":
+            stdout = json.dumps({"build_root": str(build_root)})
+        else:
+            if role == "output_contract_parity":
+                _write_json(
+                    source_map_path,
+                    {
+                        "workflows": {
+                            "lisp_frontend_design_delta/work_item::run-work-item": {
+                                "command_boundaries": [
+                                    {
+                                        "command_name": "mutated_after_compile",
+                                        "step_id": "mutated.after.compile",
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                )
+            stdout = ""
+        stderr = ""
+        stdout_log.write_text(stdout, encoding="utf-8")
+        stderr_log.write_text(stderr, encoding="utf-8")
+        return module.CommandOutcome(
+            status="pass",
+            argv=("python", role),
+            exit_code=0,
+            elapsed_seconds=0.01,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    monkeypatch.setattr(module, "_run_command", _fake_run_command)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert (
+        report["evidence_freshness"]["required_artifacts"]["source_map"]["sha256"]
+        == original_sha256
+    )
+    assert _sha256_bytes(source_map_path.read_bytes()) != original_sha256
+
+    gate_row = module.validate_report_for_target(
+        report,
+        target=target,
+        targets_file=manifest_path,
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    assert gate_row.report_valid is True
+    assert gate_row.evidence_complete is False
+    assert (
+        "required artifact `source_map` digest changed while compile manifest identity remained stable"
+        in gate_row.reasons
+    )
+
+
 def test_run_parity_target_fails_when_c4_c5_reports_are_under_specified(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3659,6 +4058,404 @@ def test_run_parity_target_fails_projection_retirement_parity_when_retired_adapt
     evidence = report["evidence"]["projection_retirement_parity"]
     assert evidence["status"] == "fail"
     assert "still live" in " ".join(evidence.get("reasons", []))
+
+
+def test_run_parity_target_passes_projection_retirement_parity_for_retained_adapter_without_g8_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        include_g8_deletion_evidence=False,
+    )
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "project_lisp_frontend_selector_action": {
+                    "status": "pass",
+                    "comparison_mapping_id": "selector_action_projection.v1",
+                    "cases": [],
+                }
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 24),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert evidence["status"] == "pass"
+    assert artifact["status"] == "pass"
+    assert artifact["adapter_states"] == {
+        "project_lisp_frontend_selector_action": {
+            "status": "pass",
+            "retirement_state": "retained_retired_unreferenced",
+            "evidence_source": "adapter_census",
+        }
+    }
+    assert "g8_deletion_evidence" not in " ".join(artifact.get("reasons", []))
+
+
+def test_run_parity_target_passes_projection_retirement_parity_for_deleted_projection_helpers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    assert evidence["status"] == "pass"
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert artifact["status"] == "pass"
+    assert artifact["adapter_states"] == {
+        "project_lisp_frontend_selector_action": {
+            "status": "pass",
+            "retirement_state": "retained_retired_unreferenced",
+            "evidence_source": "adapter_census",
+        },
+        "classify_lisp_frontend_work_item_terminal": {
+            "status": "pass",
+            "retirement_state": "deleted_after_retirement",
+            "evidence_source": "g8_deletion_evidence",
+        },
+        "select_lisp_frontend_blocked_recovery_route": {
+            "status": "pass",
+            "retirement_state": "deleted_after_retirement",
+            "evidence_source": "g8_deletion_evidence",
+        },
+    }
+
+
+def test_run_parity_target_passes_projection_retirement_parity_when_all_reported_helpers_are_deleted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "classify_lisp_frontend_work_item_terminal": {
+                    "status": "pass",
+                    "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                    "cases": [],
+                },
+                "select_lisp_frontend_blocked_recovery_route": {
+                    "status": "pass",
+                    "comparison_mapping_id": "blocked_recovery_route_projection.v1",
+                    "cases": [],
+                },
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    artifact = report["evidence"]["projection_retirement_parity"]["artifacts"][
+        "projection_dual_run_report"
+    ]
+    assert report["evidence"]["projection_retirement_parity"]["status"] == "pass"
+    assert artifact["adapter_states"] == {
+        "classify_lisp_frontend_work_item_terminal": {
+            "status": "pass",
+            "retirement_state": "deleted_after_retirement",
+            "evidence_source": "g8_deletion_evidence",
+        },
+        "select_lisp_frontend_blocked_recovery_route": {
+            "status": "pass",
+            "retirement_state": "deleted_after_retirement",
+            "evidence_source": "g8_deletion_evidence",
+        },
+    }
+
+
+def test_run_parity_target_fails_projection_retirement_parity_when_deleted_helper_missing_from_g8_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        g8_removed_manifest_rows=[
+            "classify_lisp_frontend_work_item_terminal",
+            "record_terminal_work_item",
+            "record_blocked_recovery_outcome",
+            "write_lisp_frontend_drain_status",
+            "finalize_lisp_frontend_drain_summary",
+        ],
+    )
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "classify_lisp_frontend_work_item_terminal": {
+                    "status": "pass",
+                    "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                    "cases": [],
+                },
+                "select_lisp_frontend_blocked_recovery_route": {
+                    "status": "pass",
+                    "comparison_mapping_id": "blocked_recovery_route_projection.v1",
+                    "cases": [],
+                },
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert evidence["status"] == "fail"
+    assert artifact["status"] == "fail"
+    assert artifact["adapter_states"]["classify_lisp_frontend_work_item_terminal"] == {
+        "status": "pass",
+        "retirement_state": "deleted_after_retirement",
+        "evidence_source": "g8_deletion_evidence",
+    }
+    assert artifact["adapter_states"]["select_lisp_frontend_blocked_recovery_route"] == {
+        "status": "fail",
+        "retirement_state": "invalid",
+        "evidence_source": "g8_deletion_evidence",
+        "reason": (
+            "projection adapter `select_lisp_frontend_blocked_recovery_route` missing from "
+            "adapter_census and g8_deletion_evidence"
+        ),
+    }
+
+
+def test_run_parity_target_fails_projection_retirement_parity_when_g8_evidence_has_wrong_family(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _write_json(
+        build_root / "g8_deletion_evidence.json",
+        {
+            **_design_delta_g8_deletion_evidence_payload(),
+            "workflow_family": "wrong_family",
+        },
+    )
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "classify_lisp_frontend_work_item_terminal": {
+                    "status": "pass",
+                    "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                    "cases": [],
+                }
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert evidence["status"] == "fail"
+    assert artifact["status"] == "fail"
+    assert artifact["adapter_states"]["classify_lisp_frontend_work_item_terminal"] == {
+        "status": "fail",
+        "retirement_state": "invalid",
+        "evidence_source": "g8_deletion_evidence",
+        "reason": (
+            "projection adapter `classify_lisp_frontend_work_item_terminal` has wrong "
+            "g8_deletion_evidence workflow_family"
+        ),
+    }
+
+
+def test_run_parity_target_fails_projection_retirement_parity_when_g8_evidence_is_not_passing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    _write_json(
+        build_root / "g8_deletion_evidence.json",
+        _design_delta_g8_deletion_evidence_payload(status="fail"),
+    )
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "classify_lisp_frontend_work_item_terminal": {
+                    "status": "pass",
+                    "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                    "cases": [],
+                }
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert evidence["status"] == "fail"
+    assert artifact["status"] == "fail"
+    assert artifact["adapter_states"]["classify_lisp_frontend_work_item_terminal"] == {
+        "status": "fail",
+        "retirement_state": "invalid",
+        "evidence_source": "g8_deletion_evidence",
+        "reason": (
+            "projection adapter `classify_lisp_frontend_work_item_terminal` has non-passing "
+            "g8_deletion_evidence"
+        ),
+    }
+
+
+def test_run_parity_target_fails_projection_retirement_parity_when_deleted_helper_still_has_live_invocation_lineage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(
+        tmp_path,
+        source_map_command_boundaries=[
+            {
+                "command_name": "classify_lisp_frontend_work_item_terminal",
+                "boundary_kind": "certified_adapter",
+                "step_id": "work_item.classify-terminal-state",
+            }
+        ],
+    )
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "classify_lisp_frontend_work_item_terminal": {
+                    "status": "pass",
+                    "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                    "cases": [],
+                }
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 2),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert evidence["status"] == "fail"
+    assert artifact["status"] == "fail"
+    assert artifact["adapter_states"]["classify_lisp_frontend_work_item_terminal"] == {
+        "status": "fail",
+        "retirement_state": "invalid",
+        "evidence_source": "g8_deletion_evidence",
+        "reason": (
+            "projection adapter `classify_lisp_frontend_work_item_terminal` still has live "
+            "compile/source_map invocation lineage"
+        ),
+    }
+    assert "compile/source_map" in " ".join(artifact.get("reasons", []))
+
+
+def test_run_parity_target_ignores_workflow_call_alias_when_validating_deleted_helper_lineage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module, _manifest_path, target = _design_delta_parent_target_fixture(tmp_path)
+    build_root = _write_design_delta_g0_build_manifest(tmp_path)
+    core_workflow_ast_path = build_root / "core_workflow_ast.json"
+    core_workflow_ast = json.loads(core_workflow_ast_path.read_text(encoding="utf-8"))
+    assert isinstance(core_workflow_ast, dict)
+    assert isinstance(core_workflow_ast.get("body"), list)
+    core_workflow_ast["body"].append(
+        {
+            "kind": "call",
+            "call_alias": "classify_lisp_frontend_work_item_terminal",
+        }
+    )
+    _write_json(core_workflow_ast_path, core_workflow_ast)
+    _write_json(
+        tmp_path / str(target.family_evidence_artifacts[0]["path"]),
+        _design_delta_projection_dual_run_report_payload(
+            adapters={
+                "classify_lisp_frontend_work_item_terminal": {
+                    "status": "pass",
+                    "comparison_mapping_id": "classify_work_item_terminal_projection.v1",
+                    "cases": [],
+                }
+            }
+        ),
+    )
+    _install_fake_run_command(module, monkeypatch, build_root=build_root)
+
+    report = module.run_parity_target(
+        target,
+        output_root=tmp_path / "parity",
+        repo_root=tmp_path,
+        today=date(2026, 6, 24),
+    )
+
+    evidence = report["evidence"]["projection_retirement_parity"]
+    artifact = evidence["artifacts"]["projection_dual_run_report"]
+    assert evidence["status"] == "pass"
+    assert artifact["status"] == "pass"
+    assert artifact["adapter_states"] == {
+        "classify_lisp_frontend_work_item_terminal": {
+            "status": "pass",
+            "retirement_state": "deleted_after_retirement",
+            "evidence_source": "g8_deletion_evidence",
+        }
+    }
+    assert "live compile/source_map invocation lineage" not in " ".join(
+        artifact.get("reasons", [])
+    )
 
 
 def test_run_parity_target_fails_view_retirement_parity_when_g8_evidence_omits_finalizer_row(
