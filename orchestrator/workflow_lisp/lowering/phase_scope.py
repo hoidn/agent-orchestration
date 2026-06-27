@@ -1289,83 +1289,19 @@ def _phase_prompt_inputs_are_direct(
             return False
     return True
 
-
-_C1_TYPED_PROMPT_INPUT_ROWS = {
-    ("typed_prompt_input_phase::run-typed-prompt-phase-demo", "providers.execute"): {
-        "c0_row_id": "c0.fixture.prompt_context",
-        "u0_row_id": "u0.fixture.prompt_context",
-        "preserve_request_record": False,
-    },
-    ("typed_prompt_input_local_request_record::run-local-request-record-demo", "providers.execute"): {
-        "c0_row_id": "c0.fixture.local_request_record",
-        "u0_row_id": "u0.fixture.local_request_record",
-        "preserve_request_record": True,
-    },
-    ("lisp_frontend_design_delta/plan_phase::run-plan-phase", "providers.plan.draft"): {
-        "c0_row_id": "c0.plan_phase_prompt_draft",
-        "u0_row_id": "plan_phase.prompt.draft",
-        "preserve_request_record": True,
-    },
-    ("%plan_phase.lisp_frontend_design_delta/plan_phase::review-plan.v1", "providers.plan.review"): {
-        "c0_row_id": "c0.plan_phase_prompt_review",
-        "u0_row_id": "plan_phase.prompt.review",
-        "preserve_request_record": True,
-    },
-    ("%plan_phase.lisp_frontend_design_delta/plan_phase::revise-plan.v1", "providers.plan.fix"): {
-        "c0_row_id": "c0.plan_phase_prompt_fix",
-        "u0_row_id": "plan_phase.prompt.fix",
-        "preserve_request_record": True,
-    },
-    ("lisp_frontend_design_delta/implementation_phase::implementation-phase", "providers.implementation.execute"): {
-        "c0_row_id": "c0.implementation_phase_prompt_execute",
-        "u0_row_id": "implementation_phase.prompt.execute",
-        "preserve_request_record": True,
-    },
-    ("%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1", "providers.implementation.review"): {
-        "c0_row_id": "c0.implementation_phase_prompt_review",
-        "u0_row_id": "implementation_phase.prompt.review",
-        "preserve_request_record": True,
-    },
-    ("%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1", "providers.implementation.fix"): {
-        "c0_row_id": "c0.implementation_phase_prompt_fix",
-        "u0_row_id": "implementation_phase.prompt.fix",
-        "preserve_request_record": True,
-    },
-    ("lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture", "providers.architect.draft"): {
-        "c0_row_id": "c0.design_gap_architect_prompt_draft",
-        "u0_row_id": "design_gap_architect.prompt.draft",
-        "preserve_request_record": True,
-    },
-    ("lisp_frontend_design_delta/selector::select-next-work", "providers.selector"): {
-        "c0_row_id": "c0.selector_prompt_select_next_work",
-        "u0_row_id": "selector.prompt.select_next_work",
-        "preserve_request_record": True,
-    },
-    ("lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery", "providers.work-item.recovery-classifier"): {
-        "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery",
-        "u0_row_id": "work_item.prompt.classify_blocked_recovery",
-        "preserve_request_record": True,
-    },
-    ("lisp_frontend_design_delta/work_item::route-blocked-implementation", "providers.work-item.recovery-classifier"): {
-        "c0_row_id": "c0.work_item_prompt_classify_blocked_recovery_state",
-        "u0_row_id": "work_item.prompt.classify_blocked_recovery_state",
-        "preserve_request_record": True,
-    },
-}
-
-
 def _typed_prompt_input_row_metadata(
     workflow_name: str,
     provider_call_locator: str | None = None,
+    *,
+    context: _LoweringContext,
 ) -> dict[str, str] | None:
-    if provider_call_locator is not None:
-        row = _C1_TYPED_PROMPT_INPUT_ROWS.get((workflow_name, provider_call_locator))
-        if isinstance(row, Mapping):
-            return dict(row)
-    row = _C1_TYPED_PROMPT_INPUT_ROWS.get(workflow_name)
-    if isinstance(row, Mapping):
-        return dict(row)
-    return None
+    family_profile_catalog = context.workflow_catalog.family_profile_catalog
+    if family_profile_catalog is None:
+        return None
+    return family_profile_catalog.typed_prompt_input_row(
+        workflow_name,
+        provider_call_locator,
+    )
 
 
 def _value_type_name_for_prompt_input(expr: Any, *, context: _LoweringContext) -> str:
@@ -1755,6 +1691,7 @@ def _build_typed_prompt_inputs_for_prompt_specs(
     row_metadata = _typed_prompt_input_row_metadata(
         context.workflow_name,
         provider_call_locator,
+        context=context,
     )
     if row_metadata is None:
         return [], {}

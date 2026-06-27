@@ -1,0 +1,97 @@
+{
+  "schema_version": "workflow_lisp_family_profile.v1",
+  "family_id": "generic_phase_family_fixture",
+  "workflow_name_prefixes": [],
+  "target_workflows": [
+    "typed_prompt_input_phase::run-typed-prompt-phase-demo",
+    "typed_prompt_input_local_request_record::run-local-request-record-demo",
+    "design_delta_parent_calls_work_item::run-parent-work-item",
+    "design_delta_parent_calls_implementation_phase::run-implementation-phase"
+  ],
+  "boundary_authority_registry": null,
+  "checked_public_inputs": {
+    "design_delta_parent_calls_work_item::run-parent-work-item": [
+      "work_item_bootstrap",
+      "steering_path",
+      "target_design_path",
+      "baseline_design_path",
+      "fixture_run_state_path"
+    ],
+    "design_delta_parent_calls_implementation_phase::run-implementation-phase": [
+      "target_design",
+      "baseline_design",
+      "plan_path",
+      "check_commands",
+      "execution_report_target_path",
+      "progress_report_target_path",
+      "checks_report_target_path",
+      "implementation_review_report_target_path"
+    ]
+  },
+  "entry_phase_identities": {
+    "design_delta_parent_calls_work_item::run-parent-work-item": "work-item",
+    "design_delta_parent_calls_implementation_phase::run-implementation-phase": "implementation"
+  },
+  "hidden_context_rules": [
+    {
+      "workflow_name": "design_delta_parent_calls_work_item::run-parent-work-item",
+      "parameter_name": "phase-ctx",
+      "phase_identity": "work-item"
+    },
+    {
+      "workflow_name": "design_delta_parent_calls_implementation_phase::run-implementation-phase",
+      "parameter_name": "phase-ctx",
+      "phase_identity": "implementation"
+    }
+  ],
+  "typed_prompt_input_rows": [
+    {
+      "workflow_name": "typed_prompt_input_phase::run-typed-prompt-phase-demo",
+      "provider_binding": "providers.execute",
+      "binding_name": "prompt_context",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "value_source": {
+        "kind": "typed_binding_ref",
+        "ref": "inputs.prompt_context"
+      },
+      "value_type_name": "PromptContext",
+      "source_map_origin_key": "typed_prompt_input_phase::run-typed-prompt-phase-demo",
+      "u0_row_id": "u0.fixture.prompt_context",
+      "c0_row_id": "c0.fixture.prompt_context",
+      "injection_order": 0
+    },
+    {
+      "workflow_name": "typed_prompt_input_local_request_record::run-local-request-record-demo",
+      "provider_binding": "providers.execute",
+      "binding_name": "request",
+      "renderer": {
+        "renderer_id": "canonical-json",
+        "renderer_version": 1,
+        "accepted_shape": "any_pure_value"
+      },
+      "value_source": {
+        "kind": "typed_binding_ref",
+        "ref": "locals.request"
+      },
+      "value_type_name": "ImplementationRequest",
+      "source_map_origin_key": "typed_prompt_input_local_request_record::run-local-request-record-demo",
+      "u0_row_id": "u0.fixture.request",
+      "c0_row_id": "c0.fixture.request",
+      "injection_order": 0,
+      "preserve_request_record": true,
+      "request_fields": {
+        "field_names": [
+          "subject",
+          "targets"
+        ],
+        "has_subject": true,
+        "has_targets": true,
+        "field_authority": {}
+      }
+    }
+  ]
+}

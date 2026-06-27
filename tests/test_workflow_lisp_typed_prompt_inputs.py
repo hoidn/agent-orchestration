@@ -18,10 +18,28 @@ from orchestrator.providers.executor import ProviderExecutor
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 TYPED_PROMPT_INPUT_FIXTURE = VALID_FIXTURES / "typed_prompt_input_phase.orc"
+GENERIC_FAMILY_PROFILE_FIXTURE = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "workflow_lisp"
+    / "family_profiles"
+    / "generic_phase_family_profile.json"
+)
 
 
 def _typed_prompt_inputs_module():
     return importlib.import_module("orchestrator.workflow_lisp.typed_prompt_inputs")
+
+
+def _family_profiles_module():
+    return importlib.import_module("orchestrator.workflow_lisp.family_profiles")
+
+
+def _generic_family_profile_catalog():
+    return _family_profiles_module().load_workflow_family_profile_catalog(
+        (GENERIC_FAMILY_PROFILE_FIXTURE,)
+    )
 
 
 def _compile_typed_prompt_input_bundle(tmp_path: Path):
@@ -33,6 +51,7 @@ def _compile_typed_prompt_input_bundle(tmp_path: Path):
         },
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=_generic_family_profile_catalog(),
     )
     return next(
         bundle
@@ -1006,3 +1025,21 @@ def test_typed_prompt_input_evidence_does_not_replace_provider_output_authority(
     assert getattr(provider_step, "typed_prompt_inputs")
     assert state["steps"][provider_step.name]["status"] == "failed"
     assert "evidence" not in json.dumps(state["steps"][provider_step.name])
+
+
+def test_typed_prompt_input_fixture_rows_resolve_via_family_profile_catalog() -> None:
+    catalog = _generic_family_profile_catalog()
+
+    prompt_context_row = catalog.typed_prompt_input_row(
+        "typed_prompt_input_phase::run-typed-prompt-phase-demo",
+        "providers.execute",
+    )
+    assert prompt_context_row["c0_row_id"] == "c0.fixture.prompt_context"
+    assert prompt_context_row["u0_row_id"] == "u0.fixture.prompt_context"
+
+    request_row = catalog.typed_prompt_input_row(
+        "typed_prompt_input_local_request_record::run-local-request-record-demo",
+        "providers.execute",
+    )
+    assert request_row["preserve_request_record"] is True
+    assert request_row["request_fields"]["field_names"] == ["subject", "targets"]

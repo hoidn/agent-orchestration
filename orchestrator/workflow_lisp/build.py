@@ -58,6 +58,10 @@ from .entry_publication import (
     serialize_entry_publication_report,
 )
 from .form_registry import get_form_spec
+from .family_profiles import (
+    WorkflowFamilyProfileCatalog,
+    load_workflow_family_profile_catalog,
+)
 from .lints import LINT_PROFILE_DEFAULT
 from .lexical_checkpoints import (
     CHECKPOINT_POINTS_SCHEMA_VERSION,
@@ -67,6 +71,7 @@ from .lexical_checkpoints import (
 )
 from .phase_family_boundary import (
     build_design_delta_boundary_authority_expected_rows,
+    checked_design_delta_public_input_names,
     is_structural_pure_projection_effect_summary,
     is_design_delta_parent_drain_target_workflow,
     load_design_delta_boundary_authority_registry,
@@ -125,6 +130,14 @@ DESIGN_DELTA_PARENT_DRAIN_COMMAND_BOUNDARIES_PATH = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.commands.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE_PATH = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.family_profile.json"
 )
 DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH = (
     REPO_ROOT
@@ -421,6 +434,7 @@ class FrontendBuildManifest:
     schema_version: str
     fingerprint: str
     source_path: str
+    source_sha256: str
     source_roots: tuple[str, ...]
     entry_module: str
     entry_workflow: str
@@ -436,6 +450,7 @@ class FrontendBuildManifest:
     source_map_schema_version: str | None = None
     source_map_coverage: Mapping[str, str] | None = None
     lowering_schema_version: int = 1
+    family_profile: Mapping[str, object] | None = None
     boundary_authority_registry: Mapping[str, object] | None = None
     value_flow_census: Mapping[str, object] | None = None
     consumer_rendering_census: Mapping[str, object] | None = None
@@ -521,6 +536,10 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         binding.canonical_key: binding.bundle
         for binding in imported_bindings
     }
+    family_profile_catalog = _maybe_load_design_delta_family_profile_catalog(
+        entry_workflow=resolved_request.entry_workflow,
+        source_path=resolved_request.source_path,
+    )
 
     compile_result = compile_stage3_entrypoint(
         resolved_request.source_path,
@@ -534,6 +553,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         workspace_root=resolved_request.workspace_root,
         lint_profile=resolved_request.lint_profile,
         lowering_route=resolved_request.lowering_route,
+        family_profile_catalog=family_profile_catalog,
     )
 
     entry_selection = _select_entry_workflow(
@@ -543,6 +563,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     )
     boundary_authority_registry = _maybe_load_design_delta_boundary_authority_registry(
         entry_workflow=entry_selection.canonical_name,
+        family_profile_catalog=family_profile_catalog,
     )
     value_flow_census = _maybe_load_design_delta_value_flow_census(
         entry_workflow=entry_selection.canonical_name,
@@ -582,6 +603,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     workflow_boundary_projection_payload = _serialize_workflow_boundary_projection(
         compile_result,
         selected_name=entry_selection.canonical_name,
+        boundary_authority_registry=boundary_authority_registry,
     )
     _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
         workflow_boundary_projection_payload,
@@ -596,6 +618,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         command_boundary_manifest=command_boundary_manifest,
+        family_profile_catalog=family_profile_catalog,
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
         consumer_rendering_census=consumer_rendering_census,
@@ -604,6 +627,10 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     )
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
+    family_profile_metadata = _family_profile_metadata_for_entry(
+        family_profile_catalog,
+        entry_selection.canonical_name,
+    )
 
     diagnostics = compile_result.diagnostics
     source_map_path = build_root / "source_map.json"
@@ -725,6 +752,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
             boundary_authority_registry=boundary_authority_registry,
             source_map_payload=source_map_payload,
             value_flow_census=value_flow_census,
+            family_profile_catalog=family_profile_catalog,
         )
         if value_flow_census is not None:
             materialize_view_effects = _collect_materialize_view_effects(
@@ -1478,6 +1506,22 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
                         ),
                     )
                 )
+    if family_profile_metadata is not None:
+        if boundary_authority_report_payload is not None:
+            boundary_authority_report_payload = {
+                **dict(boundary_authority_report_payload),
+                "family_profile": dict(family_profile_metadata),
+            }
+        if typed_prompt_input_report_payload is not None:
+            typed_prompt_input_report_payload = {
+                **dict(typed_prompt_input_report_payload),
+                "family_profile": dict(family_profile_metadata),
+            }
+        if reference_family_conformance_profile_payload is not None:
+            reference_family_conformance_profile_payload = {
+                **dict(reference_family_conformance_profile_payload),
+                "family_profile": dict(family_profile_metadata),
+            }
     artifact_paths = _write_build_artifacts(
         build_root=build_root,
         compile_result=compile_result,
@@ -1517,6 +1561,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         diagnostics=diagnostics,
         build_root=build_root,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
+        family_profile=family_profile_metadata,
         boundary_authority_registry=boundary_authority_registry,
         value_flow_census=value_flow_census,
         consumer_rendering_census=consumer_rendering_census,
@@ -2463,30 +2508,91 @@ def _select_entry_workflow(
     )
 
 
+def _maybe_load_design_delta_family_profile_catalog(
+    *,
+    entry_workflow: str | None,
+    source_path: Path,
+) -> WorkflowFamilyProfileCatalog | None:
+    if not _is_design_delta_family_profile_candidate(
+        entry_workflow=entry_workflow,
+        source_path=source_path,
+    ):
+        return None
+    try:
+        return load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE_PATH,)
+        )
+    except LispFrontendCompileError as exc:
+        raise exc
+    except (OSError, ValueError) as exc:
+        raise LispFrontendCompileError(
+            (
+                _cli_request_diagnostic(
+                    code="workflow_family_profile_schema_invalid",
+                    message=f"design-delta family profile is invalid: {exc}",
+                    path=DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE_PATH,
+                ),
+            )
+        ) from exc
+
+
+def _is_design_delta_family_profile_candidate(
+    *,
+    entry_workflow: str | None,
+    source_path: Path,
+) -> bool:
+    if entry_workflow is not None and entry_workflow.startswith(
+        "lisp_frontend_design_delta/"
+    ):
+        return True
+    return "lisp_frontend_design_delta" in source_path.parts
+
+
+def _family_profile_metadata_for_entry(
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
+    entry_workflow: str,
+) -> Mapping[str, object] | None:
+    if family_profile_catalog is None:
+        return None
+    profile = family_profile_catalog.profile_for_workflow(entry_workflow)
+    if profile is None:
+        return None
+    return {
+        "family_id": profile.family_id,
+        "path": str(profile.source_path),
+        "digest": _sha256_path(profile.source_path),
+    }
+
+
 def _maybe_load_design_delta_boundary_authority_registry(
     *,
     entry_workflow: str,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
 ) -> Mapping[str, object] | None:
-    if entry_workflow != "lisp_frontend_design_delta/drain::drain":
+    if family_profile_catalog is None or entry_workflow != "lisp_frontend_design_delta/drain::drain":
+        return None
+    profile = family_profile_catalog.profile_for_workflow(entry_workflow)
+    if profile is None or profile.boundary_authority_registry_path is None:
         return None
     try:
         payload = load_design_delta_boundary_authority_registry(
-            DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH
+            profile.boundary_authority_registry_path,
+            target_workflows=profile.target_workflows,
         )
     except (OSError, ValueError) as exc:
         raise LispFrontendCompileError(
             (
                 _cli_request_diagnostic(
-                    code="boundary_authority_registry_invalid",
+                    code="workflow_family_profile_boundary_registry_invalid",
                     message=f"design-delta boundary authority registry is invalid: {exc}",
-                    path=DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH,
+                    path=profile.boundary_authority_registry_path,
                 ),
             )
         ) from exc
     return {
         **payload,
-        "__registry_path__": str(DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH),
-        "__registry_sha256__": _sha256_path(DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH),
+        "__registry_path__": str(profile.boundary_authority_registry_path),
+        "__registry_sha256__": _sha256_path(profile.boundary_authority_registry_path),
         "workflow_family": "design_delta_parent_drain",
     }
 
@@ -4076,12 +4182,13 @@ def _serialize_design_delta_boundary_authority_report(
     boundary_authority_registry: Mapping[str, object],
     source_map_payload: Mapping[str, object],
     value_flow_census: Mapping[str, object] | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> dict[str, object]:
-    expected_rows = build_design_delta_boundary_authority_expected_rows(dict(boundary_projection_payload))
-    expected_row_keys = {
-        (workflow_name, field_name, str(row["surface_kind"])): row
-        for (workflow_name, field_name), row in expected_rows.items()
-    }
+    expected_rows = build_design_delta_boundary_authority_expected_rows(
+        dict(boundary_projection_payload),
+        boundary_authority_registry=boundary_authority_registry,
+        family_profile_catalog=family_profile_catalog,
+    )
     allowed_stale_registry_rows = _allowed_resume_plumbing_retirement_registry_rows(
         value_flow_census
     )
@@ -4093,7 +4200,18 @@ def _serialize_design_delta_boundary_authority_report(
         ): row
         for row in boundary_authority_registry.get("rows", [])
         if isinstance(row, Mapping)
-        and is_design_delta_parent_drain_target_workflow(str(row.get("workflow_name", "")))
+        and is_design_delta_parent_drain_target_workflow(
+            str(row.get("workflow_name", "")),
+            family_profile_catalog=family_profile_catalog,
+        )
+    }
+    registry_workflow_names = {
+        workflow_name for workflow_name, _field_name, _surface_kind in registry_rows
+    }
+    expected_row_keys = {
+        (workflow_name, field_name, str(row["surface_kind"])): row
+        for (workflow_name, field_name), row in expected_rows.items()
+        if not registry_workflow_names or workflow_name in registry_workflow_names
     }
     stale_rows = sorted(
         key
@@ -4165,6 +4283,13 @@ def _serialize_design_delta_boundary_authority_report(
                 for field in projection_workflow.get("flattened_inputs", [])
                 if isinstance(field, Mapping) and isinstance(field.get("generated_name"), str)
             }
+            public_input_names = {
+                str(name)
+                for name in projection_workflow.get("boundary", {}).get(
+                    "public_input_names", []
+                )
+                if isinstance(name, str)
+            }
             generated_internal_entries = {
                 str(field.get("generated_name")): field
                 for field in projection_workflow.get("generated_internal_inputs", [])
@@ -4173,6 +4298,7 @@ def _serialize_design_delta_boundary_authority_report(
             generated_internal_path_like_inputs = sorted(
                 name
                 for name, field in generated_internal_entries.items()
+                if name not in public_input_names
                 if _design_delta_generated_internal_entry_is_path_like(
                     name,
                     field,
@@ -4552,6 +4678,7 @@ def _fingerprint_build(
     provider_externs: Mapping[str, str],
     prompt_externs: Mapping[str, object],
     command_boundary_manifest: Mapping[str, object],
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None,
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
     consumer_rendering_census: Mapping[str, object] | None,
@@ -4580,6 +4707,10 @@ def _fingerprint_build(
             }
             for binding in imported_bindings
         ],
+        "family_profile": _family_profile_metadata_for_entry(
+            family_profile_catalog,
+            entry_selection.canonical_name,
+        ),
         "boundary_authority_registry": _json_data(boundary_authority_registry)
         if boundary_authority_registry is not None
         else None,
@@ -4926,6 +5057,7 @@ def _build_manifest(
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     build_root: Path,
     emit_debug_yaml: bool,
+    family_profile: Mapping[str, object] | None,
     boundary_authority_registry: Mapping[str, object] | None,
     value_flow_census: Mapping[str, object] | None,
     consumer_rendering_census: Mapping[str, object] | None,
@@ -4936,6 +5068,7 @@ def _build_manifest(
         schema_version=BUILD_SCHEMA_VERSION,
         fingerprint=fingerprint,
         source_path=str(request.source_path),
+        source_sha256=_sha256_path(request.source_path),
         source_roots=tuple(str(path) for path in request.source_roots),
         entry_module=compile_result.graph.entry_module_name,
         entry_workflow=entry_selection.canonical_name,
@@ -4975,6 +5108,7 @@ def _build_manifest(
         source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         source_map_coverage=dict(SOURCE_MAP_COVERAGE),
         lowering_schema_version=compile_result.entry_result.lowering_schema_version,
+        family_profile=family_profile,
         boundary_authority_registry=_boundary_authority_registry_provenance(
             boundary_authority_registry
         ),
@@ -5332,6 +5466,7 @@ def _serialize_workflow_boundary_projection(
     compile_result: LinkedStage3CompileResult,
     *,
     selected_name: str,
+    boundary_authority_registry: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     workflows: list[dict[str, object]] = []
     for compiled_result in compile_result.compiled_results_by_name.values():
@@ -5357,8 +5492,27 @@ def _serialize_workflow_boundary_projection(
             )
             if bundle is not None:
                 boundary = workflow_boundary_projection(bundle)
+                checked_public_bridge_inputs = checked_design_delta_public_input_names(
+                    lowered.typed_workflow.definition.name,
+                    boundary_authority_registry=boundary_authority_registry,
+                    family_profile_catalog=compiled_result.workflow_catalog.family_profile_catalog,
+                )
+                private_compatibility_bridge_inputs = sorted(
+                    name
+                    for name in lowered.compatibility_bridge_inputs
+                    if isinstance(name, str)
+                    and name not in checked_public_bridge_inputs
+                )
+                public_input_names = sorted(
+                    name
+                    for name in bundle.surface.inputs
+                    if isinstance(name, str)
+                    and name not in bundle.provenance.runtime_context_inputs
+                    and name not in bundle.provenance.managed_write_root_inputs
+                    and name not in private_compatibility_bridge_inputs
+                )
                 boundary_payload = {
-                    "public_input_names": sorted(boundary.public_input_contracts),
+                    "public_input_names": public_input_names,
                     "private_runtime_context_bindings": [
                         {
                             "binding_id": binding.binding_id,
@@ -5377,11 +5531,7 @@ def _serialize_workflow_boundary_projection(
                         for name in boundary.private_managed_write_root_inputs
                         if isinstance(name, str)
                     ),
-                    "private_compatibility_bridge_inputs": sorted(
-                        name
-                        for name in boundary.private_compatibility_bridge_inputs
-                        if isinstance(name, str)
-                    ),
+                    "private_compatibility_bridge_inputs": private_compatibility_bridge_inputs,
                     "pure_projection_classification": {
                         "structural": is_structural_pure_projection_effect_summary(
                             lowered.typed_workflow.effect_summary
@@ -5522,6 +5672,10 @@ def _validate_selected_workflow_hidden_compatibility_bridge_public_boundary(
     selected_name: str,
     boundary_authority_registry: Mapping[str, object] | None,
 ) -> None:
+    if isinstance(boundary_authority_registry, Mapping):
+        workflow_family = boundary_authority_registry.get("workflow_family")
+        if workflow_family not in (None, "design_delta_parent_drain"):
+            return
     workflows = {
         str(workflow["workflow_name"]): workflow
         for workflow in boundary_projection_payload.get("workflows", [])

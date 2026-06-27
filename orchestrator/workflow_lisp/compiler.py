@@ -53,7 +53,8 @@ from .diagnostics import (
     diagnostic_effective_severity,
     with_diagnostic_metadata,
 )
-from .expression_traversal import walk_expr
+from .expression_traversal import iter_child_exprs, walk_expr
+from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
 from .phase_family_boundary import (
     classify_phase_family_boundary,
@@ -68,8 +69,12 @@ from .expressions import (
     LetStarExpr,
     LoopRecurExpr,
     MatchExpr,
+    NameExpr,
     ProcedureCallExpr,
+    ProduceOneOfExpr,
+    ProviderResultExpr,
     ResumeOrStartExpr,
+    RunProviderPhaseExpr,
     WithPhaseExpr,
     elaborate_expression,
 )
@@ -85,6 +90,7 @@ from .functions import (
     validate_function_cycles,
 )
 from .lowering import (
+    _lowered_workflow_dependencies,
     _missing_validation_subject_message,
     _origin_for_validation_subject_refs,
     _remap_validation_message,
@@ -178,6 +184,7 @@ from .workflows import (
     ExternalToolBinding,
     Stage3CompileResult,
     TypedWorkflowDef,
+    WorkflowCatalog,
     WorkflowDef,
     WorkflowParam,
     WorkflowSignature,
@@ -313,20 +320,51 @@ def _dedicated_runtime_proof_boundary_diagnostics(
     workspace_root: Path,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
 ) -> tuple[LispFrontendDiagnostic, ...]:
-    try:
-        validate_lowered_workflows(
-            lowered_workflows,
-            workspace_root=workspace_root,
-            imported_workflow_bundles=imported_workflow_bundles,
-            validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
-        )
-    except LispFrontendCompileError as exc:
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow
+        for workflow in lowered_workflows
+    }
+    diagnostics: list[LispFrontendDiagnostic] = []
+
+    def validation_subset(workflow_name: str):
+        included: set[str] = set()
+        pending = [workflow_name]
+        while pending:
+            current = pending.pop()
+            if current in included:
+                continue
+            lowered = lowered_by_name.get(current)
+            if lowered is None:
+                continue
+            included.add(current)
+            pending.extend(
+                dependency
+                for dependency in _lowered_workflow_dependencies(lowered)
+                if dependency in lowered_by_name
+            )
         return tuple(
-            diagnostic
-            for diagnostic in exc.diagnostics
-            if diagnostic.code == "workflow_boundary_type_invalid"
+            workflow
+            for workflow in lowered_workflows
+            if workflow.typed_workflow.definition.name in included
         )
-    return ()
+
+    for workflow in lowered_workflows:
+        if not workflow.runtime_proof_nested_structured_step_names:
+            continue
+        try:
+            validate_lowered_workflows(
+                validation_subset(workflow.typed_workflow.definition.name),
+                workspace_root=workspace_root,
+                imported_workflow_bundles=imported_workflow_bundles,
+                validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
+            )
+        except LispFrontendCompileError as exc:
+            diagnostics.extend(
+                diagnostic
+                for diagnostic in exc.diagnostics
+                if diagnostic.code == "workflow_boundary_type_invalid"
+            )
+    return tuple(diagnostics)
 
 
 def _builtin_stdlib_source_root() -> Path:
@@ -545,6 +583,7 @@ def compile_stage3_entrypoint(
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -574,6 +613,7 @@ def compile_stage3_entrypoint(
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
+        family_profile_catalog=family_profile_catalog,
     )
     additional_diagnostics = ()
     if compile_result is not None:
@@ -622,6 +662,7 @@ def compile_stage3_module(
     workspace_root: Path | None = None,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
@@ -644,6 +685,7 @@ def compile_stage3_module(
             workspace_root=workspace_root,
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
+            family_profile_catalog=family_profile_catalog,
         )
         return linked.entry_result
 
@@ -657,6 +699,7 @@ def compile_stage3_module(
         workspace_root=workspace_root or path.parent,
         lint_profile=lint_profile,
         lowering_route=normalized_lowering_route,
+        family_profile_catalog=family_profile_catalog,
     )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -751,12 +794,24 @@ def _collect_stage3_required_lint_diagnostics(
         )
         if is_structural_pure_projection:
             exposes_low_level_state_path = False
-        elif is_selected_phase_family_workflow(signature.name):
+        elif is_selected_phase_family_workflow(
+            signature.name,
+            family_profile_catalog=(
+                workflow_catalog.family_profile_catalog
+                if workflow_catalog is not None
+                else None
+            ),
+        ):
             _inputs, _outputs, boundary_projection = derive_workflow_signature_contracts(signature)
             classification = classify_phase_family_boundary(
                 workflow_name=signature.name,
                 params=signature.params,
                 flattened_inputs=boundary_projection.flattened_inputs,
+                family_profile_catalog=(
+                    workflow_catalog.family_profile_catalog
+                    if workflow_catalog is not None
+                    else None
+                ),
             )
             exposes_low_level_state_path = bool(
                 [
@@ -804,6 +859,91 @@ def _collect_stage3_required_lint_diagnostics(
                     )
                 )
     return tuple(diagnostics)
+
+
+def _validate_family_profile_typed_prompt_input_rows(
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    *,
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    workflow_catalog: WorkflowCatalog | None,
+) -> None:
+    if workflow_catalog is None or workflow_catalog.family_profile_catalog is None:
+        return
+
+    diagnostics: list[LispFrontendDiagnostic] = []
+    family_profile_catalog = workflow_catalog.family_profile_catalog
+    typed_procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+    for workflow in typed_workflows:
+        workflow_name = workflow.definition.name
+        profile = family_profile_catalog.profile_for_workflow(workflow_name)
+        if profile is None:
+            continue
+        declared_rows = family_profile_catalog.typed_prompt_input_rows_for_workflow(
+            workflow_name
+        )
+        if not declared_rows:
+            continue
+        provider_bindings = _collect_workflow_provider_bindings(
+            workflow,
+            typed_procedures=typed_procedures_by_name,
+        )
+        for provider_binding in sorted(declared_rows):
+            if provider_binding in provider_bindings:
+                continue
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="workflow_family_profile_prompt_row_unknown_workflow",
+                    message=(
+                        f"workflow family profile `{profile.family_id}` at "
+                        f"`{profile.source_path}` declares typed prompt-input row "
+                        f"metadata for workflow `{workflow_name}` provider "
+                        f"`{provider_binding}`, but that provider call is absent "
+                        "from the compiled workflow"
+                    ),
+                    span=workflow.signature.span,
+                    form_path=workflow.signature.form_path,
+                    phase="workflow_family_profile",
+                )
+            )
+    if diagnostics:
+        raise LispFrontendCompileError(tuple(diagnostics))
+
+
+def _collect_workflow_provider_bindings(
+    typed_workflow: TypedWorkflowDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> set[str]:
+    provider_bindings: set[str] = set()
+    visiting_procedures: set[str] = set()
+
+    def walk(expr: object) -> None:
+        if isinstance(expr, ProviderResultExpr):
+            if isinstance(expr.provider, NameExpr):
+                provider_bindings.add(expr.provider.name)
+        elif isinstance(expr, RunProviderPhaseExpr):
+            if isinstance(expr.provider, NameExpr):
+                provider_bindings.add(expr.provider.name)
+        elif isinstance(expr, ProduceOneOfExpr):
+            if isinstance(expr.producer.provider_expr, NameExpr):
+                provider_bindings.add(expr.producer.provider_expr.name)
+        if isinstance(expr, ProcedureCallExpr):
+            for child in iter_child_exprs(expr):
+                walk(child)
+            procedure = typed_procedures.get(expr.callee_name)
+            if procedure is None or procedure.definition.name in visiting_procedures:
+                return
+            visiting_procedures.add(procedure.definition.name)
+            walk(procedure.typed_body.expr)
+            visiting_procedures.remove(procedure.definition.name)
+            return
+        for child in iter_child_exprs(expr):
+            walk(child)
+
+    walk(typed_workflow.typed_body.expr)
+    return provider_bindings
 
 
 def _command_boundary_validation_span() -> SourceSpan:
@@ -1026,6 +1166,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -1049,6 +1190,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             workspace_root=workspace_root,
             lint_profile=lint_profile,
             lowering_route=normalized_lowering_route,
+            family_profile_catalog=family_profile_catalog,
         )
         compile_result = replace(
             compile_result,
@@ -1296,6 +1438,7 @@ def _run_stage3_validation_pipeline(
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     normalized_validation_profile = _normalize_stage3_validation_profile(
         validate_shared=validate_shared,
@@ -1334,6 +1477,7 @@ def _run_stage3_validation_pipeline(
             imported_workflow_bundles=effective_imported_workflow_bundles,
             allow_collection_input_boundaries=True,
             allow_collection_return_boundaries=True,
+            family_profile_catalog=family_profile_catalog,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
         function_catalog = build_function_catalog(function_defs, type_env=type_env)
@@ -1417,6 +1561,11 @@ def _run_stage3_validation_pipeline(
                 ),
             )
             for workflow in typed_workflows
+        )
+        _validate_family_profile_typed_prompt_input_rows(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            workflow_catalog=workflow_catalog,
         )
         return replace(
             state,
@@ -1859,6 +2008,7 @@ def _compile_stage3_graph(
     workspace_root: Path,
     lint_profile: str = LINT_PROFILE_DEFAULT,
     lowering_route: LoweringRoute | str | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -2019,6 +2169,7 @@ def _compile_stage3_graph(
             ),
             allow_collection_input_boundaries=True,
             allow_collection_return_boundaries=True,
+            family_profile_catalog=family_profile_catalog,
         )
         function_catalog = build_function_catalog(
             function_defs,
@@ -2154,6 +2305,11 @@ def _compile_stage3_graph(
                 ),
             )
             for workflow in typed_workflows
+        )
+        _validate_family_profile_typed_prompt_input_rows(
+            typed_workflows,
+            typed_procedures=typed_procedures,
+            workflow_catalog=workflow_catalog,
         )
         combined_typed_procedures = {
             **typed_procedures_by_name,

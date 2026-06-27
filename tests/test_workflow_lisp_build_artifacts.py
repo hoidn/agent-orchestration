@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 import re
+from datetime import date
 from dataclasses import asdict, is_dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -40,6 +41,9 @@ DESIGN_DELTA_MIGRATION_INPUTS = (
 )
 DESIGN_DELTA_BOUNDARY_AUTHORITY_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.boundary_authority.json"
+)
+DESIGN_DELTA_FAMILY_PROFILE_PATH = (
+    DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.family_profile.json"
 )
 DESIGN_DELTA_VALUE_FLOW_CENSUS_PATH = (
     DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.value_flow_census.json"
@@ -97,6 +101,22 @@ RUNTIME_CLOSURE_MARKERS = (
 
 def _build_module():
     return importlib.import_module("orchestrator.workflow_lisp.build")
+
+
+def _family_profiles_module():
+    return importlib.import_module("orchestrator.workflow_lisp.family_profiles")
+
+
+def _design_delta_family_profile_catalog():
+    return _family_profiles_module().load_workflow_family_profile_catalog(
+        (DESIGN_DELTA_FAMILY_PROFILE_PATH,)
+    )
+
+
+def _write_json(path: Path, payload: object) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def _drain_command_boundaries():
@@ -274,6 +294,7 @@ def _design_delta_fingerprint_context(
         workspace_root=resolved_request.workspace_root,
         lint_profile=resolved_request.lint_profile,
         lowering_route=resolved_request.lowering_route,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
     )
     entry_selection = build._select_entry_workflow(
         compile_result,
@@ -282,6 +303,7 @@ def _design_delta_fingerprint_context(
     )
     boundary_authority_registry = build._maybe_load_design_delta_boundary_authority_registry(
         entry_workflow=entry_selection.canonical_name,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
     )
     value_flow_census = build._maybe_load_design_delta_value_flow_census(
         entry_workflow=entry_selection.canonical_name,
@@ -480,6 +502,7 @@ def _build_design_delta_parent_drain(
     design_gap_summary_root: Path | None = None,
     architecture_index_path: Path | None = None,
     target_design_path: Path | None = None,
+    parity_targets_path: Path | None = None,
     parity_report_json_path: Path | None = None,
     parity_report_markdown_path: Path | None = None,
     parity_index_path: Path | None = None,
@@ -492,10 +515,19 @@ def _build_design_delta_parent_drain(
         registry_path = tmp_path / "design_delta_parent_drain.boundary_authority.json"
         registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.write_text(json.dumps(registry_payload, indent=2) + "\n", encoding="utf-8")
+        profile_payload = json.loads(
+            DESIGN_DELTA_FAMILY_PROFILE_PATH.read_text(encoding="utf-8")
+        )
+        profile_payload["boundary_authority_registry"] = registry_path.name
+        family_profile_path = tmp_path / "design_delta_parent_drain.family_profile.json"
+        family_profile_path.write_text(
+            json.dumps(profile_payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
         monkeypatch.setattr(
             build,
-            "DESIGN_DELTA_PARENT_DRAIN_BOUNDARY_AUTHORITY_PATH",
-            registry_path,
+            "DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE_PATH",
+            family_profile_path,
             raising=False,
         )
     if value_flow_census_payload is not None:
@@ -587,6 +619,13 @@ def _build_design_delta_parent_drain(
             build,
             "REFERENCE_FAMILY_TARGET_DESIGN_PATH",
             target_design_path,
+            raising=False,
+        )
+    if parity_targets_path is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_PARITY_TARGETS_PATH",
+            parity_targets_path,
             raising=False,
         )
     if parity_report_json_path is not None:
@@ -763,6 +802,7 @@ def _aligned_design_delta_value_flow_census(
             command_boundaries=command_boundaries,
             validate_shared=True,
             workspace_root=tmp_path,
+            family_profile_catalog=_design_delta_family_profile_catalog(),
         )
         source_map_payload = build._serialize_source_map(
             compile_result,
@@ -999,12 +1039,16 @@ def _aligned_design_delta_boundary_authority_registry(tmp_path: Path) -> dict[st
         command_boundaries=command_boundaries,
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
     )
     boundary_projection = build._serialize_workflow_boundary_projection(
         compile_result,
         selected_name=request.entry_workflow,
     )
-    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    expected_rows = build_design_delta_boundary_authority_expected_rows(
+        boundary_projection,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
+    )
     checked_in_registry = _load_design_delta_boundary_authority_registry()
     checked_census = _load_design_delta_value_flow_census()
     rows_by_key = {
@@ -5570,7 +5614,10 @@ def test_design_delta_parent_drain_boundary_authority_registry_covers_expected_r
     boundary_projection = json.loads(
         result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
     )
-    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    expected_rows = build_design_delta_boundary_authority_expected_rows(
+        boundary_projection,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
+    )
     registry_payload = _load_design_delta_boundary_authority_registry()
 
     registry_keys = {
@@ -5611,7 +5658,10 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_include_gene
         result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
     )
 
-    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    expected_rows = build_design_delta_boundary_authority_expected_rows(
+        boundary_projection,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
+    )
     drain_workflow = next(
         workflow
         for workflow in boundary_projection["workflows"]
@@ -5685,7 +5735,10 @@ def test_design_delta_parent_drain_boundary_authority_expected_rows_exclude_scal
         result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
     )
 
-    expected_rows = build_design_delta_boundary_authority_expected_rows(boundary_projection)
+    expected_rows = build_design_delta_boundary_authority_expected_rows(
+        boundary_projection,
+        family_profile_catalog=_design_delta_family_profile_catalog(),
+    )
 
     assert (
         "lisp_frontend_design_delta/drain::drain",
@@ -6070,7 +6123,7 @@ def test_design_delta_parent_drain_value_flow_census_rejects_missing_checked_row
         row
         for row in payload["rows"]
         if row["row_id"]
-        != "compiled_boundary::lisp_frontend_design_delta/drain::drain::return__drain-summary"
+        != "drain.materialized.drain_summary"
     ]
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -6135,12 +6188,17 @@ def test_design_delta_parent_drain_value_flow_census_rejects_unclassified_path_l
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = _load_design_delta_value_flow_census()
+    generated_path_row_id = None
     for row in payload["rows"]:
-        if row["row_id"] == "drain.generated.state_root":
+        if (
+            row["source_kind"] == "generated_path"
+            and row["boundary_authority_class"] == "generated_internal"
+        ):
             row["plumbing_class"] = "public_authored"
+            generated_path_row_id = row["row_id"]
             break
-    else:
-        raise AssertionError("expected generated state-root row in checked census fixture")
+    if generated_path_row_id is None:
+        raise AssertionError("expected generated-path row in checked census fixture")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _build_design_delta_parent_drain(
@@ -7638,9 +7696,30 @@ def test_design_delta_parent_drain_build_emits_reference_family_conformance_prof
             encoding="utf-8"
         )
     )
+    evidence_inputs = {row["input_id"]: row for row in payload["evidence_inputs"]}
     assert payload["schema_version"] == "workflow_lisp_reference_family_conformance_profile.v1"
     assert "schema_id" not in payload
     assert payload["profile_status"] == "pass"
+    assert evidence_inputs["parity_targets"]["path"] == str(
+        DESIGN_DELTA_MIGRATION_INPUTS / "parity_targets.json"
+    )
+    assert evidence_inputs["parity_json_report"]["path"] == str(
+        REPO_ROOT
+        / "artifacts"
+        / "work"
+        / "review-parity-check"
+        / "design_delta_parent_drain.json"
+    )
+    assert evidence_inputs["parity_markdown_report"]["path"] == str(
+        REPO_ROOT
+        / "artifacts"
+        / "work"
+        / "review-parity-check"
+        / "design_delta_parent_drain.md"
+    )
+    assert evidence_inputs["parity_index"]["path"] == str(
+        REPO_ROOT / "artifacts" / "work" / "review-parity-check" / "index.json"
+    )
     assert payload["completed_gap_reconciliation"]["missing_from_drain_summary"] == []
     assert payload["parity_surface_reconciliation"]["derived_primary_surface"] == "yaml"
     assert {
@@ -7679,7 +7758,7 @@ def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_
     drain_summary_path = _aligned_reference_family_drain_summary(tmp_path)
     payload = json.loads(drain_summary_path.read_text(encoding="utf-8"))
     payload["completed_design_gaps"].remove(
-        "workflow-lisp-runtime-native-drain-reference-family-completion-inventory-realignment-after-final-gap-closures"
+        "workflow-lisp-runtime-native-drain-reference-family-acceptance-evidence-realignment-regression-reopen"
     )
     drain_summary_path.write_text(
         json.dumps(payload, indent=2) + "\n",
@@ -8709,3 +8788,39 @@ def test_lexical_checkpoint_points_artifact_rejects_missing_r3_policy_envelope(t
             runtime_plan_payload=json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8")),
             source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
         )
+
+
+def test_design_delta_parent_drain_build_records_family_profile_provenance(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    result = build_frontend_bundle(_design_delta_parent_drain_request(tmp_path))
+
+    family_profile = result.manifest.family_profile
+    assert family_profile["path"].endswith(
+        "design_delta_parent_drain.family_profile.json"
+    )
+    assert family_profile["digest"]
+
+    typed_prompt_input_report = json.loads(
+        result.artifact_paths["typed_prompt_input_report"].read_text(encoding="utf-8")
+    )
+    assert typed_prompt_input_report["family_profile"]["path"].endswith(
+        "design_delta_parent_drain.family_profile.json"
+    )
+
+
+def test_design_delta_work_item_build_auto_loads_family_profile_for_non_drain_entry(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    result = build_frontend_bundle(_design_delta_work_item_request(tmp_path))
+
+    family_profile = result.manifest.family_profile
+    assert family_profile["path"].endswith(
+        "design_delta_parent_drain.family_profile.json"
+    )
+    assert family_profile["digest"]
+    assert "workflow_boundary_projection" in result.artifact_paths

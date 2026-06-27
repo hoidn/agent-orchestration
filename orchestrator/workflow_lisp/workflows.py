@@ -36,12 +36,14 @@ from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .entry_publication import EntryPublicationPolicy, parse_entry_publication_policy, validate_entry_publication_policy
 from .expression_traversal import walk_expr
 from .expressions import CallExpr, elaborate_expression
+from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
 from .phase import (
     PHASE_CONTEXT_NAME,
     derived_private_child_context_eligibility,
     derive_promoted_entry_hidden_context_metadata,
+    eligible_private_context_source_param_names,
     private_exec_context_kind,
     PromotedEntryHiddenContextRequirement,
 )
@@ -377,6 +379,7 @@ class WorkflowCatalog:
     signatures_by_name: Mapping[str, WorkflowSignature]
     definitions_by_name: Mapping[str, WorkflowDef]
     imported_bundles_by_name: Mapping[str, "LoadedWorkflowBundle"]
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None
 
 
 @dataclass(frozen=True)
@@ -416,35 +419,75 @@ class WorkflowBoundaryAnalysis:
 def _phase_family_hidden_context_requirements(
     signature: WorkflowSignature,
     requirements: Mapping[str, PromotedEntryHiddenContextRequirement],
+    *,
+    workflow_catalog: WorkflowCatalog,
 ) -> Mapping[str, PromotedEntryHiddenContextRequirement]:
-    if not signature.name.startswith("lisp_frontend_design_delta/"):
+    family_profile_catalog = workflow_catalog.family_profile_catalog
+    if family_profile_catalog is None:
         return requirements
-    entry_name = signature.name.rsplit("::", 1)[-1]
-    phase_name = {
-        "run-plan-phase": "plan",
-        "implementation-phase": "implementation",
-        "run-work-item": "work-item",
-    }.get(entry_name)
-    if phase_name is None:
+    hidden_context_rule = family_profile_catalog.hidden_context_rule(signature.name)
+    if hidden_context_rule is None:
         return requirements
-    binding_kind = (
-        "derived_private_child_context"
-        if entry_name in {"run-plan-phase", "implementation-phase"}
-        else "runtime_owned_entry_context"
-    )
 
     updated = dict(requirements)
-    for param_name, type_ref in signature.params:
-        if private_exec_context_kind(type_ref) != PHASE_CONTEXT_NAME:
-            continue
+    params_by_name = dict(signature.params)
+    named_type_ref = params_by_name.get(hidden_context_rule.parameter_name)
+    if (
+        named_type_ref is not None
+        and private_exec_context_kind(named_type_ref) != PHASE_CONTEXT_NAME
+    ):
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_family_profile_hidden_context_invalid",
+                    message=(
+                        "workflow family profile hidden-context rule must bind a "
+                        f"structural `{PHASE_CONTEXT_NAME}` parameter on "
+                        f"`{signature.name}`, but `{hidden_context_rule.parameter_name}` "
+                        "does not"
+                    ),
+                    span=signature.span,
+                    form_path=signature.form_path,
+                    phase="workflow_family_profile",
+                ),
+            )
+        )
+
+    structural_phase_context_params = [
+        param_name
+        for param_name, type_ref in signature.params
+        if private_exec_context_kind(type_ref) == PHASE_CONTEXT_NAME
+    ]
+    if named_type_ref is not None:
+        selected_param_names = [hidden_context_rule.parameter_name]
+    elif len(structural_phase_context_params) == 1:
+        selected_param_names = structural_phase_context_params
+    else:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_family_profile_hidden_context_invalid",
+                    message=(
+                        "workflow family profile hidden-context rule must resolve to "
+                        f"exactly one structural `{PHASE_CONTEXT_NAME}` parameter on "
+                        f"`{signature.name}`"
+                    ),
+                    span=signature.span,
+                    form_path=signature.form_path,
+                    phase="workflow_family_profile",
+                ),
+            )
+        )
+
+    for param_name in selected_param_names:
         existing = updated.get(param_name)
         if existing is not None and existing.context_kind != PHASE_CONTEXT_NAME:
             continue
         updated[param_name] = PromotedEntryHiddenContextRequirement(
             param_name=param_name,
             context_kind=PHASE_CONTEXT_NAME,
-            phase_name=phase_name,
-            binding_kind=binding_kind,
+            phase_name=hidden_context_rule.phase_identity,
+            binding_kind="derived_private_child_context",
         )
     return updated
 
@@ -727,6 +770,7 @@ def build_workflow_catalog(
     selected_entry_workflow_name: str | None = None,
     allow_collection_input_boundaries: bool = False,
     allow_collection_return_boundaries: bool = False,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
     from .phase_family_boundary import (
@@ -823,9 +867,7 @@ def build_workflow_catalog(
                 workflow_invalid = True
                 continue
             params.append((param.name, param_type))
-            if is_selected_phase_family_workflow(workflow_def.name) and is_compatibility_bridge_param(
-                param.name, param_type
-            ):
+            if is_compatibility_bridge_param(param.name, param_type):
                 private_compatibility_bridge_types[param.name] = param_type
             if param.default_value is not None:
                 try:
@@ -851,6 +893,7 @@ def build_workflow_catalog(
         definitions_by_name[workflow_def.name] = workflow_def
         signatures_by_name[workflow_def.name] = signature
 
+    hidden_context_callees_by_workflow: Mapping[str, frozenset[str]] = {}
     if allow_hidden_context_callers:
         hidden_context_callees_by_workflow = _shared_proof_hidden_context_omission_callees(
             module=module,
@@ -870,37 +913,60 @@ def build_workflow_catalog(
                     | set(selected_entry_callees)
                 ),
             }
-        compatibility_bridge_callees_by_workflow = (
-            _shared_proof_compatibility_bridge_omission_callees(
-                module=module,
-                workflow_defs=workflow_defs,
-                signatures_by_name=signatures_by_name,
-            )
+    compatibility_bridge_callees_by_workflow = (
+        _shared_proof_compatibility_bridge_omission_callees(
+            module=module,
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
         )
-        for workflow_name in set(hidden_context_callees_by_workflow).union(
-            compatibility_bridge_callees_by_workflow
-        ):
-            signature = signatures_by_name[workflow_name]
-            hidden_context_callees = hidden_context_callees_by_workflow.get(workflow_name, frozenset())
-            compatibility_bridge_callees = compatibility_bridge_callees_by_workflow.get(
-                workflow_name,
-                frozenset(),
+        )
+    workflow_ref_bridge_omission_workflows = {
+        workflow_def.name
+        for workflow_def in workflow_defs
+        if _workflow_omits_private_compatibility_bridge_via_workflow_ref(
+            workflow_def,
+            signatures_by_name=signatures_by_name,
+        )
+    }
+    merged_compatibility_bridge_types_by_workflow = (
+        _merged_private_compatibility_bridge_types_by_workflow(
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
+        )
+    )
+    for workflow_name in set(hidden_context_callees_by_workflow).union(
+        compatibility_bridge_callees_by_workflow
+    ).union(merged_compatibility_bridge_types_by_workflow).union(
+        workflow_ref_bridge_omission_workflows
+    ):
+        signature = signatures_by_name[workflow_name]
+        hidden_context_callees = hidden_context_callees_by_workflow.get(workflow_name, frozenset())
+        compatibility_bridge_callees = compatibility_bridge_callees_by_workflow.get(
+            workflow_name,
+            frozenset(),
+        )
+        compatibility_bridge_types = merged_compatibility_bridge_types_by_workflow.get(
+            workflow_name,
+            signature.private_compatibility_bridge_types,
+        )
+        signatures_by_name[workflow_name] = WorkflowSignature(
+            name=signature.name,
+            params=signature.params,
+            return_type_ref=signature.return_type_ref,
+            span=signature.span,
+            form_path=signature.form_path,
+            param_defaults=signature.param_defaults,
+            hidden_context_requirements=signature.hidden_context_requirements,
+            hidden_context_ambiguities=signature.hidden_context_ambiguities,
+            private_compatibility_bridge_types=compatibility_bridge_types,
+            allow_hidden_context_binding=bool(hidden_context_callees),
+            allow_private_compatibility_bridge_omission=bool(
+                compatibility_bridge_callees
             )
-            signatures_by_name[workflow_name] = WorkflowSignature(
-                name=signature.name,
-                params=signature.params,
-                return_type_ref=signature.return_type_ref,
-                span=signature.span,
-                form_path=signature.form_path,
-                param_defaults=signature.param_defaults,
-                hidden_context_requirements=signature.hidden_context_requirements,
-                hidden_context_ambiguities=signature.hidden_context_ambiguities,
-                private_compatibility_bridge_types=signature.private_compatibility_bridge_types,
-                allow_hidden_context_binding=bool(hidden_context_callees),
-                allow_private_compatibility_bridge_omission=bool(compatibility_bridge_callees),
-                allowed_hidden_context_callees=hidden_context_callees,
-                allowed_private_compatibility_bridge_callees=compatibility_bridge_callees,
-            )
+            or workflow_name in workflow_ref_bridge_omission_workflows,
+            allowed_hidden_context_callees=hidden_context_callees,
+            allowed_private_compatibility_bridge_callees=compatibility_bridge_callees,
+        )
 
     for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
         if imported_name in signatures_by_name:
@@ -931,6 +997,7 @@ def build_workflow_catalog(
         signatures_by_name=signatures_by_name,
         definitions_by_name=definitions_by_name,
         imported_bundles_by_name=dict(imported_workflow_bundles or {}),
+        family_profile_catalog=family_profile_catalog,
     )
 
 
@@ -942,17 +1009,20 @@ def _shared_proof_hidden_context_omission_callees(
 ) -> Mapping[str, frozenset[str]]:
     """Return the approved proof-route callees for hidden context omission."""
 
-    allowed_workflow_names = _shared_proof_hidden_context_workflow_names(
-        module=module,
-        workflow_defs=workflow_defs,
-        signatures_by_name=signatures_by_name,
-    )
-    if not allowed_workflow_names:
-        return {}
     proof_worker_names = _shared_proof_hidden_context_seed_workflow_names(
         workflow_defs=workflow_defs,
         signatures_by_name=signatures_by_name,
     )
+    allowed_workflow_names = set(
+        _shared_proof_hidden_context_workflow_names(
+            module=module,
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
+        )
+    )
+    allowed_workflow_names.update(proof_worker_names)
+    if not allowed_workflow_names:
+        return {}
     proof_route_names = set(proof_worker_names)
     proof_route_names.update(
         _transitive_local_callers(
@@ -1241,6 +1311,58 @@ def _omitted_private_compatibility_bridge_callees_by_workflow(
     return omitted
 
 
+def _workflow_omits_private_compatibility_bridge_via_workflow_ref(
+    workflow_def: WorkflowDef,
+    *,
+    signatures_by_name: Mapping[str, WorkflowSignature],
+) -> bool:
+    """Return whether a workflow-ref call site omits a compatibility bridge."""
+
+    from .phase_family_boundary import COMPATIBILITY_BRIDGE_PARAM_NAMES
+
+    signature = signatures_by_name.get(workflow_def.name)
+    if signature is None:
+        return False
+    workflow_ref_params = {
+        name for name, type_ref in signature.params if isinstance(type_ref, WorkflowRefTypeRef)
+    }
+    if not workflow_ref_params:
+        return False
+    for callee_name, bound_names in _iter_workflow_call_sites(workflow_def):
+        if callee_name not in workflow_ref_params:
+            continue
+        if any(binding_name not in bound_names for binding_name in COMPATIBILITY_BRIDGE_PARAM_NAMES):
+            return True
+    return False
+
+
+def _merged_private_compatibility_bridge_types_by_workflow(
+    *,
+    workflow_defs: tuple[WorkflowDef, ...],
+    signatures_by_name: Mapping[str, WorkflowSignature],
+) -> Mapping[str, Mapping[str, TypeRef]]:
+    """Propagate bridge types through workers that omit bridge bindings locally."""
+
+    omitted_callees_by_workflow = _omitted_private_compatibility_bridge_callees_by_workflow(
+        workflow_defs=workflow_defs,
+        signatures_by_name=signatures_by_name,
+    )
+    merged: dict[str, Mapping[str, TypeRef]] = {}
+    for workflow_def in workflow_defs:
+        signature = signatures_by_name.get(workflow_def.name)
+        if signature is None:
+            continue
+        combined = dict(signature.private_compatibility_bridge_types)
+        for callee_name in omitted_callees_by_workflow.get(workflow_def.name, frozenset()):
+            callee_signature = signatures_by_name.get(callee_name)
+            if callee_signature is None:
+                continue
+            combined.update(callee_signature.private_compatibility_bridge_types)
+        if combined != dict(signature.private_compatibility_bridge_types):
+            merged[workflow_def.name] = combined
+    return merged
+
+
 def _iter_workflow_call_sites(
     workflow_def: WorkflowDef,
 ) -> tuple[tuple[str, frozenset[str]], ...]:
@@ -1291,14 +1413,14 @@ def _shared_proof_compatibility_bridge_omission_callees(
     """Return the approved proof-route callees for bridge omission."""
 
     _ = module
-    proof_worker_names = _shared_proof_item_ctx_worker_workflow_names(
-        workflow_defs=workflow_defs,
-        signatures_by_name=signatures_by_name,
-    )
     bridge_worker_names = {
         workflow_def.name
         for workflow_def in workflow_defs
-        if workflow_def.name in proof_worker_names
+        if (
+            (signature := signatures_by_name.get(workflow_def.name)) is not None
+            and not any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params)
+            and len(eligible_private_context_source_param_names(signature)) == 1
+        )
         if _workflow_omits_private_compatibility_bridge(
             workflow_def,
             signatures_by_name=signatures_by_name,
@@ -1333,6 +1455,36 @@ def _shared_proof_compatibility_bridge_omission_callees(
         if approved_callees:
             allowed[workflow_name] = approved_callees
     return allowed
+
+
+def specialized_private_compatibility_bridge_callees(
+    workflow_def: WorkflowDef,
+    *,
+    base_signature: WorkflowSignature,
+    workflow_ref_bindings: Mapping[str, object],
+    signatures_by_name: Mapping[str, WorkflowSignature],
+) -> frozenset[str]:
+    """Resolve exact bridge-omission callees after workflow-ref specialization."""
+
+    allowed = set(base_signature.allowed_private_compatibility_bridge_callees)
+    if not workflow_ref_bindings:
+        return frozenset(allowed)
+    for callee_name, bound_names in _iter_workflow_call_sites(workflow_def):
+        resolved = workflow_ref_bindings.get(callee_name)
+        if resolved is None:
+            continue
+        target_name = getattr(resolved, "workflow_name", None)
+        if not isinstance(target_name, str):
+            continue
+        target_signature = signatures_by_name.get(target_name)
+        if target_signature is None:
+            continue
+        if any(
+            binding_name not in bound_names
+            for binding_name in target_signature.private_compatibility_bridge_types
+        ):
+            allowed.add(target_name)
+    return frozenset(allowed)
 
 
 def _signature_from_imported_bundle(
@@ -1439,6 +1591,13 @@ def _compatibility_bridge_types_from_bundle(
     form_path: tuple[str, ...],
     existing_param_names: frozenset[str],
 ) -> Mapping[str, TypeRef]:
+    from .phase_family_boundary import is_compatibility_bridge_param
+
+    preferred_type_candidates_by_input = {
+        "run_state_path": ("RunStatePath", "StateFileExisting", "StateExisting", "StateFile"),
+        "progress_ledger_path": ("ProgressLedger",),
+        "selection_bundle_path": ("SelectionBundlePath",),
+    }
     input_contracts = workflow_input_contracts(bundle)
     boundary_projection = workflow_boundary_projection(bundle)
     compatibility_types: dict[str, TypeRef] = {}
@@ -1448,7 +1607,20 @@ def _compatibility_bridge_types_from_bundle(
         input_spec = input_contracts.get(input_name)
         if not isinstance(input_spec, Mapping):
             continue
-        compatibility_types[input_name] = _match_boundary_type_from_contracts(
+        preferred_type = None
+        for candidate_name in preferred_type_candidates_by_input.get(input_name, ()):
+            try:
+                candidate_type = type_env.resolve_type(
+                    candidate_name,
+                    span=span,
+                    form_path=form_path,
+                )
+            except LispFrontendCompileError:
+                continue
+            if is_compatibility_bridge_param(input_name, candidate_type):
+                preferred_type = candidate_type
+                break
+        compatibility_types[input_name] = preferred_type or _match_boundary_type_from_contracts(
             {input_name: dict(input_spec)},
             type_env=type_env,
             generated_name=input_name,
@@ -1880,6 +2052,7 @@ def typecheck_workflow_definitions(
         hidden_context_requirements = _phase_family_hidden_context_requirements(
             signature,
             hidden_context_requirements,
+            workflow_catalog=workflow_catalog,
         )
         workflow_catalog.signatures_by_name[workflow_def.name] = WorkflowSignature(
             name=signature.name,

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from functools import lru_cache
 import json
-from pathlib import Path
 from typing import Any
 
 from .context_classification import (
@@ -15,30 +13,13 @@ from .context_classification import (
 )
 from .contracts import FlattenedContractField, derive_workflow_boundary_fields
 from .effects import CallsWorkflowEffect, EffectSummary
+from .family_profiles import WorkflowFamilyProfileCatalog
 from .phase import private_exec_context_capabilities
 from .type_env import PathTypeRef, RecordTypeRef, TypeRef
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
 
-PHASE_FAMILY_MODULE_PREFIX = "lisp_frontend_design_delta/"
 PHASE_CONTEXT_TYPE_NAME = "PhaseCtx"
-PHASE_FAMILY_PARENT_WORKFLOW_NAMES = frozenset(
-    {
-        "design_delta_parent_calls_implementation_phase::run-implementation-phase",
-        "design_delta_parent_calls_work_item::run-parent-work-item",
-    }
-)
-DESIGN_DELTA_PARENT_DRAIN_TARGET_WORKFLOW_NAMES = frozenset(
-    {
-        "lisp_frontend_design_delta/drain::drain",
-        "lisp_frontend_design_delta/selector::select-next-work",
-        "lisp_frontend_design_delta/work_item::run-work-item",
-        "lisp_frontend_design_delta/plan_phase::run-plan-phase",
-        "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-        "lisp_frontend_design_delta/design_gap_architect::draft-design-gap-architecture",
-        "lisp_frontend_design_delta/design_gap_architect::validate-design-gap-architecture",
-    }
-)
 DESIGN_DELTA_BOUNDARY_AUTHORITY_SCHEMA_VERSION = (
     "workflow_lisp_design_delta_boundary_authority.v1"
 )
@@ -61,14 +42,6 @@ DESIGN_DELTA_BOUNDARY_SURFACE_KINDS = frozenset(
         "managed_write_root",
         "runtime_context_input",
     }
-)
-DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.boundary_authority.json"
 )
 
 COMPATIBILITY_BRIDGE_TYPE_NAMES = frozenset(
@@ -109,12 +82,27 @@ def is_structural_pure_projection_effect_summary(effect_summary: EffectSummary) 
     return all(isinstance(effect, allowed_effect_type) for effect in all_effects)
 
 
-def is_selected_phase_family_workflow(workflow_name: str) -> bool:
-    return workflow_name.startswith(PHASE_FAMILY_MODULE_PREFIX) or workflow_name in PHASE_FAMILY_PARENT_WORKFLOW_NAMES
+def is_selected_phase_family_workflow(
+    workflow_name: str,
+    *,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+) -> bool:
+    if family_profile_catalog is None:
+        return False
+    return family_profile_catalog.workflow_in_profile(workflow_name)
 
 
-def is_design_delta_parent_drain_target_workflow(workflow_name: str) -> bool:
-    return workflow_name in DESIGN_DELTA_PARENT_DRAIN_TARGET_WORKFLOW_NAMES
+def is_design_delta_parent_drain_target_workflow(
+    workflow_name: str,
+    *,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+) -> bool:
+    if family_profile_catalog is None:
+        return False
+    profile = family_profile_catalog.profile_for_workflow(workflow_name)
+    if profile is None:
+        return False
+    return workflow_name in profile.target_workflows
 
 
 def short_type_name(type_ref: TypeRef) -> str:
@@ -141,8 +129,12 @@ def classify_phase_family_boundary(
     workflow_name: str,
     params: Iterable[tuple[str, TypeRef]],
     flattened_inputs: Iterable[FlattenedContractField],
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> PhaseFamilyBoundaryClassification:
-    selected_phase_family = is_selected_phase_family_workflow(workflow_name)
+    selected_phase_family = is_selected_phase_family_workflow(
+        workflow_name,
+        family_profile_catalog=family_profile_catalog,
+    )
     params_by_name = dict(params)
     runtime_names: list[str] = []
     bridge_names: list[str] = []
@@ -173,16 +165,14 @@ def classify_phase_family_boundary(
     )
 
 
-def phase_family_entry_phase_identity(workflow_name: str) -> str | None:
-    if not is_selected_phase_family_workflow(workflow_name):
+def phase_family_entry_phase_identity(
+    workflow_name: str,
+    *,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+) -> str | None:
+    if family_profile_catalog is None:
         return None
-    entry_name = workflow_name.rsplit("::", 1)[-1]
-    return {
-        "run-plan-phase": "plan",
-        "run-implementation-phase": "implementation",
-        "implementation-phase": "implementation",
-        "run-work-item": "work-item",
-    }.get(entry_name)
+    return family_profile_catalog.entry_phase_identity(workflow_name)
 
 
 def apply_phase_family_boundary_classification(
@@ -196,6 +186,7 @@ def apply_phase_family_boundary_classification(
         workflow_name=workflow_name,
         params=params,
         flattened_inputs=boundary_projection.flattened_inputs,
+        family_profile_catalog=context.workflow_catalog.family_profile_catalog,
     )
     for name in classification.runtime_owned_context_inputs:
         context.internal_generated_input_reasons[name] = "runtime_owned_context"
@@ -253,7 +244,8 @@ def record_direct_entry_phase_context_binding(
         carried_input_sources: dict[str, tuple[str, ...]] = {}
         has_non_bootstrap_leaf = False
         entry_phase_identity = phase_family_entry_phase_identity(
-            typed_workflow.definition.name
+            typed_workflow.definition.name,
+            family_profile_catalog=context.workflow_catalog.family_profile_catalog,
         )
         if structural_classification is not None:
             for field in flattened_fields:
@@ -306,7 +298,8 @@ def record_direct_entry_phase_context_binding(
                 else private_exec_context_capabilities(requirement.context_kind)
             ),
             derived_phase_identity=phase_family_entry_phase_identity(
-                typed_workflow.definition.name
+                typed_workflow.definition.name,
+                family_profile_catalog=context.workflow_catalog.family_profile_catalog,
             ),
             projection_hints=projection_hints,
             source_provenance=provenance,
@@ -325,7 +318,11 @@ def _phase_context_capabilities(typed_workflow: Any) -> tuple[str, ...]:
     return ()
 
 
-def load_design_delta_boundary_authority_registry(path: Path) -> dict[str, object]:
+def load_design_delta_boundary_authority_registry(
+    path: Path,
+    *,
+    target_workflows: frozenset[str] | None = None,
+) -> dict[str, object]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("boundary authority registry must be a JSON object")
@@ -342,7 +339,7 @@ def load_design_delta_boundary_authority_registry(path: Path) -> dict[str, objec
         if not isinstance(row, dict):
             raise ValueError(f"boundary authority row {index} must be an object")
         workflow_name = _require_registry_string(row, "workflow_name", index=index)
-        if not is_design_delta_parent_drain_target_workflow(workflow_name):
+        if target_workflows is not None and workflow_name not in target_workflows:
             raise ValueError(
                 f"boundary authority row {index} uses unknown target workflow `{workflow_name}`"
             )
@@ -379,59 +376,89 @@ def load_design_delta_boundary_authority_registry(path: Path) -> dict[str, objec
     }
 
 
-@lru_cache(maxsize=1)
-def _cached_design_delta_boundary_authority_registry() -> dict[str, object] | None:
-    if not DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH.is_file():
-        return None
-    return load_design_delta_boundary_authority_registry(
-        DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH
-    )
-
-
 def checked_design_delta_public_input_names(
     workflow_name: str,
     *,
     boundary_authority_registry: Mapping[str, object] | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> frozenset[str]:
     """Return checked public-authored inputs for one Design Delta workflow."""
 
-    if not is_design_delta_parent_drain_target_workflow(workflow_name):
+    if family_profile_catalog is None or not is_design_delta_parent_drain_target_workflow(
+        workflow_name,
+        family_profile_catalog=family_profile_catalog,
+    ):
         return frozenset()
     registry_payload = boundary_authority_registry
-    if registry_payload is None:
-        registry_payload = _cached_design_delta_boundary_authority_registry()
-    if not isinstance(registry_payload, Mapping):
-        return frozenset()
-    return frozenset(
-        str(row.get("field_name"))
-        for row in registry_payload.get("rows", [])
-        if isinstance(row, Mapping)
-        and row.get("workflow_name") == workflow_name
-        and row.get("surface_kind") == "public_input"
-        and row.get("authority_class") == "public_authored"
-        and isinstance(row.get("field_name"), str)
-    )
+    if isinstance(registry_payload, Mapping):
+        return frozenset(
+            str(row.get("field_name"))
+            for row in registry_payload.get("rows", [])
+            if isinstance(row, Mapping)
+            and row.get("workflow_name") == workflow_name
+            and row.get("surface_kind") == "public_input"
+            and row.get("authority_class") == "public_authored"
+            and isinstance(row.get("field_name"), str)
+        )
+    return family_profile_catalog.checked_public_inputs(workflow_name)
 
 
 def build_design_delta_boundary_authority_expected_rows(
     boundary_projection_payload: dict[str, object],
     *,
     boundary_authority_registry: Mapping[str, object] | None = None,
+    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
 ) -> dict[tuple[str, str], dict[str, object]]:
     workflows = boundary_projection_payload.get("workflows")
     if not isinstance(workflows, list):
         return {}
+    if family_profile_catalog is None:
+        return {}
     registry_payload = boundary_authority_registry
-    if registry_payload is None and DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH.is_file():
-        registry_payload = load_design_delta_boundary_authority_registry(
-            DESIGN_DELTA_BOUNDARY_AUTHORITY_REGISTRY_PATH
+    if registry_payload is None:
+        profile = next(
+            (
+                family
+                for family in family_profile_catalog.profiles
+                if family.boundary_authority_registry_path is not None
+            ),
+            None,
         )
+        if profile is not None:
+            registry_payload = load_design_delta_boundary_authority_registry(
+                profile.boundary_authority_registry_path,
+                target_workflows=profile.target_workflows,
+            )
+    registry_target_workflows = (
+        frozenset(
+            str(row.get("workflow_name"))
+            for row in registry_payload.get("rows", [])
+            if isinstance(row, Mapping) and isinstance(row.get("workflow_name"), str)
+        )
+        if isinstance(registry_payload, Mapping)
+        else None
+    )
+    target_workflows = frozenset(
+        str(workflow.get("workflow_name"))
+        for workflow in workflows
+        if isinstance(workflow, Mapping)
+        and isinstance(workflow.get("workflow_name"), str)
+        and is_design_delta_parent_drain_target_workflow(
+            str(workflow.get("workflow_name")),
+            family_profile_catalog=family_profile_catalog,
+        )
+        and (
+            registry_target_workflows is None
+            or str(workflow.get("workflow_name")) in registry_target_workflows
+        )
+    )
     checked_public_inputs = {
         (workflow_name, field_name)
-        for workflow_name in DESIGN_DELTA_PARENT_DRAIN_TARGET_WORKFLOW_NAMES
+        for workflow_name in target_workflows
         for field_name in checked_design_delta_public_input_names(
             workflow_name,
             boundary_authority_registry=registry_payload,
+            family_profile_catalog=family_profile_catalog,
         )
     }
     expected: dict[tuple[str, str], dict[str, object]] = {}
@@ -439,7 +466,10 @@ def build_design_delta_boundary_authority_expected_rows(
         if not isinstance(workflow, dict):
             continue
         workflow_name = workflow.get("workflow_name")
-        if not isinstance(workflow_name, str) or not is_design_delta_parent_drain_target_workflow(workflow_name):
+        if not isinstance(workflow_name, str) or not is_design_delta_parent_drain_target_workflow(
+            workflow_name,
+            family_profile_catalog=family_profile_catalog,
+        ):
             continue
         boundary = workflow.get("boundary")
         if not isinstance(boundary, dict):
@@ -477,7 +507,20 @@ def build_design_delta_boundary_authority_expected_rows(
             if isinstance(item, dict) and isinstance(item.get("generated_name"), str)
         }
         flattened_outputs = workflow.get("flattened_outputs", [])
-        for field_name in boundary.get("public_input_names", []):
+        public_input_names = (
+            checked_design_delta_public_input_names(
+                workflow_name,
+                boundary_authority_registry=registry_payload,
+                family_profile_catalog=family_profile_catalog,
+            )
+            if registry_payload is not None
+            else tuple(
+                field_name
+                for field_name in boundary.get("public_input_names", [])
+                if isinstance(field_name, str)
+            )
+        )
+        for field_name in public_input_names:
             field = flattened_inputs.get(field_name)
             if not isinstance(field, dict) or not _is_path_like_contract(field.get("contract_definition")):
                 continue
