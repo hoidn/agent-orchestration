@@ -26,13 +26,12 @@ the target design without violating the baseline design.
 If run state contains a blocked design gap with
 `recovery_status: PREREQUISITE_WORK_PENDING`, select or draft the prerequisite
 target design work needed to unblock that gap before unrelated target design work.
-If pre-selection metadata provides a dependency edge, select the blocker work
-named by that edge; do not select downstream work while the edge is waiting.
-For that prerequisite-recovery case, include `prerequisite_relation` in the
-selected or drafted output. The relation is explanatory only; the structured
-run-state dependency edge is the authority for blocker identity, retry
-readiness, and downstream gating. Use `BLOCKED` when no safe acyclic blocker can
-be selected.
+If pre-selection metadata says `recovery_pointer_status: WAITING`, select the
+work named by `waiting_on_work_id` / `waiting_on_work_source` and do not select
+other work first. If it says `READY_TO_RETRY`, retry the blocked work named by
+`retry_target_id` / `retry_target_source`. If it says `INVALID`, return
+`BLOCKED`. For prerequisite recovery, include `prerequisite_relation` only as a
+short explanation.
 If the pending prerequisite already has durable completion evidence, do not
 draft another prerequisite; select the original gap for retry or report BLOCKED
 with stale prerequisite state as the reason.

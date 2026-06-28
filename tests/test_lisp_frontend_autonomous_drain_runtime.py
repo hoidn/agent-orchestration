@@ -2024,10 +2024,12 @@ def test_prerequisite_target_design_review_revise_keeps_gap_recoverable(tmp_path
     )
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
     assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
-    assert payload["blocker_work_id"] == "generic-context-capability"
+    assert payload["waiting_on_work_id"] == "generic-context-capability"
+    assert payload["waiting_on_work_source"] == "DESIGN_GAP"
+    assert payload["recovery_pointer_status"] == "WAITING"
 
 
-def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
+def test_prerequisite_recovery_records_compact_dependency_pointer(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
     state_path = workspace / "state/drain/run_state.json"
@@ -2038,7 +2040,6 @@ def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
     detector_output = workspace / "state/drain/blocked-recovery.json"
     blocked_gap_id = "workflow-lisp-runtime-native-drain-runtime-phase-context-bootstrap-for-imported-stdlib-adapters"
     blocker_gap_id = "workflow-lisp-runtime-native-drain-private-context-bootstrap-prerequisite"
-    downstream_gap_id = "workflow-lisp-runtime-native-drain-work-item-summary-ownership-over-imported-finalize-selected-item"
     progress_path = (
         workspace
         / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
@@ -2080,16 +2081,8 @@ def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
             {
                 "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
                 "reason": "prerequisite_gap_required",
-                "recovery_dependency_edge": {
-                    "schema": "workflow_recovery_dependency_edge/v1",
-                    "blocked_work": {"source": "DESIGN_GAP", "id": blocked_gap_id},
-                    "blocker_work": {"source": "DESIGN_GAP", "id": blocker_gap_id},
-                    "relation": "requires_completion",
-                    "reason_code": "private_exec_context_bootstrap_unsupported",
-                    "ready_when": {"kind": "completed", "source": "DESIGN_GAP", "id": blocker_gap_id},
-                    "retry_target": {"source": "DESIGN_GAP", "id": blocked_gap_id},
-                    "downstream_work": [{"source": "DESIGN_GAP", "id": downstream_gap_id}],
-                },
+                "waiting_on_work_id": blocker_gap_id,
+                "waiting_on_work_source": "DESIGN_GAP",
             }
         )
         + "\n",
@@ -2152,8 +2145,8 @@ def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
     assert blocked["waiting_on_prerequisite_source"] == "DESIGN_GAP"
     assert blocked["prerequisite_recovery_status"] == "WAITING_ON_PREREQUISITE"
     assert blocked["prerequisite_recovery_reason"] == "prerequisite_required"
-    assert blocked["downstream_blocked_gap_id"] == downstream_gap_id
-    assert blocked["blocking_failure_code"] == "private_exec_context_bootstrap_unsupported"
+    assert blocked.get("downstream_blocked_gap_id", "") == ""
+    assert blocked["blocking_failure_code"] == "prerequisite_gap_required"
     assert blocked["recovery_dependency_edge"]["blocker_work"] == {"source": "DESIGN_GAP", "id": blocker_gap_id}
     assert blocked["recovery_dependency_edge"]["retry_target"] == {"source": "DESIGN_GAP", "id": blocked_gap_id}
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
@@ -2171,8 +2164,9 @@ def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
     payload = json.loads(detector_output.read_text(encoding="utf-8"))
     assert payload["pre_selection_route"] == "SELECT_PREREQUISITE_WORK"
     assert payload["design_gap_id"] == blocked_gap_id
-    assert payload["blocker_work_id"] == blocker_gap_id
-    assert payload["dependency_relation"] == "requires_completion"
+    assert payload["waiting_on_work_id"] == blocker_gap_id
+    assert payload["waiting_on_work_source"] == "DESIGN_GAP"
+    assert payload["recovery_pointer_status"] == "WAITING"
     assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
     assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
 

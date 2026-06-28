@@ -13,16 +13,16 @@ try:
     from workflows.library.scripts.workflow_recovery_dependencies import (
         WorkRef,
         edge_from_blocked_entry,
-        edge_to_json,
         evaluate_edge,
+        recovery_pointer_to_json,
     )
 except ModuleNotFoundError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     from workflows.library.scripts.workflow_recovery_dependencies import (
         WorkRef,
         edge_from_blocked_entry,
-        edge_to_json,
         evaluate_edge,
+        recovery_pointer_to_json,
     )
 
 
@@ -80,12 +80,11 @@ def _block_payload(reason: str) -> dict[str, str]:
         "recovery_event_id": "",
         "blocked_work_id": "",
         "blocked_work_source": "",
-        "blocker_work_id": "",
-        "blocker_work_source": "",
-        "dependency_relation": "",
-        "dependency_reason_code": "",
+        "waiting_on_work_id": "",
+        "waiting_on_work_source": "",
         "retry_target_id": "",
         "retry_target_source": "",
+        "recovery_pointer_status": "",
     }
 
 
@@ -150,40 +149,26 @@ def _none_payload(
         "recovery_event_id": recovery_event_id,
         "blocked_work_id": "",
         "blocked_work_source": "",
-        "blocker_work_id": "",
-        "blocker_work_source": "",
-        "dependency_relation": "",
-        "dependency_reason_code": "",
+        "waiting_on_work_id": "",
+        "waiting_on_work_source": "",
         "retry_target_id": "",
         "retry_target_source": "",
+        "recovery_pointer_status": "",
     }
 
 
-def _edge_fields(edge_json: dict[str, Any] | None) -> dict[str, str]:
-    if not edge_json:
+def _pointer_fields(decision: Any | None) -> dict[str, str]:
+    if decision is None:
         return {
             "blocked_work_id": "",
             "blocked_work_source": "",
-            "blocker_work_id": "",
-            "blocker_work_source": "",
-            "dependency_relation": "",
-            "dependency_reason_code": "",
+            "waiting_on_work_id": "",
+            "waiting_on_work_source": "",
             "retry_target_id": "",
             "retry_target_source": "",
+            "recovery_pointer_status": "",
         }
-    blocked = edge_json.get("blocked_work") or {}
-    blocker = edge_json.get("blocker_work") or {}
-    retry = edge_json.get("retry_target") or {}
-    return {
-        "blocked_work_id": str(blocked.get("id") or ""),
-        "blocked_work_source": str(blocked.get("source") or ""),
-        "blocker_work_id": str(blocker.get("id") or ""),
-        "blocker_work_source": str(blocker.get("source") or ""),
-        "dependency_relation": str(edge_json.get("relation") or ""),
-        "dependency_reason_code": str(edge_json.get("reason_code") or ""),
-        "retry_target_id": str(retry.get("id") or ""),
-        "retry_target_source": str(retry.get("source") or ""),
-    }
+    return recovery_pointer_to_json(decision)
 
 
 def _recovery_payload(
@@ -237,7 +222,7 @@ def _recovery_payload(
                     recovery_event_id=recovery_event_id,
                     recovery_status=recovery_status,
                 )
-                payload.update(_edge_fields(edge_to_json(edge)))
+                payload.update(_pointer_fields(decision))
                 return payload
             elif decision.route == "BLOCKED_TERMINAL":
                 return _block_payload("prerequisite_blocker_terminal")
@@ -275,7 +260,7 @@ def _recovery_payload(
             "recovery_event_id": recovery_event_id,
         }
         edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=design_gap_id), entry)
-        payload.update(_edge_fields(edge_to_json(edge) if edge is not None else None))
+        payload.update(_pointer_fields(evaluate_edge(edge, state) if edge is not None else None))
         return payload
     return _none_payload()
 

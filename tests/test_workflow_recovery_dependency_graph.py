@@ -4,6 +4,7 @@ from workflows.library.scripts.workflow_recovery_dependencies import (
     edge_to_json,
     evaluate_edge,
     normalize_edge,
+    recovery_pointer_to_json,
 )
 
 
@@ -99,6 +100,62 @@ def test_incomplete_blocker_routes_to_select_blocker():
 
     assert decision.route == "SELECT_BLOCKER"
     assert decision.target == WorkRef(source="DESIGN_GAP", id="context")
+
+
+def test_recovery_pointer_for_waiting_prerequisite():
+    decision = evaluate_edge(
+        _edge(),
+        {"completed_design_gaps": [], "completed_items": [], "blocked_design_gaps": {}, "blocked_items": {}},
+    )
+
+    assert recovery_pointer_to_json(decision) == {
+        "blocked_work_id": "parser",
+        "blocked_work_source": "DESIGN_GAP",
+        "waiting_on_work_id": "context",
+        "waiting_on_work_source": "DESIGN_GAP",
+        "retry_target_id": "parser",
+        "retry_target_source": "DESIGN_GAP",
+        "recovery_pointer_status": "WAITING",
+    }
+
+
+def test_recovery_pointer_for_ready_to_retry_prerequisite():
+    decision = evaluate_edge(
+        _edge(),
+        {
+            "completed_design_gaps": ["context"],
+            "completed_items": [],
+            "blocked_design_gaps": {},
+            "blocked_items": {},
+        },
+    )
+
+    assert recovery_pointer_to_json(decision) == {
+        "blocked_work_id": "parser",
+        "blocked_work_source": "DESIGN_GAP",
+        "waiting_on_work_id": "context",
+        "waiting_on_work_source": "DESIGN_GAP",
+        "retry_target_id": "parser",
+        "retry_target_source": "DESIGN_GAP",
+        "recovery_pointer_status": "READY_TO_RETRY",
+    }
+
+
+def test_recovery_pointer_for_invalid_prerequisite():
+    decision = evaluate_edge(
+        _edge(blocker_work={"source": "DESIGN_GAP", "id": "parser"}),
+        {"completed_design_gaps": [], "completed_items": [], "blocked_design_gaps": {}, "blocked_items": {}},
+    )
+
+    assert recovery_pointer_to_json(decision) == {
+        "blocked_work_id": "parser",
+        "blocked_work_source": "DESIGN_GAP",
+        "waiting_on_work_id": "parser",
+        "waiting_on_work_source": "DESIGN_GAP",
+        "retry_target_id": "parser",
+        "retry_target_source": "DESIGN_GAP",
+        "recovery_pointer_status": "INVALID",
+    }
 
 
 def test_recoverable_blocked_blocker_routes_blocked_recoverable():

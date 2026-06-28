@@ -181,6 +181,28 @@ def edge_to_json(edge: RecoveryDependencyEdge) -> dict[str, Any]:
     return payload
 
 
+def recovery_pointer_to_json(decision: RecoveryDependencyDecision) -> dict[str, str]:
+    edge = decision.edge
+    blocked = edge.blocked_work
+    blocker = edge.blocker_work
+    retry = edge.retry_target
+    if decision.route == "RETRY_TARGET":
+        status = "READY_TO_RETRY"
+    elif decision.route == "INVALID_EDGE":
+        status = "INVALID"
+    else:
+        status = "WAITING"
+    return {
+        "blocked_work_id": blocked.id if blocked is not None else "",
+        "blocked_work_source": blocked.source if blocked is not None else "",
+        "waiting_on_work_id": blocker.id if blocker is not None else "",
+        "waiting_on_work_source": blocker.source if blocker is not None else "",
+        "retry_target_id": retry.id if retry is not None else "",
+        "retry_target_source": retry.source if retry is not None else "",
+        "recovery_pointer_status": status,
+    }
+
+
 def _completed_ids(run_state: Mapping[str, Any], source: str) -> set[str]:
     if source == "DESIGN_GAP":
         return {str(item) for item in run_state.get("completed_design_gaps") or []}
@@ -285,4 +307,3 @@ def edge_from_blocked_entry(blocked_work: WorkRef, entry: Mapping[str, Any]) -> 
         "evidence": {"legacy_fields": legacy_fields},
     }
     return normalize_edge(raw)
-

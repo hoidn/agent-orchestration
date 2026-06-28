@@ -332,6 +332,63 @@ def _record_prerequisite_retry_ready(
     return 0
 
 
+def _record_completed_with_follow_up(
+    args: argparse.Namespace,
+    reason: str,
+    edge_json: dict[str, Any],
+) -> int:
+    state_path = Path(args.state_path)
+    state = _load_state(state_path)
+    completed_key = "completed_design_gaps" if args.source == "DESIGN_GAP" else "completed_items"
+    completed = list(state.get(completed_key) or [])
+    if args.item_id not in completed:
+        completed.append(args.item_id)
+    state[completed_key] = completed
+
+    blocked_key = "blocked_design_gaps" if args.source == "DESIGN_GAP" else "blocked_items"
+    blocked = dict(state.get(blocked_key) or {})
+    blocked.pop(args.item_id, None)
+    state[blocked_key] = blocked
+    state.setdefault("history", []).append(
+        {
+            "event": "completed",
+            "item_id": args.item_id,
+            "source": args.source,
+            "timestamp_utc": _timestamp(),
+        }
+    )
+    state.setdefault("history", []).append(
+        {
+            "event": "follow_up_required",
+            "item_id": args.item_id,
+            "source": args.source,
+            "reason": reason,
+            "recovery_dependency_edge": edge_json,
+            "timestamp_utc": _timestamp(),
+        }
+    )
+    _save_state(state_path, state)
+
+    _write_summary(
+        Path(args.summary_path),
+        {
+            "work_item_id": args.item_id,
+            "work_item_source": args.source,
+            "item_status": "COMPLETED",
+            "reason": reason,
+            "run_state_path": args.state_path,
+        },
+    )
+    pointer = Path(args.summary_pointer_path)
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text(Path(args.summary_path).as_posix() + "\n", encoding="utf-8")
+    drain = Path(args.drain_status_path)
+    drain.parent.mkdir(parents=True, exist_ok=True)
+    drain.write_text("CONTINUE\n", encoding="utf-8")
+    _write_output_bundle(args.summary_path)
+    return 0
+
+
 def _architecture_path(args: argparse.Namespace) -> str:
     if args.architecture_path:
         return args.architecture_path
@@ -348,6 +405,23 @@ def _raw_edge_from_bundle(bundle: dict[str, Any], args: argparse.Namespace) -> d
     explicit = bundle.get("recovery_dependency_edge")
     if isinstance(explicit, dict):
         return explicit
+
+    waiting_id = str(bundle.get("waiting_on_work_id") or "").strip()
+    if waiting_id:
+        blocked_id = str(bundle.get("blocked_work_id") or args.item_id or "").strip()
+        waiting_source = str(bundle.get("waiting_on_work_source") or "DESIGN_GAP").strip()
+        retry_target_id = str(bundle.get("retry_target_id") or blocked_id).strip()
+        retry_source = str(bundle.get("retry_target_source") or args.source or "DESIGN_GAP").strip()
+        return {
+            "blocked_work": {"source": str(bundle.get("blocked_work_source") or args.source or "DESIGN_GAP"), "id": blocked_id},
+            "blocker_work": {"source": waiting_source, "id": waiting_id},
+            "relation": "requires_completion",
+            "reason_code": str(bundle.get("reason") or "prerequisite_required").strip(),
+            "ready_when": {"kind": "completed", "source": waiting_source, "id": waiting_id},
+            "retry_target": {"source": retry_source, "id": retry_target_id},
+            "downstream_work": bundle.get("downstream_work") if isinstance(bundle.get("downstream_work"), list) else [],
+            "evidence": {"created_by": "blocked_recovery_classifier"},
+        }
 
     blocked_id = str(bundle.get("blocked_work_id") or args.item_id or "").strip()
     blocker_id = str(bundle.get("blocker_work_id") or "").strip()
@@ -512,6 +586,8 @@ def main() -> int:
         if args.terminal_action == "block":
             return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
         dependency_edge = _dependency_edge_from_bundle(recovery_bundle, args)
+        if str(recovery_bundle.get("current_work_status") or "").strip() == "COMPLETED":
+            return _record_completed_with_follow_up(args, reason, dependency_edge)
         state = _load_state(Path(args.state_path))
         dependency_decision = evaluate_edge(normalize_edge(dependency_edge), state)
         if dependency_decision.route == "INVALID_EDGE":

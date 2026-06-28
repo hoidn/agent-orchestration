@@ -318,6 +318,14 @@ steps:
         - name: summary
           json_pointer: /summary
           type: string
+        - name: waiting_on_work_id
+          json_pointer: /waiting_on_work_id
+          type: string
+          required: false
+        - name: waiting_on_work_source
+          json_pointer: /waiting_on_work_source
+          type: string
+          required: false
 
   - name: SelectBlockedRecoveryRoute
     id: select_blocked_recovery_route

@@ -46,25 +46,14 @@ Write one JSON bundle at the required output path:
 }
 ```
 
-When `blocked_recovery_route` is `PREREQUISITE_GAP_REQUIRED`, include a
-`recovery_dependency_edge` object. It must identify blocked work, blocker work,
-relation, reason_code, ready_when, retry_target, and optional downstream_work.
-Do not encode a self dependency with `relation: requires_completion`; use
-`requires_retry` only when the blocked work itself has completion or retry
-evidence. If no acyclic blocker can be identified, use `TERMINAL_BLOCKED` with
-`reason: unsupported_blocker`.
+When `blocked_recovery_route` is `PREREQUISITE_GAP_REQUIRED`, include only
+`waiting_on_work_id` and `waiting_on_work_source` for the prerequisite work that
+must complete before retrying the blocked item. If no safe prerequisite can be
+identified, use `TERMINAL_BLOCKED` with `reason: unsupported_blocker`.
 
 ```json
 {
-  "recovery_dependency_edge": {
-    "schema": "workflow_recovery_dependency_edge/v1",
-    "blocked_work": {"source": "DESIGN_GAP", "id": "<blocked-gap-id>"},
-    "blocker_work": {"source": "DESIGN_GAP", "id": "<prerequisite-gap-id>"},
-    "relation": "requires_completion",
-    "reason_code": "<machine-readable-reason>",
-    "ready_when": {"kind": "completed", "source": "DESIGN_GAP", "id": "<prerequisite-gap-id>"},
-    "retry_target": {"source": "DESIGN_GAP", "id": "<blocked-gap-id>"},
-    "downstream_work": []
-  }
+  "waiting_on_work_id": "<prerequisite-gap-or-item-id>",
+  "waiting_on_work_source": "DESIGN_GAP | BACKLOG_ITEM"
 }
 ```
