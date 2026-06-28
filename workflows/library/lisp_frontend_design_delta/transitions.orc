@@ -326,7 +326,8 @@
         :reason summary_reason)))
 
   (defproc record-work-item-blocked-recovery-summary
-    ((work_item_id String)
+    ((run_state_path StateExisting)
+     (work_item_id String)
      (work_item_source WorkItemSource)
      (work_item_context WorkItemContextValue)
      (work_item_context_view_target_path WorkReportTarget)

@@ -1115,6 +1115,7 @@ def _lower_one_workflow(
     phase_family_classification = apply_phase_family_boundary_classification(
         workflow_name=typed_workflow.definition.name,
         params=typed_workflow.signature.params,
+        hidden_context_requirements=typed_workflow.signature.hidden_context_requirements,
         boundary_projection=context.boundary_projection,
         context=context,
     )

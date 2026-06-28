@@ -2150,6 +2150,7 @@ def _compile_stage3_graph(
         imported_workflow_signatures = _imported_workflow_signatures(
             import_scope,
             exported_workflow_signatures_by_module,
+            exported_type_refs_by_module,
         )
         effective_imported_bundles = _effective_imported_workflow_bundles(
             import_scope,
@@ -2404,7 +2405,11 @@ def _compile_stage3_graph(
             for name, binding in export_surfaces[module_name].workflows_by_name.items()
         }
         for procedure in typed_procedures:
-            typed_procedures_by_name[procedure.definition.name] = procedure
+            typed_procedures_by_name[procedure.definition.name] = _canonicalize_exported_typed_procedure(
+                procedure,
+                module_name=module_name,
+                exported_type_refs_by_module=exported_type_refs_by_module,
+            )
             procedure_type_envs_by_name[procedure.definition.name] = type_env
             procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
         for function in typed_functions:
@@ -2832,6 +2837,43 @@ def _imported_procedure_signatures(
     return imported
 
 
+def _canonicalize_exported_typed_procedure(
+    procedure: TypedProcedureDef,
+    *,
+    module_name: str,
+    exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+) -> TypedProcedureDef:
+    """Expose one compiled procedure to importers with canonical exported types.
+
+    The procedure body remains authored against its owner-module environment,
+    but downstream specializations and call sites must see the exported type
+    names that import scopes resolve.
+    """
+
+    return replace(
+        procedure,
+        signature=replace(
+            procedure.signature,
+            params=tuple(
+                (
+                    param_name,
+                    _canonicalize_imported_type_ref(
+                        param_type,
+                        module_name=module_name,
+                        exported_type_refs_by_module=exported_type_refs_by_module,
+                    ),
+                )
+                for param_name, param_type in procedure.signature.params
+            ),
+            return_type_ref=_canonicalize_imported_type_ref(
+                procedure.signature.return_type_ref,
+                module_name=module_name,
+                exported_type_refs_by_module=exported_type_refs_by_module,
+            ),
+        ),
+    )
+
+
 def _imported_function_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, FunctionSignature]],
@@ -2849,6 +2891,7 @@ def _imported_function_signatures(
 def _imported_workflow_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, WorkflowSignature]],
+    exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
 ) -> dict[str, WorkflowSignature]:
     """Collect workflow signatures visible through imports."""
 
@@ -2856,7 +2899,25 @@ def _imported_workflow_signatures(
     for binding in import_scope.workflow_bindings.values():
         signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
         if signature is not None:
-            imported[binding.canonical_name] = signature
+            imported[binding.canonical_name] = replace(
+                signature,
+                params=tuple(
+                    (
+                        param_name,
+                        _canonicalize_imported_type_ref(
+                            param_type,
+                            module_name=binding.module_name,
+                            exported_type_refs_by_module=exported_type_refs_by_module,
+                        ),
+                    )
+                    for param_name, param_type in signature.params
+                ),
+                return_type_ref=_canonicalize_imported_type_ref(
+                    signature.return_type_ref,
+                    module_name=binding.module_name,
+                    exported_type_refs_by_module=exported_type_refs_by_module,
+                ),
+            )
     return imported
 
 

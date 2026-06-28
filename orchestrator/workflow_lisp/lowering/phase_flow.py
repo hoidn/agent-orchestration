@@ -322,6 +322,7 @@ def _phase_stdlib_lower_run_provider_phase_impl(
     row_metadata = _typed_prompt_input_row_metadata(
         context.workflow_name,
         provider_call_locator,
+        context=context,
     )
     generated_steps: list[dict[str, Any]] = []
     consumes: list[dict[str, str]] = []

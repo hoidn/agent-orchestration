@@ -4,24 +4,17 @@
   (defmodule lisp_frontend_design_delta/selector)
   (import std/resource :only (StateExisting))
   (import lisp_frontend_design_delta/types :only
-    (BaselineDesignDoc ProgressLedger SelectionBundlePath SelectionStatus
-      StateFileExisting SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
+    (BaselineDesignDoc DesignDeltaDrainCtx SelectionBundlePath SelectionStatus
+      SteeringDoc TargetDesignDoc WorkItemBootstrapSeed))
   (export SelectorPublicResult select-next-work)
 
   (defrecord SelectorInputs
-    (steering SteeringDoc)
-    (target_design TargetDesignDoc)
-    (baseline_design BaselineDesignDoc)
-    (manifest StateFileExisting)
-    (progress_ledger ProgressLedger)
-    (run_state StateExisting))
+    (ctx DesignDeltaDrainCtx))
 
   (defrecord SelectorPromptSubject
     (steering SteeringDoc)
     (target_design TargetDesignDoc)
     (baseline_design BaselineDesignDoc)
-    (manifest StateFileExisting)
-    (progress_ledger ProgressLedger)
     (run_state StateExisting))
 
   (defrecord SelectorRequest
@@ -38,29 +31,17 @@
     (blocked_reason String))
 
   (defworkflow select-next-work
-    ((steering SteeringDoc)
-     (target_design TargetDesignDoc)
-     (baseline_design BaselineDesignDoc)
-     (manifest StateFileExisting)
-     (progress_ledger ProgressLedger)
-     (run_state StateExisting))
+    ((ctx DesignDeltaDrainCtx))
     -> SelectorPublicResult
     (let* ((inputs
              (record SelectorInputs
-               :steering steering
-               :target_design target_design
-               :baseline_design baseline_design
-               :manifest manifest
-               :progress_ledger progress_ledger
-               :run_state run_state))
+               :ctx ctx))
            (subject
              (record SelectorPromptSubject
-               :steering inputs.steering
-               :target_design inputs.target_design
-               :baseline_design inputs.baseline_design
-               :manifest inputs.manifest
-               :progress_ledger inputs.progress_ledger
-               :run_state inputs.run_state))
+               :steering inputs.ctx.steering_path
+               :target_design inputs.ctx.target_design_path
+               :baseline_design inputs.ctx.baseline_design_path
+               :run_state inputs.ctx.run_state_path))
            (request
              (record SelectorRequest
                :subject subject))

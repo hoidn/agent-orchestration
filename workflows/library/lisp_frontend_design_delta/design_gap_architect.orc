@@ -70,7 +70,7 @@
 
   (defrecord ArchitectureValidationDecision
     (architecture_validation_status String)
-    (work_item_bundle_path WorkReport))
+    (work_item_bundle_path std/resource/WorkReport))
 
   (defworkflow project-design-gap-architecture-targets
     ((design_gap_bootstrap WorkItemBootstrapSeed))

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow_lisp.compiler as workflow_lisp_compiler
 from orchestrator.workflow_lisp.adapters import (
     load_canonical_phase_result,
     validate_reusable_phase_state,
@@ -56,9 +57,17 @@ from orchestrator.workflow_lisp.workflows import (
     typecheck_workflow_definitions,
 )
 import orchestrator.workflow.loaded_bundle as loaded_bundle_helpers
+from tests.test_workflow_lisp_design_delta_drain_migration_feasibility import (
+    _design_delta_command_boundaries,
+    _design_delta_prompt_externs,
+    _design_delta_provider_externs,
+)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+WORKFLOW_LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
+STDLIB_MODULE_ROOT = REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules"
 VALID_RUN_PROVIDER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
@@ -99,6 +108,10 @@ INVALID_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_contract_invali
 INVALID_RESUME_POINTER_FIXTURE = FIXTURES / "invalid" / "resume_or_start_pointer_authority_invalid.orc"
 INVALID_RESUME_RECORD_VALID_WHEN_FIXTURE = FIXTURES / "invalid" / "resume_or_start_record_valid_when_invalid.orc"
 INVALID_UNCERTIFIED_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_uncertified_adapter.orc"
+DESIGN_DELTA_IMPLEMENTATION_PHASE_LIBRARY_MODULE = (
+    WORKFLOW_LIBRARY_ROOT / "lisp_frontend_design_delta" / "implementation_phase.orc"
+)
+DESIGN_DELTA_TYPES_LIBRARY_MODULE = WORKFLOW_LIBRARY_ROOT / "lisp_frontend_design_delta" / "types.orc"
 
 
 def _build_syntax_module(path: Path):
@@ -141,6 +154,36 @@ def _rewrite_fixture(path: Path, *, replacements: tuple[tuple[str, str], ...], t
         assert old in source, f"fixture text not found: {old}"
         source = source.replace(old, new, 1)
     return _write_module(tmp_path / filename, source)
+
+
+def _copy_design_delta_implementation_phase_graph(
+    tmp_path: Path,
+    *,
+    std_phase_source: str | None = None,
+) -> Path:
+    _write_module(
+        tmp_path / "lisp_frontend_design_delta" / "implementation_phase.orc",
+        DESIGN_DELTA_IMPLEMENTATION_PHASE_LIBRARY_MODULE.read_text(encoding="utf-8"),
+    )
+    _write_module(
+        tmp_path / "lisp_frontend_design_delta" / "types.orc",
+        DESIGN_DELTA_TYPES_LIBRARY_MODULE.read_text(encoding="utf-8"),
+    )
+    _write_module(
+        tmp_path / "std" / "context.orc",
+        (STDLIB_MODULE_ROOT / "std" / "context.orc").read_text(encoding="utf-8"),
+    )
+    _write_module(
+        tmp_path / "std" / "resource.orc",
+        (STDLIB_MODULE_ROOT / "std" / "resource.orc").read_text(encoding="utf-8"),
+    )
+    _write_module(
+        tmp_path / "std" / "phase.orc",
+        std_phase_source
+        if std_phase_source is not None
+        else (STDLIB_MODULE_ROOT / "std" / "phase.orc").read_text(encoding="utf-8"),
+    )
+    return tmp_path / "lisp_frontend_design_delta" / "implementation_phase.orc"
 
 
 def _write_payload_file(tmp_path: Path, filename: str, payload: dict[str, object]) -> str:
@@ -1143,6 +1186,59 @@ def test_linked_builtin_std_phase_owner_lane_resolves_exported_review_loop_types
             form_path=("workflow-lisp", "defrecord"),
         )
         assert resolved.name == f"std/phase::{qualified_name.split('.', 1)[1]}"
+
+
+def test_linked_builtin_std_phase_owner_lane_compiles_design_delta_implementation_phase(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_entrypoint(
+        DESIGN_DELTA_IMPLEMENTATION_PHASE_LIBRARY_MODULE,
+        source_roots=(WORKFLOW_LIBRARY_ROOT,),
+        provider_externs=_design_delta_provider_externs(),
+        prompt_externs=_design_delta_prompt_externs(),
+        command_boundaries=_design_delta_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered_names = {
+        workflow.typed_workflow.definition.name
+        for compiled in result.compiled_results_by_name.values()
+        for workflow in compiled.lowered_workflows
+    }
+
+    assert "lisp_frontend_design_delta/implementation_phase::implementation-phase" in lowered_names
+
+
+def test_linked_builtin_std_phase_owner_lane_fails_closed_on_review_loop_result_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    broken_phase_source = (STDLIB_MODULE_ROOT / "std" / "phase.orc").read_text(encoding="utf-8").replace(
+        "(defunion ReviewLoopResult",
+        "(defunion BrokenReviewLoopResult",
+        1,
+    )
+    entry_path = _copy_design_delta_implementation_phase_graph(
+        tmp_path,
+        std_phase_source=broken_phase_source,
+    )
+    monkeypatch.setattr(workflow_lisp_compiler, "_builtin_stdlib_source_root", lambda: tmp_path)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            entry_path,
+            source_roots=(tmp_path,),
+            provider_externs=_design_delta_provider_externs(),
+            prompt_externs=_design_delta_prompt_externs(),
+            command_boundaries=_design_delta_command_boundaries(),
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code in {"type_unknown", "module_export_missing"}
+    assert diagnostic.span.start.path.endswith("std/phase.orc")
 
 
 def test_typecheck_rejects_non_alias_path_type_substitution(tmp_path: Path) -> None:

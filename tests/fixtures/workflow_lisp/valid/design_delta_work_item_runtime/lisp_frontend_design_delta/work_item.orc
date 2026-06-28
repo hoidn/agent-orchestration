@@ -4,7 +4,7 @@
   (defmodule lisp_frontend_design_delta/work_item)
   (import std/context :only (ItemCtx))
   (import std/resource :only
-    (BlockerClass SelectedItemResult WorkReport finalize-selected-item))
+    (BlockerClass SelectedItemResult WorkReport finalize-selected-item-proc))
   (import lisp_frontend_design_delta/work_item_bridge_support :only
     (project-selected-compat))
   (import lisp_frontend_design_delta/bootstrap :only (project-work-item-inputs))
@@ -246,19 +246,15 @@
     :lowering inline
     (let* ((selected
              (build-finalizer-selected-item selection))
-           (queue-transition
-             (record QueueTransitionCompat
-               :transition-id ""))
-           (roadmap
-             (record RoadmapCompat
-               :status "NO_CHANGE")))
-      (finalize-selected-item
-        :ctx selection
-        :selected selected
-        :queue-transition queue-transition
-        :roadmap roadmap
-        :plan plan
-        :implementation implementation)))
+           (queue-transition-id "")
+           (roadmap-status "NO_CHANGE"))
+      (finalize-selected-item-proc
+        selected.is-active
+        selected.final-plan-gate-state
+        queue-transition-id
+        roadmap-status
+        plan
+        implementation)))
 
   (defproc finalize-selected-item-as-completed
     ((selection DesignDeltaSelectedItemPayload)
@@ -350,6 +346,7 @@
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
+                    selection.run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     resolved_inputs.work_item_context
@@ -371,6 +368,7 @@
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
+                    selection.run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     resolved_inputs.work_item_context
@@ -392,6 +390,7 @@
         ((PREREQUISITE_GAP_REQUIRED recovery)
          (let* ((recorded
                   (record-work-item-blocked-recovery-summary
+                    selection.run_state_path
                     resolved_inputs.work_item_id
                     resolved_inputs.work_item_source
                     resolved_inputs.work_item_context
@@ -482,7 +481,8 @@
      (baseline_design_path BaselineDesignDoc)
      (progress_ledger_path ProgressLedger))
     -> WorkItemResult
-    (let* ((selected-compat
+    (with-phase phase-ctx work-item
+      (let* ((selected-compat
              (call project-selected-compat
                :item-id work_item_bootstrap.work_item_id))
            (bridged-run-state
@@ -673,4 +673,4 @@
                   (materialize-canonical-work-item-summary
                     summary
                     work-item-summary-path)))
-           (materialize-pending-work-item-result result summary-path)))))))
+           (materialize-pending-work-item-result result summary-path))))))))

@@ -279,6 +279,16 @@ def load_transition_resource_state_for_kind(
             bridge_backing=True,
         )
     state_path = Path(resource["state_path"])
+    if not state_path.exists():
+        return LoadedResourceState(
+            state_value={},
+            version="native:0",
+            raw_document={"provenance": {"source": "runtime_native_initial_state"}},
+            state_path=state_path,
+            secondary_state_paths=tuple(Path(path) for path in resource.get("secondary_state_paths", [])),
+            audit_path=audit_path,
+            bridge_backing=False,
+        )
     raw = json.loads(state_path.read_text(encoding="utf-8"))
     state_value = dict(raw["state"])
     secondary_state_paths = tuple(Path(path) for path in resource.get("secondary_state_paths", []))
@@ -660,6 +670,17 @@ def _load_resource_state(
             bridge_backing=True,
         )
     state_path = Path(resource["state_path"])
+    if not state_path.exists():
+        secondary_state_paths = tuple(Path(path) for path in resource.get("secondary_state_paths", []))
+        return LoadedResourceState(
+            state_value={},
+            version="native:0",
+            raw_document={"provenance": {"source": "runtime_native_initial_state"}},
+            state_path=state_path,
+            secondary_state_paths=secondary_state_paths,
+            audit_path=audit_path,
+            bridge_backing=False,
+        )
     raw = json.loads(state_path.read_text(encoding="utf-8"))
     state_value = dict(raw["state"])
     secondary_state_paths = tuple(Path(path) for path in resource.get("secondary_state_paths", []))

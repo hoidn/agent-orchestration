@@ -130,12 +130,14 @@ def classify_phase_family_boundary(
     params: Iterable[tuple[str, TypeRef]],
     flattened_inputs: Iterable[FlattenedContractField],
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
+    hidden_context_requirements: Mapping[str, Any] | None = None,
 ) -> PhaseFamilyBoundaryClassification:
     selected_phase_family = is_selected_phase_family_workflow(
         workflow_name,
         family_profile_catalog=family_profile_catalog,
     )
     params_by_name = dict(params)
+    hidden_context_names = set(hidden_context_requirements or ())
     runtime_names: list[str] = []
     bridge_names: list[str] = []
     public_names: list[str] = []
@@ -147,7 +149,7 @@ def classify_phase_family_boundary(
             public_names.append(field.generated_name)
             continue
         if is_phase_context_type(type_ref):
-            if selected_phase_family:
+            if selected_phase_family or root_param in hidden_context_names:
                 runtime_names.append(field.generated_name)
             else:
                 public_names.append(field.generated_name)
@@ -179,6 +181,7 @@ def apply_phase_family_boundary_classification(
     *,
     workflow_name: str,
     params: Iterable[tuple[str, TypeRef]],
+    hidden_context_requirements: Mapping[str, Any] | None = None,
     boundary_projection: Any,
     context: Any,
 ) -> PhaseFamilyBoundaryClassification:
@@ -187,6 +190,7 @@ def apply_phase_family_boundary_classification(
         params=params,
         flattened_inputs=boundary_projection.flattened_inputs,
         family_profile_catalog=context.workflow_catalog.family_profile_catalog,
+        hidden_context_requirements=hidden_context_requirements,
     )
     for name in classification.runtime_owned_context_inputs:
         context.internal_generated_input_reasons[name] = "runtime_owned_context"

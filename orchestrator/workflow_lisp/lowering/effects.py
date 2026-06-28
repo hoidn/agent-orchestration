@@ -328,6 +328,7 @@ def _lower_provider_result_operation(
         row_metadata = _typed_prompt_input_row_metadata(
             context.workflow_name,
             provider_result.provider_name,
+            context=context,
         )
         preserve_request_record = bool((row_metadata or {}).get("preserve_request_record"))
         if use_active_phase_bundle:

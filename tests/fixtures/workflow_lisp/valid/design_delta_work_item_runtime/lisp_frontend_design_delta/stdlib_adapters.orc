@@ -28,8 +28,8 @@
     (CONTINUE
       (run-state StateExisting))
     (BLOCKED
-      (progress-report-path WorkReport)
-      (blocker-class BlockerClass)))
+      (progress-report-path std/resource/WorkReport)
+      (blocker-class std/resource/BlockerClass)))
 
   (defrecord SelectedItemStdlibCompat
     (item-id String)
@@ -44,17 +44,17 @@
 
   (defunion SelectedItemPlanCompat
     (APPROVED
-      (execution-report-path WorkReport))
+      (execution-report-path std/resource/WorkReport))
     (BLOCKED
-      (progress-report-path WorkReport)
-      (blocker-class BlockerClass)))
+      (progress-report-path std/resource/WorkReport)
+      (blocker-class std/resource/BlockerClass)))
 
   (defunion SelectedItemImplementationCompat
     (COMPLETED
-      (execution-report-path WorkReport))
+      (execution-report-path std/resource/WorkReport))
     (BLOCKED
-      (progress-report-path WorkReport)
-      (blocker-class BlockerClass)))
+      (progress-report-path std/resource/WorkReport)
+      (blocker-class std/resource/BlockerClass)))
 
   (defworkflow select-next-work-stdlib
     ((ctx DesignDeltaDrainCtx))

@@ -75,6 +75,35 @@ class ProcedureLoweringPlan:
     runtime_erasure_inputs: tuple[Any, ...]
 
 
+def _procedure_type_env_for(
+    procedure: TypedProcedureDef,
+    *,
+    procedure_type_envs: Mapping[str, FrontendTypeEnvironment] | None,
+    default: FrontendTypeEnvironment,
+) -> FrontendTypeEnvironment:
+    """Resolve the lowering/typecheck environment for one procedure body.
+
+    Specializations keep the typed body of their base procedure, so they must
+    inherit the base procedure's environment when lowering or traversing that
+    body across module boundaries.
+    """
+
+    if procedure_type_envs is None:
+        return default
+
+    candidate_names = [procedure.definition.name, procedure.signature.name]
+    specialization = getattr(procedure, "specialization", None)
+    base_name = getattr(specialization, "base_name", None)
+    if isinstance(base_name, str):
+        candidate_names.append(base_name)
+
+    for candidate_name in candidate_names:
+        resolved = procedure_type_envs.get(candidate_name)
+        if resolved is not None:
+            return resolved
+    return default
+
+
 _COMPILE_TIME_ONLY_RUNTIME_TYPES = (
     ProcRefLiteralExpr,
     WorkflowRefLiteralExpr,
@@ -195,11 +224,6 @@ def _procedure_private_call_site_analysis(
     distinct_call_sites: dict[str, set[tuple[SourceSpan, tuple[str, ...]]]] = {}
     lowerable: dict[str, bool] = {}
 
-    def _procedure_type_env_for_name(name: str, *, default: FrontendTypeEnvironment) -> FrontendTypeEnvironment:
-        if procedure_type_envs is None:
-            return default
-        return procedure_type_envs.get(name, default)
-
     def walk(
         expr: Any,
         *,
@@ -222,8 +246,9 @@ def _procedure_private_call_site_analysis(
                 walk(
                     callee.typed_body.expr,
                     local_values=child_locals,
-                    current_type_env=_procedure_type_env_for_name(
-                        callee.definition.name,
+                    current_type_env=_procedure_type_env_for(
+                        callee,
+                        procedure_type_envs=procedure_type_envs,
                         default=current_type_env,
                     ),
                 )

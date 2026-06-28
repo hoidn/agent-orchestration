@@ -382,6 +382,39 @@ def test_execute_transition_detects_bridge_digest_drift_from_audit(tmp_path: Pat
     assert _read_audit_rows(audit_path)[-1]["resource_kind"] == "drain_run_state"
 
 
+def test_execute_transition_initializes_missing_native_state_on_first_write(tmp_path: Path) -> None:
+    declaration = _validated_declaration("native")
+    executor = _import_transition_executor()
+    state_path = tmp_path / "state" / "resource.json"
+    audit_path = tmp_path / "native-transition-audit.jsonl"
+    resource = {
+        "resource_id": "drain-run-1",
+        "resource_kind": "drain_run_state",
+        "state_path": state_path,
+        "audit_path": audit_path,
+    }
+
+    result = executor.execute_transition(
+        declaration,
+        resource,
+        {"status": "DONE", "reason": "complete"},
+        expected_version=None,
+        backend="runtime_native",
+        runtime_env={},
+    )
+
+    assert result["version"].startswith("native:1:")
+    assert result["replayed"] is False
+    assert _read_json(state_path)["state"] == {
+        "drain_status": "DONE",
+        "drain_status_reason": "complete",
+        "history": [
+            {"event": "drain_status", "status": "DONE", "reason": "complete"}
+        ],
+    }
+    assert _read_audit_rows(audit_path)[-1]["outcome_code"] == "committed"
+
+
 @pytest.mark.parametrize("backing_kind", ["native", "bridge"])
 def test_execute_transition_replays_idempotent_requests_without_reapplying(
     tmp_path: Path,

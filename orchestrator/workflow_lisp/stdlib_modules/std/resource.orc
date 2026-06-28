@@ -126,8 +126,7 @@
             (ImplT has-union-variant COMPLETED (execution-report-path WorkReport))
             (ImplT has-union-variant BLOCKED (progress-report-path WorkReport) (blocker-class BlockerClass)))
     -> SelectedItemResult
-    :effects ((uses-command apply_resource_transition)
-              (writes selected-item-summary))
+    :effects ((uses-command apply_resource_transition))
     :lowering inline
     (match plan
         ((APPROVED approved)
@@ -145,20 +144,7 @@
                                   :has_blocker false
                                   :roadmap_status roadmap-status
                                   :queue_transition_id queue-transition-id)))
-                   (summary-path
-                     (materialize-view selected-item-summary
-                       :value (record std/resource/SelectedItemSummaryValue
-                                :variant outcome.variant
-                                :summary_path outcome.summary_path
-                                :run_state outcome.run_state
-                                :blocker_class outcome.blocker_class
-                                :has_blocker outcome.has_blocker
-                                :roadmap_status outcome.roadmap_status
-                                :queue_transition_id outcome.queue_transition_id)
-                       :renderer canonical-json
-                       :renderer-version 1
-                       :target completed.execution-report-path
-                       :returns WorkReport)))
+                   (summary-path outcome.summary_path))
               (variant SelectedItemResult CONTINUE
                 :summary-path summary-path
                 :run-state run-state)))
@@ -175,20 +161,7 @@
                                   :has_blocker true
                                   :roadmap_status roadmap-status
                                   :queue_transition_id queue-transition-id)))
-                   (summary-path
-                     (materialize-view selected-item-summary
-                       :value (record std/resource/SelectedItemSummaryValue
-                                :variant outcome.variant
-                                :summary_path outcome.summary_path
-                                :run_state outcome.run_state
-                                :blocker_class outcome.blocker_class
-                                :has_blocker outcome.has_blocker
-                                :roadmap_status outcome.roadmap_status
-                                :queue_transition_id outcome.queue_transition_id)
-                       :renderer canonical-json
-                       :renderer-version 1
-                       :target blocked.progress-report-path
-                       :returns WorkReport)))
+                   (summary-path outcome.summary_path))
               (variant SelectedItemResult BLOCKED
                 :summary-path summary-path
                 :blocker-class blocked.blocker-class
@@ -206,20 +179,7 @@
                                :has_blocker true
                                :roadmap_status roadmap-status
                                :queue_transition_id queue-transition-id)))
-                (summary-path
-                  (materialize-view selected-item-summary
-                    :value (record std/resource/SelectedItemSummaryValue
-                             :variant outcome.variant
-                             :summary_path outcome.summary_path
-                             :run_state outcome.run_state
-                             :blocker_class outcome.blocker_class
-                             :has_blocker outcome.has_blocker
-                             :roadmap_status outcome.roadmap_status
-                             :queue_transition_id outcome.queue_transition_id)
-                    :renderer canonical-json
-                    :renderer-version 1
-                    :target blocked.progress-report-path
-                    :returns WorkReport)))
+                (summary-path outcome.summary_path))
            (variant SelectedItemResult BLOCKED
              :summary-path summary-path
              :blocker-class blocked.blocker-class

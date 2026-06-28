@@ -85,7 +85,7 @@ from ..lowering.phase_resource import (
 )
 from ..loops import RepeatUntilEmitterInput
 from ..lowering.control_loops import _emit_repeat_until_from_emitter_input
-from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _resolve_procedure_lowering, _lower_procedure_call, _rewrite_nested_sibling_step_refs
+from ..lowering.procedures import LowerableProcedureCall, _private_workflow_from_procedure, _procedure_type_env_for, _resolve_procedure_lowering, _lower_procedure_call, _rewrite_nested_sibling_step_refs
 from ..lowering.workflow_calls import LowerableWorkflowCall, _lower_workflow_call
 from orchestrator.workflow.state_layout import GeneratedPathPrivacy, GeneratedPathSemanticRole, derive_entrypoint_managed_write_root_allocations
 from .anf import normalize_wcc_body_to_anf
@@ -324,7 +324,11 @@ def _lower_wcc_workflow_definitions(
         and procedure.generated_workflow_name is not None
     }
     generated_private_workflow_type_envs = {
-        procedure.generated_workflow_name: procedure_type_envs.get(procedure.definition.name, type_env)
+        procedure.generated_workflow_name: _procedure_type_env_for(
+            procedure,
+            procedure_type_envs=procedure_type_envs,
+            default=type_env,
+        )
         for procedure in resolved_procedures.values()
         if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW
         and procedure.generated_workflow_name is not None
@@ -613,6 +617,7 @@ def _lower_one_wcc_workflow(
     phase_family_classification = apply_phase_family_boundary_classification(
         workflow_name=typed_workflow.definition.name,
         params=typed_workflow.signature.params,
+        hidden_context_requirements=typed_workflow.signature.hidden_context_requirements,
         boundary_projection=context.boundary_projection,
         context=context,
     )
@@ -3346,10 +3351,10 @@ def _lower_wcc_procedure_call(
             **dict(context.local_type_bindings),
             **_procedure_signature_local_type_bindings(procedure),
         },
-        type_env=(
-            (context.procedure_type_envs or {}).get(procedure.definition.name)
-            or (context.procedure_type_envs or {}).get(procedure.signature.name)
-            or context.type_env
+        type_env=_procedure_type_env_for(
+            procedure,
+            procedure_type_envs=context.procedure_type_envs,
+            default=context.type_env,
         ),
         active_procedure_calls=context.active_procedure_calls | {procedure.signature.name},
     )

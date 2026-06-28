@@ -116,6 +116,7 @@ From the generated architecture index for this request:
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-family-specific-compiler-hook-retirement/implementation_architecture.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-gap-drafter-callable-boundary-over-imported-backlog-drain/implementation_architecture.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-literal-name-stdlib-intrinsic-retirement/implementation_architecture.md`
+- `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-selector-stdlib-call-contract-regression-reopen/implementation_architecture.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-selector-stdlib-single-ctx-signature-alignment-regression-reopen/implementation_architecture.md`
 
 ### Decisions Reused
@@ -129,7 +130,7 @@ From the generated architecture index for this request:
 - Reuse the literal-name stdlib intrinsic retirement slice's rule that promoted
   stdlib behavior must arrive through imported stdlib expansion and ordinary
   typed forms, not literal-name direct lowerers.
-- Reuse the selector regression slice's narrowness discipline: repair the
+- Reuse both selector regression slices' narrowness discipline: repair the
   stale or broken owner boundary directly and split out any broader compiler
   or family adoption issue discovered during implementation.
 - Reuse the command-adapter contract's rule that retained command behavior must
@@ -405,7 +406,7 @@ from this architecture rather than broadening the slice.
 
 The implementation plan should:
 
-1. add a failing owner-lane regression test that reproduces the
+1. add or strengthen an owner-lane regression test that reproduces the
    `ReviewLoopResult` resolution failure against the actual builtin
    `std/phase` module;
 2. repair linked module/type-environment construction so local qualified
