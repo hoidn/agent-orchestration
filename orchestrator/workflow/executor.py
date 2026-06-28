@@ -9259,7 +9259,7 @@ class WorkflowExecutor:
 
         return provider_context
 
-    def _build_substitution_variables(self, context: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, str]:
+    def _build_substitution_variables(self, context: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Build variables dict for dependency pattern substitution.
 
         Args:
@@ -9267,10 +9267,10 @@ class WorkflowExecutor:
             state: Current state
 
         Returns:
-            Flattened dict of variable name to value for substitution
+            Structured variables for normal runtime substitution.
         """
         runtime_context = self._runtime_context(context, state)
-        return runtime_context.build_dependency_variables(state)
+        return runtime_context.build_variables(self.variable_substitutor, state)
 
 
     def _record_step_error(

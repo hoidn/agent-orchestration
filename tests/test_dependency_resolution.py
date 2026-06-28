@@ -72,8 +72,34 @@ class TestDependencyResolution:
             }
             
             result = resolver.resolve(depends_on, variables)
-            
+
             assert result.required_files == ['artifacts/report.md']
+            assert result.missing_required == []
+
+    def test_scoped_variable_substitution_in_dependencies(self):
+        """Scoped runtime namespaces are valid in dependency patterns."""
+        with tempfile.TemporaryDirectory() as workspace:
+            Path(workspace, "state").mkdir()
+            Path(workspace, "state", "architecture.md").touch()
+
+            resolver = DependencyResolver(workspace)
+
+            result = resolver.resolve(
+                {"required": ["${parent.steps.Prepare.artifacts.architecture_path}"]},
+                {
+                    "parent": {
+                        "steps": {
+                            "Prepare": {
+                                "artifacts": {
+                                    "architecture_path": "state/architecture.md",
+                                },
+                            },
+                        },
+                    },
+                },
+            )
+
+            assert result.required_files == ["state/architecture.md"]
             assert result.missing_required == []
             
     def test_at25_loop_dependencies_reevaluation(self):

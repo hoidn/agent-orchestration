@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
+from orchestrator.variables.substitution import VariableSubstitutor
+
 
 @dataclass
 class DependencyResolution:
@@ -177,12 +179,13 @@ class DependencyResolver:
         Returns:
             Pattern with variables substituted
         """
-        # Simple variable substitution - in real implementation would use
-        # the same substitution logic as the rest of the system
-        result = pattern
-        for key, value in variables.items():
-            result = result.replace(f"${{{key}}}", value)
-        return result
+        substitutor = VariableSubstitutor()
+        try:
+            return str(substitutor.substitute(pattern, variables))
+        except ValueError:
+            # Preserve the historical dependency behavior: unresolved variables
+            # remain literal patterns and are reported as missing dependencies.
+            return pattern
         
     def _validate_path_safety(self, path: str) -> None:
         """Validate path doesn't contain dangerous patterns.

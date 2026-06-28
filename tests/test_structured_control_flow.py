@@ -1135,6 +1135,100 @@ def test_repeat_until_materializes_loop_frame_outputs_and_iteration_results(tmp_
     assert state["steps"]["ReviewLoop[2].WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
 
 
+def test_repeat_until_depends_on_can_substitute_parent_steps_namespace(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "repeat-until-depends-on-parent-steps",
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "PrepareDependency",
+                "id": "prepare_dependency",
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "import json, os, pathlib; "
+                        "pathlib.Path('ready.txt').write_text('ready', encoding='utf-8'); "
+                        "pathlib.Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text("
+                        "json.dumps({'dep_path': 'ready.txt'}), encoding='utf-8'"
+                        ")"
+                    ),
+                ],
+                "output_bundle": {
+                    "path": "state/dependency.json",
+                    "fields": [
+                        {
+                            "name": "dep_path",
+                            "json_pointer": "/dep_path",
+                            "type": "relpath",
+                            "must_exist_target": True,
+                        },
+                    ],
+                },
+            },
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "max_iterations": 1,
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE"],
+                            "from": {
+                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                            },
+                        },
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.review_decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        },
+                    },
+                    "steps": [
+                        {
+                            "name": "UseDependency",
+                            "id": "use_dependency",
+                            "command": ["bash", "-lc", "printf ok"],
+                            "depends_on": {
+                                "required": [
+                                    "${parent.steps.PrepareDependency.artifacts.dep_path}",
+                                ],
+                            },
+                        },
+                        {
+                            "name": "WriteDecision",
+                            "id": "write_decision",
+                            "set_scalar": {
+                                "artifact": "review_decision",
+                                "value": "APPROVE",
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    state = _run_workflow(tmp_path, workflow)
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop[0].UseDependency"]["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+
+
 def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corrupted(tmp_path: Path):
     workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
