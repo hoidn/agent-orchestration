@@ -70,8 +70,10 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan-review-decision", required=True, choices=["APPROVE", "REVISE"])
-    parser.add_argument("--implementation-state-path", required=True)
-    parser.add_argument("--implementation-review-decision-path", required=True)
+    parser.add_argument("--implementation-state")
+    parser.add_argument("--implementation-state-path")
+    parser.add_argument("--implementation-review-decision")
+    parser.add_argument("--implementation-review-decision-path")
     parser.add_argument("--implementation-bundle-path")
     parser.add_argument("--work-item-source", choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
     parser.add_argument("--output", required=True)
@@ -82,8 +84,11 @@ def main() -> int:
     else:
         terminal_route, block_reason = _classify(
             args.plan_review_decision,
-            _read_required(Path(args.implementation_state_path)),
-            _read_required(Path(args.implementation_review_decision_path)),
+            (args.implementation_state or _read_required(Path(args.implementation_state_path or ""))).strip(),
+            (
+                args.implementation_review_decision
+                or _read_required(Path(args.implementation_review_decision_path or ""))
+            ).strip(),
         )
     _write_output(Path(args.output), terminal_route, block_reason)
     return 0

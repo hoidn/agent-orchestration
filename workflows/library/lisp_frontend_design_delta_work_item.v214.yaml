@@ -246,12 +246,12 @@ steps:
       - workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py
       - --plan-review-decision
       - ${steps.RunPlanPhase.artifacts.plan_review_decision}
-      - --implementation-state-path
-      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_state.txt
-      - --implementation-review-decision-path
-      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt
+      - --implementation-state
+      - ${steps.RunImplementationPhase.artifacts.implementation_state}
+      - --implementation-review-decision
+      - ${steps.RunImplementationPhase.artifacts.implementation_review_decision}
       - --implementation-bundle-path
-      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
+      - ${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}
       - --work-item-source
       - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
       - --output
@@ -290,9 +290,9 @@ steps:
         - ${inputs.target_design_path}
         - ${inputs.baseline_design_path}
         - ${inputs.state_root}/work-item-inputs.json
-        - ${inputs.state_root}/implementation-phase/plan_path.txt
-        - ${inputs.state_root}/implementation-phase/implementation_state.json
-        - ${inputs.state_root}/implementation-phase/progress_report_path.txt
+        - ${steps.RunPlanPhase.artifacts.plan_path}
+        - ${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}
+        - ${steps.ResolveWorkItemInputs.artifacts.progress_report_target_path}
       inject:
         mode: content
     output_bundle:
@@ -473,7 +473,9 @@ steps:
                 - --progress-report-path
                 - ${steps.ResolveWorkItemInputs.artifacts.progress_report_target_path}
                 - --implementation-state-path
-                - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
+                - ${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}
+                - --recovery-bundle-path
+                - ${inputs.state_root}/blocked-implementation-recovery.json
                 - --architecture-bundle-path
                 - ${inputs.architecture_bundle_path}
                 - --plan-path

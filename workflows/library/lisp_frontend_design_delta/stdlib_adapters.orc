@@ -61,12 +61,7 @@
     -> DesignDeltaSelectionResult
     (let* ((selection
              (call select-next-work
-               :steering ctx.steering_path
-               :target_design ctx.target_design_path
-               :baseline_design ctx.baseline_design_path
-               :manifest ctx.manifest
-               :progress_ledger ctx.progress_ledger_path
-               :run_state ctx.run_state_path))
+               :ctx ctx))
            (selected-payload
              (record DesignDeltaSelectedItemPayload
                :item-id selection.work_item_bootstrap.work_item_id

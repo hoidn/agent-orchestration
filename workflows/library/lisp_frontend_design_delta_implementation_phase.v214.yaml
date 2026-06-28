@@ -61,6 +61,12 @@ outputs:
     allowed: ["APPROVE", "REVISE", "NOT_APPLICABLE"]
     from:
       ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_review_decision
+  implementation_state_bundle_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_state_bundle_path
 
 providers:
   codex:
@@ -592,6 +598,10 @@ steps:
         if implementation_state not in {"COMPLETED", "BLOCKED"}:
             raise SystemExit(f"Unexpected implementation state: {implementation_state}")
         (state_root / "final_implementation_state.txt").write_text(implementation_state + "\n", encoding="utf-8")
+        (state_root / "implementation_state_bundle_path.txt").write_text(
+            bundle.as_posix() + "\n",
+            encoding="utf-8",
+        )
 
         if implementation_state == "COMPLETED":
             execution_report_path = read_pointer("execution_report_path.txt")
@@ -622,6 +632,11 @@ steps:
         path: ${inputs.state_root}/final_implementation_state.txt
         type: enum
         allowed: ["COMPLETED", "BLOCKED"]
+      - name: implementation_state_bundle_path
+        path: ${inputs.state_root}/implementation_state_bundle_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
       - name: progress_report_path
         path: ${inputs.state_root}/final_progress_report_path.txt
         type: relpath
