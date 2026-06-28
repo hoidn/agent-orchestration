@@ -874,6 +874,9 @@ steps:
                   op: ne
                   right: RETRY_READY
           provider: ${inputs.implementation_review_provider}
+          provider_params:
+            model: gpt-5.5
+            effort: ${context.workflow_effort}
           input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md
           timeout_sec: 1800
           depends_on:

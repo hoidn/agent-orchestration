@@ -31,6 +31,11 @@ target design needs to authorize or sequence the work, and
 `PREREQUISITE_GAP_REQUIRED` when another bounded prerequisite gap should be
 selected or drafted first.
 
+Treat this classification as a proposed recovery route. Do not choose
+`PREREQUISITE_GAP_REQUIRED`, `TARGET_DESIGN_REVISION_REQUIRED`, or
+`GAP_DESIGN_REVISION_REQUIRED` for stale evidence, duplicate bookkeeping, or a
+selected unit whose scope should be replaced from the higher-level contract.
+
 Write one JSON bundle at the required output path:
 
 ```json

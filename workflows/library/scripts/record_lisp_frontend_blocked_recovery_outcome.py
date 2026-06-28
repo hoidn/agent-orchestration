@@ -17,6 +17,7 @@ try:
         WorkRef,
         edge_from_blocked_entry,
         edge_to_json,
+        evaluate_edge,
         normalize_edge,
     )
 except ModuleNotFoundError:
@@ -25,6 +26,7 @@ except ModuleNotFoundError:
         WorkRef,
         edge_from_blocked_entry,
         edge_to_json,
+        evaluate_edge,
         normalize_edge,
     )
 
@@ -46,6 +48,26 @@ def _read_value_or_path(value: str) -> str:
 def _write_summary(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _load_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+            "completed_items": [],
+            "completed_design_gaps": [],
+            "blocked_items": {},
+            "blocked_design_gaps": {},
+            "history": [],
+        }
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _save_state(path: Path, state: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def _write_output_bundle(summary_path: str) -> None:
@@ -243,6 +265,73 @@ def _run_update(
     return subprocess.run(command_args).returncode
 
 
+def _record_prerequisite_retry_ready(
+    args: argparse.Namespace,
+    reason: str,
+    edge_json: dict[str, Any],
+) -> int:
+    edge_json = dict(edge_json)
+    edge_json["status"] = "ready_to_retry"
+    blocker = edge_json.get("blocker_work") if isinstance(edge_json.get("blocker_work"), dict) else {}
+
+    state_path = Path(args.state_path)
+    state = _load_state(state_path)
+    blocked_key = "blocked_design_gaps" if args.source == "DESIGN_GAP" else "blocked_items"
+    blocked = dict(state.get(blocked_key) or {})
+    entry = {
+        "reason": "implementation_blocked",
+        "timestamp_utc": _timestamp(),
+        "recovery_route": args.recovery_route,
+        "recovery_reason": reason,
+        "progress_report_path": args.progress_report_path,
+        "implementation_state_path": args.implementation_state_path,
+        "architecture_path": _architecture_path(args),
+        "plan_path": args.plan_path,
+        "recovery_event_id": args.recovery_event_id,
+        "recovery_status": "RETRY_READY",
+        "waiting_on_prerequisite_gap_id": str(blocker.get("id") or "").strip(),
+        "waiting_on_prerequisite_source": str(blocker.get("source") or "").strip(),
+        "prerequisite_recovery_status": "COMPLETED",
+        "prerequisite_recovery_reason": "prerequisite_completed",
+        "original_blocked_gap_id": args.item_id,
+        "recovery_dependency_edge": edge_json,
+    }
+    blocked[args.item_id] = {key: value for key, value in entry.items() if value}
+    state[blocked_key] = blocked
+    state.setdefault("history", []).append(
+        {
+            "event": "prerequisite_recovery_satisfied",
+            "item_id": args.item_id,
+            "source": args.source,
+            "reason": "prerequisite_completed",
+            "recovery_status": "RETRY_READY",
+            "prerequisite_recovery_status": "COMPLETED",
+            "waiting_on_prerequisite_gap_id": str(blocker.get("id") or "").strip(),
+            "waiting_on_prerequisite_source": str(blocker.get("source") or "").strip(),
+            "timestamp_utc": _timestamp(),
+        }
+    )
+    _save_state(state_path, state)
+
+    summary = {
+        "record_status": "RETRY_READY",
+        "original_blocked_gap_id": args.item_id,
+        "selected_prerequisite_id": str(blocker.get("id") or "").strip(),
+        "selected_prerequisite_source": str(blocker.get("source") or "").strip(),
+        "reason": "prerequisite_completed",
+        "run_state_path": args.state_path,
+    }
+    _write_summary(Path(args.summary_path), summary)
+    pointer = Path(args.summary_pointer_path)
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text(Path(args.summary_path).as_posix() + "\n", encoding="utf-8")
+    drain = Path(args.drain_status_path)
+    drain.parent.mkdir(parents=True, exist_ok=True)
+    drain.write_text("CONTINUE\n", encoding="utf-8")
+    _write_output_bundle(args.summary_path)
+    return 0
+
+
 def _architecture_path(args: argparse.Namespace) -> str:
     if args.architecture_path:
         return args.architecture_path
@@ -423,6 +512,12 @@ def main() -> int:
         if args.terminal_action == "block":
             return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
         dependency_edge = _dependency_edge_from_bundle(recovery_bundle, args)
+        state = _load_state(Path(args.state_path))
+        dependency_decision = evaluate_edge(normalize_edge(dependency_edge), state)
+        if dependency_decision.route == "INVALID_EDGE":
+            raise SystemExit(f"Invalid recovery_dependency_edge: {dependency_decision.reason}")
+        if dependency_decision.route == "RETRY_TARGET":
+            return _record_prerequisite_retry_ready(args, reason, dependency_edge)
         metadata = _compat_metadata_from_edge(dependency_edge, recovery_bundle)
         result = _run_update(
             args,

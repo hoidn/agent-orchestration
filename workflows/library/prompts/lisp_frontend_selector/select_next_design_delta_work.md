@@ -42,6 +42,9 @@ target design, but only as a bounded expansion-enabling pass.
 Do not select work that only preserves a temporary workaround. Select it only if
 it removes the workaround, confines it to an external boundary, or removes a
 specific blocker to deleting it.
+Do not select or draft work whose only purpose is to align summaries, manifests,
+reports, labels, or stale evidence. Select or draft work only when it advances
+an unmet target-design contract or directly unblocks semantic implementation.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select target design feature work, `DONE`, or `BLOCKED`.

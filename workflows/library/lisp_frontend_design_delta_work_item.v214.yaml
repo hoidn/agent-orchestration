@@ -283,6 +283,9 @@ steps:
             op: eq
             right: DESIGN_GAP
     provider: ${inputs.implementation_review_provider}
+    provider_params:
+      model: gpt-5.5
+      effort: ${context.workflow_effort}
     asset_file: prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md
     timeout_sec: 1800
     depends_on:
