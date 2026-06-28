@@ -1,7 +1,6 @@
-Read the steering file, target design, baseline design, post-WCC inventory
-authority (`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/post_wcc_current_state_inventory.json`),
-backlog manifest, progress ledger, run state, and selector DONE bundle before
-acting.
+Read the steering file, target design, baseline design, current-state inventory
+when provided, backlog manifest, progress ledger, run state, and selector DONE
+bundle before acting.
 
 Review whether the selector's DONE candidate is actually justified for the
 target design.
@@ -12,12 +11,12 @@ Evaluate obligations from the target design itself, not from the presence or
 absence of existing backlog items or design-gap directories.
 
 Return `APPROVE_DONE` only when durable repo evidence shows the target design
-delta has no remaining bounded implementation gaps. Use the consumed post-WCC
-inventory authority as the current-state gate: `remaining_post_wcc` rows still
-block `DONE`, while `deferred_promotion_gate` rows do not. Durable evidence may
-include source, docs, fixtures, tests, ledgers, run state, parity reports, the
-reconciled inventory, and accepted waivers. Do not require every obligation to
-have the same evidence shape; use the evidence appropriate to that obligation.
+has no remaining bounded implementation gaps. Use consumed current-state
+inventory as evidence, not as a substitute for checking the target design
+against the checkout. Durable evidence may include source, docs, fixtures,
+tests, ledgers, run state, parity reports, reconciled inventories, and accepted
+waivers. Do not require every obligation to have the same evidence shape; use
+the evidence appropriate to that obligation.
 Before approving, directly compare the target design's success criteria and
 prohibited/final-shape clauses against the current source tree; do not approve
 solely because run state, inventory, parity, or focused tests show no gaps.
@@ -26,10 +25,10 @@ Return `REJECT_DONE` when one next bounded target design gap remains. On
 rejection, identify exactly one gap for the existing design-gap architect step
 to turn into an implementation architecture.
 
-If the remaining Tranche 3A plan/work-item phase-family obligation is still
-marked unresolved in the reconciled inventory, it continues to block `DONE`
-until an explicit inventory row says it is completed, superseded, or otherwise
-resolved by higher authority.
+If any consumed current-state source marks a target-design obligation
+unresolved, it continues to block `DONE` until durable evidence shows it is
+completed, superseded, explicitly deferred, or otherwise resolved by higher
+authority.
 
 Make only this review judgment. Do not edit files, move backlog items, update
 ledgers, or manage the drain loop.
