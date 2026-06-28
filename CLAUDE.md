@@ -15,16 +15,21 @@ Repo expectations:
 - Write plans under `docs/plans/` before large edits.
 - Keep changes scoped to the task; avoid unrelated refactors.
 - Run commands from the repo root so imports, relative paths, and fixture layout stay stable.
-- Run visible checks before claiming completion.
 - Treat fresh command output as required verification evidence.
 - Prefer the narrowest relevant `pytest` selectors first.
 - If you add or rename tests, run `pytest --collect-only` on those modules.
 - Changes to workflows, prompts, artifact contracts, provisioning, or demo trial mechanics should rerun at least one orchestrator/demo smoke check in addition to unit tests.
 - For DSL, frontend, runtime, or reusable workflow changes, include an end-to-end usage or integration check, or state why isolated checks are enough.
 - Do not add or keep tests that assert literal prompt text or prompt phrasing. Prefer behavioral, contract, artifact-lineage, or dataflow assertions that stay valid when prompts are revised.
-- Record what you changed and how you verified it.
 
 Do not assume success from inspection alone when runnable checks are available.
 Do not weaken verification just to make a failure disappear.
 Do not create worktrees, especially not when executing plans or implementing features
 When a workflow run has already passed an approval/review gate and later fails downstream, prefer `orchestrator resume <run_id>` over launching a fresh run unless you intentionally want to redo the earlier gated stages.
+
+Development rules:
+1. When interacting with the user ask, don't assume. If something is unclear, ask before writing a single line. Never make silent assumptions about intent, architecture, or requirements. When running unattended, pick the most reasonable interpretation, proceed, and record the assumption rather than blocking.
+2. Implement the most direct, maintainable solution. Solve simple problems simply and harder problems with careful design. Do not add speculative abstractions for needs that don't exist yet. Before implementing a solution, state your approach in 1–2 sentences and explicitly list what this approach makes harder down the line
+3. Stay in scope, but maintain the ecosystem. Do not make unprompted cosmetic changes to unrelated code. However, if modifying adjacent code is genuinely necessary to abstract common logic, update a shared interface/type signature, or prevent a regression, that is in scope. Ensure your local changes do not silently break adjacent systems.
+4. Flag uncertainty explicitly. If you're unsure about something, see point 1 above. If it makes sense to do so, conduct a small, localised and low-risk experiment and bring the hypothesis and results to me to discuss. Confidence without certainty causes more damage than admitting a gap.
+5. When interacting with the user developing designs don't hesitate to suggest a better way, or one that has long lasting impact over a tactical change. (as a few examples)
