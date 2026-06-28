@@ -4,6 +4,7 @@ Status: draft
 Design gap id: `workflow-lisp-runtime-native-drain-literal-name-stdlib-intrinsic-retirement`
 Target design: `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
 Baseline compatibility: `docs/design/workflow_lisp_frontend_specification.md`
+Command-adapter authority: `docs/design/workflow_command_adapter_contract.md`
 
 ## Scope
 
@@ -95,18 +96,30 @@ This slice must preserve these contracts:
 
 ### Existing Slices Reviewed
 
+- `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-family-specific-compiler-hook-retirement/implementation_architecture.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-gap-drafter-callable-boundary-over-imported-backlog-drain/implementation_architecture.md`
+- `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-selector-stdlib-call-contract-regression-reopen/implementation_architecture.md`
 - `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-selector-stdlib-single-ctx-signature-alignment-regression-reopen/implementation_architecture.md`
+- `docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/workflow-lisp-runtime-native-drain-shared-std-phase-owner-lane-self-hosting-regression-reopen/implementation_architecture.md`
 
 ### Decisions Reused
 
+- Reuse the family-specific compiler-hook retirement slice's rule that
+  Design Delta evidence and compatibility bridges must not be selected by
+  core compiler workflow-name checks.
 - Reuse the gap-drafter callable-boundary slice's owner split: imported
   `backlog-drain` owns the child loop boundary and typed workflow-ref calls;
   parent/family adoption must not smuggle payloads through compatibility
   wrappers.
+- Reuse the selector stdlib call-contract regression slice's narrowness rule:
+  stale family call wiring is repaired through typed Workflow Lisp calls, not
+  widened stdlib workflow-ref boundaries or compatibility rereads.
 - Reuse the selector signature-alignment slice's rule that fixed stdlib
   workflow-ref boundaries are preserved by typed calls, not widened arity,
   public path threading, or command glue.
+- Reuse the shared `std/phase` owner-lane self-hosting slice's prerequisite
+  discipline: shared stdlib regressions are proved in owner lanes before
+  downstream Design Delta compile evidence can cite them.
 - Reuse both slices' separation between shared stdlib proof lanes and
   downstream Design Delta family adoption. This slice retires only the
   remaining literal-head compiler compatibility surfaces.
