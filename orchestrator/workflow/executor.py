@@ -4863,6 +4863,9 @@ class WorkflowExecutor:
                 context,
                 state,
                 runtime_step_id=runtime_step_id,
+                parent_steps=scope.get("parent_steps"),
+                self_steps=scope.get("self_steps"),
+                root_steps=scope.get("root_steps"),
             )
         elif execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
             result = self._execute_adjudicated_provider_with_context(
@@ -5387,6 +5390,9 @@ class WorkflowExecutor:
         context: Dict[str, Any],
         state: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
+        parent_steps: Optional[Dict[str, Any]] = None,
+        self_steps: Optional[Dict[str, Any]] = None,
+        root_steps: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Execute a provider step with variable substitution context.
@@ -5435,7 +5441,21 @@ class WorkflowExecutor:
         snapshots, snapshot_error = self._capture_pre_snapshot(step, state)
         if snapshot_error is not None:
             return snapshot_error
-        runtime_context = self._runtime_context(context, state)
+        runtime_context = RuntimeContext.from_mapping(
+            context,
+            default_context=self.workflow_context_defaults,
+            parent_steps=parent_steps,
+            root_steps=root_steps or state.get("steps", {}),
+        )
+        if isinstance(self_steps, dict):
+            runtime_context = RuntimeContext(
+                values=runtime_context.values,
+                workflow_context=runtime_context.workflow_context,
+                self_steps=self_steps,
+                explicit_steps=True,
+                parent_steps=runtime_context.parent_steps,
+                root_steps=runtime_context.root_steps,
+            )
         variables = runtime_context.build_variables(self.variable_substitutor, state)
         resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
             step,
@@ -5481,7 +5501,7 @@ class WorkflowExecutor:
             depends_on = step['depends_on']
 
             # Build variables dict for substitution
-            substitution_vars = self._build_substitution_variables(context, state)
+            substitution_vars = variables
 
             # Resolve dependencies using the correct API
             resolution = self.dependency_resolver.resolve(
@@ -5625,7 +5645,13 @@ class WorkflowExecutor:
 
         # Build context for provider parameter substitution (AT-44)
         # This should include all variable namespaces
-        provider_context = self._create_provider_context(context, state)
+        provider_context = self._create_provider_context(
+            context,
+            state,
+            parent_steps=parent_steps,
+            self_steps=self_steps,
+            root_steps=root_steps,
+        )
         resolved_provider_name, provider_name_error = self._resolve_provider_name_for_step(
             step,
             provider_context,
@@ -9216,7 +9242,11 @@ class WorkflowExecutor:
     def _create_provider_context(
         self,
         context: Dict[str, Any],
-        state: Dict[str, Any]
+        state: Dict[str, Any],
+        *,
+        parent_steps: Optional[Dict[str, Any]] = None,
+        self_steps: Optional[Dict[str, Any]] = None,
+        root_steps: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Create context for provider parameter substitution.
@@ -9230,6 +9260,23 @@ class WorkflowExecutor:
         Returns:
             Combined context for provider params
         """
+        scoped_runtime_context = RuntimeContext.from_mapping(
+            context,
+            default_context=self.workflow_context_defaults,
+            parent_steps=parent_steps,
+            root_steps=root_steps or state.get("steps", {}),
+        )
+        if isinstance(self_steps, dict):
+            scoped_runtime_context = RuntimeContext(
+                values=scoped_runtime_context.values,
+                workflow_context=scoped_runtime_context.workflow_context,
+                self_steps=self_steps,
+                explicit_steps=True,
+                parent_steps=scoped_runtime_context.parent_steps,
+                root_steps=scoped_runtime_context.root_steps,
+            )
+        scoped_variables = scoped_runtime_context.build_variables(self.variable_substitutor, state)
+
         # Ensure we have all namespaces available
         run_state = self.state_manager.load()
         steps_namespace = context.get('steps', state.get('steps', {}))
@@ -9249,6 +9296,9 @@ class WorkflowExecutor:
             ),
             'inputs': run_state.bound_inputs,
             'steps': steps_namespace,
+            'self': scoped_variables.get('self', {}),
+            'parent': scoped_variables.get('parent', {}),
+            'root': scoped_variables.get('root', {}),
         }
 
         # Add loop variables if present

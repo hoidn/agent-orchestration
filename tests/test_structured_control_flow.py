@@ -1229,6 +1229,122 @@ def test_repeat_until_depends_on_can_substitute_parent_steps_namespace(tmp_path:
     assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
 
 
+def test_repeat_until_provider_depends_on_can_substitute_parent_steps_namespace(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "repeat-until-provider-depends-on-parent-steps",
+        "providers": {
+            "local_provider": {
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "import json, os, pathlib, sys; "
+                        "sys.stdin.read(); "
+                        "pathlib.Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text("
+                        "json.dumps({'review_decision': 'APPROVE'}), encoding='utf-8'"
+                        ")"
+                    ),
+                ],
+                "input_mode": "stdin",
+            },
+        },
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "PrepareDependency",
+                "id": "prepare_dependency",
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "import json, os, pathlib; "
+                        "pathlib.Path('ready.txt').write_text('ready', encoding='utf-8'); "
+                        "pathlib.Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text("
+                        "json.dumps({'dep_path': 'ready.txt'}), encoding='utf-8'"
+                        ")"
+                    ),
+                ],
+                "output_bundle": {
+                    "path": "state/dependency.json",
+                    "fields": [
+                        {
+                            "name": "dep_path",
+                            "json_pointer": "/dep_path",
+                            "type": "relpath",
+                            "must_exist_target": True,
+                        },
+                    ],
+                },
+            },
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "max_iterations": 1,
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE"],
+                            "from": {
+                                "ref": "self.steps.Review.artifacts.review_decision",
+                            },
+                        },
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.review_decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        },
+                    },
+                    "steps": [
+                        {
+                            "name": "Review",
+                            "id": "review",
+                            "provider": "local_provider",
+                            "input_file": "prompt.txt",
+                            "depends_on": {
+                                "required": [
+                                    "${parent.steps.PrepareDependency.artifacts.dep_path}",
+                                ],
+                                "inject": True,
+                            },
+                            "output_bundle": {
+                                "path": "state/review.json",
+                                "fields": [
+                                    {
+                                        "name": "review_decision",
+                                        "json_pointer": "/review_decision",
+                                        "type": "enum",
+                                        "allowed": ["APPROVE"],
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+    (tmp_path / "prompt.txt").write_text("Review.\n", encoding="utf-8")
+
+    state = _run_workflow(tmp_path, workflow)
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop[0].Review"]["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+
+
 def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corrupted(tmp_path: Path):
     workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
