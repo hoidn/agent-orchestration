@@ -3931,8 +3931,18 @@ def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing:
     review_fields = {field["name"]: field for field in review_step["output_bundle"]["fields"]}
     assert review_fields["review_decision"]["allowed"] == ["APPROVE", "REVISE", "BLOCKED"]
     assert review_step["output_bundle"]["path"].endswith("/architecture-review.json")
-    assert "${steps.PrepareArchitectureTargets.artifacts.architecture_path}" in review_step["depends_on"]["required"]
-    assert all("${parent.steps." not in item for item in review_step["depends_on"]["required"])
+    assert (
+        "${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}"
+        in review_step["depends_on"]["required"]
+    )
+    if draft_provider_routing:
+        assert review_step["provider"] == "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}"
+        assert review_step["provider_params"]["model"] == (
+            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}"
+        )
+        assert review_step["provider_params"]["effort"] == (
+            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}"
+        )
 
     route = repeat["steps"][1]
     cases = route["match"]["cases"]
@@ -3941,10 +3951,17 @@ def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing:
     revise_step = next(step for step in cases["REVISE"]["steps"] if step["name"] == "ReviseDesignGapArchitecture")
     for artifact_name in ("architecture_path", "work_item_context_path", "check_commands_path"):
         assert (
-            f"${{steps.PrepareArchitectureTargets.artifacts.{artifact_name}}}"
+            f"${{parent.steps.PrepareArchitectureTargets.artifacts.{artifact_name}}}"
             in revise_step["depends_on"]["required"]
         )
-    assert all("${parent.steps." not in item for item in revise_step["depends_on"]["required"])
+    if draft_provider_routing:
+        assert revise_step["provider"] == "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}"
+        assert revise_step["provider_params"]["model"] == (
+            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}"
+        )
+        assert revise_step["provider_params"]["effort"] == (
+            "${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}"
+        )
 
     validator = next(step for step in workflow["steps"] if step["name"] == "ValidateDesignGapArchitecture")
     command = validator["command"]

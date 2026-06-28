@@ -217,7 +217,7 @@ steps:
               - ${inputs.selection_bundle_path}
               - ${inputs.state_root}/architecture-targets.json
               - ${inputs.state_root}/existing-architecture-index.md
-              - ${steps.PrepareArchitectureTargets.artifacts.architecture_path}
+              - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
             inject:
               mode: content
               position: prepend
@@ -279,9 +279,9 @@ steps:
                         - ${inputs.selection_bundle_path}
                         - ${inputs.state_root}/architecture-targets.json
                         - ${inputs.state_root}/existing-architecture-index.md
-                        - ${steps.PrepareArchitectureTargets.artifacts.architecture_path}
-                        - ${steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
-                        - ${steps.PrepareArchitectureTargets.artifacts.check_commands_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.check_commands_path}
                         - ${inputs.state_root}/architecture-review.json
                       inject:
                         mode: content

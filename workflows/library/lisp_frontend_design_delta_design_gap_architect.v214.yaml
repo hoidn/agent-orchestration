@@ -326,10 +326,10 @@ steps:
       steps:
         - name: ReviewDesignGapArchitecture
           id: review_design_gap_architecture
-          provider: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
+          provider: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
           provider_params:
-            model: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
-            effort: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
+            model: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
+            effort: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
           asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/review_implementation_architecture.md
           timeout_sec: 1800
           depends_on:
@@ -342,7 +342,7 @@ steps:
               - ${inputs.selection_bundle_path}
               - ${inputs.state_root}/architecture-targets.json
               - ${inputs.state_root}/existing-architecture-index.md
-              - ${steps.PrepareArchitectureTargets.artifacts.architecture_path}
+              - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
             inject:
               mode: content
               position: prepend
@@ -391,10 +391,10 @@ steps:
                 steps:
                   - name: ReviseDesignGapArchitecture
                     id: revise_design_gap_architecture
-                    provider: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
+                    provider: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
                     provider_params:
-                      model: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
-                      effort: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
+                      model: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
+                      effort: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
                     asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/revise_implementation_architecture.md
                     timeout_sec: 1800
                     depends_on:
@@ -407,9 +407,9 @@ steps:
                         - ${inputs.selection_bundle_path}
                         - ${inputs.state_root}/architecture-targets.json
                         - ${inputs.state_root}/existing-architecture-index.md
-                        - ${steps.PrepareArchitectureTargets.artifacts.architecture_path}
-                        - ${steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
-                        - ${steps.PrepareArchitectureTargets.artifacts.check_commands_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.check_commands_path}
                         - ${inputs.state_root}/architecture-review.json
                       inject:
                         mode: content
