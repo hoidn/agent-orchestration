@@ -1,38 +1,26 @@
-Read the listed steering, full design, MVP design, command-adapter
-contract, progress ledger, selector bundle, architecture target contract, existing
-implementation architecture index, drafted architecture, generated work-item
-context, and generated check commands from the checkout before acting.
+Read the listed steering, full design, MVP design, command-adapter contract,
+progress ledger, selector bundle, architecture target contract, existing
+implementation architecture index, and drafted implementation architecture
+before acting.
 
-Review the drafted implementation architecture for the selected Lisp frontend
-full-design gap. Decide whether it is safe to use as the source for the
-downstream plan and implementation phases.
+Review whether the gap design is consistent with the target design.
+Reject it if it changes, weakens, bypasses, or leaves ambiguous any
+target-design requirement that the implementation could affect.
 
-Do not approve based only on file existence, parseability, or section presence;
-explicitly judge whether the architecture semantically matches the current
-selection rationale, scope constraints, and existing implementation context.
+The full design is the target design for this review. The MVP design is
+compatibility context.
 
-Approve only if the architecture:
+Approve only when the drafted implementation architecture can be implemented
+without changing or weakening the target-design contract. Return `REVISE` when
+the draft can likely be corrected in place. Return `BLOCKED` when the selected
+gap cannot be safely architected without a missing prerequisite or user
+decision.
 
-- stays bounded to exactly the selected design gap;
-- is coherent with prior implementation architecture documents;
-- does not redefine shared concepts owned by earlier slices or governing design
-  docs;
-- makes ownership boundaries explicit;
-- follows the command-adapter contract when scripts, commands, adapters, or
-  runtime-native effects are in scope;
-- avoids report parsing, pointer files, debug projections, or inline glue as
-  semantic authority;
-- gives concrete implementation deliverables and deterministic verification
-  commands;
-- does not rely on unsupported DSL/runtime behavior.
+Write the review decision bundle to the output-contract path using this shape:
 
-Write the architecture review report to the target review-report path. Write the
-review decision to the target decision path.
-
-Use only one of these decisions:
-
-- `APPROVE`: the architecture can drive the plan and implementation stack.
-- `REVISE`: the architecture must be revised before planning.
-
-If you write `REVISE`, the report must include specific findings and the
-required changes. Do not revise the architecture in this step.
+```json
+{
+  "review_decision": "APPROVE | REVISE | BLOCKED",
+  "reason": "short reason"
+}
+```

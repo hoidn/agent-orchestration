@@ -542,6 +542,112 @@ def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
+def test_architecture_validator_requires_approved_review_when_provided(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    plan_target_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    context_path.write_text("# Parser Syntax Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -c \"print('gap-check')\""]) + "\n", encoding="utf-8")
+    draft_path = workspace / "state/gap/draft-bundle.json"
+    draft_path.write_text(
+        json.dumps(
+            {
+                "draft_status": "DRAFTED",
+                "design_gap_id": "parser-syntax",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": plan_target_path.relative_to(workspace).as_posix(),
+                "summary": "Parser syntax gap.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    cases = [
+        ("APPROVE", "VALID", True),
+        ("REVISE", "INVALID", False),
+        ("BLOCKED", "BLOCKED", False),
+    ]
+    for decision, expected_status, expect_bundle in cases:
+        review_path = workspace / f"state/gap/review-{decision.lower()}.json"
+        review_path.write_text(
+            json.dumps({"review_decision": decision, "reason": f"{decision} reason."}) + "\n",
+            encoding="utf-8",
+        )
+        output_path = workspace / f"state/gap/validation-{decision.lower()}.json"
+
+        _run_script(
+            workspace,
+            str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+            "--draft-bundle-path",
+            draft_path.relative_to(workspace).as_posix(),
+            "--review-bundle-path",
+            review_path.relative_to(workspace).as_posix(),
+            "--output",
+            output_path.relative_to(workspace).as_posix(),
+        )
+
+        payload = json.loads(output_path.read_text(encoding="utf-8"))
+        assert payload["architecture_validation_status"] == expected_status
+        assert ("work_item_bundle_path" in payload) is expect_bundle
+
+
+def test_architecture_validator_rejects_malformed_review_bundle(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    plan_target_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    context_path.write_text("# Parser Syntax Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -c \"print('gap-check')\""]) + "\n", encoding="utf-8")
+    draft_path = workspace / "state/gap/draft-bundle.json"
+    draft_path.write_text(
+        json.dumps(
+            {
+                "draft_status": "DRAFTED",
+                "design_gap_id": "parser-syntax",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": plan_target_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    review_path = workspace / "state/gap/review.json"
+    review_path.write_text(json.dumps({"review_decision": "MAYBE"}) + "\n", encoding="utf-8")
+    output_path = workspace / "state/gap/validation.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+        "--draft-bundle-path",
+        draft_path.relative_to(workspace).as_posix(),
+        "--review-bundle-path",
+        review_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["architecture_validation_status"] == "INVALID"
+    assert "Unsupported review_decision" in payload["reason"]
+    assert "work_item_bundle_path" not in payload
+
+
 def test_recovered_design_gap_materializer_reconstructs_missing_prior_bundle(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)
@@ -1907,6 +2013,109 @@ def test_prerequisite_recovery_records_generic_dependency_edge(tmp_path):
     assert payload["dependency_relation"] == "requires_completion"
     assert payload["recovery_route"] == "PREREQUISITE_GAP_REQUIRED"
     assert payload["recovery_status"] == "PREREQUISITE_WORK_PENDING"
+
+
+def test_blocked_recovery_completed_slice_records_follow_up_without_blocking_current_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    recovery_bundle = workspace / "state/drain/recovery-decision.json"
+    summary_path = workspace / "artifacts/work/selected-slice-summary.json"
+    pointer_path = workspace / "state/drain/selected-slice-summary-path.txt"
+    drain_status_path = workspace / "state/drain/selected-slice-drain-status.txt"
+    progress_path = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/selected-slice/progress_report.md"
+    implementation_state_path = workspace / "state/drain/iterations/0/work-item/implementation_state.json"
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/selected-slice/implementation_architecture.md"
+    plan_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/selected-slice/execution_plan.md"
+
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    recovery_bundle.parent.mkdir(parents=True, exist_ok=True)
+    recovery_bundle.write_text(
+        json.dumps(
+            {
+                "blocked_recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                "reason": "prerequisite_gap_required",
+                "summary": "Scoped acceptance passed; broad closeout requires a follow-up gap.",
+                "current_work_status": "COMPLETED",
+                "recovery_dependency_edge": _recovery_dependency_edge(
+                    blocked="selected-slice",
+                    blocker="follow-up-gap",
+                    reason_code="broad_closeout_follow_up_required",
+                ),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for path, text in [
+        (progress_path, "# Progress Report\n\nScope completed; broad closeout follow-up remains.\n"),
+        (implementation_state_path, '{"implementation_state":"BLOCKED"}\n'),
+        (architecture_path, "# Selected Slice Architecture\n"),
+        (plan_path, "# Selected Slice Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
+        "--recovery-bundle-path",
+        recovery_bundle.relative_to(workspace).as_posix(),
+        "--target-design-review-decision",
+        "NOT_APPLICABLE",
+        "--terminal-action",
+        "continue",
+        "--state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--item-id",
+        "selected-slice",
+        "--source",
+        "DESIGN_GAP",
+        "--progress-report-path",
+        progress_path.relative_to(workspace).as_posix(),
+        "--implementation-state-path",
+        implementation_state_path.relative_to(workspace).as_posix(),
+        "--architecture-path",
+        architecture_path.relative_to(workspace).as_posix(),
+        "--plan-path",
+        plan_path.relative_to(workspace).as_posix(),
+        "--recovery-event-id",
+        "selected-slice-implementation-blocked",
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--summary-pointer-path",
+        pointer_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "selected-slice" in state["completed_design_gaps"]
+    assert "selected-slice" not in state["blocked_design_gaps"]
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["item_status"] == "COMPLETED"
+    follow_up = state["history"][-1]
+    assert follow_up["event"] == "follow_up_required"
+    assert follow_up["item_id"] == "selected-slice"
+    assert follow_up["recovery_dependency_edge"]["blocker_work"] == {
+        "source": "DESIGN_GAP",
+        "id": "follow-up-gap",
+    }
 
 
 def test_prerequisite_recovery_rejects_missing_dependency_edge(tmp_path):
@@ -3694,16 +3903,55 @@ def test_detect_prior_blocked_design_gap_recovers_under_scoped_architecture(tmp_
     assert payload["plan_copy_path"].endswith("/prior-blocked-gap-execution-plan.md")
 
 
-def test_design_gap_architect_stays_single_pass_for_stage7_scope():
-    workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_design_gap_architect.v214.yaml").read_text())
+def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing: bool) -> None:
     step_names = [step["name"] for step in workflow["steps"]]
-
+    expected_prefix = ["PrepareArchitectureTargets", "BuildExistingArchitectureIndex"]
+    if draft_provider_routing:
+        expected_prefix.append("ValidateDesignGapDraftProviderRouting")
     assert step_names == [
-        "PrepareArchitectureTargets",
-        "BuildExistingArchitectureIndex",
+        *expected_prefix,
         "DraftDesignGapArchitecture",
+        "DesignGapArchitectureReviewLoop",
         "ValidateDesignGapArchitecture",
     ]
+    review_loop = next(step for step in workflow["steps"] if step["name"] == "DesignGapArchitectureReviewLoop")
+    repeat = review_loop["repeat_until"]
+    assert repeat["max_iterations"] == 3
+    condition_values = [
+        predicate["compare"]["right"]
+        for predicate in repeat["condition"]["any_of"]
+    ]
+    assert condition_values == ["APPROVE", "BLOCKED"]
+    nested_names = [step["name"] for step in repeat["steps"]]
+    assert nested_names == ["ReviewDesignGapArchitecture", "RouteDesignGapArchitectureReview"]
+
+    review_step = repeat["steps"][0]
+    assert "provider" in review_step
+    assert "review_implementation_architecture.md" in json.dumps(review_step)
+    review_fields = {field["name"]: field for field in review_step["output_bundle"]["fields"]}
+    assert review_fields["review_decision"]["allowed"] == ["APPROVE", "REVISE", "BLOCKED"]
+    assert review_step["output_bundle"]["path"].endswith("/architecture-review.json")
+    assert any(
+        "PrepareArchitectureTargets.artifacts.architecture_path" in item
+        for item in review_step["depends_on"]["required"]
+    )
+
+    route = repeat["steps"][1]
+    cases = route["match"]["cases"]
+    assert set(cases) == {"APPROVE", "REVISE", "BLOCKED"}
+    assert "ReviseDesignGapArchitecture" in json.dumps(cases["REVISE"])
+
+    validator = next(step for step in workflow["steps"] if step["name"] == "ValidateDesignGapArchitecture")
+    command = validator["command"]
+    assert "--review-bundle-path" in command
+    review_arg_index = command.index("--review-bundle-path") + 1
+    assert command[review_arg_index] == "${inputs.state_root}/architecture-review.json"
+
+
+def test_design_gap_architect_reviews_gap_design_consistency_before_validation():
+    workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_design_gap_architect.v214.yaml").read_text())
+
+    _assert_gap_architect_review_loop(workflow, draft_provider_routing=False)
     assert workflow["outputs"]["architecture_validation_status"]["from"]["ref"] == (
         "root.steps.ValidateDesignGapArchitecture.artifacts.architecture_validation_status"
     )
@@ -3718,6 +3966,14 @@ def test_design_gap_architect_stays_single_pass_for_stage7_scope():
     assert draft_step["depends_on"]["inject"]["mode"] == "content"
 
 
+def test_design_delta_gap_architect_reviews_gap_design_consistency_before_validation():
+    workflow = yaml.safe_load(
+        (ROOT / "workflows/library/lisp_frontend_design_delta_design_gap_architect.v214.yaml").read_text()
+    )
+
+    _assert_gap_architect_review_loop(workflow, draft_provider_routing=True)
+
+
 def test_design_delta_gap_architect_uses_supported_claude_default():
     workflow = yaml.safe_load(
         (ROOT / "workflows/library/lisp_frontend_design_delta_design_gap_architect.v214.yaml").read_text()
@@ -3729,10 +3985,11 @@ def test_design_delta_gap_architect_uses_supported_claude_default():
         "BuildExistingArchitectureIndex",
         "ValidateDesignGapDraftProviderRouting",
         "DraftDesignGapArchitecture",
+        "DesignGapArchitectureReviewLoop",
         "ValidateDesignGapArchitecture",
     ]
-    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "claude"
-    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "fable"
+    assert workflow["inputs"]["design_gap_draft_provider"]["default"] == "codex"
+    assert workflow["inputs"]["design_gap_draft_model"]["default"] == "gpt-5.5"
     assert workflow["providers"]["claude"]["defaults"]["model"] == "fable"
 
     validate_step = next(
@@ -3740,8 +3997,8 @@ def test_design_delta_gap_architect_uses_supported_claude_default():
     )
     validator_source = validate_step["command"][2]
 
-    assert 'model not in {"fable", "claude-fable-5"}' in validator_source
-    assert "design-gap drafting via Claude must use Fable" in validator_source
+    assert 'model not in {"opus", "fable", "claude-fable-5"}' in validator_source
+    assert "design-gap drafting via Claude must use a supported Claude model alias" in validator_source
 
 
 def test_lisp_frontend_workflows_load(tmp_path):
@@ -3970,10 +4227,24 @@ def test_design_delta_work_item_records_blocked_implementation_for_drain_recover
     classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyWorkItemTerminal")
     assert "--implementation-bundle-path" in classifier["command"]
     assert "--work-item-source" in classifier["command"]
+    assert "${steps.RunImplementationPhase.artifacts.implementation_state}" in classifier["command"]
+    assert "${steps.RunImplementationPhase.artifacts.implementation_review_decision}" in classifier["command"]
+    assert not any(
+        "${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/" in part
+        for part in classifier["command"]
+    )
 
     recovery_classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyBlockedImplementationRecovery")
     assert recovery_classifier["asset_file"] == (
         "prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md"
+    )
+    required = recovery_classifier["depends_on"]["required"]
+    assert "${steps.RunPlanPhase.artifacts.plan_path}" in required
+    assert "${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}" in required
+    assert "${steps.ResolveWorkItemInputs.artifacts.progress_report_target_path}" in required
+    assert not any(
+        "${inputs.state_root}/implementation-phase/" in part
+        for part in required
     )
     recovery_selector = next(step for step in workflow["steps"] if step["name"] == "SelectBlockedRecoveryRoute")
     assert any(part.endswith("select_lisp_frontend_blocked_recovery_route.py") for part in recovery_selector["command"])
@@ -3982,7 +4253,11 @@ def test_design_delta_work_item_records_blocked_implementation_for_drain_recover
     terminal = route_terminal["match"]["cases"]["IMPLEMENTATION_BLOCKED"]
     recorder = next(step for step in terminal["steps"] if step["name"] == "RecordBlockedRecoveryOutcome")
     assert any(part.endswith("record_lisp_frontend_blocked_recovery_outcome.py") for part in recorder["command"])
+    assert "--recovery-bundle-path" in recorder["command"]
+    assert "${inputs.state_root}/blocked-implementation-recovery.json" in recorder["command"]
     assert "${steps.SelectBlockedRecoveryRoute.artifacts.blocked_recovery_route}" in recorder["command"]
+    assert "${steps.ResolveWorkItemInputs.artifacts.progress_report_target_path}" in recorder["command"]
+    assert "${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}" in recorder["command"]
     assert "ReviewTargetDesignRevisionLoop" not in json.dumps(terminal)
     assert "continue" in recorder["command"]
 

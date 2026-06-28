@@ -57,6 +57,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--draft-bundle-path", required=True)
     parser.add_argument("--architecture-targets-path")
+    parser.add_argument("--review-bundle-path")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -65,11 +66,49 @@ def main() -> int:
         targets_path = None
         if args.architecture_targets_path:
             targets_path = REPO_ROOT / _safe_relpath(args.architecture_targets_path, under="state", must_exist=True)
+        review_path = None
+        if args.review_bundle_path:
+            review_path = REPO_ROOT / _safe_relpath(args.review_bundle_path, under="state", must_exist=True)
         output_rel = _safe_relpath(args.output, under="state", must_exist=False)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     output_path = REPO_ROOT / output_rel
     draft = _load_json(draft_path)
+
+    if review_path is not None:
+        try:
+            review = _load_json(review_path)
+        except json.JSONDecodeError as exc:
+            return _invalid(f"Invalid review bundle JSON: {exc}", output_path=output_path)
+        if not isinstance(review, dict):
+            return _invalid("Review bundle must contain a JSON object", output_path=output_path)
+        decision = str(review.get("review_decision") or "").strip()
+        if decision == "REVISE":
+            _write_json(
+                output_path,
+                {
+                    "architecture_validation_status": "INVALID",
+                    "reason": str(
+                        review.get("reason")
+                        or "Design-gap architecture review requested revision."
+                    ),
+                },
+            )
+            return 0
+        if decision == "BLOCKED":
+            _write_json(
+                output_path,
+                {
+                    "architecture_validation_status": "BLOCKED",
+                    "reason": str(
+                        review.get("reason")
+                        or "Design-gap architecture review reported a blocker."
+                    ),
+                },
+            )
+            return 0
+        if decision != "APPROVE":
+            return _invalid(f"Unsupported review_decision: {decision!r}", output_path=output_path)
 
     if draft.get("draft_status") == "BLOCKED":
         _write_json(

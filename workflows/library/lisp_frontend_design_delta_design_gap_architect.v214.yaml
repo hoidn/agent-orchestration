@@ -80,6 +80,12 @@ providers:
       model: "fable"
       effort: "high"
 
+artifacts:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "BLOCKED"]
+
 steps:
   - name: PrepareArchitectureTargets
     id: prepare_architecture_targets
@@ -290,6 +296,153 @@ steps:
           type: enum
           allowed: ["DRAFTED", "BLOCKED"]
 
+  - name: DesignGapArchitectureReviewLoop
+    id: design_gap_architecture_review_loop
+    repeat_until:
+      id: design_gap_architecture_review_iteration
+      max_iterations: 3
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE", "BLOCKED"]
+          from:
+            ref: self.steps.RouteDesignGapArchitectureReview.artifacts.review_decision
+      condition:
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: APPROVE
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: BLOCKED
+      on_exhausted:
+        outputs:
+          review_decision: REVISE
+      steps:
+        - name: ReviewDesignGapArchitecture
+          id: review_design_gap_architecture
+          provider: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
+          provider_params:
+            model: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
+            effort: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
+          asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/review_implementation_architecture.md
+          timeout_sec: 1800
+          depends_on:
+            required:
+              - ${inputs.steering_path}
+              - ${inputs.target_design_path}
+              - ${inputs.baseline_design_path}
+              - ${inputs.command_adapter_contract_path}
+              - ${inputs.progress_ledger_path}
+              - ${inputs.selection_bundle_path}
+              - ${inputs.state_root}/architecture-targets.json
+              - ${inputs.state_root}/existing-architecture-index.md
+              - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
+            inject:
+              mode: content
+              position: prepend
+              instruction: "Use these files as authoritative context. Treat the first design file as the target design and the second design file as baseline context."
+          output_bundle:
+            path: ${inputs.state_root}/architecture-review.json
+            fields:
+              - name: review_decision
+                json_pointer: /review_decision
+                type: enum
+                allowed: ["APPROVE", "REVISE", "BLOCKED"]
+              - name: reason
+                json_pointer: /reason
+                type: string
+                required: false
+
+        - name: RouteDesignGapArchitectureReview
+          id: route_design_gap_architecture_review
+          match:
+            ref: self.steps.ReviewDesignGapArchitecture.artifacts.review_decision
+            cases:
+              APPROVE:
+                id: approve_design_gap_architecture
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteApprovedDesignGapArchitectureReview.artifacts.review_decision
+                steps:
+                  - name: WriteApprovedDesignGapArchitectureReview
+                    id: write_approved_design_gap_architecture_review
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+              REVISE:
+                id: revise_design_gap_architecture
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteRevisedDesignGapArchitectureReview.artifacts.review_decision
+                steps:
+                  - name: ReviseDesignGapArchitecture
+                    id: revise_design_gap_architecture
+                    provider: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
+                    provider_params:
+                      model: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
+                      effort: ${steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
+                    asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/revise_implementation_architecture.md
+                    timeout_sec: 1800
+                    depends_on:
+                      required:
+                        - ${inputs.steering_path}
+                        - ${inputs.target_design_path}
+                        - ${inputs.baseline_design_path}
+                        - ${inputs.command_adapter_contract_path}
+                        - ${inputs.progress_ledger_path}
+                        - ${inputs.selection_bundle_path}
+                        - ${inputs.state_root}/architecture-targets.json
+                        - ${inputs.state_root}/existing-architecture-index.md
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
+                        - ${parent.steps.PrepareArchitectureTargets.artifacts.check_commands_path}
+                        - ${inputs.state_root}/architecture-review.json
+                      inject:
+                        mode: content
+                        position: prepend
+                        instruction: "Use these files as authoritative context. Revise only the current implementation architecture and its generated handoff files."
+                    output_bundle:
+                      path: ${inputs.state_root}/draft-bundle.json
+                      fields:
+                        - name: draft_status
+                          json_pointer: /draft_status
+                          type: enum
+                          allowed: ["DRAFTED", "BLOCKED"]
+                  - name: WriteRevisedDesignGapArchitectureReview
+                    id: write_revised_design_gap_architecture_review
+                    set_scalar:
+                      artifact: review_decision
+                      value: REVISE
+              BLOCKED:
+                id: blocked_design_gap_architecture
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteBlockedDesignGapArchitectureReview.artifacts.review_decision
+                steps:
+                  - name: WriteBlockedDesignGapArchitectureReview
+                    id: write_blocked_design_gap_architecture_review
+                    set_scalar:
+                      artifact: review_decision
+                      value: BLOCKED
+
   - name: ValidateDesignGapArchitecture
     id: validate_design_gap_architecture
     command:
@@ -299,6 +452,8 @@ steps:
       - ${inputs.state_root}/draft-bundle.json
       - --architecture-targets-path
       - ${inputs.state_root}/architecture-targets.json
+      - --review-bundle-path
+      - ${inputs.state_root}/architecture-review.json
       - --output
       - ${inputs.state_root}/architecture-validation.json
     output_bundle:
