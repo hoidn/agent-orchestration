@@ -48,6 +48,8 @@ When reviewing:
 - reject changes that only preserve a temporary workaround instead of removing
   it, confining it to an external boundary, or removing a specific blocker to
   deleting it.
+- reject changes that make implementation-only data part of the user-facing or
+  domain contract unless the governing design or spec explicitly requires it.
 - for numerical parity failures in current-scope or claimed behavior,
   distinguish implementation defects, insufficient diagnosis, and cases where
   the comparison standard is too strict for the supported claim. Treat

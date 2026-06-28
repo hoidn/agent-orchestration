@@ -45,6 +45,8 @@ When reviewing:
   dev-only helpers, feature flags, or test-only paths were moved into or made
   reachable from the production/default path. Review the provenance of the
   successful behavior, not only the final output.
+- reject changes that make implementation-only data part of the user-facing or
+  domain contract unless the governing design or spec explicitly requires it.
 - for numerical parity failures in current-scope or claimed behavior,
   distinguish implementation defects, insufficient diagnosis, and cases where
   the comparison standard is too strict for the supported claim. Treat
