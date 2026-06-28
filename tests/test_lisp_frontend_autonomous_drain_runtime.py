@@ -3931,15 +3931,20 @@ def _assert_gap_architect_review_loop(workflow: dict, *, draft_provider_routing:
     review_fields = {field["name"]: field for field in review_step["output_bundle"]["fields"]}
     assert review_fields["review_decision"]["allowed"] == ["APPROVE", "REVISE", "BLOCKED"]
     assert review_step["output_bundle"]["path"].endswith("/architecture-review.json")
-    assert any(
-        "PrepareArchitectureTargets.artifacts.architecture_path" in item
-        for item in review_step["depends_on"]["required"]
-    )
+    assert "${steps.PrepareArchitectureTargets.artifacts.architecture_path}" in review_step["depends_on"]["required"]
+    assert all("${parent.steps." not in item for item in review_step["depends_on"]["required"])
 
     route = repeat["steps"][1]
     cases = route["match"]["cases"]
     assert set(cases) == {"APPROVE", "REVISE", "BLOCKED"}
     assert "ReviseDesignGapArchitecture" in json.dumps(cases["REVISE"])
+    revise_step = next(step for step in cases["REVISE"]["steps"] if step["name"] == "ReviseDesignGapArchitecture")
+    for artifact_name in ("architecture_path", "work_item_context_path", "check_commands_path"):
+        assert (
+            f"${{steps.PrepareArchitectureTargets.artifacts.{artifact_name}}}"
+            in revise_step["depends_on"]["required"]
+        )
+    assert all("${parent.steps." not in item for item in revise_step["depends_on"]["required"])
 
     validator = next(step for step in workflow["steps"] if step["name"] == "ValidateDesignGapArchitecture")
     command = validator["command"]
