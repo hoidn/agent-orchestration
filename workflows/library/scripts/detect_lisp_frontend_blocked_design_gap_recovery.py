@@ -171,6 +171,14 @@ def _pointer_fields(decision: Any | None) -> dict[str, str]:
     return recovery_pointer_to_json(decision)
 
 
+def _has_active_prerequisite_pointer(recovery_route: str, recovery_status: str) -> bool:
+    return recovery_route == "PREREQUISITE_GAP_REQUIRED" and recovery_status in {
+        "PREREQUISITE_WORK_PENDING",
+        "PREREQUISITE_BLOCKED",
+        "RETRY_READY",
+    }
+
+
 def _recovery_payload(
     run_state_path: Path,
     artifact_work_root: Path,
@@ -260,7 +268,12 @@ def _recovery_payload(
             "recovery_event_id": recovery_event_id,
         }
         edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=design_gap_id), entry)
-        payload.update(_pointer_fields(evaluate_edge(edge, state) if edge is not None else None))
+        decision = (
+            evaluate_edge(edge, state)
+            if edge is not None and _has_active_prerequisite_pointer(recovery_route, recovery_status)
+            else None
+        )
+        payload.update(_pointer_fields(decision))
         return payload
     return _none_payload()
 

@@ -1735,6 +1735,7 @@ def test_blocked_recovery_recorder_does_not_reuse_completed_prerequisite_after_f
     summary_path = workspace / "artifacts/work/blocked-summary.json"
     pointer_path = workspace / "state/drain/blocked-summary-path.txt"
     drain_status_path = workspace / "state/drain/blocked-drain-status.txt"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
     progress_path = workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/progress_report_retry.md"
     implementation_state_path = workspace / "state/drain/iterations/1/work-item/implementation_state.json"
     architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
@@ -1826,6 +1827,24 @@ def test_blocked_recovery_recorder_does_not_reuse_completed_prerequisite_after_f
     assert summary["item_status"] == "BLOCKED"
     assert summary["reason"] == "implementation_blocked"
     assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["design_gap_id"] == "parser-syntax"
+    assert payload["recovery_status"] == "PREREQUISITE_RETRY_FAILED"
+    assert payload["waiting_on_work_id"] == ""
+    assert payload["retry_target_id"] == ""
+    assert payload["recovery_pointer_status"] == ""
 
 
 def test_blocked_recovery_recorder_rejects_self_prerequisite_edge(tmp_path):
