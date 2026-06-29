@@ -332,6 +332,60 @@ def _record_prerequisite_retry_ready(
     return 0
 
 
+def _is_repeated_retry_failure(
+    args: argparse.Namespace,
+    state: dict[str, Any],
+    edge_json: dict[str, Any],
+) -> bool:
+    blocked_key = "blocked_design_gaps" if args.source == "DESIGN_GAP" else "blocked_items"
+    existing = (state.get(blocked_key) or {}).get(args.item_id)
+    if not isinstance(existing, dict):
+        return False
+    if str(existing.get("recovery_status") or "").strip() != "RETRY_READY":
+        return False
+    blocker = edge_json.get("blocker_work") if isinstance(edge_json.get("blocker_work"), dict) else {}
+    if str(existing.get("waiting_on_prerequisite_gap_id") or "").strip() != str(blocker.get("id") or "").strip():
+        return False
+    if str(existing.get("waiting_on_prerequisite_source") or "").strip() != str(blocker.get("source") or "").strip():
+        return False
+    existing_event = str(existing.get("recovery_event_id") or "").strip()
+    current_event = str(args.recovery_event_id or "").strip()
+    if current_event and existing_event and current_event != existing_event:
+        return True
+    existing_report = str(existing.get("progress_report_path") or "").strip()
+    current_report = str(args.progress_report_path or "").strip()
+    return bool(current_report and existing_report and current_report != existing_report)
+
+
+def _record_prerequisite_retry_failed(
+    args: argparse.Namespace,
+    reason: str,
+    edge_json: dict[str, Any],
+    recovery_bundle: dict[str, Any],
+) -> int:
+    edge_json = dict(edge_json)
+    edge_json["status"] = "blocked"
+    edge_json["reason"] = "retry_failed_after_completed_prerequisite"
+    metadata = _compat_metadata_from_edge(edge_json, recovery_bundle)
+    result = _run_update(
+        args,
+        "blocked",
+        "prerequisite_retry_failed_after_completion",
+        recovery_status="PREREQUISITE_RETRY_FAILED",
+        waiting_on_prerequisite_gap_id=metadata.get("waiting_on_prerequisite_gap_id", ""),
+        waiting_on_prerequisite_source=metadata.get("waiting_on_prerequisite_source", ""),
+        prerequisite_recovery_status="RETRY_FAILED",
+        prerequisite_recovery_reason="completed_prerequisite_retry_failed",
+        downstream_blocked_gap_id=metadata.get("downstream_blocked_gap_id", ""),
+        blocking_failure_code=metadata.get("blocking_failure_code", ""),
+        retry_condition=metadata.get("retry_condition", ""),
+        recovery_dependency_edge=edge_json,
+    )
+    if result == 0:
+        Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+    return result
+
+
 def _record_completed_with_follow_up(
     args: argparse.Namespace,
     reason: str,
@@ -593,6 +647,8 @@ def main() -> int:
         if dependency_decision.route == "INVALID_EDGE":
             raise SystemExit(f"Invalid recovery_dependency_edge: {dependency_decision.reason}")
         if dependency_decision.route == "RETRY_TARGET":
+            if _is_repeated_retry_failure(args, state, dependency_edge):
+                return _record_prerequisite_retry_failed(args, reason, dependency_edge, recovery_bundle)
             return _record_prerequisite_retry_ready(args, reason, dependency_edge)
         metadata = _compat_metadata_from_edge(dependency_edge, recovery_bundle)
         result = _run_update(
