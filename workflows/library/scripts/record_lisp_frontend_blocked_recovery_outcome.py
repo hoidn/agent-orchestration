@@ -455,6 +455,14 @@ def _architecture_path(args: argparse.Namespace) -> str:
     return str(bundle.get("architecture_path") or "").strip()
 
 
+def _existing_recovery_status(args: argparse.Namespace, state: dict[str, Any]) -> str:
+    blocked_key = "blocked_design_gaps" if args.source == "DESIGN_GAP" else "blocked_items"
+    existing = (state.get(blocked_key) or {}).get(args.item_id)
+    if not isinstance(existing, dict):
+        return ""
+    return str(existing.get("recovery_status") or "").strip()
+
+
 def _raw_edge_from_bundle(bundle: dict[str, Any], args: argparse.Namespace) -> dict[str, Any] | None:
     explicit = bundle.get("recovery_dependency_edge")
     if isinstance(explicit, dict):
@@ -639,10 +647,17 @@ def main() -> int:
     if route == "PREREQUISITE_GAP_REQUIRED":
         if args.terminal_action == "block":
             return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
+        state = _load_state(Path(args.state_path))
+        if _existing_recovery_status(args, state) == "PREREQUISITE_RETRY_FAILED":
+            return _run_update(
+                args,
+                "blocked",
+                "prerequisite_retry_failed_requires_non_prerequisite_recovery",
+                recovery_status="TERMINAL_BLOCKED",
+            )
         dependency_edge = _dependency_edge_from_bundle(recovery_bundle, args)
         if str(recovery_bundle.get("current_work_status") or "").strip() == "COMPLETED":
             return _record_completed_with_follow_up(args, reason, dependency_edge)
-        state = _load_state(Path(args.state_path))
         dependency_decision = evaluate_edge(normalize_edge(dependency_edge), state)
         if dependency_decision.route == "INVALID_EDGE":
             raise SystemExit(f"Invalid recovery_dependency_edge: {dependency_decision.reason}")
