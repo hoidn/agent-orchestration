@@ -619,7 +619,12 @@ def _reconcile_completed_gaps(
             )
         )
 
-    if missing_summary_artifacts or stale_summary_metadata or missing_architecture_files:
+    if (
+        missing_summary_artifacts
+        or stale_summary_metadata
+        or missing_architecture_files
+        or missing_from_architecture_index
+    ):
         diagnostics.append(
             Diagnostic(
                 code="reference_family_completed_gap_artifact_missing",
@@ -628,10 +633,12 @@ def _reconcile_completed_gaps(
                 details={
                     "evidence_path": implementation_architectures["record"].path,
                     "comparison_path": summary_inventory["record"].path,
+                    "architecture_index_path": architecture_index["record"].path,
                     "missing_summary_artifacts": missing_summary_artifacts,
                     "stale_summary_metadata": stale_summary_metadata,
                     "expected_run_state_path": expected_run_state_path,
                     "missing_architecture_files": missing_architecture_files,
+                    "missing_from_architecture_index": missing_from_architecture_index,
                     "related_surface_id": "completion_inventory",
                     "suggested_owner_lane": "reference-family conformance profile reconciliation",
                 },
@@ -647,6 +654,7 @@ def _reconcile_completed_gaps(
             or missing_summary_artifacts
             or stale_summary_metadata
             or missing_architecture_files
+            or missing_from_architecture_index
         )
         else "fail"
     )

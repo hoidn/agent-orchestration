@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 import re
+import shutil
 from datetime import date
 from dataclasses import asdict, is_dataclass, replace
 from enum import Enum
@@ -543,6 +544,7 @@ def _build_design_delta_parent_drain(
     run_state_path: Path | None = None,
     drain_summary_path: Path | None = None,
     design_gap_summary_root: Path | None = None,
+    implementation_architecture_root: Path | None = None,
     architecture_index_path: Path | None = None,
     target_design_path: Path | None = None,
     parity_targets_path: Path | None = None,
@@ -648,6 +650,13 @@ def _build_design_delta_parent_drain(
             build,
             "REFERENCE_FAMILY_DESIGN_GAP_SUMMARY_ROOT",
             design_gap_summary_root,
+            raising=False,
+        )
+    if implementation_architecture_root is not None:
+        monkeypatch.setattr(
+            build,
+            "REFERENCE_FAMILY_IMPLEMENTATION_ARCHITECTURE_ROOT",
+            implementation_architecture_root,
             raising=False,
         )
     if architecture_index_path is not None:
@@ -762,6 +771,35 @@ def _aligned_reference_family_architecture_index(tmp_path: Path) -> Path:
     suffix = ("\n" + "\n".join(missing_entries)) if missing_entries else ""
     path.write_text(text + suffix + "\n", encoding="utf-8")
     return path
+
+
+def _aligned_reference_family_implementation_architecture_root(
+    tmp_path: Path,
+) -> Path:
+    source_root = (
+        REPO_ROOT
+        / "docs"
+        / "plans"
+        / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+        / "design-gaps"
+    )
+    destination = tmp_path / "reference-family-implementation-architectures"
+    shutil.copytree(source_root, destination)
+    run_state = json.loads(
+        (
+            REPO_ROOT
+            / "state"
+            / "LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN"
+            / "drain"
+            / "run_state.json"
+        ).read_text(encoding="utf-8")
+    )
+    for gap_id in run_state["completed_design_gaps"]:
+        architecture_path = destination / gap_id / "implementation_architecture.md"
+        if not architecture_path.exists():
+            architecture_path.parent.mkdir(parents=True, exist_ok=True)
+            architecture_path.write_text(f"# {gap_id}\n", encoding="utf-8")
+    return destination
 
 
 def _load_design_delta_value_flow_census() -> dict[str, object]:
@@ -7862,6 +7900,9 @@ def test_design_delta_parent_drain_build_emits_reference_family_conformance_prof
         monkeypatch,
         registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
         drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+        implementation_architecture_root=_aligned_reference_family_implementation_architecture_root(
+            tmp_path
+        ),
         architecture_index_path=_aligned_reference_family_architecture_index(tmp_path),
     )
 
@@ -7955,6 +7996,49 @@ def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_
     assert excinfo.value.diagnostics[0].code == "reference_family_conformance_invalid"
     assert (
         "reference_family_completed_gap_summary_mismatch"
+        in excinfo.value.diagnostics[0].message
+    )
+
+
+def test_design_delta_parent_drain_build_rejects_reference_family_completed_gap_artifact_missing_when_architecture_index_omits_selected_gap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    implementation_architecture_root = (
+        _aligned_reference_family_implementation_architecture_root(tmp_path)
+    )
+    architecture_index_path = _aligned_reference_family_architecture_index(tmp_path)
+    selected_gap_id = (
+        "workflow-lisp-runtime-native-drain-reference-family-completion-"
+        "inventory-realignment-after-final-gap-closures"
+    )
+    architecture_path = (
+        "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        f"{selected_gap_id}/implementation_architecture.md"
+    )
+    architecture_index_path.write_text(
+        "\n".join(
+            line
+            for line in architecture_index_path.read_text(encoding="utf-8").splitlines()
+            if selected_gap_id not in line and architecture_path not in line
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_design_delta_parent_drain(
+            tmp_path,
+            monkeypatch,
+            registry_payload=_aligned_design_delta_boundary_authority_registry(tmp_path),
+            drain_summary_path=_aligned_reference_family_drain_summary(tmp_path),
+            implementation_architecture_root=implementation_architecture_root,
+            architecture_index_path=architecture_index_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "reference_family_conformance_invalid"
+    assert (
+        "reference_family_completed_gap_artifact_missing"
         in excinfo.value.diagnostics[0].message
     )
 

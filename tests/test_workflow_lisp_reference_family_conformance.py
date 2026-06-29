@@ -545,8 +545,8 @@ def test_build_reference_family_conformance_profile_passes_for_aligned_fixture(
     assert profile["schema_version"] == "workflow_lisp_reference_family_conformance_profile.v1"
     assert "schema_id" not in profile
     assert profile["profile_status"] == "pass"
-    assert profile["completed_gap_reconciliation"]["run_state_count"] == 41
-    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 41
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == 44
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 44
     assert profile["target_design"] == "docs/design/workflow_lisp_runtime_native_drain_authoring.md"
     assert profile["baseline_design"] == "docs/design/workflow_lisp_frontend_specification.md"
     assert isinstance(profile["generated_at"], str) and profile["generated_at"]
@@ -607,8 +607,8 @@ def test_build_reference_family_conformance_profile_reports_live_one_gap_omissio
     )
 
     assert profile["profile_status"] == "fail"
-    assert profile["completed_gap_reconciliation"]["run_state_count"] == 41
-    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 40
+    assert profile["completed_gap_reconciliation"]["run_state_count"] == 44
+    assert profile["completed_gap_reconciliation"]["drain_summary_count"] == 43
     assert profile["completed_gap_reconciliation"]["missing_from_drain_summary"] == LIVE_MISSING_GAP_IDS
     assert [
         diagnostic["code"] for diagnostic in profile["diagnostics"]
@@ -713,6 +713,50 @@ def test_build_reference_family_conformance_profile_reports_missing_implementati
     assert [
         diagnostic["code"] for diagnostic in profile["diagnostics"]
     ] == ["reference_family_completed_gap_artifact_missing"]
+
+
+def test_build_reference_family_conformance_profile_rejects_missing_architecture_index_coverage(
+    tmp_path: Path,
+) -> None:
+    module = _reference_family_module()
+    fixture = _reference_family_fixture(tmp_path)
+    architecture_index_path = tmp_path / "existing-architecture-index.md"
+    _copy_json(fixture["architecture_index_path"], architecture_index_path)
+    selected_gap_id = (
+        "workflow-lisp-runtime-native-drain-reference-family-completion-"
+        "inventory-realignment-after-final-gap-closures"
+    )
+    architecture_path = (
+        "docs/plans/LISP-RUNTIME-NATIVE-DRAIN-AUTHORING-DRAIN/design-gaps/"
+        f"{selected_gap_id}/implementation_architecture.md"
+    )
+    architecture_index_path.write_text(
+        "\n".join(
+            line
+            for line in architecture_index_path.read_text(encoding="utf-8").splitlines()
+            if selected_gap_id not in line and architecture_path not in line
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    profile = module.build_reference_family_conformance_profile(
+        **_reference_family_inputs(
+            fixture,
+            architecture_index_path=architecture_index_path,
+        )
+    )
+
+    assert profile["profile_status"] == "fail"
+    assert profile["completed_gap_reconciliation"]["missing_from_architecture_index"] == [
+        selected_gap_id
+    ]
+    assert [
+        diagnostic["code"] for diagnostic in profile["diagnostics"]
+    ] == ["reference_family_completed_gap_artifact_missing"]
+    assert profile["diagnostics"][0]["missing_from_architecture_index"] == [
+        selected_gap_id
+    ]
 
 
 @pytest.mark.parametrize(
