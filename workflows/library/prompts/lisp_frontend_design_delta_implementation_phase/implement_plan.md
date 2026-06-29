@@ -3,6 +3,8 @@ Use `superpowers:executing-plans` to execute the approved plan task by task.
 
 Use the consumed target design, baseline design, approved plan, check commands,
 and the authoritative execution-report and progress-report target paths.
+Stop and report `BLOCKED` if the approved plan asks for a change that only
+works for the selected case while changing code used by other tasks.
 If the implementation completes, write an execution report and the structured
 implementation-state bundle required by the output contract. When completed,
 write the execution report at the consumed canonical target path and reference

@@ -10,6 +10,9 @@ product design/spec. Keep the scope bounded to the selected gap. Do not draft
 multiple alternative architectures, do not cover multiple design gaps, and do
 not broaden the scope beyond the selected gap.
 
+If the selected gap changes code used by other tasks too, describe the rule
+that all of those uses should follow, not only what this selected case needs.
+
 Use `docs/templates/design_gap_implementation_architecture_template.md` as the
 structure guide when helpful. Do not use the general
 `docs/templates/design_template.md` as the default shape for this output; that
