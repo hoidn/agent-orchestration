@@ -13,6 +13,7 @@ from .effects import (
 )
 from .expressions import CallExpr, EnumMemberExpr, ExprNode, FunctionCallExpr, NameExpr, WorkflowRefLiteralExpr
 from .phase import (
+    PHASE_CONTEXT_NAME,
     derived_private_child_context_eligibility,
     private_exec_context_kind,
 )
@@ -64,6 +65,11 @@ def hidden_context_omission_allowed(
     ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
     requirements = getattr(callee_signature, "hidden_context_requirements", {})
     requirement = requirements.get(param_name) if isinstance(requirements, dict) else None
+    active_has_private_context_source = any(
+        private_exec_context_kind(type_ref) is not None
+        or classify_structural_private_exec_context(type_ref) is not None
+        for _, type_ref in active_signature.params
+    )
     if requirement is not None and requirement.binding_kind == "derived_private_child_context":
         if requirement.phase_name is None or param_name in ambiguities:
             compat._raise_error(
@@ -78,7 +84,10 @@ def hidden_context_omission_allowed(
         )
         if not eligibility.allowed:
             allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
-            if requirement.allows_entry_bootstrap and callee_signature.name in allowed_callees:
+            if requirement.allows_entry_bootstrap and (
+                callee_signature.name in allowed_callees
+                or not active_has_private_context_source
+            ):
                 return True
             compat._raise_error(
                 eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
@@ -89,6 +98,28 @@ def hidden_context_omission_allowed(
         return True
 
     allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
+    if (
+        requirement is not None
+        and requirement.context_kind == PHASE_CONTEXT_NAME
+        and requirement.phase_name is not None
+    ):
+        eligibility = derived_private_child_context_eligibility(
+            active_signature,
+            param_name=param_name,
+        )
+        if eligibility.allowed:
+            return True
+        if callee_signature.name in allowed_callees:
+            return True
+        if not active_has_private_context_source:
+            return True
+        compat._raise_error(
+            eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
+            code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
+            span=span,
+            form_path=form_path,
+        )
+
     if callee_signature.name not in allowed_callees:
         return False
 

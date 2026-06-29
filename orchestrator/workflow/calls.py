@@ -282,6 +282,8 @@ class CallExecutor:
             for input_name in binding.generated_input_names:
                 if not isinstance(input_name, str):
                     continue
+                if input_name in finalized:
+                    continue
                 contract = contracts.get(input_name, {})
                 expected_value = self.executor._private_exec_context_binding_value(
                     binding=binding,

@@ -2714,6 +2714,8 @@ class WorkflowExecutor:
                 }:
                     if role == "compile_time_default":
                         contract = contracts.get(input_name, {})
+                        if input_name in (bound_inputs or {}):
+                            continue
                         if not isinstance(contract, dict) or "default" not in contract:
                             return False
                     continue
@@ -2732,6 +2734,12 @@ class WorkflowExecutor:
         )
         if not generated_names:
             return False
+        if (
+            getattr(binding, "bridge_class", None) == "derived_private_child_context"
+            and isinstance(bound_inputs, Mapping)
+            and all(name in bound_inputs for name in generated_names)
+        ):
+            return True
         phase_name = self._legacy_private_exec_context_phase_name(binding=binding)
         prefix = f"{getattr(binding, 'source_param_name', '')}__"
         for input_name in generated_names:
@@ -2892,6 +2900,7 @@ class WorkflowExecutor:
             state['bound_inputs'] = bound_inputs
 
         changed = False
+        is_call_frame = isinstance(getattr(self.state_manager, "frame_id", None), str)
         for input_name, expected_value in runtime_bindings.items():
             if input_name not in bound_inputs:
                 bound_inputs[input_name] = expected_value
@@ -2899,6 +2908,8 @@ class WorkflowExecutor:
                 continue
 
             current_value = bound_inputs[input_name]
+            if is_call_frame:
+                continue
             if current_value == expected_value:
                 continue
             if resume and current_value == expected_value:

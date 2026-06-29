@@ -1144,24 +1144,33 @@ def _shared_proof_hidden_context_seed_workflow_names(
 ) -> set[str]:
     """Return worker lanes that legitimately seed promoted hidden-context routing."""
 
-    allowed = _shared_proof_item_ctx_worker_workflow_names(
-        workflow_defs=workflow_defs,
-        signatures_by_name=signatures_by_name,
-    )
+    workflow_defs_by_name = {workflow_def.name: workflow_def for workflow_def in workflow_defs}
+    item_ctx_workers = {
+        workflow_name
+        for workflow_name in _shared_proof_item_ctx_worker_workflow_names(
+            workflow_defs=workflow_defs,
+            signatures_by_name=signatures_by_name,
+        )
+        if _workflow_omits_private_exec_context_binding(
+            workflow_defs_by_name[workflow_name],
+            signatures_by_name=signatures_by_name,
+        )
+    }
+    bootstrap_wrappers: set[str] = set()
     for workflow_def in workflow_defs:
         signature = signatures_by_name.get(workflow_def.name)
         if signature is None:
             continue
         if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params):
             continue
-        if not any(private_exec_context_kind(type_ref) is not None for _, type_ref in signature.params):
+        if eligible_private_context_source_param_names(signature):
             continue
         if _workflow_omits_private_exec_context_binding(
             workflow_def,
             signatures_by_name=signatures_by_name,
         ):
-            allowed.add(workflow_def.name)
-    return allowed
+            bootstrap_wrappers.add(workflow_def.name)
+    return item_ctx_workers | bootstrap_wrappers
 
 
 def _shared_proof_item_ctx_worker_workflow_names(
@@ -1526,6 +1535,22 @@ def _signature_from_imported_bundle(
             grouped_inputs[param_name] = {}
             param_order.append(param_name)
         grouped_inputs[param_name][input_name] = dict(input_spec)
+    for binding in boundary_projection.private_runtime_context_bindings:
+        param_name = binding.source_param_name or binding.binding_id
+        if not isinstance(param_name, str):
+            continue
+        binding_inputs = {
+            input_name: dict(input_spec)
+            for input_name in binding.generated_input_names
+            if isinstance(input_name, str)
+            and isinstance((input_spec := input_contracts.get(input_name)), Mapping)
+        }
+        if not binding_inputs:
+            continue
+        if param_name not in grouped_inputs:
+            grouped_inputs[param_name] = {}
+            param_order.append(param_name)
+        grouped_inputs[param_name].update(binding_inputs)
 
     span = _bundle_source_span(bundle)
     form_path = ("workflow-lisp", alias)
@@ -1614,15 +1639,22 @@ def _hidden_context_requirements_from_bundle(
             param_name = binding.binding_id
         if param_name is None:
             continue
+        binding_kind = "runtime_owned_entry_context"
+        allows_entry_bootstrap = False
+        if (
+            binding.context_family == PHASE_CONTEXT_NAME
+            and binding.derived_phase_identity is not None
+        ):
+            binding_kind = "derived_private_child_context"
+            allows_entry_bootstrap = True
+        elif binding.bridge_class == "derived_private_child_context":
+            binding_kind = "derived_private_child_context"
         requirements[param_name] = PromotedEntryHiddenContextRequirement(
             param_name=param_name,
             context_kind=binding.context_family,
             phase_name=binding.derived_phase_identity,
-            binding_kind=(
-                "derived_private_child_context"
-                if binding.bridge_class == "derived_private_child_context"
-                else "runtime_owned_entry_context"
-            ),
+            binding_kind=binding_kind,
+            allows_entry_bootstrap=allows_entry_bootstrap,
         )
     return requirements
 

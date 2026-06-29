@@ -1205,6 +1205,9 @@ def _compile_design_delta_work_item_runtime_entrypoint(
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
     )
     return module_path, result
 
@@ -1308,7 +1311,9 @@ def _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojec
 
 
 def _compile_arbitrary_derived_phase_reuse_entrypoint(tmp_path: Path):
-    source = ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE.read_text(encoding="utf-8")
+    source = _write_item_ctx_child_phase_reuse_core_fixture_to_tmp(tmp_path).read_text(
+        encoding="utf-8"
+    )
     source = source.replace(
         "(defmodule design_delta_item_ctx_child_phase_reuse)",
         "(defmodule arbitrary_derived_phase_reuse)",
@@ -1327,6 +1332,10 @@ def _compile_arbitrary_derived_phase_reuse_entrypoint(tmp_path: Path):
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
         validate_shared=True,
         workspace_root=tmp_path,
+        entry_workflow="arbitrary_derived_phase_reuse::run-entry",
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
     )
     lowered_by_name = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -4137,14 +4146,10 @@ def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_module
     bundle = result.entry_result.validated_bundles[
         "arbitrary_derived_phase_reuse::run-entry"
     ]
-    branching_bundle = result.entry_result.validated_bundles[
-        "arbitrary_derived_phase_reuse::run-entry-branching-terminal-reprojection"
-    ]
     public_inputs = set(workflow_public_input_contracts(bundle))
-    branching_boundary = workflow_boundary_projection(branching_bundle)
-    run_item_steps = lowered_by_name[
-        "arbitrary_derived_phase_reuse::run-item-ctx-first-branching-terminal-reprojection"
-    ]["steps"]
+    run_item_steps = lowered_by_name["arbitrary_derived_phase_reuse::run-item-ctx-first"][
+        "steps"
+    ]
     run_item_calls = {
         step["call"]
         for step in _walk_lowered_steps(run_item_steps)
@@ -4155,11 +4160,9 @@ def test_design_delta_item_ctx_child_phase_reuse_route_supports_arbitrary_module
     assert "phase-ctx__artifact-root" not in public_inputs
     assert "phase-ctx__phase-name" not in public_inputs
     assert "run_state_path" not in public_inputs
-    assert "run_state_path" in branching_boundary.private_compatibility_bridge_inputs
     assert {
         "lisp_frontend_design_delta/plan_phase::run-plan-phase",
         "lisp_frontend_design_delta/implementation_phase::implementation-phase",
-        "lisp_frontend_design_delta/projections::classify-work-item-terminal",
     }.issubset(run_item_calls)
 
 

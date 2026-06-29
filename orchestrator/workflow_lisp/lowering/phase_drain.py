@@ -54,7 +54,11 @@ from ..expressions import (
     WithPhaseExpr,
 )
 from ..phase import IMPLEMENTATION_ATTEMPT_PHASE_NAME, PHASE_TARGET_SPECS, PhaseScope
-from ..phase import derived_private_child_context_eligibility, private_exec_context_kind
+from ..phase import (
+    derived_private_child_context_eligibility,
+    eligible_private_context_source_param_names,
+    private_exec_context_kind,
+)
 from ..procedure_refs import ResolvedProcRefValue, resolve_proc_ref_value
 from ..procedures import ProcedureCatalog
 from ..spans import SourceSpan
@@ -834,10 +838,13 @@ def _phase_stdlib_lower_backlog_drain_impl(
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
-                    if requirement.allows_entry_bootstrap and callee_name in getattr(
-                        context.signature,
-                        "allowed_hidden_context_callees",
-                        frozenset(),
+                    if requirement.allows_entry_bootstrap and (
+                        callee_name in getattr(
+                            context.signature,
+                            "allowed_hidden_context_callees",
+                            frozenset(),
+                        )
+                        or not eligible_private_context_source_param_names(context.signature)
                     ):
                         step["with"].update(
                             lowering_workflow_calls._declare_runtime_context_hidden_inputs(

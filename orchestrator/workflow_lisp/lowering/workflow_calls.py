@@ -27,6 +27,7 @@ from ..phase import (
     PHASE_CONTEXT_NAME,
     RUN_CONTEXT_NAME,
     derived_private_child_context_eligibility,
+    eligible_private_context_source_param_names,
     private_exec_context_bootstrap_supported,
     private_exec_context_capabilities,
     private_exec_context_kind,
@@ -1071,10 +1072,13 @@ def _lower_workflow_call(
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
-                    if requirement.allows_entry_bootstrap and canonical_name in getattr(
-                        context.signature,
-                        "allowed_hidden_context_callees",
-                        frozenset(),
+                    if requirement.allows_entry_bootstrap and (
+                        canonical_name in getattr(
+                            context.signature,
+                            "allowed_hidden_context_callees",
+                            frozenset(),
+                        )
+                        or not eligible_private_context_source_param_names(context.signature)
                     ):
                         with_bindings.update(
                             _declare_runtime_context_hidden_inputs(
@@ -1142,6 +1146,23 @@ def _lower_workflow_call(
                         )
                     )
                     continue
+            if (
+                isinstance(param_type, RecordTypeRef)
+                and requirement is not None
+                and requirement.context_kind == PHASE_CONTEXT_NAME
+                and requirement.phase_name is not None
+                and not eligible_private_context_source_param_names(context.signature)
+            ):
+                with_bindings.update(
+                    lowering_core._declare_runtime_context_hidden_inputs(
+                        context=context,
+                        param_name=param_name,
+                        param_type=param_type,
+                        requirement=requirement,
+                        source_expr=expr,
+                    )
+                )
+                continue
             if param_name in callee_signature.param_defaults:
                 continue
             if _compatibility_bridge_omission_allowed(

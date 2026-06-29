@@ -250,7 +250,7 @@ def record_direct_entry_phase_context_binding(
         input_roles: dict[str, str] = {}
         carried_input_sources: dict[str, tuple[str, ...]] = {}
         has_non_bootstrap_leaf = False
-        entry_phase_identity = phase_family_entry_phase_identity(
+        entry_phase_identity = requirement.phase_name or phase_family_entry_phase_identity(
             typed_workflow.definition.name,
             family_profile_catalog=context.workflow_catalog.family_profile_catalog,
         )
@@ -304,10 +304,7 @@ def record_direct_entry_phase_context_binding(
                 if structural_classification is not None
                 else private_exec_context_capabilities(requirement.context_kind)
             ),
-            derived_phase_identity=phase_family_entry_phase_identity(
-                typed_workflow.definition.name,
-                family_profile_catalog=context.workflow_catalog.family_profile_catalog,
-            ),
+            derived_phase_identity=entry_phase_identity,
             projection_hints=projection_hints,
             source_provenance=provenance,
         )
