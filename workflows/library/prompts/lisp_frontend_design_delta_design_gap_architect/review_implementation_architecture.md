@@ -9,6 +9,9 @@ target-design requirement that the implementation could affect.
 Reject it if it turns the architecture into an execution plan: task order,
 command-order checklists, workflow recovery procedure, and manifest/report
 refresh chores belong outside `implementation_architecture.md`.
+Reject it if its only material deliverable is refreshing derived reports,
+inventories, manifests, conformance packages, labels, or closeout evidence
+instead of changing source/runtime behavior, authoring surface, or contracts.
 
 The baseline design is compatibility context. The target design is the active
 contract for this review.

@@ -48,12 +48,15 @@ a stable input to normal runtime/product behavior, or evidence that implemented
 behavior is wrong. Acceptance, progress, review, promotion, conformance, and
 closeout evidence are not implementation work just because a design mentions
 them.
+A build, review, conformance, or promotion gate consuming a derived view does
+not by itself make that view normal runtime/product behavior.
 Do not run conformance, parity, status-refresh, or broad verification commands
 to decide the next item. Selection is a routing judgment over existing context,
 not an implementation or closeout proof step.
 Select implementation work only for source/runtime behavior, authoring surface,
 or contract defects. If the only remaining issue is stale closeout evidence,
-do not turn it into another implementation gap.
+do not turn it into another implementation gap; return `BLOCKED` with stale
+closeout/gate drift as the reason.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select target design feature work, `DONE`, or `BLOCKED`.

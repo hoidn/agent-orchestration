@@ -4,7 +4,7 @@ Read the `Consumed Artifacts` section first and treat it as the authoritative in
 Read the consumed `design`, `plan`, and `execution_report` artifacts before acting.
 
 Review the implementation against the design, the approved plan, the plan's stated current implementation scope, and any explicit deferrals.
-Do not treat generated reports, projections, summaries, preferred packaging, or other derived evidence artifacts as blocking by themselves unless they are explicitly mandatory, authoritative, machine-consumed, user-facing, or needed for required evidence, provenance, claim boundaries, or discoverability; equivalent discoverable artifacts may satisfy the same contract.
+Do not treat generated reports, projections, summaries, preferred packaging, or other derived evidence artifacts as blocking by themselves unless they are the requested product behavior, a stable input to normal runtime/product behavior, or evidence that implemented behavior is wrong. Acceptance, progress, review, promotion, conformance, and closeout evidence may block closeout or promotion, but they do not block implementation approval by themselves.
 
 Your job is to decide whether the delivered implementation is correct, maintainable, and honestly scoped.
 Unfinished work blocks approval when it was claimed complete, belongs to the approved current implementation scope, is required for the delivered behavior to be correct, is an immediate prerequisite for the delivered behavior, or was deferred without clear authority and handoff criteria; supplemental verification blocks only when explicitly marked blocking or when no equivalent evidence supports the delivered claim.

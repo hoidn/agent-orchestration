@@ -21,6 +21,10 @@ inputs:
     type: relpath
     under: docs/plans
     must_exist_target: true
+  architecture_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
   check_commands_path:
     type: relpath
     under: state
@@ -101,6 +105,12 @@ artifacts:
     pointer: ${inputs.state_root}/plan_path.txt
     under: docs/plans
     must_exist_target: true
+  architecture:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/architecture_path.txt
+    under: docs/plans
+    must_exist_target: true
   check_commands:
     kind: relpath
     type: relpath
@@ -158,6 +168,7 @@ steps:
         - names:
             - target_design_path
             - baseline_design_path
+            - architecture_path
             - plan_path
             - check_commands_path
           contract: inherit
@@ -206,6 +217,8 @@ steps:
         from: baseline_design_path
       - artifact: plan
         from: plan_path
+      - artifact: architecture
+        from: architecture_path
       - artifact: check_commands
         from: check_commands_path
       - artifact: execution_report_target
@@ -222,10 +235,10 @@ steps:
       - artifact: target_design
         policy: latest_successful
         freshness: any
-      - artifact: baseline_design
+      - artifact: plan
         policy: latest_successful
         freshness: any
-      - artifact: plan
+      - artifact: architecture
         policy: latest_successful
         freshness: any
       - artifact: check_commands
@@ -237,7 +250,7 @@ steps:
       - artifact: progress_report_target
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["target_design", "baseline_design", "plan", "check_commands", "execution_report_target", "progress_report_target"]
+    prompt_consumes: ["target_design", "architecture", "plan", "check_commands", "execution_report_target", "progress_report_target"]
     variant_output:
       path: ${inputs.state_root}/implementation_state.json
       discriminant:
@@ -413,10 +426,10 @@ steps:
                       - artifact: target_design
                         policy: latest_successful
                         freshness: any
-                      - artifact: baseline_design
+                      - artifact: plan
                         policy: latest_successful
                         freshness: any
-                      - artifact: plan
+                      - artifact: architecture
                         policy: latest_successful
                         freshness: any
                       - artifact: execution_report
@@ -425,7 +438,7 @@ steps:
                       - artifact: checks_report
                         policy: latest_successful
                         freshness: any
-                    prompt_consumes: ["target_design", "baseline_design", "plan", "execution_report", "checks_report"]
+                    prompt_consumes: ["target_design", "architecture", "plan", "execution_report", "checks_report"]
                     expected_outputs:
                       - name: implementation_review_report_path
                         path: ${inputs.state_root}/implementation_review_report_path.txt
@@ -457,10 +470,10 @@ steps:
                       - artifact: target_design
                         policy: latest_successful
                         freshness: any
-                      - artifact: baseline_design
+                      - artifact: plan
                         policy: latest_successful
                         freshness: any
-                      - artifact: plan
+                      - artifact: architecture
                         policy: latest_successful
                         freshness: any
                       - artifact: execution_report
@@ -475,7 +488,7 @@ steps:
                       - artifact: implementation_review_report
                         policy: latest_successful
                         freshness: since_last_consume
-                    prompt_consumes: ["target_design", "baseline_design", "plan", "execution_report", "execution_report_target", "checks_report", "implementation_review_report"]
+                    prompt_consumes: ["target_design", "architecture", "plan", "execution_report", "execution_report_target", "checks_report", "implementation_review_report"]
 
                   - name: PublishUpdatedExecutionReport
                     id: publish_updated_execution_report

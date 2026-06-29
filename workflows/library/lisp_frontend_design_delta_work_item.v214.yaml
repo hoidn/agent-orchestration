@@ -144,6 +144,11 @@ steps:
           type: relpath
           under: state
           must_exist_target: true
+        - name: architecture_path
+          json_pointer: /architecture_path
+          type: relpath
+          under: docs/plans
+          must_exist_target: true
         - name: plan_target_path
           json_pointer: /plan_target_path
           type: relpath
@@ -222,6 +227,8 @@ steps:
         ref: inputs.target_design_path
       baseline_design_path:
         ref: inputs.baseline_design_path
+      architecture_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.architecture_path
       plan_path:
         ref: root.steps.RunPlanPhase.artifacts.plan_path
       check_commands_path:

@@ -130,6 +130,7 @@ def _materialize_backlog(
     return {
         "work_item_source": "BACKLOG_ITEM",
         "work_item_id": item_id,
+        "architecture_path": rel_plan.as_posix(),
         "work_item_context_path": _repo_relpath(context_path),
         "check_commands_path": _repo_relpath(checks_path),
         "plan_target_path": rel_plan.as_posix(),

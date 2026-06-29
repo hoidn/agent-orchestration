@@ -11,8 +11,10 @@ inventory, or status-label refresh before the current source/runtime behavior
 works, unless that artifact is a direct runtime input or proves current
 behavior is wrong.
 
-Use the consumed target design, baseline design, approved plan, check commands,
-and the authoritative execution-report and progress-report target paths.
+Read the consumed target design, gap architecture, approved plan, and check
+commands before editing. Preserve the target and gap architecture intent while
+implementing the plan.
+Use the authoritative execution-report and progress-report target paths.
 Stop and report `BLOCKED` if the approved plan changes a file used outside the
 selected gap's files but only verifies the selected gap.
 If the implementation completes, write an execution report and the structured

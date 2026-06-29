@@ -10,6 +10,7 @@ Reject plans that need an Implementation Architecture section because correctnes
 Reject plans whose task list is dominated by exhaustive case matrices unless those matrices are part of the current-scope contract.
 Reject plans that blur authored and derived artifacts or introduce reusable code without a maintainability rationale.
 Check verification gates for practical executability and claim fit. Required commands must exist or be added by the plan before they are used as gates; environment-dependent commands must name their prerequisite or fallback; broad regression sweeps must say how pre-existing failures are separated from regressions caused by this work; and evidence gates must be strong enough for the claim being made.
+Return `REVISE` if a broad/default check with known unrelated existing drift is used as a blocking implementation gate instead of being narrowed to the current scope or recorded as follow-up drift.
 Then reconcile your fresh review against the carried-forward `open_findings` ledger.
 
 For each prior finding, classify it as one of:
