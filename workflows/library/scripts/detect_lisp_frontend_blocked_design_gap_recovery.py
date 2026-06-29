@@ -179,6 +179,31 @@ def _has_active_prerequisite_pointer(recovery_route: str, recovery_status: str) 
     }
 
 
+def _blocked_recovery_order(blocked: dict[str, Any]) -> list[str]:
+    ids = sorted(str(item) for item in blocked)
+    dependents_by_blocker: dict[str, set[str]] = {item: set() for item in ids}
+    for design_gap_id in ids:
+        entry = blocked.get(design_gap_id) or {}
+        if not isinstance(entry, dict):
+            continue
+        edge = edge_from_blocked_entry(WorkRef(source="DESIGN_GAP", id=design_gap_id), entry)
+        blocker = edge.blocker_work if edge is not None else None
+        if blocker is not None and blocker.source == "DESIGN_GAP" and blocker.id in dependents_by_blocker:
+            dependents_by_blocker[blocker.id].add(design_gap_id)
+
+    def dependent_depth(design_gap_id: str, seen: set[str] | None = None) -> int:
+        seen = set(seen or ())
+        if design_gap_id in seen:
+            return 0
+        seen.add(design_gap_id)
+        return max(
+            (1 + dependent_depth(dependent, seen) for dependent in dependents_by_blocker.get(design_gap_id, ())),
+            default=0,
+        )
+
+    return sorted(ids, key=lambda item: (-dependent_depth(item), item))
+
+
 def _recovery_payload(
     run_state_path: Path,
     artifact_work_root: Path,
@@ -194,7 +219,7 @@ def _recovery_payload(
 
     state = _load_json(run_state_path)
     blocked = state.get("blocked_design_gaps") or {}
-    for design_gap_id in sorted(blocked):
+    for design_gap_id in _blocked_recovery_order(blocked):
         entry = blocked.get(design_gap_id) or {}
         if entry.get("reason") != "implementation_blocked":
             continue

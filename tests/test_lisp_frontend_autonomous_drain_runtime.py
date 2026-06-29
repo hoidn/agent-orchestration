@@ -1847,6 +1847,103 @@ def test_blocked_recovery_recorder_does_not_reuse_completed_prerequisite_after_f
     assert payload["recovery_pointer_status"] == ""
 
 
+def test_blocked_recovery_detector_prioritizes_blocked_prerequisite_recovery(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    state_path = workspace / "state/drain/run_state.json"
+    detector_output = workspace / "state/drain/blocked-recovery.json"
+    dependent_gap_id = "aaa-runtime-audit"
+    blocker_gap_id = "zzz-parent-compile-smoke"
+    completed_gap_id = "completed-reference-family"
+    dependent_edge = _recovery_dependency_edge(blocked=dependent_gap_id, blocker=blocker_gap_id)
+    blocker_edge = _recovery_dependency_edge(blocked=blocker_gap_id, blocker=completed_gap_id)
+    blocker_progress_path = (
+        workspace
+        / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+        f"{blocker_gap_id}/"
+        "progress_report.md"
+    )
+    blocker_architecture_path = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+        f"{blocker_gap_id}/"
+        "implementation_architecture.md"
+    )
+    blocker_plan_path = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/"
+        f"{blocker_gap_id}/"
+        "execution_plan.md"
+    )
+
+    for path, text in [
+        (state_path, json.dumps({
+            "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+            "completed_items": [],
+            "completed_design_gaps": [completed_gap_id],
+            "blocked_items": {},
+            "blocked_design_gaps": {
+                dependent_gap_id: {
+                    "reason": "implementation_blocked",
+                    "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                    "recovery_reason": "prerequisite_gap_required",
+                    "recovery_status": "PREREQUISITE_WORK_PENDING",
+                    "waiting_on_prerequisite_gap_id": blocker_gap_id,
+                    "waiting_on_prerequisite_source": "DESIGN_GAP",
+                    "prerequisite_recovery_status": "BLOCKED_RECOVERABLE",
+                    "prerequisite_recovery_reason": "blocker_recoverable",
+                    "recovery_event_id": "dependent-blocked",
+                    "recovery_dependency_edge": {**dependent_edge, "status": "blocked"},
+                },
+                blocker_gap_id: {
+                    "reason": "implementation_blocked",
+                    "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                    "recovery_reason": "prerequisite_gap_required",
+                    "recovery_status": "PREREQUISITE_RETRY_FAILED",
+                    "waiting_on_prerequisite_gap_id": completed_gap_id,
+                    "waiting_on_prerequisite_source": "DESIGN_GAP",
+                    "prerequisite_recovery_status": "RETRY_FAILED",
+                    "prerequisite_recovery_reason": "completed_prerequisite_retry_failed",
+                    "progress_report_path": blocker_progress_path.relative_to(workspace).as_posix(),
+                    "architecture_path": blocker_architecture_path.relative_to(workspace).as_posix(),
+                    "plan_path": blocker_plan_path.relative_to(workspace).as_posix(),
+                    "recovery_event_id": "blocker-retry-failed",
+                    "recovery_dependency_edge": {
+                        **blocker_edge,
+                        "status": "blocked",
+                        "reason": "retry_failed_after_completed_prerequisite",
+                    },
+                },
+            },
+            "history": [],
+        }) + "\n"),
+        (blocker_progress_path, "# Progress Report\n\nRetry failed after prerequisite completion.\n"),
+        (blocker_architecture_path, "# Parent Compile Smoke Architecture\n"),
+        (blocker_plan_path, "# Parent Compile Smoke Plan\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    _run_script(
+        workspace,
+        "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN",
+        "--architecture-index-root",
+        "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps",
+        "--output",
+        detector_output.relative_to(workspace).as_posix(),
+    )
+    payload = json.loads(detector_output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "RECOVER_BLOCKED_DESIGN_GAP"
+    assert payload["design_gap_id"] == blocker_gap_id
+    assert payload["recovery_status"] == "PREREQUISITE_RETRY_FAILED"
+    assert payload["waiting_on_work_id"] == ""
+    assert payload["recovery_pointer_status"] == ""
+
+
 def test_blocked_recovery_recorder_rejects_self_prerequisite_edge(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
