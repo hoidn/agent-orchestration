@@ -349,7 +349,7 @@ def test_evaluator_cli_writes_decision_bundle(tmp_path):
     assert "same_blocker_repeated" in decision["trigger_codes"]
 
 
-def test_record_step_back_outcome_appends_event_and_continues(tmp_path):
+def test_record_step_back_outcome_blocks_workflow_mechanics_repair(tmp_path):
     state = tmp_path / "run_state.json"
     decision = tmp_path / "decision.json"
     diagnosis = tmp_path / "diagnosis.json"
@@ -403,13 +403,13 @@ def test_record_step_back_outcome_appends_event_and_continues(tmp_path):
     assert event["trigger_codes"] == ["same_blocker_repeated"]
     assert event["failure_fingerprint"] == "same-blocker"
     assert event["action"] == "FIX_WORKFLOW_MECHANICS"
-    assert drain_status.read_text(encoding="utf-8").strip() == "CONTINUE"
+    assert drain_status.read_text(encoding="utf-8").strip() == "BLOCKED"
     payload = json.loads(summary.read_text(encoding="utf-8"))
     assert payload["record_status"] == "STEP_BACK_RECORDED"
     bundle = json.loads(pre_selection.read_text(encoding="utf-8"))
     assert bundle["pre_selection_route"] == "BLOCKED"
     assert bundle["step_back_action"] == "FIX_WORKFLOW_MECHANICS"
-    assert bundle["step_back_drain_status"] == "CONTINUE"
+    assert bundle["step_back_drain_status"] == "BLOCKED"
 
 
 def test_record_step_back_outcome_blocks_for_human_decision(tmp_path):

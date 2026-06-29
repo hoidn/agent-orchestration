@@ -59,7 +59,7 @@ def record_step_back_outcome(
     rationale = str(diagnosis.get("rationale") or "").strip()
     trigger_codes = list(decision.get("trigger_codes") or [])
     failure_fingerprint = str(decision.get("failure_fingerprint") or "").strip()
-    drain_status = "BLOCKED" if action == "NEEDS_HUMAN_DECISION" else "CONTINUE"
+    drain_status = "BLOCKED" if action in {"FIX_WORKFLOW_MECHANICS", "NEEDS_HUMAN_DECISION"} else "CONTINUE"
 
     event = {
         "event": "step_back",

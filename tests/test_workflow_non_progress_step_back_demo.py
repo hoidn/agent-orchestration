@@ -38,7 +38,7 @@ def _bundle_context_dict(bundle) -> dict:
     return _thaw(workflow_context(bundle))
 
 
-def test_non_progress_step_back_demo_records_and_continues(tmp_path):
+def test_non_progress_step_back_demo_records_and_blocks_workflow_mechanics(tmp_path):
     workspace = tmp_path / "workspace"
     for relpath in [
         "workflows/examples/non_progress_step_back_demo.yaml",
@@ -62,7 +62,7 @@ def test_non_progress_step_back_demo_records_and_continues(tmp_path):
     state = WorkflowExecutor(workflow, workspace, state_manager).execute()
 
     assert state["status"] == "completed"
-    assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
+    assert state["workflow_outputs"]["drain_status"] == "BLOCKED"
     summary = json.loads((workspace / "artifacts/work/non-progress-step-back-demo/summary.json").read_text())
     assert summary["record_status"] == "STEP_BACK_RECORDED"
     assert summary["action"] == "FIX_WORKFLOW_MECHANICS"
