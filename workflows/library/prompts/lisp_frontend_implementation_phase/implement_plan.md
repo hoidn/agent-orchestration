@@ -2,6 +2,14 @@ Implement only the approved plan for the full-design work item.
 
 Use the consumed full design, MVP design, approved plan, check commands, and
 the authoritative execution-report and progress-report target paths.
+Do not report `BLOCKED` solely because a broad, default, or closeout check
+fails on documented pre-existing or out-of-scope drift after the current-scope
+behavior and equivalent focused checks pass. Record that as follow-up drift and
+write `COMPLETED` if the approved current implementation scope is delivered.
+Do not spend implementation effort on manifest, conformance, parity, summary,
+inventory, or status-label refresh before the current source/runtime behavior
+works, unless that artifact is a direct runtime input or proves current
+behavior is wrong.
 If the implementation completes, write an execution report and the structured
 implementation-state bundle required by the output contract. When completed,
 write the execution report at the consumed canonical target path and reference

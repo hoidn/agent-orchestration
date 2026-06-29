@@ -11,3 +11,9 @@ For deep compiler-substrate gaps, this older example is also useful:
 
 Use the general [Design Template](design_template.md) only for broader
 system/spec/architecture designs, not for one selected implementation gap.
+
+`implementation_architecture.md` should describe the bounded contract:
+ownership, constraints, source surfaces, allowed/forbidden shapes, and
+acceptance conditions. Do not put step-by-step execution instructions,
+command-order checklists, manifest/report refresh chores, or workflow recovery
+procedure in the architecture file.

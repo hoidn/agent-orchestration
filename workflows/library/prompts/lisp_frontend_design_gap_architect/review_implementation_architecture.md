@@ -6,6 +6,9 @@ before acting.
 Review whether the gap design is consistent with the target design.
 Reject it if it changes, weakens, bypasses, or leaves ambiguous any
 target-design requirement that the implementation could affect.
+Reject it if it turns the architecture into an execution plan: task order,
+command-order checklists, workflow recovery procedure, and manifest/report
+refresh chores belong outside `implementation_architecture.md`.
 
 The full design is the target design for this review. The MVP design is
 compatibility context.

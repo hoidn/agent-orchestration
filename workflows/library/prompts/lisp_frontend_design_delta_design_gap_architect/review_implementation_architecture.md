@@ -6,6 +6,9 @@ implementation architecture before acting.
 Review whether the gap design is consistent with the target design.
 Reject it if it changes, weakens, bypasses, or leaves ambiguous any
 target-design requirement that the implementation could affect.
+Reject it if it turns the architecture into an execution plan: task order,
+command-order checklists, workflow recovery procedure, and manifest/report
+refresh chores belong outside `implementation_architecture.md`.
 
 The baseline design is compatibility context. The target design is the active
 contract for this review.

@@ -35,6 +35,16 @@ Treat this classification as a proposed recovery route. Do not choose
 `PREREQUISITE_GAP_REQUIRED`, `TARGET_DESIGN_REVISION_REQUIRED`, or
 `GAP_DESIGN_REVISION_REQUIRED` for stale evidence, duplicate bookkeeping, or a
 selected unit whose scope should be replaced from the higher-level contract.
+Do not turn stale reports, summaries, manifests, inventories, labels, or other
+derived views into prerequisite work unless the view is the requested product
+behavior, a stable input to normal runtime/product behavior, or evidence that
+implemented behavior is wrong. Acceptance, progress, review, promotion,
+conformance, and closeout evidence are not implementation prerequisites just
+because a design mentions them.
+If the implementation's source/runtime behavior is still broken, classify the
+recovery around that behavior. If behavior is repaired and only derived
+closeout evidence is stale, do not request a target, gap, or prerequisite
+revision for the stale evidence alone.
 
 Write one JSON bundle at the required output path:
 

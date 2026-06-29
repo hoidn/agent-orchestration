@@ -13,6 +13,10 @@ Use `docs/templates/design_gap_implementation_architecture_template.md` as the
 structure guide when helpful. Do not use the general
 `docs/templates/design_template.md` as the default shape for this output; that
 template is for system/spec-level designs, not bounded gap architectures.
+Keep procedure out of the architecture file. Describe ownership, constraints,
+allowed and forbidden implementation shapes, source surfaces, and acceptance
+conditions. Do not include task order, command-order checklists, recovery
+procedure, or manifest/report refresh chores.
 
 Preserve coherence with prior implementation architecture documents listed in
 the architecture index:

@@ -10,13 +10,17 @@ product design/spec. Keep the scope bounded to the selected gap. Do not draft
 multiple alternative architectures, do not cover multiple design gaps, and do
 not broaden the scope beyond the selected gap.
 
-If the selected gap changes code used by other tasks too, describe the rule
-that all of those uses should follow, not only what this selected case needs.
+If the selected gap changes a file that is used outside the selected gap's
+files, describe the rule those outside uses should follow too.
 
 Use `docs/templates/design_gap_implementation_architecture_template.md` as the
 structure guide when helpful. Do not use the general
 `docs/templates/design_template.md` as the default shape for this output; that
 template is for system/spec-level designs, not bounded gap architectures.
+Keep procedure out of the architecture file. Describe ownership, constraints,
+allowed and forbidden implementation shapes, source surfaces, and acceptance
+conditions. Do not include task order, command-order checklists, recovery
+procedure, or manifest/report refresh chores.
 
 Preserve coherence with prior implementation architecture documents listed in
 the architecture index:
@@ -27,8 +31,8 @@ the architecture index:
 - do not redefine shared concepts such as spans, diagnostics, Core Workflow
   AST, Semantic Workflow IR, TypeCatalog, SourceMap, pointer authority, or
   variant proof;
-- declare the files/components owned by this slice and the shared components it
-  intentionally does not own;
+- declare the files/components this slice will change and the shared
+  components it will rely on without changing;
 - if this slice must revise a prior decision, state the conflict and the reason
   explicitly.
 

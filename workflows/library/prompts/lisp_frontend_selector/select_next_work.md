@@ -21,6 +21,11 @@ Decision rules:
 
 Refactoring may be selected when it is the best next step toward completing the
 full design, but only as a bounded expansion-enabling pass.
+Do not select or draft implementation work only to refresh reports, summaries,
+manifests, inventories, labels, or other derived views. Treat stale derived
+views as closeout follow-up unless the view is the requested product behavior,
+a stable input to normal runtime/product behavior, or evidence that implemented
+behavior is wrong.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select feature work, `DONE`, or `BLOCKED`.

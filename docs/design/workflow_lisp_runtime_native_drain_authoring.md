@@ -121,12 +121,12 @@ targets, and view paths. Those values must be visible in executable contracts,
 source maps, Semantic IR, and build evidence, but not as public authored
 workflow inputs.
 
-### 2.1 Reference-Family Conformance Profile
+### 2.1 Reference-Family Closeout Profile
 
 The Design Delta parent-family route is implemented as a parent-callable `.orc`
 family in the current checkout, but this document is a stricter authoring
-target and regression checklist. Implementation reports that claim this target
-must include or link a conformance profile for the reference family:
+target and regression checklist. Closeout or promotion reports that claim this
+target may include or link a conformance profile for the reference family:
 
 | Surface | Current evidence source | Target question |
 | --- | --- | --- |
@@ -141,7 +141,19 @@ must include or link a conformance profile for the reference family:
 
 This profile prevents two mistakes: treating implemented parent-callability as
 proof of the stricter authoring shape, and treating this target as a live status
-report instead of an evidence checklist.
+report. The profile is closeout evidence, not ordinary implementation work:
+stale profile rows, inventory rows, summaries, or indexes do not by themselves
+justify selecting a design gap unless they expose a real defect in runtime
+authoring behavior or a broken normal consumer interface.
+
+Implementation slices for this target are source-and-behavior first. They must
+clear the local compile/type/runtime failure they claim to address, with focused
+tests for edited contracts and one integration or smoke check when runnable.
+Conformance profiles, parity reports, manifests, inventories, checked
+summaries, status labels, and promotion evidence are closeout artifacts unless
+they are direct runtime inputs or prove current behavior is wrong. Stale
+closeout artifacts should be recorded as follow-up cleanup, not selected as an
+implementation gap.
 
 ## 3. Problem
 
@@ -1423,6 +1435,11 @@ shape exposes domain workflow logic instead of routine runtime bookkeeping.
 Before full reference-family acceptance, implementation must pass a staged proof
 ladder:
 
+This ladder is a closeout/promotion check over implemented behavior, not a
+backlog of implementation slices. Missing or stale proof artifacts should be
+recorded as closeout follow-up unless they demonstrate that the normal `.orc`
+authoring/runtime behavior is wrong.
+
 - typed provider request-record fixture with prompt rendering evidence;
 - provider write-target fixture proving targets are role-classified separately
   from prompt-subject data;
@@ -1812,6 +1829,8 @@ A later implementation plan should be organized around the reference family:
 5. convert state updates to typed transitions or certified adapters;
 6. move compatibility files to bridge metadata;
 7. simplify the `.orc` source;
-8. run compile, shared validation, dry-run/smoke, and parity evidence; and
-9. update authoring docs and migration evidence once the working reference
-   family proves the target.
+8. run compile, shared validation, and focused dry-run/smoke checks for the
+   changed behavior; and
+9. record closeout or promotion follow-ups for stale conformance, parity,
+   manifest, or migration evidence after the working reference family proves
+   the behavior.

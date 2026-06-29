@@ -41,9 +41,19 @@ target design, but only as a bounded expansion-enabling pass.
 Do not select work that only preserves a temporary workaround. Select it only if
 it removes the workaround, confines it to an external boundary, or removes a
 specific blocker to deleting it.
-Do not select or draft work whose only purpose is to align summaries, manifests,
-reports, labels, or stale evidence. Select or draft work only when it advances
-an unmet target-design contract or directly unblocks semantic implementation.
+Do not select or draft implementation work only to refresh reports, summaries,
+manifests, inventories, labels, or other derived views. Treat stale derived
+views as closeout follow-up unless the view is the requested product behavior,
+a stable input to normal runtime/product behavior, or evidence that implemented
+behavior is wrong. Acceptance, progress, review, promotion, conformance, and
+closeout evidence are not implementation work just because a design mentions
+them.
+Do not run conformance, parity, status-refresh, or broad verification commands
+to decide the next item. Selection is a routing judgment over existing context,
+not an implementation or closeout proof step.
+Select implementation work only for source/runtime behavior, authoring surface,
+or contract defects. If the only remaining issue is stale closeout evidence,
+do not turn it into another implementation gap.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select target design feature work, `DONE`, or `BLOCKED`.
