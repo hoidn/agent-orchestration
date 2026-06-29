@@ -1,10 +1,12 @@
 Implement only the approved plan for the target-design work item.
 Use `superpowers:executing-plans` to execute the approved plan task by task.
+If a check can only pass by doing something the approved plan forbids, do not
+make that change; report `BLOCKED` with the conflict.
 
 Use the consumed target design, baseline design, approved plan, check commands,
 and the authoritative execution-report and progress-report target paths.
-Stop and report `BLOCKED` if the approved plan asks for a change that only
-works for the selected case while changing code used by other tasks.
+Stop and report `BLOCKED` if the approved plan changes a file used outside the
+selected gap's files but only verifies the selected gap.
 If the implementation completes, write an execution report and the structured
 implementation-state bundle required by the output contract. When completed,
 write the execution report at the consumed canonical target path and reference
