@@ -15,16 +15,7 @@ When reviewing:
 - identify material design or plan requirements that were deferred without clear authority, rationale, and handoff criteria
 - identify concrete implementation bugs, regressions, and contract mismatches
 - flag implementations that drift from roadmap, design, or plan layout and ownership decisions, or combine things the design or plan kept separate without a recorded rationale
-- use systematic-debugging to identify the root cause of any nontrivial runtime failures
 - reject substitute-path closure. A result is not complete if the target behavior only passes because expected outputs, fixture data, oracle/reference artifacts, mocks, stubs, cached results, replay tables, fallback paths, dev-only helpers, feature flags, or test-only paths were moved into or made reachable from the production/default path. Review the provenance of the successful behavior, not only the final output.
-- for numerical parity failures in current-scope or claimed behavior, distinguish implementation defects, insufficient diagnosis, and cases where the comparison standard is too strict for the supported claim. Treat tolerance or comparator changes as acceptable only when residual evidence supports numerical-method drift rather than semantic or physics drift, unaffected invariants stay strict, and the authoritative spec, catalog, test helper, or gate is updated.
-- for parity or benchmark work, reject implementations where validation data is part of the production mechanism being validated, unless the approved design explicitly defines the feature as reference-data lookup. Validation data includes expected outputs, oracle data, fixtures, generated evidence, checked-in answer tables, derived reference templates, or equivalent encoded answers. It may support tests, diagnostics, and review evidence; it must not be what makes production behavior pass.
-- distinguish:
-  - unfinished current-scope work
-  - defects in already-implemented work that block delivered behavior
-  - non-blocking defects in already-implemented work
-  - follow-up work or deliberate deferrals
-- classify each blocking issue as an implementation defect, missing evidence for a claim, invalid or non-runnable gate, environment blocker, or pre-existing drift. Do not treat invalid gates or unavailable environment tools as implementation defects unless the plan assigns implementation to fix them.
 
 For the output contract's `implementation_review_report_path`, read the path recorded in that file and write the review markdown to that current-checkout-relative path. Leave the `implementation_review_report_path` file containing only the path.
 Write `APPROVE` or `REVISE` to the `implementation_review_decision` path specified in the Output Contract.

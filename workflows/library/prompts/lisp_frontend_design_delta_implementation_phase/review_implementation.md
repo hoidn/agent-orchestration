@@ -41,8 +41,6 @@ When reviewing:
 - flag implementations that drift from roadmap, design, or plan layout and
   ownership decisions, or combine things the design or plan kept separate
   without a recorded rationale
-- use systematic-debugging to identify the root cause of any nontrivial runtime
-  failures
 - reject substitute-path closure. A result is not complete if the target
   behavior only passes because expected outputs, fixture data, oracle/reference
   artifacts, mocks, stubs, cached results, replay tables, fallback paths,
@@ -54,29 +52,6 @@ When reviewing:
   deleting it.
 - reject changes that make implementation-only data part of the user-facing or
   domain contract unless the governing design or spec explicitly requires it.
-- for numerical parity failures in current-scope or claimed behavior,
-  distinguish implementation defects, insufficient diagnosis, and cases where
-  the comparison standard is too strict for the supported claim. Treat
-  tolerance or comparator changes as acceptable only when residual evidence
-  supports numerical-method drift rather than semantic or physics drift,
-  unaffected invariants stay strict, and the authoritative spec, catalog, test
-  helper, or gate is updated.
-- for parity or benchmark work, reject implementations where validation data is
-  part of the production mechanism being validated, unless the approved design
-  explicitly defines the feature as reference-data lookup. Validation data
-  includes expected outputs, oracle data, fixtures, generated evidence,
-  checked-in answer tables, derived reference templates, or equivalent encoded
-  answers. It may support tests, diagnostics, and review evidence; it must not
-  be what makes production behavior pass.
-- distinguish:
-  - unfinished current-scope work
-  - defects in already-implemented work that block delivered behavior
-  - non-blocking defects in already-implemented work
-  - follow-up work or deliberate deferrals
-- classify each blocking issue as an implementation defect, missing evidence for
-  a claim, invalid or non-runnable gate, environment blocker, or pre-existing
-  drift. Do not treat invalid gates or unavailable environment tools as
-  implementation defects unless the plan assigns implementation to fix them.
 
 In the verification section, note whether relevant project-native lint/static
 checks were run. Distinguish correctness-relevant findings from pre-existing or

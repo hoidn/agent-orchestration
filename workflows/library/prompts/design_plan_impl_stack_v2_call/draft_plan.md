@@ -30,7 +30,6 @@ If the design lacks a material architectural decision needed to plan safely, cal
 Determine the implementation scope from the consumed design and any consumed brief, roadmap, or selection context. Preserve the intended deliverable: if the design calls for full implementation, plan all material design requirements. If the work is intentionally staged or too large to implement coherently in one pass, define the current slice and justify the boundary. Every material design requirement must be accounted for as current work or named Follow-Up Work with the reason it is deferred and the handoff criteria for picking it up. Do not use follow-up work to avoid required design obligations.
 
 Do not turn generated projections, report bundles, summaries, or incidental evidence artifacts into current-scope plan work unless the design identifies them as the requested product behavior, a stable input to normal runtime/product behavior, or evidence that implemented behavior is wrong. Acceptance, progress, review, promotion, conformance, and closeout evidence belong in closeout or promotion work, not ordinary implementation plans.
-If a broad/default check is useful but known to fail on unrelated existing drift, make its pass criterion explicit and keep current-scope proof on focused checks. Do not make unrelated drift a blocking implementation gate.
 
 The plan should:
 - define the current implementation scope, including whether it is the whole design or a justified slice
