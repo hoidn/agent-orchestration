@@ -648,7 +648,7 @@ def main() -> int:
         if args.terminal_action == "block":
             return _run_update(args, "blocked", reason, recovery_status="TERMINAL_BLOCKED")
         state = _load_state(Path(args.state_path))
-        if _existing_recovery_status(args, state) == "PREREQUISITE_RETRY_FAILED":
+        if _existing_recovery_status(args, state) in {"PREREQUISITE_RETRY_FAILED", "TERMINAL_BLOCKED"}:
             return _run_update(
                 args,
                 "blocked",

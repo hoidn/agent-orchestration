@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import yaml
 
 from orchestrator.cli.commands.resume import resume_workflow
@@ -1944,7 +1945,8 @@ def test_blocked_recovery_detector_prioritizes_blocked_prerequisite_recovery(tmp
     assert payload["recovery_pointer_status"] == ""
 
 
-def test_blocked_recovery_recorder_blocks_prerequisite_after_failed_retry(tmp_path):
+@pytest.mark.parametrize("initial_recovery_status", ["PREREQUISITE_RETRY_FAILED", "TERMINAL_BLOCKED"])
+def test_blocked_recovery_recorder_blocks_prerequisite_after_failed_retry(tmp_path, initial_recovery_status):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
     state_path = workspace / "state/drain/run_state.json"
@@ -1969,7 +1971,7 @@ def test_blocked_recovery_recorder_blocks_prerequisite_after_failed_retry(tmp_pa
                     "reason": "implementation_blocked",
                     "recovery_route": "PREREQUISITE_GAP_REQUIRED",
                     "recovery_reason": "prerequisite_gap_required",
-                    "recovery_status": "PREREQUISITE_RETRY_FAILED",
+                    "recovery_status": initial_recovery_status,
                     "waiting_on_prerequisite_gap_id": "already-completed",
                     "waiting_on_prerequisite_source": "DESIGN_GAP",
                     "prerequisite_recovery_status": "RETRY_FAILED",
