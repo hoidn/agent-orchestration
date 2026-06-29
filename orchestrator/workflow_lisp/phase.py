@@ -87,6 +87,7 @@ class PromotedEntryHiddenContextRequirement:
     context_kind: str
     phase_name: str | None = None
     binding_kind: str = "runtime_owned_entry_context"
+    allows_entry_bootstrap: bool = False
 
 
 @dataclass(frozen=True)

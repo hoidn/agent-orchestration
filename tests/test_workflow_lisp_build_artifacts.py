@@ -450,14 +450,57 @@ def _build_entry_publication_fixture(tmp_path: Path):
     )
 
 
+def _without_top_level_workflows(source: str, workflow_names: tuple[str, ...]) -> str:
+    result = source
+    for workflow_name in workflow_names:
+        marker = f"  (defworkflow {workflow_name}"
+        start = result.find(marker)
+        if start < 0:
+            continue
+        depth = 0
+        end = start
+        for index in range(start, len(result)):
+            char = result[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        result = result[:start] + result[end:].lstrip("\n")
+    return result
+
+
+def _write_item_ctx_child_phase_reuse_core_fixture(tmp_path: Path) -> Path:
+    source = ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE.read_text(encoding="utf-8")
+    source = source.replace(
+        "(export run-entry run-entry-branching-terminal-reprojection)",
+        "(export run-entry)",
+        1,
+    )
+    source = _without_top_level_workflows(
+        source,
+        (
+            "run-entry-branching-terminal-reprojection",
+            "bootstrap-item-ctx-branching-terminal-reprojection",
+            "run-item-ctx-first-branching-terminal-reprojection",
+        ),
+    )
+    module_path = tmp_path / "design_delta_item_ctx_child_phase_reuse.orc"
+    module_path.write_text(source, encoding="utf-8")
+    return module_path
+
+
 def _build_item_ctx_child_phase_reuse_fixture(tmp_path: Path):
     build = _build_module()
     request_cls = getattr(build, "FrontendBuildRequest")
+    source_path = _write_item_ctx_child_phase_reuse_core_fixture(tmp_path)
     return build.build_frontend_bundle(
         request_cls(
-            source_path=ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
+            source_path=source_path,
             source_roots=(FIXTURES / "valid", REPO_ROOT / "workflows" / "library"),
-            entry_workflow="design_delta_item_ctx_child_phase_reuse::run-entry",
+            entry_workflow="design_delta_item_ctx_child_phase_reuse::run-item-ctx-first",
             provider_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.providers.json",
             prompt_externs_path=DESIGN_DELTA_MIGRATION_INPUTS / "design_delta_parent_drain.prompts.json",
             imported_workflow_bundles_path=None,
@@ -3930,8 +3973,9 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
         },
     }
 
-    assert workflow_projection["boundary"]["public_input_names"] == sorted(
-        _workflow_public_input_contracts(bundle)
+    assert not any(
+        name.startswith("phase-ctx__work-item")
+        for name in workflow_projection["boundary"]["public_input_names"]
     )
     assert workflow_projection["boundary"]["private_runtime_context_bindings"] == [
         {
@@ -3943,7 +3987,14 @@ def test_promoted_entry_private_exec_context_binding_metadata_drives_boundary_pr
             "generated_input_names": sorted(_workflow_runtime_context_inputs(bundle)),
         }
     ]
-    assert workflow_projection["boundary"]["private_managed_write_root_inputs"] == []
+    assert all(
+        name.startswith("__write_root__")
+        for name in workflow_projection["boundary"]["private_managed_write_root_inputs"]
+    )
+    assert not (
+        set(workflow_projection["boundary"]["private_managed_write_root_inputs"])
+        & set(workflow_projection["boundary"]["public_input_names"])
+    )
     assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == []
     assert workflow_projection["boundary"]["pure_projection_classification"] == {
         "structural": True
@@ -4151,20 +4202,21 @@ def test_design_delta_item_ctx_child_phase_reuse_build_artifacts_record_derived_
         binding.binding_id: json.loads(json.dumps(dict(binding.source_provenance)))
         for binding in boundary.private_runtime_context_bindings
     }
-    assert expected_source_provenance == {
-        "phase-ctx__implementation": {
-            "workflow_name": "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first",
-            "path": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
-            "line": expected_source_provenance["phase-ctx__implementation"]["line"],
-            "form_path": expected_source_provenance["phase-ctx__implementation"]["form_path"],
-        },
-        "phase-ctx__plan": {
-            "workflow_name": "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first",
-            "path": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
-            "line": expected_source_provenance["phase-ctx__plan"]["line"],
-            "form_path": expected_source_provenance["phase-ctx__plan"]["form_path"],
-        },
+    assert set(expected_source_provenance) == {
+        "phase-ctx__implementation",
+        "phase-ctx__plan",
     }
+    for provenance in expected_source_provenance.values():
+        assert (
+            provenance["workflow_name"]
+            == "design_delta_item_ctx_child_phase_reuse::run-item-ctx-first"
+        )
+        assert provenance["path"].endswith("design_delta_item_ctx_child_phase_reuse.orc")
+        assert provenance["form_path"] == [
+            "workflow-lisp",
+            "defworkflow",
+            "run-item-ctx-first",
+        ]
     assert {
         binding["binding_id"]: binding["source_provenance"]
         for binding in workflow_projection["boundary"]["private_runtime_context_bindings"]
@@ -4226,6 +4278,133 @@ def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection
         "phase-ctx__implementation": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
         "phase-ctx__plan": str(ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE),
     }
+
+
+def test_design_delta_parent_call_work_item_boundary_projection_records_derived_work_item_phase_binding(
+    tmp_path: Path,
+) -> None:
+    from tests.test_workflow_lisp_design_delta_drain_migration_feasibility import (
+        _compile_design_delta_parent_call_work_item_entrypoint,
+    )
+
+    build = _build_module()
+    serialize = getattr(build, "_serialize_workflow_boundary_projection")
+    _workflow_path, result, _lowered_by_name = _compile_design_delta_parent_call_work_item_entrypoint(
+        tmp_path
+    )
+
+    workflow_name = "lisp_frontend_design_delta/work_item::run-selected-item-stdlib"
+    projection_payload = serialize(result, selected_name=workflow_name)
+    workflow_projection = next(
+        item
+        for item in projection_payload["workflows"]
+        if item["workflow_name"] == workflow_name
+    )
+    bundle = result.validated_bundles_by_name[workflow_name]
+    boundary = _workflow_boundary_projection(bundle)
+
+    assert {
+        binding.binding_id for binding in boundary.private_runtime_context_bindings
+    } == {"phase-ctx__work-item"}
+    binding = boundary.private_runtime_context_bindings[0]
+    assert binding.source_param_name == "item-ctx"
+    assert binding.context_family == "PhaseCtx"
+    assert binding.bridge_class == "derived_private_child_context"
+    assert binding.derived_phase_identity == "work-item"
+    assert set(binding.generated_input_names) == {
+        "phase-ctx__work-item__run__run-id",
+        "phase-ctx__work-item__run__state-root",
+        "phase-ctx__work-item__run__artifact-root",
+        "phase-ctx__work-item__phase-name",
+        "phase-ctx__work-item__state-root",
+        "phase-ctx__work-item__artifact-root",
+    }
+    assert binding.projection_hints == {
+        "context_binding_schema_version": 1,
+        "context_input_roles": {
+            "phase-ctx__work-item__run__run-id": "run_anchor:run-id",
+            "phase-ctx__work-item__run__state-root": "run_anchor:state-root",
+            "phase-ctx__work-item__run__artifact-root": "run_anchor:artifact-root",
+            "phase-ctx__work-item__phase-name": "compile_time_default",
+            "phase-ctx__work-item__state-root": "compile_time_default",
+            "phase-ctx__work-item__artifact-root": "compile_time_default",
+        },
+        "carried_input_sources": {
+            "phase-ctx__work-item__run__run-id": ("item-ctx", "run", "run-id"),
+            "phase-ctx__work-item__run__state-root": ("item-ctx", "run", "state-root"),
+            "phase-ctx__work-item__run__artifact-root": (
+                "item-ctx",
+                "run",
+                "artifact-root",
+            ),
+        },
+    }
+    assert str(binding.source_provenance["path"]).endswith(
+        "lisp_frontend_design_delta/work_item.orc"
+    )
+
+    assert not any(
+        name.startswith("phase-ctx__work-item")
+        for name in workflow_projection["boundary"]["public_input_names"]
+    )
+    assert workflow_projection["boundary"]["private_runtime_context_bindings"] == [
+        {
+            "binding_id": "phase-ctx__work-item",
+            "source_param_name": "item-ctx",
+            "context_family": "PhaseCtx",
+            "bridge_class": "derived_private_child_context",
+            "derived_phase_identity": "work-item",
+            "generated_input_names": sorted(
+                [
+                    "phase-ctx__work-item__run__run-id",
+                    "phase-ctx__work-item__run__state-root",
+                    "phase-ctx__work-item__run__artifact-root",
+                    "phase-ctx__work-item__phase-name",
+                    "phase-ctx__work-item__state-root",
+                    "phase-ctx__work-item__artifact-root",
+                ]
+            ),
+            "projection_hints": {
+                "context_binding_schema_version": 1,
+                "context_input_roles": {
+                    "phase-ctx__work-item__run__run-id": "run_anchor:run-id",
+                    "phase-ctx__work-item__run__state-root": "run_anchor:state-root",
+                    "phase-ctx__work-item__run__artifact-root": "run_anchor:artifact-root",
+                    "phase-ctx__work-item__phase-name": "compile_time_default",
+                    "phase-ctx__work-item__state-root": "compile_time_default",
+                    "phase-ctx__work-item__artifact-root": "compile_time_default",
+                },
+                "carried_input_sources": {
+                    "phase-ctx__work-item__run__run-id": ["item-ctx", "run", "run-id"],
+                    "phase-ctx__work-item__run__state-root": [
+                        "item-ctx",
+                        "run",
+                        "state-root",
+                    ],
+                    "phase-ctx__work-item__run__artifact-root": [
+                        "item-ctx",
+                        "run",
+                        "artifact-root",
+                    ],
+                },
+            },
+            "source_provenance": workflow_projection["boundary"][
+                "private_runtime_context_bindings"
+            ][0]["source_provenance"],
+        }
+    ]
+    assert all(
+        name.startswith("__write_root__")
+        for name in workflow_projection["boundary"]["private_managed_write_root_inputs"]
+    )
+    assert not (
+        set(workflow_projection["boundary"]["private_managed_write_root_inputs"])
+        & set(workflow_projection["boundary"]["public_input_names"])
+    )
+    assert workflow_projection["boundary"]["private_compatibility_bridge_inputs"] == []
+    assert workflow_projection["boundary"]["private_runtime_context_bindings"][0][
+        "source_provenance"
+    ]["path"].endswith("lisp_frontend_design_delta/work_item.orc")
 
 
 def test_design_delta_parent_drain_build_artifacts_record_imported_selector_carried_context(

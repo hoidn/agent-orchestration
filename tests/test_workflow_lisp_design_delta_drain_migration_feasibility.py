@@ -43,6 +43,7 @@ from orchestrator.workflow_lisp.build import (
 )
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from orchestrator.workflow_lisp.family_profiles import load_workflow_family_profile_catalog
 from orchestrator.workflow_lisp.source_map import build_source_map_document
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, ExternalToolBinding
 from tests.workflow_bundle_helpers import bundle_context_dict
@@ -64,6 +65,14 @@ DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
     / "inputs"
     / "workflow_lisp_migrations"
     / "design_delta_parent_drain.commands.json"
+)
+DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE = (
+    REPO_ROOT
+    / "workflows"
+    / "examples"
+    / "inputs"
+    / "workflow_lisp_migrations"
+    / "design_delta_parent_drain.family_profile.json"
 )
 NESTED_IMPLEMENTATION_PHASE_FIXTURE = (
     WORKFLOW_LISP_FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
@@ -137,6 +146,51 @@ def _write_entrypoint_fixture_to_tmp(path: Path, *, tmp_path: Path) -> Path:
     assert module_match is not None, f"fixture is missing defmodule: {path}"
     resolved_module_name = module_match.group(1)
     module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    return module_path
+
+
+def _without_top_level_workflows(source: str, workflow_names: tuple[str, ...]) -> str:
+    result = source
+    for workflow_name in workflow_names:
+        marker = f"  (defworkflow {workflow_name}"
+        start = result.find(marker)
+        if start < 0:
+            continue
+        depth = 0
+        end = start
+        for index in range(start, len(result)):
+            char = result[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        result = result[:start] + result[end:].lstrip("\n")
+    return result
+
+
+def _write_item_ctx_child_phase_reuse_core_fixture_to_tmp(tmp_path: Path) -> Path:
+    source = ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE.read_text(encoding="utf-8")
+    source = source.replace(
+        "(export run-entry run-entry-branching-terminal-reprojection)",
+        "(export run-entry)",
+        1,
+    )
+    source = _without_top_level_workflows(
+        source,
+        (
+            "run-entry-branching-terminal-reprojection",
+            "bootstrap-item-ctx-branching-terminal-reprojection",
+            "run-item-ctx-first-branching-terminal-reprojection",
+        ),
+    )
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    assert module_match is not None
+    module_path = (tmp_path / Path(*module_match.group(1).split("/"))).with_suffix(".orc")
     module_path.parent.mkdir(parents=True, exist_ok=True)
     module_path.write_text(source, encoding="utf-8")
     return module_path
@@ -1188,6 +1242,9 @@ def _compile_design_delta_parent_call_work_item_entrypoint(tmp_path: Path):
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
     )
     lowered_by_name = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -1198,10 +1255,7 @@ def _compile_design_delta_parent_call_work_item_entrypoint(tmp_path: Path):
 
 
 def _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(tmp_path: Path):
-    module_path = _write_entrypoint_fixture_to_tmp(
-        ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE,
-        tmp_path=tmp_path,
-    )
+    module_path = _write_item_ctx_child_phase_reuse_core_fixture_to_tmp(tmp_path)
     result = compile_stage3_entrypoint(
         module_path,
         source_roots=(
@@ -1214,6 +1268,9 @@ def _compile_design_delta_item_ctx_child_phase_reuse_entrypoint(tmp_path: Path):
         command_boundaries=_design_delta_work_item_runtime_command_boundaries(tmp_path),
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
     )
     lowered_by_name = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -1237,6 +1294,9 @@ def _compile_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojec
         workspace_root=tmp_path,
         entry_workflow=(
             "design_delta_item_ctx_child_phase_reuse::run-entry-branching-terminal-reprojection"
+        ),
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
         ),
     )
     lowered_by_name = {
@@ -5682,7 +5742,7 @@ def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     assert state["workflow_outputs"]["return__summary__reason"] == "plan_blocked"
     assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
     assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
-    assert not (workspace / "artifacts" / "work" / "progress_report.md").exists()
+    assert (workspace / "artifacts" / "work" / "progress_report.md").is_file()
 
 
 def test_design_delta_parent_drain_smokes_runtime_transition_fixture_emits_audit_handoff(

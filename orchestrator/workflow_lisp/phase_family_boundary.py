@@ -15,6 +15,7 @@ from .contracts import FlattenedContractField, derive_workflow_boundary_fields
 from .effects import CallsWorkflowEffect, EffectSummary
 from .family_profiles import WorkflowFamilyProfileCatalog
 from .phase import private_exec_context_capabilities
+from .phase import private_exec_context_bootstrap_supported
 from .type_env import PathTypeRef, RecordTypeRef, TypeRef
 from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
@@ -215,6 +216,8 @@ def record_direct_entry_phase_context_binding(
         source_param_name,
         requirement,
     ) in typed_workflow.signature.hidden_context_requirements.items():
+        if not private_exec_context_bootstrap_supported(requirement.context_kind):
+            continue
         type_ref = params_by_name.get(source_param_name)
         if not isinstance(type_ref, RecordTypeRef):
             continue

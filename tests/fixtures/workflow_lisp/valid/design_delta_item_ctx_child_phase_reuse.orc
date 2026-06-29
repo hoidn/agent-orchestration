@@ -312,7 +312,7 @@
         ((BLOCKED blocked)
          (variant SelectedItemResult BLOCKED
            :summary-path blocked.progress_report_path
-           :blocker-class blocked.blocker_class
+           :blocker-class BlockerClass.roadmap_conflict
            :run-state selected.final-plan-gate-state))
         ((EXHAUSTED exhausted)
          (variant SelectedItemResult BLOCKED

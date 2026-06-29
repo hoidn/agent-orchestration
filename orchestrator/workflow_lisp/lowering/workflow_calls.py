@@ -1071,6 +1071,21 @@ def _lower_workflow_call(
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
+                    if requirement.allows_entry_bootstrap and canonical_name in getattr(
+                        context.signature,
+                        "allowed_hidden_context_callees",
+                        frozenset(),
+                    ):
+                        with_bindings.update(
+                            _declare_runtime_context_hidden_inputs(
+                                context=context,
+                                param_name=param_name,
+                                param_type=param_type,
+                                requirement=requirement,
+                                source_expr=expr,
+                            )
+                        )
+                        continue
                     raise lowering_core._compile_error(
                         code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",
                         message=eligibility.diagnostic_message

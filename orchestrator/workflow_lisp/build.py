@@ -2545,7 +2545,12 @@ def _is_design_delta_family_profile_candidate(
         "lisp_frontend_design_delta/"
     ):
         return True
-    return "lisp_frontend_design_delta" in source_path.parts
+    if "lisp_frontend_design_delta" in source_path.parts:
+        return True
+    try:
+        return "lisp_frontend_design_delta/" in source_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
 
 
 def _family_profile_metadata_for_entry(
@@ -5503,12 +5508,19 @@ def _serialize_workflow_boundary_projection(
                     if isinstance(name, str)
                     and name not in checked_public_bridge_inputs
                 )
+                private_runtime_context_input_names = {
+                    generated_name
+                    for binding in boundary.private_runtime_context_bindings
+                    for generated_name in binding.generated_input_names
+                    if isinstance(generated_name, str)
+                }
                 public_input_names = sorted(
                     name
                     for name in bundle.surface.inputs
                     if isinstance(name, str)
                     and name not in bundle.provenance.runtime_context_inputs
                     and name not in bundle.provenance.managed_write_root_inputs
+                    and name not in private_runtime_context_input_names
                     and name not in private_compatibility_bridge_inputs
                 )
                 boundary_payload = {

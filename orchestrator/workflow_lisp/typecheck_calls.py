@@ -77,6 +77,9 @@ def hidden_context_omission_allowed(
             param_name=param_name,
         )
         if not eligibility.allowed:
+            allowed_callees = getattr(active_signature, "allowed_hidden_context_callees", frozenset())
+            if requirement.allows_entry_bootstrap and callee_signature.name in allowed_callees:
+                return True
             compat._raise_error(
                 eligibility.diagnostic_message or f"invalid derived child phase context for `{param_name}`",
                 code=eligibility.diagnostic_code or "derived_phase_context_binding_invalid",

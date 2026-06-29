@@ -358,6 +358,8 @@ class WorkflowSignature:
     allow_hidden_context_binding: bool = False
     allow_private_compatibility_bridge_omission: bool = False
     allowed_hidden_context_callees: frozenset[str] = frozenset()
+    derived_hidden_context_callees: frozenset[str] = frozenset()
+    entry_hidden_context_callees: frozenset[str] = frozenset()
     allowed_private_compatibility_bridge_callees: frozenset[str] = frozenset()
 
 
@@ -488,6 +490,13 @@ def _phase_family_hidden_context_requirements(
             context_kind=PHASE_CONTEXT_NAME,
             phase_name=hidden_context_rule.phase_identity,
             binding_kind="derived_private_child_context",
+            allows_entry_bootstrap=(
+                existing is not None
+                and (
+                    existing.binding_kind != "derived_private_child_context"
+                    or existing.allows_entry_bootstrap
+                )
+            ),
         )
     return updated
 
@@ -900,19 +909,19 @@ def build_workflow_catalog(
             workflow_defs=workflow_defs,
             signatures_by_name=signatures_by_name,
         )
-        for workflow_name, selected_entry_callees in _selected_entry_hidden_context_omission_callees(
-            module=module,
-            selected_entry_workflow_name=selected_entry_workflow_name,
-            workflow_defs=workflow_defs,
-            signatures_by_name=signatures_by_name,
-        ).items():
-            hidden_context_callees_by_workflow = {
-                **hidden_context_callees_by_workflow,
-                workflow_name: frozenset(
-                    set(hidden_context_callees_by_workflow.get(workflow_name, frozenset()))
-                    | set(selected_entry_callees)
-                ),
-            }
+    for workflow_name, selected_entry_callees in _selected_entry_hidden_context_omission_callees(
+        module=module,
+        selected_entry_workflow_name=selected_entry_workflow_name,
+        workflow_defs=workflow_defs,
+        signatures_by_name=signatures_by_name,
+    ).items():
+        hidden_context_callees_by_workflow = {
+            **hidden_context_callees_by_workflow,
+            workflow_name: frozenset(
+                set(hidden_context_callees_by_workflow.get(workflow_name, frozenset()))
+                | set(selected_entry_callees)
+            ),
+        }
     compatibility_bridge_callees_by_workflow = (
         _shared_proof_compatibility_bridge_omission_callees(
             module=module,
@@ -1565,6 +1574,10 @@ def _signature_from_imported_bundle(
                 ),
             )
         )
+    hidden_context_requirements = _hidden_context_requirements_from_bundle(
+        bundle,
+        params=params,
+    )
     return WorkflowSignature(
         name=alias,
         params=params,
@@ -1572,6 +1585,7 @@ def _signature_from_imported_bundle(
         span=span,
         form_path=form_path,
         param_defaults=param_defaults,
+        hidden_context_requirements=hidden_context_requirements,
         private_compatibility_bridge_types=_compatibility_bridge_types_from_bundle(
             bundle,
             type_env=type_env,
@@ -1581,6 +1595,36 @@ def _signature_from_imported_bundle(
         ),
         allow_private_compatibility_bridge_omission=False,
     )
+
+
+def _hidden_context_requirements_from_bundle(
+    bundle: "LoadedWorkflowBundle",
+    *,
+    params: tuple[tuple[str, TypeRef], ...],
+) -> Mapping[str, PromotedEntryHiddenContextRequirement]:
+    """Recover callee-owned hidden-context requirements from imported boundary metadata."""
+
+    params_by_name = dict(params)
+    requirements: dict[str, PromotedEntryHiddenContextRequirement] = {}
+    for binding in workflow_boundary_projection(bundle).private_runtime_context_bindings:
+        param_name = None
+        if binding.source_param_name in params_by_name:
+            param_name = binding.source_param_name
+        elif binding.binding_id in params_by_name:
+            param_name = binding.binding_id
+        if param_name is None:
+            continue
+        requirements[param_name] = PromotedEntryHiddenContextRequirement(
+            param_name=param_name,
+            context_kind=binding.context_family,
+            phase_name=binding.derived_phase_identity,
+            binding_kind=(
+                "derived_private_child_context"
+                if binding.bridge_class == "derived_private_child_context"
+                else "runtime_owned_entry_context"
+            ),
+        )
+    return requirements
 
 
 def _compatibility_bridge_types_from_bundle(
@@ -1642,7 +1686,9 @@ def _merge_signature_compatibility_bridge_types(
         type_env=type_env,
         span=signature.span,
         form_path=signature.form_path,
-        existing_param_names=frozenset(name for name, _ in signature.params),
+        existing_param_names=frozenset(name for name, _ in signature.params).union(
+            signature.private_compatibility_bridge_types
+        ),
     )
     if not compatibility_types:
         return signature
