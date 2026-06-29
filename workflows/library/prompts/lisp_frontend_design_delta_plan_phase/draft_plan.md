@@ -7,4 +7,8 @@ execute from the approved plan without rediscovering scope.
 If the plan changes code used by other tasks too, include at least one check
 that is not just the selected case.
 
+If the selected gap involves broken behavior, use systematic debugging first:
+identify the earliest causal failure and minimal reproducer before drafting the
+plan.
+
 Write the plan to the relpath recorded in `plan_path.txt`.
