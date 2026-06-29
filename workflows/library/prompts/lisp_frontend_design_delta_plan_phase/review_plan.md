@@ -2,8 +2,6 @@ Review the consumed Lisp frontend plan.
 
 Approve only if the plan can be executed as written and follows the design and repo conventions.
 Return `REVISE` for concrete high-severity scope, contract, API, fixture, or verification gaps.
-Return `REVISE` if the plan changes a file used outside the selected gap's
-files but only proves the selected gap works.
 Do not reject a plan solely because it omits manifest, conformance, parity,
 summary, inventory, or status-label refresh. Reject only when the omission
 leaves current source/runtime behavior unproven, unsafe, or inconsistent.
