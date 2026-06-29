@@ -22,19 +22,9 @@ allowed and forbidden implementation shapes, source surfaces, and acceptance
 conditions. Do not include task order, command-order checklists, recovery
 procedure, or manifest/report refresh chores.
 
-Preserve coherence with prior implementation architecture documents listed in
-the architecture index:
-
-- review the listed architecture documents before drafting;
-- reuse established package/module names, data types, and ownership boundaries
-  unless there is a stated reason not to;
-- do not redefine shared concepts such as spans, diagnostics, Core Workflow
-  AST, Semantic Workflow IR, TypeCatalog, SourceMap, pointer authority, or
-  variant proof;
-- declare the files/components this slice will change and the shared
-  components it will rely on without changing;
-- if this slice must revise a prior decision, state the conflict and the reason
-  explicitly.
+Stay consistent with existing architecture in the checkout. Reuse established
+module names, data types, and ownership boundaries unless the selected gap
+requires changing them.
 
 Treat `workflow_command_adapter_contract.md` as authoritative whenever the
 architecture proposes scripts, command steps, legacy adapters, or
@@ -43,14 +33,6 @@ runtime-native promotion.
 List `docs/design/workflow_command_adapter_contract.md` in the generated
 work-item context's authoritative inputs when the slice may touch scripts,
 command steps, adapters, or runtime-native effects.
-
-Include a section named `Relationship To Existing Implementation Architectures`
-with:
-
-- existing slices reviewed;
-- decisions reused;
-- new decisions in this slice;
-- conflicts or revisions.
 
 Write:
 

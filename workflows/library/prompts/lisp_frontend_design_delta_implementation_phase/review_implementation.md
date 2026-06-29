@@ -25,11 +25,8 @@ the approved contract.
 Your job is to decide whether the delivered implementation is correct,
 maintainable, and honestly scoped.
 Unfinished work blocks approval when it was claimed complete, belongs to the
-approved current implementation scope, is required for the delivered behavior to
-be correct, is an immediate prerequisite for the delivered behavior, or was
-deferred without clear authority and handoff criteria; supplemental verification
-blocks only when explicitly marked blocking or when no equivalent evidence
-supports the delivered claim.
+approved current implementation scope, or is required for the delivered behavior
+to be correct.
 Weight implementation correctness, API behavior, and maintainability at least as
 heavily as scope-completion issues when assigning severity.
 
@@ -76,10 +73,5 @@ not required for approving the delivered scope.
 
 Approve only if:
 - there are no high- or medium-severity findings
-- no claimed or current-scope implementation tasks or explicitly blocking
-  verification tasks remain unimplemented
-- no unfinished prerequisite makes the delivered behavior unsafe, misleading, or
-  unusable
-- no material design requirement was silently dropped or deferred without
-  authority
-Return `REVISE` for any concrete medium-or-higher bug, contract mismatch, missing check, fixture shortcut, or verification gap.
+- the delivered behavior matches the approved current implementation scope
+- no concrete bug, contract mismatch, fixture shortcut, or missing required check remains
