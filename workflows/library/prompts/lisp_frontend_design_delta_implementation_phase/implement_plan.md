@@ -6,9 +6,8 @@ make that change; report `BLOCKED` with the conflict.
 Read the consumed target design, gap architecture, approved plan, and check
 commands before editing. Preserve the target and gap architecture intent while
 implementing the plan.
-Treat `state/`, `artifacts/`, and `.orchestrate/` as generated run history;
-inspect them only when the selected task is specifically about generated run
-outputs.
+Use generated artifacts only when they are consumed inputs or required output
+targets for this task.
 Use the authoritative execution-report and progress-report target paths.
 Stop and report `BLOCKED` if the approved plan changes a file used outside the
 selected gap's files but only verifies the selected gap.

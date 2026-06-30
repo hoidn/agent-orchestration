@@ -8,9 +8,8 @@ target design.
 Use the target design as the active implementation target. Use the baseline
 design as the compatibility contract that the target work must not violate.
 Evaluate current source/runtime/authoring behavior against the target design.
-Treat `state/`, `artifacts/`, and `.orchestrate/` as generated run history;
-inspect them only when the selected task is specifically about generated run
-outputs.
+Use generated artifacts only when they are consumed inputs or required output
+targets for this task.
 
 Return `APPROVE_DONE` only when current source/runtime/authoring behavior has
 no remaining bounded target-design gap. Before approving, compare the target
