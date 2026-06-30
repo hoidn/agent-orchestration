@@ -17,6 +17,9 @@ Update the same target files that the draft step produced:
 Keep the scope bounded to the selected gap. Preserve coherence with prior
 implementation architecture documents and do not redefine shared concepts unless
 the review report requires a clearly justified correction.
+Before finalizing the gap scope, identify the main dependencies, assumptions,
+and replacement responsibilities it relies on; include any missing prerequisite
+work in the scope or state why it is already available.
 Keep procedure out of the architecture file. Task order, command-order
 checklists, workflow recovery procedure, and manifest/report refresh chores
 do not belong in `implementation_architecture.md`.

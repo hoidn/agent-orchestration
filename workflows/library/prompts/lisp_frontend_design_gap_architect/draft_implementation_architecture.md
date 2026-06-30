@@ -8,6 +8,9 @@ not the active work queue. This is an implementation architecture, not a replace
 product design/spec. Keep the scope bounded to the selected gap. Do not draft
 multiple alternative architectures, do not cover multiple design gaps, and do
 not broaden the scope beyond the selected gap.
+Before finalizing the gap scope, identify the main dependencies, assumptions,
+and replacement responsibilities it relies on; include any missing prerequisite
+work in the scope or state why it is already available.
 
 Use `docs/templates/design_gap_implementation_architecture_template.md` as the
 structure guide when helpful. Do not use the general
