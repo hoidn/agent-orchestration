@@ -1,6 +1,5 @@
-Read the consumed steering, target design, baseline design, current-state
-inventory when provided, backlog manifest, progress ledger, and run state
-before acting.
+Read the consumed steering, target design, current-state inventory when
+provided, backlog manifest, progress ledger, and run state before acting.
 
 Select exactly one next implementation unit for the target design.
 

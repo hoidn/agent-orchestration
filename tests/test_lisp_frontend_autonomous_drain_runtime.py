@@ -4834,6 +4834,7 @@ def test_design_delta_selector_prompt_defines_target_and_baseline():
 
     assert "target design" in prompt.lower()
     assert "baseline design" in prompt.lower()
+    assert "Read the consumed steering, target design, baseline design" not in prompt
     assert "Return `DONE` only when the target design" in prompt
     assert "MVP" not in prompt
 
@@ -5333,6 +5334,8 @@ def test_design_delta_selector_workflow_consumes_post_wcc_inventory_authority():
     consumed = [entry["artifact"] for entry in select["consumes"]]
     assert "post_wcc_inventory" in consumed
     assert "post_wcc_inventory" in select["prompt_consumes"]
+    assert "baseline_design" in consumed
+    assert "baseline_design" not in select["prompt_consumes"]
 
 
 def test_prepare_design_delta_iteration_paths_clears_stale_iteration_outputs(tmp_path):
