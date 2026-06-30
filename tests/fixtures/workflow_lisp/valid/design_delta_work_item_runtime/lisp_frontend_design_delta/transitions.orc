@@ -70,7 +70,8 @@
     (work_item_source WorkItemSource)
     (recovery_route BlockedRecoveryRoute)
     (reason BlockedRecoveryReason)
-    (summary_path WorkReportTarget))
+    (summary_path WorkReportTarget)
+    (work_item_context_path WorkReport))
 
   (defrecord TerminalOutcomeResult
     (reason WorkItemTerminalReason)
@@ -86,7 +87,8 @@
 
   (defrecord BlockedRecoveryOutcomeAudit
     (reason BlockedRecoveryReason)
-    (summary_path WorkReportTarget))
+    (summary_path WorkReportTarget)
+    (work_item_context_path WorkReport))
 
   (defrecord DesignGapProgressRequest
     (design_gap_id String)
@@ -179,7 +181,8 @@
       :summary_path request.summary_path)
     :audit (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeAudit
       :reason request.reason
-      :summary_path request.summary_path)
+      :summary_path request.summary_path
+      :work_item_context_path request.work_item_context_path)
     :conflict-policy fail_closed
     :backend runtime_native)
 
@@ -304,7 +307,7 @@
      (reason WorkItemTerminalReason)
      (summary_route String)
      (summary_reason String)
-     (summary_path WorkReportTarget))
+     (summary_path WorkReport))
     -> WorkItemSummaryValue
     :effects ((uses-command apply_resource_transition))
     :lowering inline
@@ -329,24 +332,15 @@
     ((run_state_path StateExisting)
      (work_item_id String)
      (work_item_source WorkItemSource)
-     (work_item_context WorkItemContextValue)
-     (work_item_context_view_target_path WorkReportTarget)
      (recovery_route BlockedRecoveryRoute)
      (reason BlockedRecoveryReason)
      (summary_reason String)
-     (summary_path WorkReportTarget))
+     (summary_path WorkReport)
+     (work_item_context_path WorkReport))
     -> WorkItemSummaryValue
-    :effects ((uses-command apply_resource_transition)
-              (writes work-item-context-view))
+    :effects ((uses-command apply_resource_transition))
     :lowering inline
-    (let* ((work-item-context-view
-             (materialize-view work-item-context-view
-               :value work_item_context
-               :renderer canonical-json
-               :renderer-version 1
-               :target work_item_context_view_target_path
-               :returns WorkReport))
-           (transition-result
+    (let* ((transition-result
              (resource-transition
                :transition record-blocked-recovery-outcome
                :resource drain-run-state
@@ -355,7 +349,8 @@
                  :work_item_source work_item_source
                  :recovery_route recovery_route
                  :reason reason
-                 :summary_path summary_path)))
+                 :summary_path summary_path
+                 :work_item_context_path work_item_context_path)))
            (ignored transition-result))
       (record WorkItemSummaryValue
         :work_item_id work_item_id

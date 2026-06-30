@@ -13,16 +13,16 @@
   (import lisp_frontend_design_delta/projections :only
     (classify-work-item-terminal normalize-blocked-recovery-route))
   (import lisp_frontend_design_delta/stdlib_adapters :only
-    (project-blocker-class-from-reason QueueTransitionCompat RoadmapCompat
-      SelectedItemImplementationCompat SelectedItemPlanCompat SelectedItemStdlibCompat))
+    (project-blocker-class-from-reason SelectedItemImplementationCompat
+      SelectedItemPlanCompat SelectedItemStdlibCompat))
   (import lisp_frontend_design_delta/transitions :only
     (record-work-item-blocked-recovery-summary))
   (import lisp_frontend_design_delta/types :only
     (ArtifactWorkTargetPath BaselineDesignDoc BlockedRecoveryReason BlockedRecoveryRoute
       DesignDeltaSelectedItemPayload ImplementationPhaseResult ImplementationReviewDecision
       ImplementationState PlanDoc PlanReviewDecision ProgressLedger ResolvedWorkItemInputs
-      SelectionCtx SteeringDoc TargetDesignDoc WorkItemContextValue WorkItemResult
-      WorkItemSource WorkItemTerminalDecision))
+      SelectionCtx SteeringDoc TargetDesignDoc WorkItemContextValue
+      WorkItemResult WorkItemSource WorkItemTerminalDecision))
   (export
     BlockedImplementationRecoveryClassification
     BlockedRecoveryClassification
@@ -44,14 +44,17 @@
   (defunion PendingWorkItemResult
     (COMPLETED
       (reason String)
-      (summary lisp_frontend_design_delta/types/WorkItemSummaryValue))
+      (summary lisp_frontend_design_delta/types/WorkItemSummaryValue)
+      (public_summary_path WorkReport))
     (TERMINAL_BLOCKED
       (reason String)
       (summary lisp_frontend_design_delta/types/WorkItemSummaryValue)
+      (public_summary_path WorkReport)
       (blocker-class BlockerClass))
     (BLOCKED_RECOVERY
       (reason String)
       (summary lisp_frontend_design_delta/types/WorkItemSummaryValue)
+      (public_summary_path WorkReport)
       (blocker-class BlockerClass)))
 
   (defrecord BlockedRecoveryClassification
@@ -74,6 +77,13 @@
     (blocked_recovery_route BlockedRecoveryRoute)
     (reason BlockedRecoveryReason)
     (summary String))
+
+  (defrecord WorkItemPendingSelection
+    (work_item_bootstrap lisp_frontend_design_delta/types/WorkItemBootstrapSeed)
+    (steering_path SteeringDoc)
+    (target_design_path TargetDesignDoc)
+    (baseline_design_path BaselineDesignDoc)
+    (progress_ledger_path ProgressLedger))
 
   (defworkflow classify-blocked-implementation-recovery
     ((target_design TargetDesignDoc)
@@ -98,61 +108,6 @@
         :prompt prompts.work-item.classify-blocked-recovery
         :inputs (request)
         :returns BlockedImplementationRecoveryClassification)))
-
-  (defproc project-completed-family-result
-    ((resolved_inputs ResolvedWorkItemInputs))
-    -> PendingWorkItemResult
-    :effects ()
-    :lowering inline
-    (variant PendingWorkItemResult COMPLETED
-      :reason ""
-      :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                 :work_item_id resolved_inputs.work_item_id
-                 :work_item_source resolved_inputs.work_item_source
-                 :terminal_route "COMPLETED"
-                 :reason "complete")))
-
-  (defproc project-terminal-blocked-family-result
-    ((resolved_inputs ResolvedWorkItemInputs)
-     (reason String)
-     (blocker-class BlockerClass))
-    -> PendingWorkItemResult
-    :effects ()
-    :lowering inline
-    (variant PendingWorkItemResult TERMINAL_BLOCKED
-      :reason reason
-      :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                 :work_item_id resolved_inputs.work_item_id
-                 :work_item_source resolved_inputs.work_item_source
-                 :terminal_route "TERMINAL_BLOCKED"
-                 :reason reason)
-      :blocker-class blocker-class))
-
-  (defproc materialize-canonical-work-item-summary
-    ((summary lisp_frontend_design_delta/types/WorkItemSummaryValue)
-     (summary-target lisp_frontend_design_delta/types/WorkReportTarget))
-    -> WorkReport
-    :effects ((writes canonical-work-item-summary))
-    :lowering inline
-    (materialize-view canonical-work-item-summary
-      :value summary
-      :renderer canonical-json
-      :renderer-version 1
-      :target summary-target
-      :returns WorkReport))
-
-  (defproc project-work-item-result-summary
-    ((result PendingWorkItemResult))
-    -> lisp_frontend_design_delta/types/WorkItemSummaryValue
-    :effects ()
-    :lowering inline
-    (match result
-      ((COMPLETED completed)
-       completed.summary)
-      ((TERMINAL_BLOCKED terminal_blocked)
-       terminal_blocked.summary)
-      ((BLOCKED_RECOVERY blocked_recovery)
-       blocked_recovery.summary)))
 
   (defproc build-finalizer-selected-item
     ((selection DesignDeltaSelectedItemPayload))
@@ -200,43 +155,6 @@
       :progress-report-path progress-report-path
       :blocker-class blocker-class))
 
-  (defproc materialize-pending-work-item-result
-    ((result PendingWorkItemResult)
-     (summary-path WorkReport))
-    -> WorkItemResult
-    :effects ()
-    :lowering inline
-    (match result
-      ((COMPLETED completed)
-       (variant WorkItemResult COMPLETED
-         :reason completed.reason
-         :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                    :work_item_id completed.summary.work_item_id
-                    :work_item_source completed.summary.work_item_source
-                    :terminal_route completed.summary.terminal_route
-                    :reason completed.summary.reason)
-         :summary-path summary-path))
-      ((TERMINAL_BLOCKED terminal_blocked)
-       (variant WorkItemResult TERMINAL_BLOCKED
-         :reason terminal_blocked.reason
-         :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                    :work_item_id terminal_blocked.summary.work_item_id
-                    :work_item_source terminal_blocked.summary.work_item_source
-                    :terminal_route terminal_blocked.summary.terminal_route
-                    :reason terminal_blocked.summary.reason)
-         :blocker-class terminal_blocked.blocker-class
-         :summary-path summary-path))
-      ((BLOCKED_RECOVERY blocked_recovery)
-       (variant WorkItemResult BLOCKED_RECOVERY
-         :reason blocked_recovery.reason
-         :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                    :work_item_id blocked_recovery.summary.work_item_id
-                    :work_item_source blocked_recovery.summary.work_item_source
-                    :terminal_route blocked_recovery.summary.terminal_route
-                    :reason blocked_recovery.summary.reason)
-         :blocker-class blocked_recovery.blocker-class
-         :summary-path summary-path))))
-
   (defproc call-imported-finalize-selected-item
     ((selection DesignDeltaSelectedItemPayload)
      (plan SelectedItemPlanCompat)
@@ -256,9 +174,107 @@
         plan
         implementation)))
 
+  (defproc project-completed-family-result
+    ((resolved_inputs ResolvedWorkItemInputs)
+     (public_summary_path WorkReport))
+    -> PendingWorkItemResult
+    :effects ()
+    :lowering inline
+    (variant PendingWorkItemResult COMPLETED
+      :reason ""
+      :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                 :work_item_id resolved_inputs.work_item_id
+                 :work_item_source resolved_inputs.work_item_source
+                 :terminal_route "COMPLETED"
+                 :reason "complete")
+      :public_summary_path public_summary_path))
+
+  (defproc project-terminal-blocked-family-result
+    ((resolved_inputs ResolvedWorkItemInputs)
+     (reason String)
+     (blocker-class BlockerClass)
+     (public_summary_path WorkReport))
+    -> PendingWorkItemResult
+    :effects ()
+    :lowering inline
+    (variant PendingWorkItemResult TERMINAL_BLOCKED
+      :reason reason
+      :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                 :work_item_id resolved_inputs.work_item_id
+                 :work_item_source resolved_inputs.work_item_source
+                 :terminal_route "TERMINAL_BLOCKED"
+                 :reason reason)
+      :public_summary_path public_summary_path
+      :blocker-class blocker-class))
+
+  (defproc project-blocked-recovery-family-result
+    ((resolved_inputs ResolvedWorkItemInputs)
+     (reason String)
+     (blocker-class BlockerClass)
+     (public_summary_path WorkReport))
+    -> PendingWorkItemResult
+    :effects ()
+    :lowering inline
+    (variant PendingWorkItemResult BLOCKED_RECOVERY
+      :reason reason
+      :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                 :work_item_id resolved_inputs.work_item_id
+                 :work_item_source resolved_inputs.work_item_source
+                 :terminal_route "BLOCKED_RECOVERY"
+                 :reason reason)
+      :public_summary_path public_summary_path
+      :blocker-class blocker-class))
+
+  (defproc project-work-item-result-summary
+    ((result PendingWorkItemResult))
+    -> lisp_frontend_design_delta/types/WorkItemSummaryValue
+    :effects ()
+    :lowering inline
+    (match result
+      ((COMPLETED completed)
+       completed.summary)
+      ((TERMINAL_BLOCKED terminal_blocked)
+       terminal_blocked.summary)
+      ((BLOCKED_RECOVERY blocked_recovery)
+       blocked_recovery.summary)))
+
+  (defproc project-pending-work-item-result
+    ((result PendingWorkItemResult))
+    -> WorkItemResult
+    :effects ()
+    :lowering inline
+    (match result
+      ((COMPLETED completed)
+       (variant WorkItemResult COMPLETED
+         :reason completed.reason
+         :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                    :work_item_id completed.summary.work_item_id
+                    :work_item_source completed.summary.work_item_source
+                    :terminal_route completed.summary.terminal_route
+                    :reason completed.summary.reason)))
+      ((TERMINAL_BLOCKED terminal_blocked)
+       (variant WorkItemResult TERMINAL_BLOCKED
+         :reason terminal_blocked.reason
+         :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                    :work_item_id terminal_blocked.summary.work_item_id
+                    :work_item_source terminal_blocked.summary.work_item_source
+                    :terminal_route terminal_blocked.summary.terminal_route
+                    :reason terminal_blocked.summary.reason)
+         :blocker-class terminal_blocked.blocker-class))
+      ((BLOCKED_RECOVERY blocked_recovery)
+       (variant WorkItemResult BLOCKED_RECOVERY
+         :reason blocked_recovery.reason
+         :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
+                    :work_item_id blocked_recovery.summary.work_item_id
+                    :work_item_source blocked_recovery.summary.work_item_source
+                    :terminal_route blocked_recovery.summary.terminal_route
+                    :reason blocked_recovery.summary.reason)
+         :blocker-class blocked_recovery.blocker-class))))
+
   (defproc finalize-selected-item-as-completed
     ((selection DesignDeltaSelectedItemPayload)
      (resolved_inputs ResolvedWorkItemInputs)
+     (public_summary_path WorkReport)
      (plan SelectedItemPlanCompat)
      (implementation SelectedItemImplementationCompat))
     -> PendingWorkItemResult
@@ -271,15 +287,16 @@
                implementation)))
       (match finalized
         ((CONTINUE continued)
-         (project-completed-family-result resolved_inputs))
+         (project-completed-family-result resolved_inputs public_summary_path))
         ((BLOCKED blocked)
-         (project-completed-family-result resolved_inputs)))))
+         (project-completed-family-result resolved_inputs public_summary_path)))))
 
   (defproc finalize-selected-item-as-terminal-blocked
     ((selection DesignDeltaSelectedItemPayload)
      (resolved_inputs ResolvedWorkItemInputs)
      (reason String)
      (blocker-class BlockerClass)
+     (public_summary_path WorkReport)
      (plan SelectedItemPlanCompat)
      (implementation SelectedItemImplementationCompat))
     -> PendingWorkItemResult
@@ -295,12 +312,14 @@
          (project-terminal-blocked-family-result
            resolved_inputs
            reason
-           blocker-class))
+           blocker-class
+           public_summary_path))
         ((BLOCKED blocked)
          (project-terminal-blocked-family-result
            resolved_inputs
            reason
-           blocker-class)))))
+           blocker-class
+           public_summary_path)))))
 
   (defproc route-blocked-implementation
     ((selection DesignDeltaSelectedItemPayload)
@@ -312,7 +331,8 @@
     -> PendingWorkItemResult
     :effects ((calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)
               (uses-provider providers.work-item.recovery-classifier)
-              (uses-command apply_resource_transition))
+              (uses-command apply_resource_transition)
+              (writes work-item-context-view))
     :lowering inline
     (let* ((classification
              (call classify-blocked-implementation-recovery
@@ -341,74 +361,111 @@
              resolved_inputs
              "implementation_blocked"
              BlockerClass.roadmap_conflict
+             implementation_phase_result.progress-report
              finalizer-plan
              finalizer-implementation)))
         ((GAP_DESIGN_REVISION_REQUIRED recovery)
-         (let* ((recorded
-                  (record-work-item-blocked-recovery-summary
-                    selection.run_state_path
-                    resolved_inputs.work_item_id
-                    resolved_inputs.work_item_source
-                    resolved_inputs.work_item_context
-                    resolved_inputs.work_item_context_view_target_path
-                    BlockedRecoveryRoute.GAP_DESIGN_REVISION_REQUIRED
-                    recovery.reason
-                    "gap_design_revision_required"
-                    resolved_inputs.item_summary_target_path))
+         (let* ((work-item-context-view
+                  (materialize-view work-item-context-view
+                    :value resolved_inputs.work_item_context
+                    :renderer canonical-json
+                    :renderer-version 1
+                    :target resolved_inputs.work_item_context_view_target_path
+                    :returns WorkReport))
+                (durability-recorded
+                  (let* ((blocked-recovery-request
+                           (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
+                             :work_item_id resolved_inputs.work_item_id
+                             :work_item_source resolved_inputs.work_item_source
+                             :recovery_route BlockedRecoveryRoute.GAP_DESIGN_REVISION_REQUIRED
+                             :reason recovery.reason
+                             :summary_path implementation_phase_result.progress-report
+                             :work_item_context_path work-item-context-view)))
+                    (record-work-item-blocked-recovery-summary
+                      selection.run_state_path
+                      blocked-recovery-request.work_item_id
+                      blocked-recovery-request.work_item_source
+                      blocked-recovery-request.recovery_route
+                      blocked-recovery-request.reason
+                      "gap_design_revision_required"
+                      implementation_phase_result.progress-report
+                      blocked-recovery-request.work_item_context_path)))
                 (blocker-class
-                  (project-blocker-class-from-reason recovery.reason)))
-           (variant PendingWorkItemResult BLOCKED_RECOVERY
-             :reason "gap_design_revision_required"
-             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                        :work_item_id recorded.work_item_id
-                        :work_item_source recorded.work_item_source
-                        :terminal_route recorded.terminal_route
-                        :reason recorded.reason)
-             :blocker-class blocker-class)))
+                  (project-blocker-class-from-reason recovery.reason))
+                (ignored durability-recorded))
+           (project-blocked-recovery-family-result
+             resolved_inputs
+             "gap_design_revision_required"
+             blocker-class
+             implementation_phase_result.progress-report)))
         ((TARGET_DESIGN_REVISION_REQUIRED recovery)
-         (let* ((recorded
-                  (record-work-item-blocked-recovery-summary
-                    selection.run_state_path
-                    resolved_inputs.work_item_id
-                    resolved_inputs.work_item_source
-                    resolved_inputs.work_item_context
-                    resolved_inputs.work_item_context_view_target_path
-                    BlockedRecoveryRoute.TARGET_DESIGN_REVISION_REQUIRED
-                    recovery.reason
-                    "target_design_revision_required"
-                    resolved_inputs.item_summary_target_path))
+         (let* ((work-item-context-view
+                  (materialize-view work-item-context-view
+                    :value resolved_inputs.work_item_context
+                    :renderer canonical-json
+                    :renderer-version 1
+                    :target resolved_inputs.work_item_context_view_target_path
+                    :returns WorkReport))
+                (durability-recorded
+                  (let* ((blocked-recovery-request
+                           (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
+                             :work_item_id resolved_inputs.work_item_id
+                             :work_item_source resolved_inputs.work_item_source
+                             :recovery_route BlockedRecoveryRoute.TARGET_DESIGN_REVISION_REQUIRED
+                             :reason recovery.reason
+                             :summary_path implementation_phase_result.progress-report
+                             :work_item_context_path work-item-context-view)))
+                    (record-work-item-blocked-recovery-summary
+                      selection.run_state_path
+                      blocked-recovery-request.work_item_id
+                      blocked-recovery-request.work_item_source
+                      blocked-recovery-request.recovery_route
+                      blocked-recovery-request.reason
+                      "target_design_revision_required"
+                      implementation_phase_result.progress-report
+                      blocked-recovery-request.work_item_context_path)))
                 (blocker-class
-                  (project-blocker-class-from-reason recovery.reason)))
-           (variant PendingWorkItemResult BLOCKED_RECOVERY
-             :reason "target_design_revision_required"
-             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                        :work_item_id recorded.work_item_id
-                        :work_item_source recorded.work_item_source
-                        :terminal_route recorded.terminal_route
-                        :reason recorded.reason)
-             :blocker-class blocker-class)))
+                  (project-blocker-class-from-reason recovery.reason))
+                (ignored durability-recorded))
+           (project-blocked-recovery-family-result
+             resolved_inputs
+             "target_design_revision_required"
+             blocker-class
+             implementation_phase_result.progress-report)))
         ((PREREQUISITE_GAP_REQUIRED recovery)
-         (let* ((recorded
-                  (record-work-item-blocked-recovery-summary
-                    selection.run_state_path
-                    resolved_inputs.work_item_id
-                    resolved_inputs.work_item_source
-                    resolved_inputs.work_item_context
-                    resolved_inputs.work_item_context_view_target_path
-                    BlockedRecoveryRoute.PREREQUISITE_GAP_REQUIRED
-                    recovery.reason
-                    "prerequisite_gap_required"
-                    resolved_inputs.item_summary_target_path))
+         (let* ((work-item-context-view
+                  (materialize-view work-item-context-view
+                    :value resolved_inputs.work_item_context
+                    :renderer canonical-json
+                    :renderer-version 1
+                    :target resolved_inputs.work_item_context_view_target_path
+                    :returns WorkReport))
+                (durability-recorded
+                  (let* ((blocked-recovery-request
+                           (record lisp_frontend_design_delta/transitions/BlockedRecoveryOutcomeRequest
+                             :work_item_id resolved_inputs.work_item_id
+                             :work_item_source resolved_inputs.work_item_source
+                             :recovery_route BlockedRecoveryRoute.PREREQUISITE_GAP_REQUIRED
+                             :reason recovery.reason
+                             :summary_path implementation_phase_result.progress-report
+                             :work_item_context_path work-item-context-view)))
+                    (record-work-item-blocked-recovery-summary
+                      selection.run_state_path
+                      blocked-recovery-request.work_item_id
+                      blocked-recovery-request.work_item_source
+                      blocked-recovery-request.recovery_route
+                      blocked-recovery-request.reason
+                      "prerequisite_gap_required"
+                      implementation_phase_result.progress-report
+                      blocked-recovery-request.work_item_context_path)))
                 (blocker-class
-                  (project-blocker-class-from-reason recovery.reason)))
-           (variant PendingWorkItemResult BLOCKED_RECOVERY
-             :reason "prerequisite_gap_required"
-             :summary (record lisp_frontend_design_delta/types/WorkItemSummaryValue
-                        :work_item_id recorded.work_item_id
-                        :work_item_source recorded.work_item_source
-                        :terminal_route recorded.terminal_route
-                        :reason recorded.reason)
-             :blocker-class blocker-class))))))
+                  (project-blocker-class-from-reason recovery.reason))
+                (ignored durability-recorded))
+           (project-blocked-recovery-family-result
+             resolved_inputs
+             "prerequisite_gap_required"
+             blocker-class
+             implementation_phase_result.progress-report))))))
 
   (defproc route-blocked-implementation-stdlib
     ((selection DesignDeltaSelectedItemPayload)
@@ -417,21 +474,38 @@
      (resolved_inputs ResolvedWorkItemInputs)
      (approved_plan_path lisp_frontend_design_delta/types/PlanDoc)
      (implementation_phase_result ImplementationPhaseResult))
-    -> PendingWorkItemResult
+    -> SelectedItemResult
     :effects ((calls-workflow lisp_frontend_design_delta/work_item::classify-blocked-implementation-recovery)
               (uses-provider providers.work-item.recovery-classifier)
-              (uses-command apply_resource_transition))
+              (uses-command apply_resource_transition)
+              (writes work-item-context-view))
     :lowering inline
-    (route-blocked-implementation
-      selection
-      target_design_path
-      baseline_design_path
-      resolved_inputs
-      approved_plan_path
-      implementation_phase_result))
+    (let* ((result
+             (route-blocked-implementation
+               selection
+               target_design_path
+               baseline_design_path
+               resolved_inputs
+               approved_plan_path
+               implementation_phase_result)))
+      (match result
+        ((COMPLETED completed)
+         (variant SelectedItemResult CONTINUE
+           :summary-path implementation_phase_result.execution-report
+           :run-state selection.run_state_path))
+        ((TERMINAL_BLOCKED terminal_blocked)
+         (variant SelectedItemResult BLOCKED
+           :summary-path implementation_phase_result.progress-report
+           :blocker-class terminal_blocked.blocker-class
+           :run-state selection.run_state_path))
+        ((BLOCKED_RECOVERY blocked_recovery)
+         (variant SelectedItemResult BLOCKED
+           :summary-path implementation_phase_result.progress-report
+           :blocker-class blocked_recovery.blocker-class
+           :run-state selection.run_state_path)))))
 
   (defworkflow run-selected-item-stdlib
-    ((item-ctx std/context/ItemCtx)
+    ((item-ctx ItemCtx)
      (selection DesignDeltaSelectedItemPayload))
     -> SelectedItemResult
     (let* ((selection-ctx
@@ -448,79 +522,13 @@
              (call project-work-item-inputs
                :item_ctx family-item-ctx
                :work_item_bootstrap selection.work_item_bootstrap))
-           (run_state_path
-             selection.run_state_path)
-           (result
-             (call run-work-item
-               :work_item_bootstrap selection.work_item_bootstrap
-               :steering_path selection.steering_path
-               :target_design_path selection.target_design_path
-               :baseline_design_path selection.baseline_design_path
-               :progress_ledger_path selection.progress_ledger_path)))
-      (match result
-        ((COMPLETED completed)
-         (variant SelectedItemResult CONTINUE
-           :summary-path completed.summary-path
-           :run-state selection.run_state_path))
-        ((TERMINAL_BLOCKED terminal_blocked)
-         (variant SelectedItemResult BLOCKED
-           :summary-path terminal_blocked.summary-path
-           :blocker-class terminal_blocked.blocker-class
-           :run-state selection.run_state_path))
-        ((BLOCKED_RECOVERY blocked_recovery)
-         (variant SelectedItemResult BLOCKED
-           :summary-path blocked_recovery.summary-path
-           :blocker-class blocked_recovery.blocker-class
-           :run-state selection.run_state_path)))))
-
-  (defworkflow run-work-item
-    ((phase-ctx PhaseCtx)
-     (work_item_bootstrap lisp_frontend_design_delta/types/WorkItemBootstrapSeed)
-     (steering_path SteeringDoc)
-     (target_design_path TargetDesignDoc)
-     (baseline_design_path BaselineDesignDoc)
-     (progress_ledger_path ProgressLedger))
-    -> WorkItemResult
-    (with-phase phase-ctx work-item
-      (let* ((selected-compat
-             (call project-selected-compat
-               :item-id work_item_bootstrap.work_item_id))
-           (bridged-run-state
-             selected-compat.final-plan-gate-state)
-           (selection
-             (record DesignDeltaSelectedItemPayload
-               :item-id work_item_bootstrap.work_item_id
-               :item-state-root phase-ctx.state-root
-               :work_item_bootstrap work_item_bootstrap
-               :steering_path steering_path
-               :target_design_path target_design_path
-               :baseline_design_path baseline_design_path
-               :progress_ledger_path progress_ledger_path
-               :run_state_path bridged-run-state))
-           (selection-ctx
-             (record SelectionCtx
-               :state_root phase-ctx.state-root
-               :artifact_root phase-ctx.artifact-root))
-           (item-ctx
-             (record lisp_frontend_design_delta/types/ItemCtx
-               :selection selection-ctx
-               :work_item_id selection.item-id
-               :state_root phase-ctx.state-root
-               :artifact_root phase-ctx.artifact-root))
-           (resolved
-             (call project-work-item-inputs
-               :item_ctx item-ctx
-               :work_item_bootstrap selection.work_item_bootstrap))
-           (work-item-summary-path
-             resolved.item_summary_target_path)
            (plan
              (call run-plan-phase
-               :phase-ctx phase-ctx
-               :steering steering_path
-               :target_design target_design_path
-               :baseline_design baseline_design_path
+               :steering selection.steering_path
+               :target_design selection.target_design_path
+               :baseline_design selection.baseline_design_path
                :work_item_context resolved.work_item_context
-               :progress_ledger progress_ledger_path
+               :progress_ledger selection.progress_ledger_path
                :plan_target_path resolved.plan_target_path
                :progress_report_target_path resolved.progress_report_target_path
                :plan_review_report_target_path resolved.plan_review_report_target_path)))
@@ -528,9 +536,8 @@
         ((APPROVED approved)
          (let* ((implementation
                   (call implementation-phase
-                    :phase-ctx phase-ctx
-                    :target_design target_design_path
-                    :baseline_design baseline_design_path
+                    :target_design selection.target_design_path
+                    :baseline_design selection.baseline_design_path
                     :check_commands resolved.check_commands
                     :check_commands_target_path resolved.check_commands_target_path
                     :plan_path approved.approved_plan_path
@@ -547,21 +554,13 @@
                     :work_item_source resolved.work_item_source)))
            (match terminal
              ((IMPLEMENTATION_BLOCKED implementation_blocked)
-             (let* ((result
-                       (route-blocked-implementation
-                         selection
-                         target_design_path
-                         baseline_design_path
-                         resolved
-                         approved.approved_plan_path
-                         implementation))
-                    (summary
-                      (project-work-item-result-summary result))
-                    (summary-path
-                      (materialize-canonical-work-item-summary
-                        summary
-                        work-item-summary-path)))
-                (materialize-pending-work-item-result result summary-path)))
+              (route-blocked-implementation-stdlib
+                selection
+                selection.target_design_path
+                selection.baseline_design_path
+                resolved
+                approved.approved_plan_path
+                implementation))
              ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
               (let* ((finalizer-plan
                        (build-finalizer-approved-plan
@@ -569,22 +568,11 @@
                      (finalizer-implementation
                        (build-finalizer-blocked-implementation
                          implementation.progress-report
-                         BlockerClass.unrecoverable_after_fix_attempt))
-                     (result
-                       (finalize-selected-item-as-terminal-blocked
-                         selection
-                         resolved
-                         "plan_review_exhausted"
-                         BlockerClass.unrecoverable_after_fix_attempt
-                         finalizer-plan
-                         finalizer-implementation))
-                     (summary
-                       (project-work-item-result-summary result))
-                     (summary-path
-                       (materialize-canonical-work-item-summary
-                         summary
-                         work-item-summary-path)))
-                (materialize-pending-work-item-result result summary-path)))
+                         BlockerClass.unrecoverable_after_fix_attempt)))
+                (call-imported-finalize-selected-item
+                  selection
+                  finalizer-plan
+                  finalizer-implementation)))
              ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
               (let* ((finalizer-plan
                        (build-finalizer-approved-plan
@@ -592,85 +580,185 @@
                      (finalizer-implementation
                        (build-finalizer-blocked-implementation
                          implementation.progress-report
-                         BlockerClass.unrecoverable_after_fix_attempt))
-                     (result
-                       (finalize-selected-item-as-terminal-blocked
-                         selection
-                         resolved
-                         "implementation_review_exhausted"
-                         BlockerClass.unrecoverable_after_fix_attempt
-                         finalizer-plan
-                         finalizer-implementation))
-                     (summary
-                       (project-work-item-result-summary result))
-                     (summary-path
-                       (materialize-canonical-work-item-summary
-                         summary
-                         work-item-summary-path)))
-                (materialize-pending-work-item-result result summary-path)))
+                         BlockerClass.unrecoverable_after_fix_attempt)))
+                (call-imported-finalize-selected-item
+                  selection
+                  finalizer-plan
+                  finalizer-implementation)))
              ((COMPLETE complete)
               (let* ((finalizer-plan
                        (build-finalizer-approved-plan
                          implementation.execution-report))
                      (finalizer-implementation
                        (build-finalizer-completed-implementation
-                         implementation.execution-report))
-                     (result
-                       (finalize-selected-item-as-completed
-                         selection
-                         resolved
-                         finalizer-plan
-                         finalizer-implementation))
-                     (summary
-                       (project-work-item-result-summary result))
-                     (summary-path
-                       (materialize-canonical-work-item-summary
-                         summary
-                         work-item-summary-path)))
-                (materialize-pending-work-item-result result summary-path))))))
+                         implementation.execution-report)))
+                (call-imported-finalize-selected-item
+                  selection
+                  finalizer-plan
+                  finalizer-implementation))))))
         ((BLOCKED blocked)
-         (let* ((finalizer-plan
-                  (build-finalizer-blocked-plan
-                    blocked.progress_report_path
-                    BlockerClass.roadmap_conflict))
-                (finalizer-implementation
-                  (build-finalizer-completed-implementation
-                    blocked.progress_report_path))
-                (result
-                  (finalize-selected-item-as-terminal-blocked
-                    selection
-                    resolved
-                    "plan_blocked"
-                    BlockerClass.roadmap_conflict
-                    finalizer-plan
-                    finalizer-implementation))
-                (summary
-                  (project-work-item-result-summary result))
-                (summary-path
-                  (materialize-canonical-work-item-summary
-                    summary
-                    work-item-summary-path)))
-           (materialize-pending-work-item-result result summary-path)))
+         (variant SelectedItemResult BLOCKED
+           :summary-path blocked.progress_report_path
+           :blocker-class BlockerClass.roadmap_conflict
+           :run-state selection.run_state_path))
         ((EXHAUSTED exhausted)
-         (let* ((finalizer-plan
-                  (build-finalizer-blocked-plan
-                    exhausted.progress_report_path
-                    BlockerClass.unrecoverable_after_fix_attempt))
-                (finalizer-implementation
-                  (build-finalizer-completed-implementation
-                    exhausted.progress_report_path))
-                (result
-                  (finalize-selected-item-as-terminal-blocked
-                    selection
-                    resolved
-                    "plan_review_exhausted"
-                    BlockerClass.unrecoverable_after_fix_attempt
-                    finalizer-plan
-                    finalizer-implementation))
-                (summary
-                  (project-work-item-result-summary result))
-                (summary-path
-                  (materialize-canonical-work-item-summary
-                    summary
-                    work-item-summary-path)))
-           (materialize-pending-work-item-result result summary-path))))))))
+         (variant SelectedItemResult BLOCKED
+           :summary-path exhausted.progress_report_path
+           :blocker-class BlockerClass.unrecoverable_after_fix_attempt
+           :run-state selection.run_state_path)))))
+
+  (defworkflow run-work-item
+    ((phase-ctx PhaseCtx)
+     (work_item_bootstrap lisp_frontend_design_delta/types/WorkItemBootstrapSeed)
+     (steering_path SteeringDoc)
+     (target_design_path TargetDesignDoc)
+     (baseline_design_path BaselineDesignDoc)
+     (progress_ledger_path ProgressLedger))
+    -> WorkItemResult
+    (with-phase phase-ctx work-item
+      (let* ((pending
+               (call run-work-item-pending
+                 :phase-ctx phase-ctx
+                 :work_item_bootstrap work_item_bootstrap
+                 :steering_path steering_path
+                 :target_design_path target_design_path
+                 :baseline_design_path baseline_design_path
+                 :progress_ledger_path progress_ledger_path)))
+        (project-pending-work-item-result pending))))
+
+  (defworkflow run-work-item-pending
+    ((phase-ctx PhaseCtx)
+     (work_item_bootstrap lisp_frontend_design_delta/types/WorkItemBootstrapSeed)
+     (steering_path SteeringDoc)
+     (target_design_path TargetDesignDoc)
+     (baseline_design_path BaselineDesignDoc)
+     (progress_ledger_path ProgressLedger))
+    -> PendingWorkItemResult
+    (with-phase phase-ctx work-item
+      (let* ((selected-compat
+               (call project-selected-compat
+                 :item-id work_item_bootstrap.work_item_id))
+           (selection
+             (record DesignDeltaSelectedItemPayload
+               :item-id work_item_bootstrap.work_item_id
+               :item-state-root phase-ctx.state-root
+               :work_item_bootstrap work_item_bootstrap
+               :steering_path steering_path
+               :target_design_path target_design_path
+               :baseline_design_path baseline_design_path
+               :progress_ledger_path progress_ledger_path
+               :run_state_path selected-compat.final-plan-gate-state))
+           (selection-ctx
+             (record SelectionCtx
+               :state_root phase-ctx.state-root
+               :artifact_root phase-ctx.artifact-root))
+           (item-ctx
+             (record lisp_frontend_design_delta/types/ItemCtx
+               :selection selection-ctx
+               :work_item_id selection.item-id
+               :state_root phase-ctx.state-root
+               :artifact_root phase-ctx.artifact-root))
+           (resolved
+             (call project-work-item-inputs
+               :item_ctx item-ctx
+               :work_item_bootstrap selection.work_item_bootstrap))
+           (plan
+             (call run-plan-phase
+               :phase-ctx phase-ctx
+               :steering steering_path
+               :target_design target_design_path
+               :baseline_design baseline_design_path
+               :work_item_context resolved.work_item_context
+               :progress_ledger progress_ledger_path
+               :plan_target_path resolved.plan_target_path
+               :progress_report_target_path resolved.progress_report_target_path
+               :plan_review_report_target_path resolved.plan_review_report_target_path)))
+      (match plan
+        ((APPROVED approved)
+           (let* ((implementation
+                    (call implementation-phase
+                      :phase-ctx phase-ctx
+                      :target_design target_design_path
+                      :baseline_design baseline_design_path
+                      :check_commands resolved.check_commands
+                      :check_commands_target_path resolved.check_commands_target_path
+                      :plan_path approved.approved_plan_path
+                      :execution_report_target_path resolved.execution_report_target_path
+                      :progress_report_target_path resolved.progress_report_target_path
+                      :checks_report_target_path resolved.checks_report_target_path
+                      :implementation_review_report_target_path
+                        resolved.implementation_review_report_target_path))
+                  (terminal
+                    (call classify-work-item-terminal
+                      :plan_review_decision approved.plan_review_decision
+                      :implementation_state implementation.implementation-state
+                      :implementation_review_decision implementation.implementation-review-decision
+                      :work_item_source resolved.work_item_source))
+                  (pending
+                    (match terminal
+                      ((IMPLEMENTATION_BLOCKED implementation_blocked)
+                       (route-blocked-implementation
+                         selection
+                         target_design_path
+                         baseline_design_path
+                         resolved
+                         approved.approved_plan_path
+                         implementation))
+                      ((PLAN_REVIEW_EXHAUSTED plan_review_exhausted)
+                       (let* ((finalizer-plan
+                                (build-finalizer-approved-plan
+                                  implementation.execution-report))
+                              (finalizer-implementation
+                                (build-finalizer-blocked-implementation
+                                  implementation.progress-report
+                                  BlockerClass.unrecoverable_after_fix_attempt)))
+                         (finalize-selected-item-as-terminal-blocked
+                           selection
+                           resolved
+                           "plan_review_exhausted"
+                           BlockerClass.unrecoverable_after_fix_attempt
+                           implementation.progress-report
+                           finalizer-plan
+                           finalizer-implementation)))
+                      ((IMPLEMENTATION_REVIEW_EXHAUSTED implementation_review_exhausted)
+                       (let* ((finalizer-plan
+                                (build-finalizer-approved-plan
+                                  implementation.execution-report))
+                              (finalizer-implementation
+                                (build-finalizer-blocked-implementation
+                                  implementation.progress-report
+                                  BlockerClass.unrecoverable_after_fix_attempt)))
+                         (finalize-selected-item-as-terminal-blocked
+                           selection
+                           resolved
+                           "implementation_review_exhausted"
+                           BlockerClass.unrecoverable_after_fix_attempt
+                           implementation.progress-report
+                           finalizer-plan
+                           finalizer-implementation)))
+                      ((COMPLETE complete)
+                       (let* ((finalizer-plan
+                                (build-finalizer-approved-plan
+                                  implementation.execution-report))
+                              (finalizer-implementation
+                                (build-finalizer-completed-implementation
+                                  implementation.execution-report)))
+                         (finalize-selected-item-as-completed
+                           selection
+                           resolved
+                           implementation.execution-report
+                           finalizer-plan
+                           finalizer-implementation))))))
+             pending))
+        ((BLOCKED blocked)
+           (project-terminal-blocked-family-result
+             resolved
+             "plan_blocked"
+             BlockerClass.roadmap_conflict
+             blocked.progress_report_path))
+        ((EXHAUSTED exhausted)
+           (project-terminal-blocked-family-result
+             resolved
+             "plan_review_exhausted"
+             BlockerClass.unrecoverable_after_fix_attempt
+             exhausted.progress_report_path)))))))

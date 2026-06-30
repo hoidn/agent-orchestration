@@ -904,6 +904,9 @@ def _compile_design_delta_parent_drain_entrypoint(tmp_path: Path):
         command_boundaries=_design_delta_parent_drain_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
     )
     lowered_by_name = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -923,6 +926,9 @@ def _compile_design_delta_parent_drain_runtime_entrypoint(tmp_path: Path):
         command_boundaries=_design_delta_parent_drain_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
+        family_profile_catalog=load_workflow_family_profile_catalog(
+            (DESIGN_DELTA_PARENT_DRAIN_FAMILY_PROFILE,)
+        ),
     )
     lowered_by_name = {
         workflow.typed_workflow.definition.name: workflow.authored_mapping
@@ -2385,8 +2391,7 @@ def _design_delta_selected_item_stdlib_bound_inputs() -> dict[str, object]:
         "selection__baseline_design_path": "docs/design/baseline.md",
         "selection__progress_ledger_path": "state/progress_ledger.json",
         "selection__run_state_path": "state/run_state.json",
-        "phase-ctx__plan__run__run-id": "selected-item-stdlib",
-        "phase-ctx__implementation__run__run-id": "selected-item-stdlib",
+        "run_state_path": "state/run_state.json",
     }
 
 
@@ -3915,6 +3920,15 @@ def test_design_delta_item_ctx_child_phase_reuse_compiles(tmp_path: Path) -> Non
             "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
             "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
         },
+        "item-ctx": {
+            "item-ctx__run__run-id": ("item-ctx", "run", "run-id"),
+            "item-ctx__run__state-root": ("item-ctx", "run", "state-root"),
+            "item-ctx__run__artifact-root": ("item-ctx", "run", "artifact-root"),
+            "item-ctx__item-id": ("item-ctx", "item-id"),
+            "item-ctx__state-root": ("item-ctx", "state-root"),
+            "item-ctx__artifact-root": ("item-ctx", "artifact-root"),
+            "item-ctx__ledger": ("item-ctx", "ledger"),
+        },
     }
 
 
@@ -3986,6 +4000,15 @@ def test_design_delta_item_ctx_child_phase_reuse_branching_terminal_reprojection
             "phase-ctx__plan__run__run-id": ("item-ctx", "run", "run-id"),
             "phase-ctx__plan__run__state-root": ("item-ctx", "run", "state-root"),
             "phase-ctx__plan__run__artifact-root": ("item-ctx", "run", "artifact-root"),
+        },
+        "item-ctx": {
+            "item-ctx__run__run-id": ("item-ctx", "run", "run-id"),
+            "item-ctx__run__state-root": ("item-ctx", "run", "state-root"),
+            "item-ctx__run__artifact-root": ("item-ctx", "run", "artifact-root"),
+            "item-ctx__item-id": ("item-ctx", "item-id"),
+            "item-ctx__state-root": ("item-ctx", "state-root"),
+            "item-ctx__artifact-root": ("item-ctx", "artifact-root"),
+            "item-ctx__ledger": ("item-ctx", "ledger"),
         },
     }
 
@@ -4844,6 +4867,49 @@ def test_design_delta_parent_drain_controlled_smoke_helper_seeds_hidden_run_stat
     assert set(bound_inputs).issuperset(_design_delta_parent_drain_bound_inputs())
 
 
+def test_design_delta_selected_item_stdlib_smoke_helper_seeds_hidden_run_state_bridge(
+) -> None:
+    bound_inputs = _design_delta_selected_item_stdlib_bound_inputs()
+
+    assert bound_inputs["run_state_path"] == "state/run_state.json"
+    assert bound_inputs["selection__run_state_path"] == "state/run_state.json"
+    assert bound_inputs["item-ctx__run__run-id"] == "selected-item-stdlib"
+    assert "phase-ctx__plan__run__run-id" not in bound_inputs
+    assert "phase-ctx__implementation__run__run-id" not in bound_inputs
+
+
+def test_design_delta_selected_item_stdlib_keeps_run_state_bridge_private(
+) -> None:
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+    run_selected_item_stdlib = work_item_source.split(
+        "(defworkflow run-selected-item-stdlib", 1
+    )[1].split("(defworkflow run-work-item", 1)[0]
+    bound_inputs = _design_delta_selected_item_stdlib_bound_inputs()
+
+    assert "(run_state_path RunStatePath)" not in run_selected_item_stdlib
+    assert ":run_state_path run_state_path" not in run_selected_item_stdlib
+    assert "phase-ctx__plan__run__run-id" not in bound_inputs
+    assert "phase-ctx__implementation__run__run-id" not in bound_inputs
+    assert bound_inputs["run_state_path"] == "state/run_state.json"
+
+
+def test_design_delta_selected_item_stdlib_consumes_typed_child_result() -> None:
+    work_item_source = (
+        REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta" / "work_item.orc"
+    ).read_text(encoding="utf-8")
+    run_selected_item_stdlib = work_item_source.split(
+        "(defworkflow run-selected-item-stdlib", 1
+    )[1].split("(defworkflow run-work-item", 1)[0]
+
+    assert "((item-ctx ItemCtx)" in run_selected_item_stdlib or "((item-ctx std/context/ItemCtx)" in run_selected_item_stdlib
+    assert "(call run-work-item-pending" not in run_selected_item_stdlib
+    assert "(call run-work-item" not in run_selected_item_stdlib
+    assert "call-imported-finalize-selected-item" in run_selected_item_stdlib
+    assert "materialize-canonical-work-item-summary" not in run_selected_item_stdlib
+
+
 def test_design_delta_parent_drain_removes_run_state_from_authored_loop_state(
     tmp_path: Path,
 ) -> None:
@@ -4889,9 +4955,10 @@ def test_design_delta_parent_drain_removes_run_state_from_work_item_authored_sig
     boundary = lowered.boundary_projection
 
     assert "(defworkflow run-work-item\n    ((phase-ctx PhaseCtx)" in work_item_source
-    assert "(run_state_path RunStatePath))" not in work_item_source
+    assert "(defworkflow run-work-item-phase-route" not in work_item_source
+    assert ":phase-ctx phase-ctx" in work_item_source
+    assert "(defworkflow run-work-item\n    ((phase-ctx PhaseCtx)\n     (run_state_path RunStatePath)" not in work_item_source
     assert "((run_state_path RunStatePath)" not in work_item_source
-    assert ":run_state_path run_state_path" not in work_item_source
     assert "(selection_bundle_path SelectionBundlePath)" not in work_item_source
     assert "(manifest_path StateFileExisting)" not in work_item_source
     assert "(architecture_bundle_path StateFile)" not in work_item_source
@@ -4977,12 +5044,17 @@ def test_design_delta_parent_drain_types_expose_typed_summary_values_at_family_b
     drain_summary = types_source.split("(defrecord DrainSummaryValue", 1)[1].split(
         "(defrecord WorkItemSummaryValue)", 1
     )[0]
+    work_item_summary = types_source.split("(defrecord WorkItemSummaryValue", 1)[1].split(
+        "(defunion DesignDeltaDrainAction)", 1
+    )[0]
     drain_union = types_source.split("(defunion DrainResult", 1)[1]
 
     assert "(summary WorkReport)" not in work_item_union
     assert "(summary WorkItemSummaryValue)" in work_item_union
+    assert "public_summary_path" not in work_item_union
     assert "(item_summary_target_path WorkReport)" not in resolved_inputs
     assert "(item_summary_target_path WorkReportTarget)" in resolved_inputs
+    assert "summary_path" not in work_item_summary
     assert "(drain-summary WorkReport)" not in drain_union
     assert "(drain-summary DrainSummaryValue)" in drain_union
     assert "(run-state StateExisting)" not in drain_union
@@ -5016,6 +5088,9 @@ def test_design_delta_parent_drain_summary_cleanup_removes_helper_owned_summary_
         / "std"
         / "resource.orc"
     ).read_text(encoding="utf-8")
+    route_blocked_work_item = work_item_source.split(
+        "(defproc route-blocked-implementation", 1
+    )[1].split("(defproc route-blocked-implementation-stdlib", 1)[0]
     route_blocked_stdlib = work_item_source.split(
         "(defproc route-blocked-implementation-stdlib", 1
     )[1].split("(defworkflow run-selected-item-stdlib", 1)[0]
@@ -5028,7 +5103,8 @@ def test_design_delta_parent_drain_summary_cleanup_removes_helper_owned_summary_
     assert "drain-summary-view" not in transitions_source
     assert "work-item-terminal-summary-view" not in transitions_source
     assert "work-item-blocked-recovery-summary-view" not in transitions_source
-    assert "work-item-context-view" in transitions_source
+    assert "(writes work-item-context-view)" not in transitions_source
+    assert "materialize-view work-item-context-view" not in transitions_source
     assert "materialize-selected-item-summary-target" not in work_item_source
     assert "materialize-work-item-summary-bridge" not in work_item_source
     assert "materialize-view blocked-recovery-summary" not in work_item_source
@@ -5039,10 +5115,17 @@ def test_design_delta_parent_drain_summary_cleanup_removes_helper_owned_summary_
     assert "(writes selected-item-summary)" not in stdlib_adapters_source
     assert "(writes selected-item-summary)" not in work_item_source
     assert "(writes work-item-summary-bridge)" not in work_item_source
+    assert "resolved_inputs.item_summary_target_path" not in route_blocked_work_item
+    assert "resolved_inputs.work_item_context_view_target_path" not in route_blocked_stdlib
     assert "(writes canonical-work-item-summary)" not in route_blocked_stdlib
     assert "materialize-canonical-work-item-summary" not in route_blocked_stdlib
     assert "materialize-canonical-work-item-summary" not in run_selected_item_stdlib
-    assert "materialize-canonical-work-item-summary" in run_work_item
+    assert "materialize-canonical-work-item-summary" not in run_work_item
+    assert "(recorded" not in route_blocked_work_item
+    assert "recorded.work_item_id" not in route_blocked_work_item
+    assert "recorded.work_item_source" not in route_blocked_work_item
+    assert "recorded.terminal_route" not in route_blocked_work_item
+    assert "recorded.reason" not in route_blocked_work_item
 
 
 def test_design_delta_selected_item_stdlib_direct_route_returns_canonical_summary_bridge_path(
@@ -5065,16 +5148,11 @@ def test_design_delta_selected_item_stdlib_direct_route_returns_canonical_summar
     assert state["workflow_outputs"]["return__variant"] == "CONTINUE"
     assert (
         state["workflow_outputs"]["return__summary-path"]
-        == "artifacts/work/item_summary.json"
+        == "artifacts/work/execution_report.md"
     )
     summary_path = workspace / state["workflow_outputs"]["return__summary-path"]
     assert summary_path.is_file()
-    assert json.loads(summary_path.read_text(encoding="utf-8")) == {
-        "work_item_id": "design-gap-work-item",
-        "work_item_source": "DESIGN_GAP",
-        "terminal_route": "COMPLETED",
-        "reason": "complete",
-    }
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
 
 
 def test_design_delta_parent_drain_summary_cleanup_removes_authored_summary_path_plumbing() -> None:
@@ -5531,8 +5609,11 @@ def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_r
     assert completed_state["workflow_outputs"]["return__summary__reason"] == "complete"
     assert completed_state["workflow_outputs"]["return__summary__work_item_id"] == "design-gap-work-item"
     assert completed_state["workflow_outputs"]["return__summary__work_item_source"] == "DESIGN_GAP"
+    assert "return__public_summary_path" not in completed_state["workflow_outputs"]
+    assert "return__summary-path" not in completed_state["workflow_outputs"]
+    assert "return__summary__summary_path" not in completed_state["workflow_outputs"]
     assert (completed_workspace / "artifacts" / "work" / "execution_report.md").is_file()
-    assert (completed_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (completed_workspace / "artifacts" / "work" / "item_summary.json").exists()
     assert (completed_workspace / "artifacts" / "review" / "implementation_review_report.md").is_file()
 
     assert blocked_state["status"] == "completed"
@@ -5554,8 +5635,22 @@ def test_design_delta_work_item_candidate_smokes_complete_and_blocked_recovery_r
     )
     assert blocked_state["workflow_outputs"]["return__summary__work_item_id"] == "design-gap-work-item"
     assert blocked_state["workflow_outputs"]["return__summary__work_item_source"] == "DESIGN_GAP"
+    assert "return__public_summary_path" not in blocked_state["workflow_outputs"]
+    assert "return__summary-path" not in blocked_state["workflow_outputs"]
+    assert "return__summary__summary_path" not in blocked_state["workflow_outputs"]
     assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
-    assert (blocked_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (blocked_workspace / "artifacts" / "work" / "item_summary.json").exists()
+    blocked_run_state = json.loads(
+        (blocked_workspace / "state" / "run_state.json").read_text(encoding="utf-8")
+    )
+    assert (
+        blocked_run_state["blocked_recovery_reason"]
+        == "implementation_architecture_under_scoped"
+    )
+    assert (
+        blocked_run_state["blocked_recovery_summary"]
+        == "artifacts/work/progress_report.md"
+    )
 
 
 def test_design_delta_runtime_compile_bundle_removes_authored_summary_bridge_steps(
@@ -5614,6 +5709,8 @@ def test_design_delta_runtime_compile_bundle_catalogs_agree_on_summary_bridge_st
         for step in by_name_bundle.surface.steps
         if isinstance(step.step_id, str) and step.step_id.startswith("compatibility_bridge__")
     }
+    assert not entry_bridge_step_ids
+    assert not by_name_bridge_step_ids
     assert by_name_bridge_step_ids == entry_bridge_step_ids
 
     drain_result, _lowered_by_name = _compile_design_delta_parent_drain_entrypoint(
@@ -5641,6 +5738,8 @@ def test_design_delta_runtime_compile_bundle_catalogs_agree_on_summary_bridge_st
         for step in imported_by_name_bundle.surface.steps
         if isinstance(step.step_id, str) and step.step_id.startswith("compatibility_bridge__")
     }
+    assert not imported_entry_bridge_step_ids
+    assert not imported_by_name_bridge_step_ids
     assert imported_by_name_bridge_step_ids == imported_entry_bridge_step_ids
 
 def test_design_delta_work_item_candidate_smokes_terminal_blocked_route(
@@ -5661,7 +5760,10 @@ def test_design_delta_work_item_candidate_smokes_terminal_blocked_route(
     assert state["workflow_outputs"]["return__summary__reason"] == "plan_blocked"
     assert state["workflow_outputs"]["return__summary__work_item_id"] == "design-gap-work-item"
     assert state["workflow_outputs"]["return__summary__work_item_source"] == "DESIGN_GAP"
-    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert "return__public_summary_path" not in state["workflow_outputs"]
+    assert "return__summary-path" not in state["workflow_outputs"]
+    assert "return__summary__summary_path" not in state["workflow_outputs"]
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
     assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
     progress_report = workspace / "artifacts" / "work" / "progress_report.md"
     assert progress_report.is_file()
@@ -5704,8 +5806,10 @@ def test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery
     assert completed_state["workflow_outputs"]["return__reason"] == ""
     assert completed_state["workflow_outputs"]["return__summary__terminal_route"] == "COMPLETED"
     assert completed_state["workflow_outputs"]["return__summary__reason"] == "complete"
+    assert "return__summary-path" not in completed_state["workflow_outputs"]
+    assert "return__summary__summary_path" not in completed_state["workflow_outputs"]
     assert (completed_workspace / "artifacts" / "work" / "execution_report.md").is_file()
-    assert (completed_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (completed_workspace / "artifacts" / "work" / "item_summary.json").exists()
 
     assert blocked_state["status"] == "completed"
     assert blocked_provider_calls == [
@@ -5724,8 +5828,21 @@ def test_design_delta_parent_call_work_item_smokes_complete_and_blocked_recovery
         blocked_state["workflow_outputs"]["return__summary__reason"]
         == "gap_design_revision_required"
     )
+    assert "return__summary-path" not in blocked_state["workflow_outputs"]
+    assert "return__summary__summary_path" not in blocked_state["workflow_outputs"]
     assert (blocked_workspace / "artifacts" / "work" / "progress_report.md").is_file()
-    assert (blocked_workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert not (blocked_workspace / "artifacts" / "work" / "item_summary.json").exists()
+    blocked_run_state = json.loads(
+        (blocked_workspace / "state" / "run_state.json").read_text(encoding="utf-8")
+    )
+    assert (
+        blocked_run_state["blocked_recovery_reason"]
+        == "implementation_architecture_under_scoped"
+    )
+    assert (
+        blocked_run_state["blocked_recovery_summary"]
+        == "artifacts/work/progress_report.md"
+    )
 
 def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     tmp_path: Path,
@@ -5743,7 +5860,9 @@ def test_design_delta_parent_call_work_item_smokes_terminal_blocked_route(
     assert state["workflow_outputs"]["return__reason"] == "plan_blocked"
     assert state["workflow_outputs"]["return__summary__terminal_route"] == "TERMINAL_BLOCKED"
     assert state["workflow_outputs"]["return__summary__reason"] == "plan_blocked"
-    assert (workspace / "artifacts" / "work" / "item_summary.json").is_file()
+    assert "return__summary-path" not in state["workflow_outputs"]
+    assert "return__summary__summary_path" not in state["workflow_outputs"]
+    assert not (workspace / "artifacts" / "work" / "item_summary.json").exists()
     assert not (workspace / "artifacts" / "work" / "execution_report.md").exists()
     assert (workspace / "artifacts" / "work" / "progress_report.md").is_file()
 

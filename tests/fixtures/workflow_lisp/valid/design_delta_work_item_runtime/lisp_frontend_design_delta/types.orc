@@ -460,18 +460,15 @@
   (defunion WorkItemResult
     (COMPLETED
       (reason String)
-      (summary WorkItemSummaryValue)
-      (summary-path std/resource/WorkReport))
+      (summary WorkItemSummaryValue))
     (TERMINAL_BLOCKED
       (reason String)
       (summary WorkItemSummaryValue)
-      (blocker-class std/resource/BlockerClass)
-      (summary-path std/resource/WorkReport))
+      (blocker-class std/resource/BlockerClass))
     (BLOCKED_RECOVERY
       (reason String)
       (summary WorkItemSummaryValue)
-      (blocker-class std/resource/BlockerClass)
-      (summary-path std/resource/WorkReport)))
+      (blocker-class std/resource/BlockerClass)))
 
   (defrecord DrainState
     (iteration-count Int)
@@ -529,13 +526,10 @@
 
   (defunion DrainResult
     (DONE
-      (run-state StateExisting)
       (drain-summary DrainSummaryValue))
     (BLOCKED
       (reason String)
-      (run-state StateExisting)
       (drain-summary DrainSummaryValue))
     (EXHAUSTED
       (reason String)
-      (run-state StateExisting)
       (drain-summary DrainSummaryValue))))
