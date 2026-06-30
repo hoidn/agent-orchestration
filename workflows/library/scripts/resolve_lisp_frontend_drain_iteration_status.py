@@ -38,6 +38,14 @@ def _read_optional_step_back_status(path: str) -> str:
     return _read_status(path, valid=VALID_STATUS, label="step-back")
 
 
+def _has_recorded_blocked_work(run_state_path: str) -> bool:
+    state_path = Path(run_state_path)
+    if not state_path.exists():
+        raise SystemExit(f"Missing required run state file for BLOCKED drain status: {run_state_path}")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    return bool(state.get("blocked_items") or state.get("blocked_design_gaps"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pre-selection-bundle-path", required=True)
@@ -46,6 +54,7 @@ def main() -> int:
     parser.add_argument("--recovery-record-status-path", required=True)
     parser.add_argument("--recovered-work-item-status-path", required=True)
     parser.add_argument("--step-back-status-path", default="")
+    parser.add_argument("--run-state-path", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -70,6 +79,9 @@ def main() -> int:
         status = _read_optional_step_back_status(args.step_back_status_path) or "BLOCKED"
     else:
         raise SystemExit(f"Unexpected pre_selection_route: {route}")
+
+    if status == "BLOCKED" and args.run_state_path and not _has_recorded_blocked_work(args.run_state_path):
+        raise SystemExit("BLOCKED drain status requires recorded blocked work in run state")
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

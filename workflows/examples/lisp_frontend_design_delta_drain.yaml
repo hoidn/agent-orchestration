@@ -1475,6 +1475,8 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
             - --step-back-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/step-back-drain-status.txt
+            - --run-state-path
+            - ${inputs.run_state_target_path}
             - --output
             - ${inputs.drain_state_root}/iterations/${loop.index}/drain-status.txt
           expected_outputs:

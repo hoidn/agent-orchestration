@@ -4178,6 +4178,121 @@ def test_resolve_drain_iteration_status_maps_recovery_routes(tmp_path):
         assert output.read_text(encoding="utf-8").strip() == expected
 
 
+def test_resolve_drain_iteration_status_rejects_unrecorded_blocked_terminal(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py")
+    root = workspace / "case"
+    root.mkdir()
+    bundle = root / "pre-selection.json"
+    normal_path = root / "normal.txt"
+    recovery_path = root / "recovery.txt"
+    recovered_path = root / "recovered.txt"
+    prerequisite_path = root / "prerequisite.txt"
+    run_state_path = root / "run-state.json"
+    output = root / "output.txt"
+
+    bundle.write_text(json.dumps({"pre_selection_route": "SELECT_NORMAL_WORK"}) + "\n", encoding="utf-8")
+    normal_path.write_text("BLOCKED\n", encoding="utf-8")
+    recovery_path.write_text("CONTINUE\n", encoding="utf-8")
+    prerequisite_path.write_text("CONTINUE\n", encoding="utf-8")
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run_script(
+        workspace,
+        script,
+        "--pre-selection-bundle-path",
+        bundle.relative_to(workspace).as_posix(),
+        "--normal-status-path",
+        normal_path.relative_to(workspace).as_posix(),
+        "--recovery-record-status-path",
+        recovery_path.relative_to(workspace).as_posix(),
+        "--recovered-work-item-status-path",
+        recovered_path.relative_to(workspace).as_posix(),
+        "--prerequisite-recovery-status-path",
+        prerequisite_path.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        run_state_path.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "BLOCKED drain status requires recorded blocked work" in result.stderr
+    assert not output.exists()
+
+
+def test_resolve_drain_iteration_status_allows_recorded_blocked_terminal(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py")
+    root = workspace / "case"
+    root.mkdir()
+    bundle = root / "pre-selection.json"
+    normal_path = root / "normal.txt"
+    recovery_path = root / "recovery.txt"
+    recovered_path = root / "recovered.txt"
+    prerequisite_path = root / "prerequisite.txt"
+    run_state_path = root / "run-state.json"
+    output = root / "output.txt"
+
+    bundle.write_text(json.dumps({"pre_selection_route": "SELECT_NORMAL_WORK"}) + "\n", encoding="utf-8")
+    normal_path.write_text("BLOCKED\n", encoding="utf-8")
+    recovery_path.write_text("CONTINUE\n", encoding="utf-8")
+    prerequisite_path.write_text("CONTINUE\n", encoding="utf-8")
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "blocked-gap": {
+                        "reason": "implementation_blocked",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        script,
+        "--pre-selection-bundle-path",
+        bundle.relative_to(workspace).as_posix(),
+        "--normal-status-path",
+        normal_path.relative_to(workspace).as_posix(),
+        "--recovery-record-status-path",
+        recovery_path.relative_to(workspace).as_posix(),
+        "--recovered-work-item-status-path",
+        recovered_path.relative_to(workspace).as_posix(),
+        "--prerequisite-recovery-status-path",
+        prerequisite_path.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        run_state_path.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    assert output.read_text(encoding="utf-8").strip() == "BLOCKED"
+
+
 def test_blocked_implementation_prompts_reserve_user_decision_for_terminal_categories():
     prompt_paths = [
         ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md",
