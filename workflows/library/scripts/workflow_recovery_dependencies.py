@@ -307,3 +307,196 @@ def edge_from_blocked_entry(blocked_work: WorkRef, entry: Mapping[str, Any]) -> 
         "evidence": {"legacy_fields": legacy_fields},
     }
     return normalize_edge(raw)
+
+
+def _ref_key(ref: WorkRef | None) -> tuple[str, str] | None:
+    if ref is None:
+        return None
+    return ref.source, ref.id
+
+
+def _ref_payload(key: tuple[str, str]) -> dict[str, str]:
+    return {"source": key[0], "id": key[1]}
+
+
+def _known_ref(row: Mapping[str, Any]) -> tuple[tuple[str, str], dict[str, Any]] | None:
+    source = str(row.get("source") or "").strip()
+    item_id = str(row.get("id") or row.get("item_id") or row.get("design_gap_id") or "").strip()
+    if source not in VALID_SOURCES or not item_id:
+        return None
+    status = str(row.get("status") or "available").strip() or "available"
+    return (source, item_id), {"source": source, "id": item_id, "status": status}
+
+
+def _all_dependency_edges(run_state: Mapping[str, Any]) -> list[RecoveryDependencyEdge]:
+    edges: list[RecoveryDependencyEdge] = []
+    for source in sorted(VALID_SOURCES):
+        for item_id, entry in sorted(_blocked_entries(run_state, source).items()):
+            if not isinstance(entry, Mapping):
+                continue
+            edge = edge_from_blocked_entry(WorkRef(source=source, id=str(item_id)), entry)
+            if edge is not None:
+                edges.append(edge)
+    return edges
+
+
+def _cycle_nodes(graph: Mapping[tuple[str, str], tuple[str, str]]) -> set[tuple[str, str]]:
+    cycles: set[tuple[str, str]] = set()
+    visiting: set[tuple[str, str]] = set()
+    visited: set[tuple[str, str]] = set()
+
+    def visit(node: tuple[str, str], stack: list[tuple[str, str]]) -> None:
+        if node in visiting:
+            try:
+                index = stack.index(node)
+            except ValueError:
+                index = 0
+            cycles.update(stack[index:])
+            return
+        if node in visited:
+            return
+        visiting.add(node)
+        stack.append(node)
+        next_node = graph.get(node)
+        if next_node is not None:
+            visit(next_node, stack)
+        stack.pop()
+        visiting.remove(node)
+        visited.add(node)
+
+    for node in graph:
+        visit(node, [])
+    return cycles
+
+
+def _completed_keys(run_state: Mapping[str, Any]) -> set[tuple[str, str]]:
+    keys: set[tuple[str, str]] = set()
+    for source in VALID_SOURCES:
+        keys.update((source, item_id) for item_id in _completed_ids(run_state, source))
+    return keys
+
+
+def build_recovery_eligibility(
+    known_work: list[Mapping[str, Any]],
+    run_state: Mapping[str, Any],
+    *,
+    target_gap_discovery_allowed: bool = True,
+) -> dict[str, Any]:
+    """Project recovery dependency state into selectable and hidden work refs."""
+
+    known: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in known_work:
+        parsed = _known_ref(row)
+        if parsed is not None:
+            key, payload = parsed
+            known[key] = payload
+
+    completed = _completed_keys(run_state)
+    edges = _all_dependency_edges(run_state)
+    graph: dict[tuple[str, str], tuple[str, str]] = {}
+    for edge in edges:
+        blocked_key = _ref_key(edge.blocked_work)
+        blocker_key = _ref_key(edge.blocker_work)
+        if (
+            blocked_key is not None
+            and blocker_key is not None
+            and edge.status not in {"invalid_cycle", "missing_evidence"}
+            and not _ready_when_satisfied(edge, run_state)
+        ):
+            graph[blocked_key] = blocker_key
+
+    cycle_keys = _cycle_nodes(graph)
+    hidden: dict[tuple[str, str], dict[str, Any]] = {}
+    raw_errors: list[dict[str, Any]] = []
+    priority_candidates: set[tuple[str, str]] = set()
+
+    def hide(key: tuple[str, str], reason: str, waiting_on: tuple[str, str] | None = None) -> None:
+        payload: dict[str, Any] = {**_ref_payload(key), "reason": reason}
+        if waiting_on is not None:
+            payload["waiting_on"] = _ref_payload(waiting_on)
+        hidden[key] = payload
+
+    for key in sorted(cycle_keys):
+        hide(key, "dependency_cycle")
+    if cycle_keys:
+        raw_errors.append(
+            {
+                "code": "dependency_cycle",
+                "work": [_ref_payload(key) for key in sorted(cycle_keys)],
+                "reason": "dependency_cycle",
+            }
+        )
+
+    for edge in edges:
+        blocked_key = _ref_key(edge.blocked_work)
+        blocker_key = _ref_key(edge.blocker_work)
+        if blocked_key is None:
+            raw_errors.append({"code": edge.reason or "missing_work_reference", "reason": edge.reason})
+            continue
+        if blocked_key in cycle_keys:
+            continue
+        decision = evaluate_edge(edge, run_state)
+        if decision.route == "INVALID_EDGE":
+            hide(blocked_key, decision.reason or "invalid_dependency")
+            raw_errors.append(
+                {
+                    "code": decision.reason or "invalid_dependency",
+                    "work": _ref_payload(blocked_key),
+                    "reason": decision.reason or "invalid_dependency",
+                }
+            )
+            continue
+        if decision.route == "RETRY_TARGET":
+            continue
+        if blocker_key is None:
+            hide(blocked_key, "missing_dependency_target")
+            raw_errors.append(
+                {
+                    "code": "missing_dependency_target",
+                    "work": _ref_payload(blocked_key),
+                    "reason": "missing_dependency_target",
+                }
+            )
+            continue
+        hide(blocked_key, "waiting_on_incomplete_dependency", blocker_key)
+        if blocker_key not in known and blocker_key not in completed:
+            raw_errors.append(
+                {
+                    "code": "missing_dependency_target",
+                    "work": _ref_payload(blocked_key),
+                    "missing": _ref_payload(blocker_key),
+                    "reason": "missing_dependency_target",
+                }
+            )
+        else:
+            priority_candidates.add(blocker_key)
+
+    unavailable_statuses = {"retired", "completed", "invalid"}
+
+    def runnable(key: tuple[str, str]) -> bool:
+        row = known.get(key)
+        if row is None:
+            return False
+        if key in completed or key in hidden:
+            return False
+        return str(row.get("status") or "").strip().lower() not in unavailable_statuses
+
+    eligible = [known[key] for key in sorted(known) if runnable(key)]
+    priority = [known[key] for key in sorted(priority_candidates) if runnable(key)]
+    blocks_selection = bool(raw_errors and not eligible and not target_gap_discovery_allowed)
+    blocking_errors = raw_errors if blocks_selection else []
+    diagnostic_errors = [] if blocks_selection else raw_errors
+
+    return {
+        "eligible_work": eligible,
+        "hidden_work": [hidden[key] for key in sorted(hidden)],
+        "priority_recovery_work": priority,
+        "blocking_mechanics_errors": blocking_errors,
+        "diagnostic_mechanics_errors": diagnostic_errors,
+        "hidden_summary": {
+            "blocked_by_dependencies": sum(
+                1 for item in hidden.values() if item.get("reason") == "waiting_on_incomplete_dependency"
+            ),
+            "invalid_dependencies": len(raw_errors),
+        },
+    }

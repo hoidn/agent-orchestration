@@ -329,6 +329,8 @@ steps:
             - ${inputs.architecture_index_root}
             - --non-progress-decision-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/non-progress-decision.json
+            - --selector-manifest-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/selector-manifest.json
             - --output
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
           output_bundle:

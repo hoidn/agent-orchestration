@@ -1,5 +1,6 @@
 from workflows.library.scripts.workflow_recovery_dependencies import (
     WorkRef,
+    build_recovery_eligibility,
     edge_from_blocked_entry,
     edge_to_json,
     evaluate_edge,
@@ -19,6 +20,30 @@ def _edge(**overrides):
     }
     raw.update(overrides)
     return normalize_edge(raw)
+
+
+def _edge_json(blocked: str, blocker: str, *, source: str = "DESIGN_GAP") -> dict:
+    return {
+        "blocked_work": {"source": source, "id": blocked},
+        "blocker_work": {"source": source, "id": blocker},
+        "relation": "requires_completion",
+        "reason_code": f"missing_{blocker}",
+        "ready_when": {"kind": "completed", "source": source, "id": blocker},
+        "retry_target": {"source": source, "id": blocked},
+    }
+
+
+def _state(
+    *,
+    blocked_design_gaps: dict[str, dict] | None = None,
+    completed_design_gaps: list[str] | None = None,
+) -> dict:
+    return {
+        "completed_design_gaps": completed_design_gaps or [],
+        "completed_items": [],
+        "blocked_design_gaps": blocked_design_gaps or {},
+        "blocked_items": {},
+    }
 
 
 def test_normalize_dependency_edge_requires_distinct_completion_blocker():
@@ -256,6 +281,201 @@ def test_edge_from_blocked_entry_prefers_explicit_edge():
 
     assert edge is not None
     assert edge.blocker_work == WorkRef(source="DESIGN_GAP", id="context")
+
+
+def test_eligibility_hides_dependent_waiting_on_incomplete_prerequisite():
+    eligibility = build_recovery_eligibility(
+        [
+            {"source": "DESIGN_GAP", "id": "a", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "b", "status": "available"},
+        ],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "b"),
+                }
+            }
+        ),
+    )
+
+    assert [item["id"] for item in eligibility["eligible_work"]] == ["b"]
+    assert [item["id"] for item in eligibility["hidden_work"]] == ["a"]
+    assert eligibility["hidden_work"][0]["waiting_on"] == {"source": "DESIGN_GAP", "id": "b"}
+    assert [item["id"] for item in eligibility["priority_recovery_work"]] == ["b"]
+
+
+def test_eligibility_completed_prerequisite_reenables_retry_target():
+    eligibility = build_recovery_eligibility(
+        [
+            {"source": "DESIGN_GAP", "id": "a", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "b", "status": "completed"},
+        ],
+        _state(
+            completed_design_gaps=["b"],
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "b"),
+                }
+            },
+        ),
+    )
+
+    assert [item["id"] for item in eligibility["eligible_work"]] == ["a"]
+    assert eligibility["hidden_work"] == []
+    assert eligibility["priority_recovery_work"] == []
+
+
+def test_eligibility_missing_prerequisite_is_diagnostic_when_unrelated_work_exists():
+    eligibility = build_recovery_eligibility(
+        [
+            {"source": "DESIGN_GAP", "id": "a", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "x", "status": "available"},
+        ],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "missing-c"),
+                }
+            }
+        ),
+    )
+
+    assert [item["id"] for item in eligibility["eligible_work"]] == ["x"]
+    assert [item["id"] for item in eligibility["hidden_work"]] == ["a"]
+    assert eligibility["priority_recovery_work"] == []
+    assert eligibility["blocking_mechanics_errors"] == []
+    assert eligibility["diagnostic_mechanics_errors"][0]["code"] == "missing_dependency_target"
+    assert eligibility["diagnostic_mechanics_errors"][0]["missing"] == {
+        "source": "DESIGN_GAP",
+        "id": "missing-c",
+    }
+
+
+def test_eligibility_missing_prerequisite_stays_diagnostic_when_discovery_allowed():
+    eligibility = build_recovery_eligibility(
+        [{"source": "DESIGN_GAP", "id": "a", "status": "blocked"}],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "missing-c"),
+                }
+            }
+        ),
+    )
+
+    assert eligibility["eligible_work"] == []
+    assert eligibility["priority_recovery_work"] == []
+    assert eligibility["blocking_mechanics_errors"] == []
+    assert eligibility["diagnostic_mechanics_errors"][0]["code"] == "missing_dependency_target"
+
+
+def test_eligibility_missing_prerequisite_blocks_when_discovery_disabled():
+    eligibility = build_recovery_eligibility(
+        [{"source": "DESIGN_GAP", "id": "a", "status": "blocked"}],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "missing-c"),
+                }
+            }
+        ),
+        target_gap_discovery_allowed=False,
+    )
+
+    assert eligibility["eligible_work"] == []
+    assert eligibility["priority_recovery_work"] == []
+    assert eligibility["blocking_mechanics_errors"][0]["code"] == "missing_dependency_target"
+    assert eligibility["diagnostic_mechanics_errors"] == []
+
+
+def test_eligibility_fixed_point_hides_prerequisite_with_missing_dependency():
+    eligibility = build_recovery_eligibility(
+        [
+            {"source": "DESIGN_GAP", "id": "a", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "b", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "x", "status": "available"},
+        ],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "b"),
+                },
+                "b": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("b", "missing-c"),
+                },
+            }
+        ),
+    )
+
+    assert [item["id"] for item in eligibility["eligible_work"]] == ["x"]
+    assert {item["id"] for item in eligibility["hidden_work"]} == {"a", "b"}
+    assert eligibility["priority_recovery_work"] == []
+    assert eligibility["diagnostic_mechanics_errors"][0]["code"] == "missing_dependency_target"
+
+
+def test_eligibility_indirect_cycle_hides_all_members_without_priority_work():
+    eligibility = build_recovery_eligibility(
+        [
+            {"source": "DESIGN_GAP", "id": "a", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "b", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "c", "status": "blocked"},
+        ],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "b"),
+                },
+                "b": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("b", "c"),
+                },
+                "c": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("c", "a"),
+                },
+            }
+        ),
+    )
+
+    assert eligibility["eligible_work"] == []
+    assert {item["id"] for item in eligibility["hidden_work"]} == {"a", "b", "c"}
+    assert eligibility["priority_recovery_work"] == []
+    assert eligibility["blocking_mechanics_errors"] == []
+    assert eligibility["diagnostic_mechanics_errors"][0]["code"] == "dependency_cycle"
+
+
+def test_eligibility_excludes_blocked_prerequisite_from_priority_until_runnable():
+    eligibility = build_recovery_eligibility(
+        [
+            {"source": "DESIGN_GAP", "id": "a", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "b", "status": "blocked"},
+            {"source": "DESIGN_GAP", "id": "c", "status": "available"},
+        ],
+        _state(
+            blocked_design_gaps={
+                "a": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("a", "b"),
+                },
+                "b": {
+                    "reason": "implementation_blocked",
+                    "recovery_dependency_edge": _edge_json("b", "c"),
+                },
+            }
+        ),
+    )
+
+    assert [item["id"] for item in eligibility["eligible_work"]] == ["c"]
+    assert [item["id"] for item in eligibility["priority_recovery_work"]] == ["c"]
+    assert {item["id"] for item in eligibility["hidden_work"]} == {"a", "b"}
 
 
 def test_edge_from_blocked_entry_imports_legacy_fields():

@@ -34,6 +34,46 @@ def _active_item_by_id(manifest: dict[str, Any], item_id: str) -> dict[str, Any]
     return None
 
 
+def _row_refs(rows: Any) -> set[tuple[str, str]]:
+    refs: set[tuple[str, str]] = set()
+    if not isinstance(rows, list):
+        return refs
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        source = str(row.get("source") or "").strip()
+        ref_id = str(row.get("id") or "").strip()
+        if not source and row.get("design_gap_id"):
+            source = "DESIGN_GAP"
+            ref_id = str(row.get("design_gap_id") or "").strip()
+        if not source and row.get("item_id"):
+            source = "BACKLOG_ITEM"
+            ref_id = str(row.get("item_id") or "").strip()
+        if source and ref_id:
+            refs.add((source, ref_id))
+    return refs
+
+
+def _eligible_ref(manifest: dict[str, Any], source: str, item_id: str) -> bool:
+    source = str(source or "").strip()
+    item_id = str(item_id or "").strip()
+    if not source or not item_id:
+        return False
+    if source == "DESIGN_GAP":
+        return (source, item_id) in (
+            _row_refs(manifest.get("eligible_design_gaps")) | _row_refs(manifest.get("priority_recovery_work"))
+        )
+    if source == "BACKLOG_ITEM":
+        return (source, item_id) in (
+            _row_refs(manifest.get("eligible_items")) | _row_refs(manifest.get("priority_recovery_work"))
+        )
+    return False
+
+
+def _hidden_ref(manifest: dict[str, Any], source: str, item_id: str) -> bool:
+    return (source, item_id) in _row_refs(manifest.get("hidden_work"))
+
+
 def _blocked(reason: str) -> dict[str, Any]:
     return {
         "selection_status": "BLOCKED",
@@ -114,6 +154,11 @@ def main() -> int:
         source, item_id, relation = _selected_ref(pre_selection)
         if not item_id:
             payload = _blocked(relation)
+        elif not _eligible_ref(manifest, source, item_id):
+            if _hidden_ref(manifest, source, item_id):
+                payload = _blocked(f"ineligible_prerequisite_work: {source} {item_id}")
+            else:
+                payload = _blocked(f"missing_dependency_target: {source} {item_id}")
         else:
             payload = _selection_for_ref(
                 source=source,

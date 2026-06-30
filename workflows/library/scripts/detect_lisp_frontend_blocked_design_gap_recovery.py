@@ -110,6 +110,57 @@ def _non_progress_payload(path: Path | None) -> dict[str, str] | None:
     return None
 
 
+def _selector_manifest_mechanics_payload(path: Path | None) -> dict[str, str] | None:
+    if path is None or not path.exists():
+        return None
+    manifest = _load_json(path)
+    errors = manifest.get("blocking_mechanics_errors") or []
+    if not isinstance(errors, list) or not errors:
+        return None
+    first = errors[0] if isinstance(errors[0], dict) else {}
+    reason = str(first.get("code") or first.get("reason") or "recovery_dependency_mechanics_error").strip()
+    return _block_payload(reason or "recovery_dependency_mechanics_error")
+
+
+def _selector_manifest_payload(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    return _load_json(path)
+
+
+def _manifest_ref_set(rows: Any) -> set[tuple[str, str]]:
+    refs: set[tuple[str, str]] = set()
+    if not isinstance(rows, list):
+        return refs
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        source = str(row.get("source") or "").strip()
+        item_id = str(row.get("id") or "").strip()
+        if not source and row.get("design_gap_id"):
+            source = "DESIGN_GAP"
+            item_id = str(row.get("design_gap_id") or "").strip()
+        if not source and row.get("item_id"):
+            source = "BACKLOG_ITEM"
+            item_id = str(row.get("item_id") or "").strip()
+        if source and item_id:
+            refs.add((source, item_id))
+    return refs
+
+
+def _manifest_ref_is_selectable(manifest: Mapping[str, Any], ref: WorkRef | None) -> bool:
+    if ref is None:
+        return False
+    selectable = set()
+    for key in ("eligible_design_gaps", "eligible_items", "priority_recovery_work"):
+        selectable.update(_manifest_ref_set(manifest.get(key)))
+    return (ref.source, ref.id) in selectable
+
+
+def _manifest_has_diagnostic_only_errors(manifest: Mapping[str, Any]) -> bool:
+    return bool(manifest.get("diagnostic_mechanics_errors")) and not bool(manifest.get("blocking_mechanics_errors"))
+
+
 def _requires_user_input(entry: dict[str, Any]) -> bool:
     recovery_reason = str(entry.get("recovery_reason") or "").strip()
     recovery_status = str(entry.get("recovery_status") or "").strip()
@@ -212,10 +263,15 @@ def _recovery_payload(
     architecture_copy_path: Path,
     plan_copy_path: Path,
     non_progress_decision_path: Path | None = None,
+    selector_manifest_path: Path | None = None,
 ) -> dict[str, str]:
     non_progress = _non_progress_payload(non_progress_decision_path)
     if non_progress is not None:
         return non_progress
+    selector_mechanics = _selector_manifest_mechanics_payload(selector_manifest_path)
+    if selector_mechanics is not None:
+        return selector_mechanics
+    selector_manifest = _selector_manifest_payload(selector_manifest_path)
 
     state = _load_json(run_state_path)
     blocked = state.get("blocked_design_gaps") or {}
@@ -247,6 +303,10 @@ def _recovery_payload(
             if decision.route == "RETRY_TARGET":
                 recovery_status = "RETRY_READY"
             elif decision.route in {"SELECT_BLOCKER", "BLOCKED_RECOVERABLE"}:
+                if _manifest_has_diagnostic_only_errors(selector_manifest) and not _manifest_ref_is_selectable(
+                    selector_manifest, decision.target
+                ):
+                    return _none_payload()
                 payload = _none_payload(
                     recovery_route=recovery_route,
                     recovery_reason=recovery_reason,
@@ -309,6 +369,7 @@ def main() -> int:
     parser.add_argument("--artifact-work-root", required=True)
     parser.add_argument("--architecture-index-root", default="")
     parser.add_argument("--non-progress-decision-path", default="")
+    parser.add_argument("--selector-manifest-path", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -326,6 +387,7 @@ def main() -> int:
         architecture_copy_path,
         plan_copy_path,
         Path(args.non_progress_decision_path) if args.non_progress_decision_path else None,
+        Path(args.selector_manifest_path) if args.selector_manifest_path else None,
     )
     output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return 0

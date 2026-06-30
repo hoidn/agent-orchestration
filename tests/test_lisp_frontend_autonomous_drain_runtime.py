@@ -90,9 +90,13 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/build_lisp_frontend_backlog_manifest.py",
         "workflows/library/scripts/build_neurips_backlog_manifest.py",
         "workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py",
+        "workflows/library/scripts/project_lisp_frontend_selector_manifest.py",
+        "workflows/library/scripts/project_lisp_frontend_progress_signals.py",
+        "workflows/library/scripts/evaluate_workflow_non_progress.py",
         "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py",
         "workflows/library/scripts/project_lisp_frontend_done_review.py",
         "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
+        "workflows/library/scripts/materialize_lisp_frontend_blocked_recovery_bundle.py",
         "workflows/library/scripts/prepare_lisp_frontend_recovered_design_gap_work_item.py",
         "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
         "workflows/library/scripts/classify_lisp_frontend_implementation_blocker.py",
@@ -105,6 +109,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/record_lisp_frontend_design_revision_outcome.py",
         "workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py",
         "workflows/library/scripts/record_lisp_frontend_prerequisite_recovery_outcome.py",
+        "workflows/library/scripts/record_workflow_step_back_outcome.py",
         "workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py",
         "workflows/library/scripts/select_lisp_frontend_blocked_recovery_route.py",
         "workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py",
@@ -190,6 +195,18 @@ def _recovery_dependency_edge(
         "retry_target": {"source": "DESIGN_GAP", "id": blocked},
         "downstream_work": [{"source": "DESIGN_GAP", "id": item} for item in downstream or []],
     }
+
+
+def _write_selector_manifest_gap_architecture(
+    workspace: Path, gap_id: str, *, root: str = "docs/plans/DRAIN/design-gaps"
+) -> Path:
+    path = workspace / root / gap_id / "implementation_architecture.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"# {gap_id}\n\nDesign gap id: `{gap_id}`\nStatus: draft\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def _run_script(workspace: Path, *argv: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -756,6 +773,476 @@ def test_blocked_recovery_detector_honors_generic_step_back_decision(tmp_path):
     assert payload["recovery_status"] == "STEP_BACK_REQUIRED"
     assert payload["blocker_class"] == "workflow_non_progress"
     assert payload["block_reason"] == "same-work"
+
+
+def test_blocked_recovery_detector_blocks_on_manifest_mechanics_error(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    selector_manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/blocked-recovery.json"
+    run_state.parent.mkdir(parents=True)
+    run_state.write_text(json.dumps({"blocked_design_gaps": {}, "blocked_items": {}}) + "\n", encoding="utf-8")
+    selector_manifest.write_text(
+        json.dumps(
+            {
+                "blocking_mechanics_errors": [
+                    {"code": "missing_dependency_target", "reason": "missing_dependency_target"}
+                ],
+                "diagnostic_mechanics_errors": [],
+                "target_gap_discovery_allowed": False,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--selector-manifest-path",
+        selector_manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "BLOCKED"
+    assert payload["recovery_route"] == "TERMINAL_BLOCKED"
+    assert payload["recovery_reason"] == "missing_dependency_target"
+    assert payload["block_reason"] == "missing_dependency_target"
+
+
+def test_blocked_recovery_detector_allows_diagnostic_mechanics_for_discovery(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    selector_manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/blocked-recovery.json"
+    run_state.parent.mkdir(parents=True)
+    run_state.write_text(json.dumps({"blocked_design_gaps": {}, "blocked_items": {}}) + "\n", encoding="utf-8")
+    selector_manifest.write_text(
+        json.dumps(
+            {
+                "blocking_mechanics_errors": [],
+                "diagnostic_mechanics_errors": [
+                    {"code": "missing_dependency_target", "reason": "missing_dependency_target"}
+                ],
+                "target_gap_discovery_allowed": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--selector-manifest-path",
+        selector_manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "SELECT_NORMAL_WORK"
+    assert payload["recovery_route"] == "NOT_APPLICABLE"
+
+
+def test_blocked_recovery_detector_skips_hidden_prerequisite_from_diagnostic_manifest(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_state = workspace / "state/run_state.json"
+    selector_manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/blocked-recovery.json"
+    run_state.parent.mkdir(parents=True)
+    run_state.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "completed_items": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "a": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "recovery_event_id": "run:a",
+                        "recovery_dependency_edge": _recovery_dependency_edge(blocked="a", blocker="b"),
+                    },
+                    "b": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "PREREQUISITE_GAP_REQUIRED",
+                        "recovery_reason": "prerequisite_gap_required",
+                        "recovery_status": "PREREQUISITE_WORK_PENDING",
+                        "recovery_event_id": "run:b",
+                        "recovery_dependency_edge": _recovery_dependency_edge(blocked="b", blocker="missing-c"),
+                    },
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selector_manifest.write_text(
+        json.dumps(
+            {
+                "eligible_design_gaps": [{"design_gap_id": "x", "status": "available"}],
+                "priority_recovery_work": [],
+                "hidden_work": [
+                    {"source": "DESIGN_GAP", "id": "a", "reason": "waiting_on_incomplete_dependency"},
+                    {"source": "DESIGN_GAP", "id": "b", "reason": "missing_dependency_target"},
+                ],
+                "blocking_mechanics_errors": [],
+                "diagnostic_mechanics_errors": [
+                    {"code": "missing_dependency_target", "reason": "missing_dependency_target"}
+                ],
+                "target_gap_discovery_allowed": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/detect_lisp_frontend_blocked_design_gap_recovery.py"),
+        "--run-state-path",
+        run_state.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work",
+        "--selector-manifest-path",
+        selector_manifest.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["pre_selection_route"] == "SELECT_NORMAL_WORK"
+    assert payload["recovery_route"] == "NOT_APPLICABLE"
+
+
+def test_prerequisite_selection_requires_eligible_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    pre_selection = workspace / "state/pre-selection.json"
+    manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/selection.json"
+    pre_selection.parent.mkdir(parents=True)
+    pre_selection.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "recovery_pointer_status": "WAITING",
+                "waiting_on_work_source": "DESIGN_GAP",
+                "waiting_on_work_id": "b",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "design_gaps": [{"design_gap_id": "b", "title": "B", "status": "available"}],
+                "eligible_design_gaps": [{"design_gap_id": "b", "title": "B", "status": "available"}],
+                "priority_recovery_work": [{"source": "DESIGN_GAP", "id": "b", "status": "available"}],
+                "hidden_work": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/write_lisp_frontend_prerequisite_selection.py"),
+        "--pre-selection-path",
+        pre_selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--target-design-path",
+        "docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["selection_status"] == "DRAFT_DESIGN_GAP"
+    assert payload["design_gap_id"] == "b"
+
+
+def test_prerequisite_selection_blocks_hidden_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    pre_selection = workspace / "state/pre-selection.json"
+    manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/selection.json"
+    pre_selection.parent.mkdir(parents=True)
+    pre_selection.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "recovery_pointer_status": "WAITING",
+                "waiting_on_work_source": "DESIGN_GAP",
+                "waiting_on_work_id": "b",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "design_gaps": [],
+                "eligible_design_gaps": [],
+                "priority_recovery_work": [],
+                "hidden_work": [{"source": "DESIGN_GAP", "id": "b", "reason": "waiting_on_incomplete_dependency"}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/write_lisp_frontend_prerequisite_selection.py"),
+        "--pre-selection-path",
+        pre_selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--target-design-path",
+        "docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["selection_status"] == "BLOCKED"
+    assert payload["blocking_reasons"] == ["ineligible_prerequisite_work: DESIGN_GAP b"]
+
+
+def test_prerequisite_selection_blocks_missing_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    pre_selection = workspace / "state/pre-selection.json"
+    manifest = workspace / "state/selector-manifest.json"
+    output = workspace / "state/selection.json"
+    pre_selection.parent.mkdir(parents=True)
+    pre_selection.write_text(
+        json.dumps(
+            {
+                "pre_selection_route": "SELECT_PREREQUISITE_WORK",
+                "recovery_pointer_status": "WAITING",
+                "waiting_on_work_source": "DESIGN_GAP",
+                "waiting_on_work_id": "missing-c",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "design_gaps": [],
+                "eligible_design_gaps": [],
+                "priority_recovery_work": [],
+                "hidden_work": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/write_lisp_frontend_prerequisite_selection.py"),
+        "--pre-selection-path",
+        pre_selection.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest.relative_to(workspace).as_posix(),
+        "--target-design-path",
+        "docs/design/workflow_lisp_runtime_native_drain_authoring.md",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["selection_status"] == "BLOCKED"
+    assert payload["blocking_reasons"] == ["missing_dependency_target: DESIGN_GAP missing-c"]
+
+
+def test_selector_manifest_hides_blocked_dependent_and_filters_counts(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manifest_path = workspace / "state/drain/manifest.json"
+    run_state_path = workspace / "state/drain/run_state.json"
+    output_path = workspace / "state/drain/selector-manifest.json"
+    gap_root = workspace / "docs/plans/DRAIN/design-gaps"
+    for gap_id in ("a", "b"):
+        _write_selector_manifest_gap_architecture(workspace, gap_id)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({"items": [], "backlog_root": "docs/backlog/active"}) + "\n", encoding="utf-8")
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "completed_items": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "a": {
+                        "reason": "implementation_blocked",
+                        "recovery_dependency_edge": _recovery_dependency_edge(blocked="a", blocker="b"),
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/project_lisp_frontend_selector_manifest.py"),
+        "--manifest-path",
+        manifest_path.relative_to(workspace).as_posix(),
+        "--architecture-index-root",
+        gap_root.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        run_state_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert [gap["design_gap_id"] for gap in payload["eligible_design_gaps"]] == ["b"]
+    assert [gap["design_gap_id"] for gap in payload["design_gaps"]] == ["b"]
+    assert payload["design_gap_count"] == 1
+    assert payload["all_design_gap_count_diagnostic"] == 2
+    assert payload["priority_recovery_work"] == [{"source": "DESIGN_GAP", "id": "b", "status": "available"}]
+    assert payload["hidden_work"][0]["id"] == "a"
+    assert "waiting_on" not in payload["hidden_work"][0]
+    assert payload["hidden_summary"]["blocked_by_dependencies"] == 1
+    assert payload["blocking_mechanics_errors"] == []
+    assert payload["diagnostic_mechanics_errors"] == []
+
+
+def test_selector_manifest_keeps_new_gap_discovery_available_for_missing_prerequisite(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manifest_path = workspace / "state/drain/manifest.json"
+    run_state_path = workspace / "state/drain/run_state.json"
+    output_path = workspace / "state/drain/selector-manifest.json"
+    gap_root = workspace / "docs/plans/DRAIN/design-gaps"
+    for gap_id in ("a", "b"):
+        _write_selector_manifest_gap_architecture(workspace, gap_id)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({"items": [], "backlog_root": "docs/backlog/active"}) + "\n", encoding="utf-8")
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "completed_items": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "a": {
+                        "reason": "implementation_blocked",
+                        "recovery_dependency_edge": _recovery_dependency_edge(blocked="a", blocker="b"),
+                    },
+                    "b": {
+                        "reason": "implementation_blocked",
+                        "recovery_dependency_edge": _recovery_dependency_edge(blocked="b", blocker="missing-c"),
+                    },
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/project_lisp_frontend_selector_manifest.py"),
+        "--manifest-path",
+        manifest_path.relative_to(workspace).as_posix(),
+        "--architecture-index-root",
+        gap_root.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        run_state_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["target_gap_discovery_allowed"] is True
+    assert payload["eligible_design_gaps"] == []
+    assert payload["design_gaps"] == []
+    assert payload["design_gap_count"] == 0
+    assert {item["id"] for item in payload["hidden_work"]} == {"a", "b"}
+    assert payload["priority_recovery_work"] == []
+    assert payload["blocking_mechanics_errors"] == []
+    assert payload["diagnostic_mechanics_errors"][0]["code"] == "missing_dependency_target"
+    assert "missing-c" not in json.dumps(payload)
+
+
+def test_selector_manifest_blocks_missing_prerequisite_when_discovery_disabled(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manifest_path = workspace / "state/drain/manifest.json"
+    run_state_path = workspace / "state/drain/run_state.json"
+    output_path = workspace / "state/drain/selector-manifest.json"
+    gap_root = workspace / "docs/plans/DRAIN/design-gaps"
+    _write_selector_manifest_gap_architecture(workspace, "a")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps({"items": [], "backlog_root": "docs/backlog/active"}) + "\n", encoding="utf-8")
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "completed_items": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "a": {
+                        "reason": "implementation_blocked",
+                        "recovery_dependency_edge": _recovery_dependency_edge(blocked="a", blocker="missing-c"),
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/project_lisp_frontend_selector_manifest.py"),
+        "--manifest-path",
+        manifest_path.relative_to(workspace).as_posix(),
+        "--architecture-index-root",
+        gap_root.relative_to(workspace).as_posix(),
+        "--run-state-path",
+        run_state_path.relative_to(workspace).as_posix(),
+        "--target-gap-discovery-allowed",
+        "false",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["target_gap_discovery_allowed"] is False
+    assert payload["design_gaps"] == []
+    assert payload["blocking_mechanics_errors"][0]["code"] == "missing_dependency_target"
+    assert payload["diagnostic_mechanics_errors"] == []
+    assert "missing-c" not in json.dumps(payload)
 
 
 def test_recovered_design_gap_materializer_ignores_stale_prior_bundle_paths(tmp_path):
@@ -4948,6 +5435,10 @@ def test_design_delta_work_item_records_blocked_implementation_for_drain_recover
     assert recovery_classifier["asset_file"] == (
         "prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md"
     )
+    assert recovery_classifier["output_capture"] == "json"
+    assert recovery_classifier["output_file"] == (
+        "${inputs.state_root}/blocked-implementation-recovery.stdout.json"
+    )
     required = recovery_classifier["depends_on"]["required"]
     assert "${steps.RunPlanPhase.artifacts.plan_path}" in required
     assert "${steps.RunImplementationPhase.artifacts.implementation_state_bundle_path}" in required
@@ -4955,6 +5446,18 @@ def test_design_delta_work_item_records_blocked_implementation_for_drain_recover
     assert not any(
         "${inputs.state_root}/implementation-phase/" in part
         for part in required
+    )
+    assert "output_bundle" not in recovery_classifier
+    recovery_bundle_writer = next(
+        step for step in workflow["steps"] if step["name"] == "WriteBlockedImplementationRecoveryBundle"
+    )
+    assert any(
+        part.endswith("materialize_lisp_frontend_blocked_recovery_bundle.py")
+        for part in recovery_bundle_writer["command"]
+    )
+    assert "${inputs.state_root}/blocked-implementation-recovery.stdout.json" in recovery_bundle_writer["command"]
+    assert recovery_bundle_writer["output_bundle"]["path"] == (
+        "${inputs.state_root}/blocked-implementation-recovery.json"
     )
     recovery_selector = next(step for step in workflow["steps"] if step["name"] == "SelectBlockedRecoveryRoute")
     assert any(part.endswith("select_lisp_frontend_blocked_recovery_route.py") for part in recovery_selector["command"])
@@ -5001,20 +5504,15 @@ def test_design_delta_drain_checks_blocked_recovery_before_selection():
     assert normal_selector["with"]["run_state_path"]["ref"] == "inputs.run_state_target_path"
     assert normal_selector["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
     assert any(
-        step["name"] == "RunPrerequisiteRecoverySelector"
+        step["name"] == "WritePrerequisiteRecoverySelection"
         for step in selector_cases["SELECT_PREREQUISITE_WORK"]["steps"]
     )
 
     prerequisite_selector = next(
         step for step in selector_cases["SELECT_PREREQUISITE_WORK"]["steps"]
-        if step["name"] == "RunPrerequisiteRecoverySelector"
+        if step["name"] == "WritePrerequisiteRecoverySelection"
     )
-    assert prerequisite_selector["call"] == "selector"
-    assert prerequisite_selector["with"]["state_root"]["ref"] == (
-        "parent.steps.PrepareIterationPaths.artifacts.prerequisite_selector_state_root"
-    )
-    assert prerequisite_selector["with"]["run_state_path"]["ref"] == "inputs.run_state_target_path"
-    assert prerequisite_selector["with"]["post_wcc_inventory_path"]["ref"] == "inputs.post_wcc_inventory_path"
+    assert any(part.endswith("write_lisp_frontend_prerequisite_selection.py") for part in prerequisite_selector["command"])
     for placeholder in ["RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED"]:
         assert any(
             step["name"] == "WriteSelectorBlockedPlaceholder"
@@ -5534,6 +6032,13 @@ def test_implementation_review_checks_report_consumes_are_loop_safe():
 
 
 def _next_selector_dir(workspace: Path) -> Path:
+    call_selector_dirs = [
+        pointer.parent
+        for pointer in sorted(workspace.glob("state/workflow_lisp/calls/**/manifest_path.txt"))
+        if not (pointer.parent / "selection.json").exists()
+    ]
+    if call_selector_dirs:
+        return call_selector_dirs[-1]
     selector_dirs = [
         selector_dir
         for selector_dir in sorted(workspace.glob("state/**/selector"))
@@ -5602,11 +6107,18 @@ def _write_done_review_approve(workspace: Path) -> None:
 
 
 def _write_design_gap_architecture(workspace: Path) -> None:
-    roots = sorted(workspace.glob("state/**/design-gap-architect"))
+    roots = [
+        path.parent
+        for path in sorted(workspace.glob("state/workflow_lisp/calls/**/architecture-targets.json"))
+        if not (path.parent / "draft-bundle.json").exists()
+    ]
+    roots.extend(
+        root
+        for root in sorted(workspace.glob("state/**/design-gap-architect"))
+        if not (root / "draft-bundle.json").exists()
+    )
     for root in roots:
         bundle_path = root / "draft-bundle.json"
-        if bundle_path.exists():
-            continue
         architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
         context_path = root / "work_item_context.md"
         checks_path = root / "check_commands.json"
@@ -5636,9 +6148,31 @@ def _write_design_gap_architecture(workspace: Path) -> None:
     raise AssertionError("No pending design-gap architect root found")
 
 
+def _write_design_gap_architecture_review_approve(workspace: Path) -> None:
+    roots = [
+        path.parent
+        for path in sorted(workspace.glob("state/workflow_lisp/calls/**/architecture-targets.json"))
+        if not (path.parent / "architecture-review.json").exists()
+    ]
+    roots.extend(
+        root
+        for root in sorted(workspace.glob("state/**/design-gap-architect"))
+        if not (root / "architecture-review.json").exists()
+    )
+    for root in roots:
+        review_path = root / "architecture-review.json"
+        review_path.parent.mkdir(parents=True, exist_ok=True)
+        review_path.write_text(
+            json.dumps({"review_decision": "APPROVE", "reason": "Architecture is scoped."}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return
+    raise AssertionError("No pending design-gap architecture review root found")
+
+
 def _write_plan(workspace: Path) -> None:
     existing_target: Path | None = None
-    for pointer in sorted(workspace.glob("state/**/plan-phase/plan_path.txt")):
+    for pointer in sorted(workspace.glob("state/**/plan_path.txt")):
         target = workspace / pointer.read_text(encoding="utf-8").strip()
         existing_target = existing_target or target
         if target.exists():
@@ -5650,11 +6184,41 @@ def _write_plan(workspace: Path) -> None:
         existing_target.parent.mkdir(parents=True, exist_ok=True)
         existing_target.write_text("# Lisp Work Plan\n\n## Verification\n- `python -c \"print('gap-check')\"`\n", encoding="utf-8")
         return
-    raise AssertionError("No pending plan pointer found")
+
+    bundle_paths = sorted(workspace.glob("state/**/draft-bundle.json"))
+    if not bundle_paths:
+        raise AssertionError("No pending plan pointer found")
+    bundle = json.loads(bundle_paths[-1].read_text(encoding="utf-8"))
+    target = workspace / str(bundle.get("plan_target_path") or "")
+    if not target.name:
+        raise AssertionError("No pending plan pointer found")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Lisp Work Plan\n\n## Verification\n- `python -c \"print('gap-check')\"`\n", encoding="utf-8")
+
+    plan_roots: list[Path] = []
+    for paths_file in sorted(workspace.glob("state/**/iteration-paths.json")):
+        paths = json.loads(paths_file.read_text(encoding="utf-8"))
+        for key in ("design_gap_work_item_state_root", "backlog_work_item_state_root"):
+            root = str(paths.get(key) or "").strip()
+            if root:
+                plan_roots.append(workspace / root / "plan-phase")
+    for work_item_inputs in sorted(workspace.glob("state/**/work-item-inputs.json")):
+        inputs = json.loads(work_item_inputs.read_text(encoding="utf-8"))
+        root = str(inputs.get("plan_phase_state_root") or "").strip()
+        if root:
+            plan_roots.append(workspace / root)
+    if not plan_roots:
+        raise AssertionError("No pending plan pointer found")
+    item_id = str(bundle.get("design_gap_id") or bundle.get("work_item_id") or "parser-syntax")
+    review_target = Path("artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN") / f"{item_id}-plan-review.json"
+    for root in dict.fromkeys(plan_roots):
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "plan_path.txt").write_text(target.relative_to(workspace).as_posix() + "\n", encoding="utf-8")
+        (root / "plan_review_report_path.txt").write_text(review_target.as_posix() + "\n", encoding="utf-8")
 
 
 def _plan_target(workspace: Path) -> Path:
-    pointers = sorted(workspace.glob("state/**/plan-phase/plan_path.txt"))
+    pointers = sorted(workspace.glob("state/**/plan_path.txt"))
     if pointers:
         return workspace / pointers[-1].read_text(encoding="utf-8").strip()
     raise AssertionError("No plan pointer found")
@@ -5662,16 +6226,15 @@ def _plan_target(workspace: Path) -> Path:
 
 def _pending_plan_review_root(workspace: Path) -> Path:
     roots = [
-        root
-        for root in sorted(workspace.glob("state/**/plan-phase"))
-        if (root / "plan_review_report_path.txt").exists() and not (root / "plan_review_decision.txt").exists()
+        pointer.parent
+        for pointer in sorted(workspace.glob("state/**/plan_review_report_path.txt"))
+        if not (pointer.parent / "plan_review_decision.txt").exists()
     ]
     if roots:
         return roots[-1]
     roots = [
-        root
-        for root in sorted(workspace.glob("state/**/plan-phase"))
-        if (root / "plan_review_report_path.txt").exists()
+        pointer.parent
+        for pointer in sorted(workspace.glob("state/**/plan_review_report_path.txt"))
     ]
     if roots:
         return roots[-1]
@@ -5721,11 +6284,11 @@ def _revise_plan(workspace: Path) -> None:
 
 
 def _write_execution_state(workspace: Path) -> None:
-    for root in sorted(workspace.glob("state/**/implementation-phase")):
+    for target_pointer in sorted(workspace.glob("state/**/execution_report_target_path.txt")):
+        root = target_pointer.parent
         bundle_path = root / "implementation_state.json"
         if bundle_path.exists():
             continue
-        target_pointer = root / "execution_report_target_path.txt"
         target = workspace / target_pointer.read_text(encoding="utf-8").strip()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("# Execution Report\n\nCompleted.\n", encoding="utf-8")
@@ -5745,11 +6308,11 @@ def _write_execution_state(workspace: Path) -> None:
 
 
 def _write_execution_state_without_completed_path(workspace: Path) -> None:
-    for root in sorted(workspace.glob("state/**/implementation-phase")):
+    for target_pointer in sorted(workspace.glob("state/**/execution_report_target_path.txt")):
+        root = target_pointer.parent
         bundle_path = root / "implementation_state.json"
         if bundle_path.exists():
             continue
-        target_pointer = root / "execution_report_target_path.txt"
         target = workspace / target_pointer.read_text(encoding="utf-8").strip()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("# Execution Report\n\nCompleted from canonical target only.\n", encoding="utf-8")
@@ -5768,7 +6331,8 @@ def _write_execution_state_without_completed_path(workspace: Path) -> None:
 
 
 def _write_execution_state_noncanonical(workspace: Path) -> None:
-    for root in sorted(workspace.glob("state/**/implementation-phase")):
+    for target_pointer in sorted(workspace.glob("state/**/execution_report_target_path.txt")):
+        root = target_pointer.parent
         bundle_path = root / "implementation_state.json"
         if bundle_path.exists():
             continue
@@ -5807,11 +6371,11 @@ def _write_blocked_external_under_scoped_gap(workspace: Path) -> None:
 
 
 def _write_blocked_implementation_state(workspace: Path, blocker_class: str, progress_text: str) -> None:
-    for root in sorted(workspace.glob("state/**/implementation-phase")):
+    for progress_pointer in sorted(workspace.glob("state/**/progress_report_target_path.txt")):
+        root = progress_pointer.parent
         bundle_path = root / "implementation_state.json"
         if bundle_path.exists():
             continue
-        progress_pointer = root / "progress_report_target_path.txt"
         target = workspace / progress_pointer.read_text(encoding="utf-8").strip()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(f"# Progress Report\n\n{progress_text}\n", encoding="utf-8")
@@ -5823,7 +6387,7 @@ def _write_blocked_implementation_state(workspace: Path, blocker_class: str, pro
     raise AssertionError("No pending implementation phase root found")
 
 
-def _write_blocked_recovery_bundle(workspace: Path, route: str, reason: str, summary: str | None = None) -> None:
+def _write_blocked_recovery_bundle(workspace: Path, route: str, reason: str, summary: str | None = None) -> bytes:
     payload = {
         "blocked_recovery_route": route,
         "reason": reason,
@@ -5845,26 +6409,40 @@ def _write_blocked_recovery_bundle(workspace: Path, route: str, reason: str, sum
     for target in targets:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return (json.dumps(payload) + "\n").encode("utf-8")
 
 
-def _classify_blocked_recovery_gap_design_required(workspace: Path) -> None:
-    _write_blocked_recovery_bundle(
+def _classify_blocked_recovery_gap_design_required(workspace: Path) -> bytes:
+    return _write_blocked_recovery_bundle(
         workspace,
         "GAP_DESIGN_REVISION_REQUIRED",
         "implementation_architecture_under_scoped",
     )
 
 
-def _classify_blocked_recovery_target_design_required(workspace: Path) -> None:
-    _write_blocked_recovery_bundle(
+def _classify_blocked_recovery_gap_design_required_stdout_only(_workspace: Path) -> bytes:
+    return (
+        json.dumps(
+            {
+                "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                "reason": "implementation_architecture_under_scoped",
+                "summary": "GAP_DESIGN_REVISION_REQUIRED selected for test.",
+            }
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _classify_blocked_recovery_target_design_required(workspace: Path) -> bytes:
+    return _write_blocked_recovery_bundle(
         workspace,
         "TARGET_DESIGN_REVISION_REQUIRED",
         "target_design_contract_gap",
     )
 
 
-def _classify_blocked_recovery_terminal(workspace: Path) -> None:
-    _write_blocked_recovery_bundle(
+def _classify_blocked_recovery_terminal(workspace: Path) -> bytes:
+    return _write_blocked_recovery_bundle(
         workspace,
         "TERMINAL_BLOCKED",
         "user_decision_required",
@@ -5877,31 +6455,29 @@ def _leave_execution_state_missing(_workspace: Path) -> None:
 
 
 def _implementation_execution_report_target(workspace: Path) -> Path:
-    pointers = sorted(workspace.glob("state/**/implementation-phase/execution_report_target_path.txt"))
+    pointers = sorted(workspace.glob("state/**/execution_report_target_path.txt"))
     if pointers:
         return workspace / pointers[-1].read_text(encoding="utf-8").strip()
     raise AssertionError("No execution report target pointer found")
 
 
 def _published_execution_report_path(workspace: Path) -> Path:
-    for pointer in sorted(workspace.glob("state/**/implementation-phase/execution_report_path.txt")):
+    for pointer in sorted(workspace.glob("state/**/execution_report_path.txt")):
         return workspace / pointer.read_text(encoding="utf-8").strip()
     raise AssertionError("No published execution report pointer found")
 
 
 def _pending_implementation_review_root(workspace: Path) -> Path:
     roots = [
-        root
-        for root in sorted(workspace.glob("state/**/implementation-phase"))
-        if (root / "implementation_review_report_path.txt").exists()
-        and not (root / "implementation_review_decision.txt").exists()
+        pointer.parent
+        for pointer in sorted(workspace.glob("state/**/implementation_review_report_path.txt"))
+        if not (pointer.parent / "implementation_review_decision.txt").exists()
     ]
     if roots:
         return roots[-1]
     roots = [
-        root
-        for root in sorted(workspace.glob("state/**/implementation-phase"))
-        if (root / "implementation_review_report_path.txt").exists()
+        pointer.parent
+        for pointer in sorted(workspace.glob("state/**/implementation_review_report_path.txt"))
     ]
     if roots:
         return roots[-1]
@@ -5916,6 +6492,19 @@ def _write_implementation_review(workspace: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("# Implementation Review\n\nApproved.\n", encoding="utf-8")
     decision.write_text("APPROVE\n", encoding="utf-8")
+    for route_path in sorted(workspace.glob("state/**/recovered-gap/work-item-route.json")):
+        route = json.loads(route_path.read_text(encoding="utf-8"))
+        recovered_root_value = str(route.get("recovered_work_item_state_root") or "").strip()
+        if recovered_root_value:
+            status_path = workspace / recovered_root_value / "drain_status.txt"
+            if not status_path.exists():
+                status_path.parent.mkdir(parents=True, exist_ok=True)
+                status_path.write_text("DONE\n", encoding="utf-8")
+    for recovered_root in sorted(workspace.glob("state/**/recovered-gap/work-item")):
+        status_path = recovered_root / "drain_status.txt"
+        if not status_path.exists():
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text("DONE\n", encoding="utf-8")
 
 
 def _write_implementation_review_revise(workspace: Path) -> None:
@@ -6227,10 +6816,11 @@ def _run_workflow_with_providers(
         assert _provider_step_matches(actual_step, expected_step)
         provider_step_names.append(actual_step)
         call_index["value"] += 1
-        writer(workspace)
+        writer_result = writer(workspace)
+        stdout = writer_result if isinstance(writer_result, bytes) else b"ok"
         return SimpleNamespace(
             exit_code=0,
-            stdout=b"ok",
+            stdout=stdout,
             stderr=b"",
             duration_ms=1,
             error=None,
@@ -6262,6 +6852,7 @@ def test_lisp_frontend_drain_design_gap_runtime_smoke(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
@@ -6294,6 +6885,7 @@ def test_selected_item_fresh_plan(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
@@ -6316,6 +6908,7 @@ def test_selected_item_reuses_approved_plan(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _leave_execution_state_missing),
@@ -6384,6 +6977,7 @@ def test_lisp_frontend_plan_review_revise_then_approve(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review_revise),
             ("RevisePlan", _revise_plan),
@@ -6415,6 +7009,7 @@ def test_lisp_frontend_implementation_review_revise_then_approve(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
@@ -6446,6 +7041,7 @@ def test_lisp_frontend_completed_execution_uses_canonical_target_without_complet
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state_without_completed_path),
@@ -6478,6 +7074,7 @@ def test_lisp_frontend_completed_execution_requires_canonical_target_path(tmp_pa
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state_noncanonical),
@@ -6500,6 +7097,7 @@ def test_lisp_frontend_plan_review_exhaustion_records_blocked(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             *[item for _ in range(12) for item in [
                 ("ReviewPlan", _write_plan_review_revise),
@@ -6529,6 +7127,7 @@ def test_lisp_frontend_implementation_review_exhaustion_records_blocked(tmp_path
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
@@ -6561,6 +7160,7 @@ def test_design_delta_target_design_recovery_revises_design_and_continues(tmp_pa
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_blocked_roadmap_conflict),
@@ -6572,8 +7172,6 @@ def test_design_delta_target_design_recovery_revises_design_and_continues(tmp_pa
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
-            ("SelectNextWork", _write_selector_done),
-            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -6606,6 +7204,7 @@ def test_design_delta_plan_review_clears_stale_decision_before_second_review(tmp
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review_revise),
             ("RevisePlan", _revise_plan),
@@ -6634,6 +7233,7 @@ def test_design_delta_implementation_review_clears_stale_decision_before_second_
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
@@ -6665,6 +7265,7 @@ def test_design_delta_gap_design_recovery_continues_without_target_edit(tmp_path
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_blocked_external_under_scoped_gap),
@@ -6675,8 +7276,6 @@ def test_design_delta_gap_design_recovery_continues_without_target_edit(tmp_path
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
-            ("SelectNextWork", _write_selector_done),
-            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -6698,6 +7297,109 @@ def test_design_delta_gap_design_recovery_continues_without_target_edit(tmp_path
     assert "Blocker Revision" not in target_text
 
 
+def test_design_delta_work_item_accepts_stdout_only_blocked_recovery_classifier_json(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    workflow_path = workspace / "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml"
+
+    manifest_path = workspace / "state/manifest.json"
+    selection_path = workspace / "state/selection.json"
+    architecture_path = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    )
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    plan_target_path = (
+        workspace
+        / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    )
+    architecture_bundle_path = workspace / "state/gap/architecture-validation.json"
+    run_state_path = workspace / "state/run_state.json"
+
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    selection_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    checks_path.parent.mkdir(parents=True, exist_ok=True)
+    run_state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifest_path.write_text(json.dumps({"items": []}) + "\n", encoding="utf-8")
+    selection_path.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "parser-syntax",
+                "selection_rationale": "Parser syntax gap remains active.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    architecture_path.write_text("# Parser Syntax Architecture\n", encoding="utf-8")
+    context_path.write_text("# Parser Syntax Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -m pytest -q"]) + "\n", encoding="utf-8")
+    architecture_bundle_path.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "VALID",
+                "work_item_source": "DESIGN_GAP",
+                "work_item_id": "parser-syntax",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": plan_target_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    run_state_path.write_text(
+        json.dumps(
+            {
+                "completed_design_gaps": [],
+                "blocked_design_gaps": {},
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def _write_direct_plan(_workspace: Path) -> None:
+        plan_target_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_target_path.write_text(
+            "# Lisp Work Plan\n\n## Verification\n- `python -m pytest -q`\n",
+            encoding="utf-8",
+        )
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("DraftPlan", _write_direct_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_blocked_external_under_scoped_gap),
+            ("ClassifyBlockedImplementationRecovery", _classify_blocked_recovery_gap_design_required_stdout_only),
+        ],
+        workflow_inputs={
+            "state_root": "state/design-gap-work-item",
+            "selection_bundle_path": "state/selection.json",
+            "manifest_path": "state/manifest.json",
+            "architecture_bundle_path": "state/gap/architecture-validation.json",
+            "steering_path": "docs/steering.md",
+            "target_design_path": "docs/design/workflow_lisp_frontend_specification.md",
+            "baseline_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
+            "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
+            "run_state_path": "state/run_state.json",
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 4
+    assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
+
+
 def test_design_delta_prior_blocked_gap_revises_design_before_selection(tmp_path):
     workspace = tmp_path / "workspace"
     _copy_runtime_files(workspace)
@@ -6715,8 +7417,6 @@ def test_design_delta_prior_blocked_gap_revises_design_before_selection(tmp_path
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
-            ("SelectNextWork", _write_selector_done),
-            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -6753,8 +7453,6 @@ def test_design_delta_prior_blocked_gap_design_recovery_before_selection(tmp_pat
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state),
             ("ReviewImplementation", _write_implementation_review),
-            ("SelectNextWork", _write_selector_done),
-            ("ReviewDoneDecision", _write_done_review_approve),
         ],
         workflow_inputs=_design_delta_workflow_inputs(),
     )
@@ -6769,7 +7467,7 @@ def test_design_delta_prior_blocked_gap_design_recovery_before_selection(tmp_pat
     ).read_text(encoding="utf-8")
 
     assert state["status"] == "completed"
-    assert state["__provider_calls"] == 8
+    assert state["__provider_calls"] == 6
     assert any(event["event"] == "gap_design_revision" for event in run_state["history"])
     assert any(
         event["event"] == "completed" and event["item_id"] == "parser-syntax"
@@ -6792,6 +7490,7 @@ def test_design_delta_terminal_blocker_does_not_revise_design(tmp_path):
         [
             ("SelectNextWork", _write_selector_design_gap),
             ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("ReviewDesignGapArchitecture", _write_design_gap_architecture_review_approve),
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_blocked_user_decision_required),
