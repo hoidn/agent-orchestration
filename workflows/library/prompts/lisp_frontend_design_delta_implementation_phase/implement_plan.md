@@ -9,8 +9,6 @@ implementing the plan.
 Use generated artifacts only when they are consumed inputs or required output
 targets for this task.
 Use the authoritative execution-report and progress-report target paths.
-Stop and report `BLOCKED` if the approved plan changes a file used outside the
-selected gap's files but only verifies the selected gap.
 If the implementation completes, write an execution report and the structured
 implementation-state bundle required by the output contract. When completed,
 write the execution report at the consumed canonical target path and reference
