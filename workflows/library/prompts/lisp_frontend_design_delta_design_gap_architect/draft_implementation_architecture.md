@@ -1,7 +1,5 @@
-Read the listed steering, target design, baseline design, command-adapter
-contract, progress ledger, typed design-gap subject record, architecture
-targets, and existing implementation architecture index from the checkout
-before acting.
+Read the steering, target design, baseline design, command-adapter contract,
+typed design-gap subject record, and architecture targets before acting.
 
 Draft a single implementation-architecture document for exactly the selected
 target-design gap. The baseline design is a background constraint, not the

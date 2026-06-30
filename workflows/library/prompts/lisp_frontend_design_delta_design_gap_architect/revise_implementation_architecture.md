@@ -1,8 +1,7 @@
-Read the listed steering, target design, baseline design, command-adapter
-contract, progress ledger, typed design-gap subject record, architecture
-targets, existing implementation architecture index, current implementation
+Read the steering, target design, baseline design, command-adapter contract,
+typed design-gap subject record, architecture targets, current implementation
 architecture, generated work-item context, generated check commands, and
-architecture review report from the checkout before acting.
+architecture review report before acting.
 
 Revise the implementation architecture for exactly the selected target-design
 gap to address the review findings.

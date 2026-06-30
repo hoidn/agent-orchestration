@@ -202,6 +202,28 @@ steps:
                 json_pointer: /active_count
                 type: integer
 
+        - name: ProjectSelectorManifest
+          id: project_selector_manifest
+          command:
+            - python
+            - workflows/library/scripts/project_lisp_frontend_selector_manifest.py
+            - --manifest-path
+            - ${inputs.drain_state_root}/iterations/${loop.index}/manifest.json
+            - --architecture-index-root
+            - ${inputs.architecture_index_root}
+            - --run-state-path
+            - ${inputs.run_state_target_path}
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/selector-manifest.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/selector-manifest.json
+            fields:
+              - name: manifest_path
+                json_pointer: /manifest_path
+                type: relpath
+                under: state
+                must_exist_target: true
+
         - name: PrepareIterationPaths
           id: prepare_iteration_paths
           command:
@@ -497,7 +519,7 @@ steps:
                       post_wcc_inventory_path:
                         ref: inputs.post_wcc_inventory_path
                       manifest_path:
-                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
+                        ref: parent.steps.ProjectSelectorManifest.artifacts.manifest_path
                       progress_ledger_path:
                         ref: inputs.progress_ledger_path
                       run_state_path:
@@ -510,34 +532,51 @@ steps:
                     type: enum
                     allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
                     from:
-                      ref: self.steps.RunPrerequisiteRecoverySelector.artifacts.selection_status
+                      ref: self.steps.WritePrerequisiteRecoverySelection.artifacts.selection_status
                   selection_bundle_path:
                     type: relpath
                     under: state
                     must_exist_target: true
                     from:
-                      ref: self.steps.RunPrerequisiteRecoverySelector.artifacts.selection_bundle_path
+                      ref: self.steps.PublishPrerequisiteRecoverySelectionBundle.artifacts.selection_bundle_path
                 steps:
-                  - name: RunPrerequisiteRecoverySelector
-                    id: run_prerequisite_recovery_selector
-                    call: selector
-                    with:
-                      state_root:
-                        ref: parent.steps.PrepareIterationPaths.artifacts.prerequisite_selector_state_root
-                      steering_path:
-                        ref: inputs.steering_path
-                      target_design_path:
-                        ref: inputs.target_design_path
-                      baseline_design_path:
-                        ref: inputs.baseline_design_path
-                      post_wcc_inventory_path:
-                        ref: inputs.post_wcc_inventory_path
-                      manifest_path:
-                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
-                      progress_ledger_path:
-                        ref: inputs.progress_ledger_path
-                      run_state_path:
-                        ref: inputs.run_state_target_path
+                  - name: WritePrerequisiteRecoverySelection
+                    id: write_prerequisite_recovery_selection
+                    command:
+                      - python
+                      - workflows/library/scripts/write_lisp_frontend_prerequisite_selection.py
+                      - --pre-selection-path
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery.json
+                      - --manifest-path
+                      - ${parent.steps.ProjectSelectorManifest.artifacts.manifest_path}
+                      - --target-design-path
+                      - ${inputs.target_design_path}
+                      - --output
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-selection.json
+                    output_bundle:
+                      path: ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-selection.json
+                      fields:
+                        - name: selection_status
+                          json_pointer: /selection_status
+                          type: enum
+                          allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+                  - name: PublishPrerequisiteRecoverySelectionBundle
+                    id: publish_prerequisite_recovery_selection_bundle
+                    command:
+                      - python
+                      - workflows/library/scripts/publish_lisp_frontend_selection_bundle.py
+                      - --selection-path
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-selection.json
+                      - --output
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-selection-bundle-path.json
+                    output_bundle:
+                      path: ${inputs.drain_state_root}/iterations/${loop.index}/prerequisite-selection-bundle-path.json
+                      fields:
+                        - name: selection_bundle_path
+                          json_pointer: /selection_bundle_path
+                          type: relpath
+                          under: state
+                          must_exist_target: true
               RECOVER_BLOCKED_DESIGN_GAP:
                 id: selector_placeholder_recovery_path
                 outputs: &blocked_selector_placeholder_outputs

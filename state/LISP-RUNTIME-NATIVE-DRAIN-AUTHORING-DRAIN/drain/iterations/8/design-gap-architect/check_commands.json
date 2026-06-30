@@ -5,7 +5,6 @@
   "python -m pytest tests/test_workflow_lisp_build_artifacts.py -k \"typed_prompt_input_report_artifact or rendering_ergonomics_report_artifact or imported_selector_carried_context or boundary_authority_report_keeps_live_work_item_run_state_bridge_visible\" -q",
   "python -m pytest tests/test_workflow_lisp_design_delta_drain_migration_feasibility.py -k \"design_delta_parent_drain and (design_gap_converges_via_recorded_run_state or design_gap_exhausts_without_recorded_progress or public_boundary_source_shape_hides_runtime_inputs)\" -q",
   "python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json",
-  "python -m json.tool workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.consumer_rendering_census.json > /dev/null",
   "python -m json.tool workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.rendering_ergonomics.json > /dev/null",
   "python -m json.tool workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.boundary_authority.json > /dev/null",
   "git diff --check"

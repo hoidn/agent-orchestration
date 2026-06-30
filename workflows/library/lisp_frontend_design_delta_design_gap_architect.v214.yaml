@@ -280,10 +280,8 @@ steps:
         - ${inputs.target_design_path}
         - ${inputs.baseline_design_path}
         - ${inputs.command_adapter_contract_path}
-        - ${inputs.progress_ledger_path}
         - ${inputs.selection_bundle_path}
         - ${inputs.state_root}/architecture-targets.json
-        - ${inputs.state_root}/existing-architecture-index.md
       inject:
         mode: content
         position: prepend
@@ -338,10 +336,8 @@ steps:
               - ${inputs.target_design_path}
               - ${inputs.baseline_design_path}
               - ${inputs.command_adapter_contract_path}
-              - ${inputs.progress_ledger_path}
               - ${inputs.selection_bundle_path}
               - ${inputs.state_root}/architecture-targets.json
-              - ${inputs.state_root}/existing-architecture-index.md
               - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
             inject:
               mode: content
@@ -403,10 +399,8 @@ steps:
                         - ${inputs.target_design_path}
                         - ${inputs.baseline_design_path}
                         - ${inputs.command_adapter_contract_path}
-                        - ${inputs.progress_ledger_path}
                         - ${inputs.selection_bundle_path}
                         - ${inputs.state_root}/architecture-targets.json
-                        - ${inputs.state_root}/existing-architecture-index.md
                         - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
                         - ${parent.steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
                         - ${parent.steps.PrepareArchitectureTargets.artifacts.check_commands_path}

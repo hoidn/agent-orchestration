@@ -16,8 +16,8 @@ Choose `PREREQUISITE_GAP_REQUIRED` when the blocker shows that a different
 missing prerequisite capability or design gap must be completed before this
 selected gap can be implemented.
 
-Choose `TERMINAL_BLOCKED` / `user_decision_required` only when the evidence
-shows one of these terminal categories: a major unresolvable ambiguity in
+Choose `TERMINAL_BLOCKED` / `user_decision_required` only when the blocker
+falls into one of these terminal categories: a major unresolvable ambiguity in
 intention that cannot be resolved by target-design or gap-design revision; an
 environment, access, credential, resource, or local setup failure that requires
 user intervention; or true external authority outside repo-local workflow,

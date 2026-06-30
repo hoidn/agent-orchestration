@@ -48,8 +48,6 @@
   Result: `3 passed, 88 deselected in 10.82s`
 - `python -m orchestrator compile workflows/library/lisp_frontend_design_delta/drain.orc --entry-workflow lisp_frontend_design_delta/drain::drain --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json`
   Result: exit `0`; build root `.orchestrate/build/e77a5add2e35fcc6`; fingerprint `e77a5add2e35fcc6`; `diagnostic_count=2`
-- `python -m json.tool workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.consumer_rendering_census.json > /dev/null`
-  Result: exit `0`
 - `python -m json.tool workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.rendering_ergonomics.json > /dev/null`
   Result: exit `0`
 - `python -m json.tool workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.boundary_authority.json > /dev/null`

@@ -1,6 +1,5 @@
-Read the listed steering, target design, baseline design, command-adapter
-contract, progress ledger, typed design-gap subject record, architecture
-targets, existing implementation architecture index, and drafted
+Read the steering, target design, baseline design, command-adapter contract,
+typed design-gap subject record, architecture targets, and drafted
 implementation architecture before acting.
 
 Review whether the gap design is consistent with the target design.

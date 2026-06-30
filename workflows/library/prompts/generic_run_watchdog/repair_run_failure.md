@@ -9,23 +9,30 @@ Authoritative inputs:
 - Repair result target: `${inputs.repair_result_target_path}`
 - Target run id is recorded inside the watch bundle.
 
+Before acting, use the `managing-workflows` skill. Apply only fixes that are
+needed to recover the target run or its durable workflow mechanics. If a
+provider prompt needs a broader policy change, record that as the repair
+blocker instead of changing unrelated prompt behavior.
+
 Work carefully:
 
-1. Read the watch bundle and evidence bundle.
-2. Identify the root cause from concrete evidence.
+1. Read the watch bundle and the referenced run-failure bundle.
+2. Identify the root cause from the target run's state, logs, or changed files.
 3. Classify the issue as `TRIVIAL` or `NONTRIVIAL`.
 4. If the fix is nontrivial, write an implementation plan under `docs/plans/` before changing behavior.
 5. Implement the minimal principled fix or execute the plan.
 6. Run relevant verification commands for the changed files.
 7. As one of the final actions, either:
    - resume the target run with `python -m orchestrator resume <target_run_id>`;
-   - relaunch or restart using a command justified by the evidence or policy;
-   - decline recovery only when concrete evidence shows recovery is unsafe.
+   - relaunch or restart using the run's recorded command or the workflow's
+     recovery policy;
+   - decline recovery only when the target run cannot be recovered safely.
 
 Do not invent workflow-specific assumptions. Prefer resume over fresh relaunch when the persisted state is usable.
 A one-run workspace patch is not a fix when the same generated workflow surface
-would recreate the failure. Before reporting success, repair the durable generator
-and verify a regenerated surface; report `BLOCKED` only with concrete evidence.
+would recreate the failure. Before reporting success, repair the durable
+generator when that is the root cause and run the narrow check that exercises
+the repaired surface. Report `BLOCKED` only with the specific failed condition.
 
 Do not report `FIXED_AND_RESUMED` just because the run state says `running`.
 After resume, re-read the target `state.json` and verify that the resumed pid is

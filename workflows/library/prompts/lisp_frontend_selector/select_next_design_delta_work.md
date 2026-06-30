@@ -1,11 +1,10 @@
-Read the consumed steering, target design, current-state inventory when
-provided, backlog manifest, progress ledger, and run state before acting.
+Read the consumed steering, target design, active backlog items, and design-gap
+work graph before acting.
 
 Select exactly one next implementation unit for the target design.
 
 Use the target design as the active implementation target. Use the baseline
-design as the parent compatibility contract that the target work must not
-violate.
+design as a background contract that the target work must not violate.
 
 Decision rules:
 
@@ -22,35 +21,12 @@ Decision rules:
 Do not select unrelated baseline/frontend work unless it is required to satisfy
 the target design without violating the baseline design.
 
-If run state contains a blocked design gap with
-`recovery_status: PREREQUISITE_WORK_PENDING`, select or draft the prerequisite
-target design work needed to unblock that gap before unrelated target design work.
-If pre-selection metadata says `recovery_pointer_status: WAITING`, select the
-work named by `waiting_on_work_id` / `waiting_on_work_source` and do not select
-other work first. If it says `READY_TO_RETRY`, retry the blocked work named by
-`retry_target_id` / `retry_target_source`. If it says `INVALID`, return
-`BLOCKED`. For prerequisite recovery, include `prerequisite_relation` only as a
-short explanation.
-If the pending prerequisite already has durable completion evidence, do not
-draft another prerequisite; select the original gap for retry or report BLOCKED
-with stale prerequisite state as the reason.
-
 Refactoring may be selected when it is the best next step toward completing the
 target design, but only as a bounded expansion-enabling pass.
-Do not select work that only preserves a temporary workaround. Select it only if
-it removes the workaround, confines it to an external boundary, or removes a
-specific blocker to deleting it.
-Do not select or draft implementation work only to refresh reports, summaries,
-manifests, inventories, labels, or other derived views. Treat stale derived
-views as closeout follow-up unless the view is the requested product behavior,
-a stable input to normal runtime/product behavior, or evidence that implemented
-behavior is wrong. Acceptance, progress, review, promotion, conformance, and
-closeout evidence are not implementation work just because a design mentions
-them.
-Select implementation work only for source/runtime behavior, authoring surface,
-or contract defects. If the only remaining issue is stale closeout evidence,
-do not turn it into another implementation gap; return `BLOCKED` with stale
-closeout/gate drift as the reason.
+Select implementation work for source/runtime behavior, authoring surface, or
+contract defects required by the target design. If no such target-design work
+can be identified from the available inputs, return `DONE` or `BLOCKED` with a
+short reason.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select target design feature work, `DONE`, or `BLOCKED`.

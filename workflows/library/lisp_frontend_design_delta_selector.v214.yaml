@@ -150,19 +150,10 @@ steps:
       - artifact: baseline_design
         policy: latest_successful
         freshness: any
-      - artifact: post_wcc_inventory
-        policy: latest_successful
-        freshness: any
       - artifact: manifest
         policy: latest_successful
         freshness: any
-      - artifact: progress_ledger
-        policy: latest_successful
-        freshness: any
-      - artifact: run_state
-        policy: latest_successful
-        freshness: any
-    prompt_consumes: ["steering", "target_design", "post_wcc_inventory", "manifest", "progress_ledger", "run_state"]
+    prompt_consumes: ["steering", "target_design", "manifest"]
     output_bundle:
       path: ${inputs.state_root}/selection.json
       fields:

@@ -30,7 +30,7 @@ semantics, or compatibility bundle rereads.
 `allowed_hidden_context_callees` may exist as derived/cache metadata, but the
 authority is the callee hidden requirement plus the caller shape.
 
-Boundary/build evidence may expose `phase-ctx__work-item` as private generated
+Boundary/build metadata may expose `phase-ctx__work-item` as private generated
 metadata. It must not expose `phase-ctx`, `item-ctx`, generated roots, or
 checkpoint paths as public/domain inputs.
 

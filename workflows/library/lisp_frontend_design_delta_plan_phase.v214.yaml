@@ -197,7 +197,7 @@ steps:
       - artifact: progress_ledger
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["steering", "target_design", "baseline_design", "work_item_context", "progress_ledger"]
+    prompt_consumes: ["steering", "target_design", "baseline_design", "work_item_context"]
     expected_outputs:
       - name: plan_path
         path: ${inputs.state_root}/plan_path.txt
