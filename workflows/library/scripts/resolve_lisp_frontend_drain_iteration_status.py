@@ -43,7 +43,7 @@ def _has_recorded_blocked_work(run_state_path: str) -> bool:
     if not state_path.exists():
         raise SystemExit(f"Missing required run state file for BLOCKED drain status: {run_state_path}")
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    return bool(state.get("blocked_items") or state.get("blocked_design_gaps"))
+    return bool(state.get("blocked_items") or state.get("blocked_design_gaps") or state.get("blocked_run"))
 
 
 def main() -> int:
@@ -81,7 +81,7 @@ def main() -> int:
         raise SystemExit(f"Unexpected pre_selection_route: {route}")
 
     if status == "BLOCKED" and args.run_state_path and not _has_recorded_blocked_work(args.run_state_path):
-        raise SystemExit("BLOCKED drain status requires recorded blocked work in run state")
+        raise SystemExit("BLOCKED drain status requires recorded blocked work or run-level blocker in run state")
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -24,6 +24,7 @@ def _load(path: Path) -> dict[str, Any]:
             "completed_design_gaps": [],
             "blocked_items": {},
             "blocked_design_gaps": {},
+            "blocked_run": None,
             "history": [],
         }
     return json.loads(path.read_text(encoding="utf-8"))
@@ -180,6 +181,32 @@ def _record_blocked(
     state.setdefault("history", []).append(history_entry)
 
 
+def _record_run_blocked(
+    state: dict[str, Any],
+    *,
+    reason: str,
+    selection_path: str = "",
+) -> None:
+    selection: dict[str, Any] = {}
+    if selection_path:
+        selection = json.loads(Path(selection_path).read_text(encoding="utf-8"))
+    timestamp = _timestamp()
+    entry = {
+        "reason": reason,
+        "timestamp_utc": timestamp,
+    }
+    selection_rationale = str(selection.get("selection_rationale") or "").strip()
+    blocking_reasons = selection.get("blocking_reasons")
+    if selection_path:
+        entry["selection_path"] = selection_path
+    if selection_rationale:
+        entry["selection_rationale"] = selection_rationale
+    if isinstance(blocking_reasons, list):
+        entry["blocking_reasons"] = blocking_reasons
+    state["blocked_run"] = entry
+    state.setdefault("history", []).append({"event": "run_blocked", **entry})
+
+
 def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
     state.setdefault("history", []).append(
         {
@@ -246,6 +273,10 @@ def main() -> int:
     blocked.add_argument("--blocking-failure-code", default="")
     blocked.add_argument("--retry-condition", default="")
     blocked.add_argument("--recovery-dependency-edge-json", default="")
+    run_blocked = sub.add_parser("run_blocked")
+    run_blocked.add_argument("--reason", required=True)
+    run_blocked.add_argument("--selection-path", default="")
+    run_blocked.add_argument("--drain-status-path")
     design_revision = sub.add_parser("design_revision")
     design_revision.add_argument("--item-id", required=True)
     design_revision.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
@@ -355,6 +386,12 @@ def main() -> int:
                 pointer_path = Path(args.summary_pointer_path)
                 pointer_path.parent.mkdir(parents=True, exist_ok=True)
                 pointer_path.write_text(summary_path.as_posix() + "\n", encoding="utf-8")
+        if args.drain_status_path:
+            status_path = Path(args.drain_status_path)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text("BLOCKED\n", encoding="utf-8")
+    elif args.command == "run_blocked":
+        _record_run_blocked(state, reason=args.reason, selection_path=args.selection_path)
         if args.drain_status_path:
             status_path = Path(args.drain_status_path)
             status_path.parent.mkdir(parents=True, exist_ok=True)

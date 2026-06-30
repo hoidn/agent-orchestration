@@ -788,9 +788,23 @@ steps:
                 steps:
                   - name: WriteBlocked
                     id: write_blocked
-                    set_scalar:
-                      artifact: drain_status
-                      value: BLOCKED
+                    command:
+                      - python
+                      - workflows/library/scripts/update_lisp_frontend_run_state.py
+                      - --state-path
+                      - ${inputs.run_state_target_path}
+                      - run_blocked
+                      - --selection-path
+                      - ${steps.SelectNextWork.artifacts.selection_bundle_path}
+                      - --reason
+                      - selector_blocked
+                      - --drain-status-path
+                      - ${inputs.drain_state_root}/iterations/${loop.index}/selector-blocked-drain-status.txt
+                    expected_outputs:
+                      - name: drain_status
+                        path: ${inputs.drain_state_root}/iterations/${loop.index}/selector-blocked-drain-status.txt
+                        type: enum
+                        allowed: ["CONTINUE", "DONE", "BLOCKED"]
 
         - name: WriteNormalIterationStatus
           id: write_normal_iteration_status
