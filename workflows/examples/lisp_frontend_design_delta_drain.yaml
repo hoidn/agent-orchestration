@@ -788,7 +788,7 @@ steps:
                       command_adapter_contract_path:
                         ref: inputs.command_adapter_contract_path
                       manifest_path:
-                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
+                        ref: parent.steps.ProjectSelectorManifest.artifacts.manifest_path
                       progress_ledger_path:
                         ref: inputs.progress_ledger_path
                       run_state_path:

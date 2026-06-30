@@ -140,10 +140,7 @@ steps:
         - ${inputs.steering_path}
         - ${inputs.target_design_path}
         - ${inputs.baseline_design_path}
-        - ${inputs.post_wcc_inventory_path}
         - ${inputs.manifest_path}
-        - ${inputs.progress_ledger_path}
-        - ${inputs.run_state_path}
         - ${inputs.selection_bundle_path}
       inject:
         mode: content

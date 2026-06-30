@@ -1,5 +1,5 @@
-Read the consumed steering, full design, MVP design, backlog manifest, progress
-ledger, and run state before acting.
+Read the consumed steering, full design, MVP design, and work graph or backlog
+input before acting.
 
 Select exactly one next Lisp frontend implementation work item.
 
@@ -21,11 +21,7 @@ Decision rules:
 
 Refactoring may be selected when it is the best next step toward completing the
 full design, but only as a bounded expansion-enabling pass.
-Do not select or draft implementation work only to refresh reports, summaries,
-manifests, inventories, labels, or other derived views. Treat stale derived
-views as closeout follow-up unless the view is the requested product behavior,
-a stable input to normal runtime/product behavior, or evidence that implemented
-behavior is wrong.
+Do not select or draft implementation work only to refresh derived views.
 
 Do not select refactoring twice in a row. If the most recent completed unit was
 refactoring, select feature work, `DONE`, or `BLOCKED`.
@@ -35,18 +31,15 @@ changes current relied-upon architecture/design docs, update those docs in
 scope. Do not rewrite historical per-gap implementation architecture docs merely
 to match the refactor.
 
-Before returning `DONE`, compare the full design against durable repo evidence:
-source, docs, fixtures, tests, ledgers, and run state. Evaluate obligations from
-the full design itself, not from the set of existing backlog items or design-gap
-directories. A missing work item or design-gap directory is not evidence that an
-obligation is complete.
+Before returning `DONE`, compare the full design against current source,
+runtime, docs, fixtures, and tests. Evaluate obligations from the full design
+itself, not from the set of existing backlog items or design-gap directories.
+A missing work item or design-gap directory is not evidence that an obligation
+is complete.
 
-For any full-design obligation, return `DRAFT_DESIGN_GAP` unless the available
-evidence shows a coherent completed treatment of that obligation, or the full
-design explicitly marks it out of scope. Do not require every obligation to have
-the same evidence shape; use the evidence that is appropriate to the obligation.
-When the ledger says complete but source/docs/fixtures/tests do not support that
-claim, prefer `DRAFT_DESIGN_GAP` over `DONE`.
+For any full-design obligation, return `DRAFT_DESIGN_GAP` unless current
+source/runtime behavior covers it or the full design explicitly marks it out of
+scope.
 
 Make only this step's local selection judgment and explain it. Do not edit
 files, move backlog items, or draft architecture content. For design gaps,

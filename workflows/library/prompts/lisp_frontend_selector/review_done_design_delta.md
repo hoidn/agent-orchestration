@@ -1,34 +1,25 @@
-Read the steering file, target design, baseline design, current-state inventory
-when provided, backlog manifest, progress ledger, run state, and selector DONE
-bundle before acting.
+Read the steering file, target design, compact work graph, and selector DONE
+bundle before acting. Use the baseline design only as a compatibility
+background when needed.
 
 Review whether the selector's DONE candidate is actually justified for the
 target design.
 
 Use the target design as the active implementation target. Use the baseline
 design as the compatibility contract that the target work must not violate.
-Evaluate obligations from the target design itself, not from the presence or
-absence of existing backlog items or design-gap directories.
+Evaluate current source/runtime/authoring behavior against the target design.
+Treat `state/`, `artifacts/`, and `.orchestrate/` as generated run history;
+inspect them only when the selected task is specifically about generated run
+outputs.
 
-Return `APPROVE_DONE` only when durable repo evidence shows the target design
-has no remaining bounded implementation gaps. Use consumed current-state
-inventory as evidence, not as a substitute for checking the target design
-against the checkout. Durable evidence may include source, docs, fixtures,
-tests, ledgers, run state, parity reports, reconciled inventories, and accepted
-waivers. Do not require every obligation to have the same evidence shape; use
-the evidence appropriate to that obligation.
-Before approving, directly compare the target design's success criteria and
-prohibited/final-shape clauses against the current source tree; do not approve
-solely because run state, inventory, parity, or focused tests show no gaps.
+Return `APPROVE_DONE` only when current source/runtime/authoring behavior has
+no remaining bounded target-design gap. Before approving, compare the target
+design's success criteria and prohibited/final-shape clauses against the current
+source tree.
 
-Return `REJECT_DONE` when one next bounded target design gap remains. On
-rejection, identify exactly one gap for the existing design-gap architect step
-to turn into an implementation architecture.
-
-If any consumed current-state source marks a target-design obligation
-unresolved, it continues to block `DONE` until durable evidence shows it is
-completed, superseded, explicitly deferred, or otherwise resolved by higher
-authority.
+Return `REJECT_DONE` when one next bounded source/runtime/authoring gap remains.
+On rejection, identify exactly one gap for the existing design-gap architect
+step to turn into an implementation architecture.
 
 Make only this review judgment. Do not edit files, move backlog items, update
 ledgers, or manage the drain loop.

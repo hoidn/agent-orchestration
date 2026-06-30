@@ -5,6 +5,9 @@ constraints.
 Read the consumed target design, gap architecture, execution plan, execution
 report, checks report, and implementation review report before editing. Fix the
 review findings in a way that preserves the target and gap architecture intent.
+Treat `state/`, `artifacts/`, and `.orchestrate/` as generated run history;
+inspect them only when the selected task is specifically about generated run
+outputs.
 
 Do not satisfy hidden/system-owned context, generated path, checkpoint, or
 boundary findings by fabricating context records or hard-coded generated paths
