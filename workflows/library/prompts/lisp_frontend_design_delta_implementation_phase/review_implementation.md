@@ -12,15 +12,6 @@ execution_report artifacts before acting.
 Review the implementation against the target design, the gap architecture, the
 approved plan, the plan's stated current implementation scope, and any explicit
 deferrals.
-Do not treat generated reports, projections, summaries, preferred packaging, or
-other derived evidence artifacts as blocking by themselves unless they are
-the requested product behavior, a stable input to normal runtime/product
-behavior, or evidence that implemented behavior is wrong. Acceptance, progress,
-review, promotion, conformance, and closeout evidence may block closeout or
-promotion, but they do not block implementation approval by themselves.
-Conversely, do not approve an implementation that only aligns evidence files
-while the claimed source/runtime behavior still fails to compile, run, or meet
-the approved contract.
 
 Your job is to decide whether the delivered implementation is correct,
 maintainable, and honestly scoped.

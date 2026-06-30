@@ -4,7 +4,7 @@ targets, and existing implementation architecture index from the checkout
 before acting.
 
 Draft a single implementation-architecture document for exactly the selected
-target-design gap. The baseline design is a compatibility constraint, not the
+target-design gap. The baseline design is a background constraint, not the
 active work queue. This is an implementation architecture, not a replacement
 product design/spec. Keep the scope bounded to the selected gap. Do not draft
 multiple alternative architectures, do not cover multiple design gaps, and do
@@ -19,8 +19,8 @@ structure guide when helpful. Do not use the general
 template is for system/spec-level designs, not bounded gap architectures.
 Keep procedure out of the architecture file. Describe ownership, constraints,
 allowed and forbidden implementation shapes, source surfaces, and acceptance
-conditions. Do not include task order, command-order checklists, recovery
-procedure, or manifest/report refresh chores.
+conditions. Do not include task order, command-order checklists, or recovery
+procedure.
 
 Stay consistent with existing architecture in the checkout. Reuse established
 module names, data types, and ownership boundaries unless the selected gap

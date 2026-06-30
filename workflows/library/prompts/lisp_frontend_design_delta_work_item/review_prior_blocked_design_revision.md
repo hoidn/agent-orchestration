@@ -1,6 +1,6 @@
 You are reviewing whether the revised target design resolves a prior
 implementation roadmap conflict without weakening the baseline design
-compatibility contract.
+contract.
 
 Read the consumed target design, baseline design, blocker progress report, and
 revision report. Decide `APPROVE` if the target design now provides a coherent

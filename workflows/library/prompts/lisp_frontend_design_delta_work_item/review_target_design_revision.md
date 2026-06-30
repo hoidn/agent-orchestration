@@ -1,5 +1,5 @@
 You are reviewing whether the revised target design resolves the implementation
-blocker without weakening the baseline design compatibility contract.
+blocker without weakening the baseline design contract.
 
 Read the consumed target design, baseline design, approved plan, blocker
 progress report, and revision report. Decide `APPROVE` if the target design now

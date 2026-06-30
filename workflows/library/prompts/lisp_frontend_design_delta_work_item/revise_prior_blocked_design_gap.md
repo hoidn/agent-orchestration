@@ -17,7 +17,7 @@ authority for what may be edited:
   revise the target design, baseline design, or current gap architecture/plan
   just to encode prerequisite sequencing. If this route reaches the prompt,
   write a revision report with `design_revision_decision: "BLOCKED"` and explain
-  that prerequisite routing/evidence must be updated instead of revising design
+  that prerequisite routing must be updated instead of revising design
   documents.
 
 Make the smallest principled design change that resolves the blocker and gives a

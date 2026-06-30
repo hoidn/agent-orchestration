@@ -18,8 +18,8 @@ Keep the scope bounded to the selected gap. Preserve coherence with prior
 implementation architecture documents and do not redefine shared concepts unless
 the review report requires a clearly justified correction.
 Keep procedure out of the architecture file. Task order, command-order
-checklists, workflow recovery procedure, and manifest/report refresh chores
-do not belong in `implementation_architecture.md`.
+checklists, and workflow recovery procedure do not belong in
+`implementation_architecture.md`.
 
 Do not edit source code, backlog queues, run state, or unrelated docs.
 

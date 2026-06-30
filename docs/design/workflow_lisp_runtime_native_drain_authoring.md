@@ -24,16 +24,15 @@ Authority:
   retirement, and Design Delta cleanup; current contracts live in the frontend
   specification where incorporated.
 - `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
-  owns the private-checkpoint and consumer-rendering substrate.
+  owns the private-checkpoint and consumer value-flow substrate.
 - `docs/design/workflow_lisp_generic_resource_context_core.md` owns the
   simplified generic resource/context model.
 - `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
   owns parent-callable workflow-family migration and promotion evidence.
 - `docs/design/workflow_command_adapter_contract.md` owns certified adapter
   boundaries.
-- Private binding, provider target binding, and bridge metadata grammar are
-  owned by the frontend/value-flow specs; this document requires evidence that
-  the reference family uses those contracts correctly.
+- Private binding and provider target binding grammar are owned by the
+  frontend/value-flow specs.
 - This document does not by itself promote any `.orc` workflow to primary
   surface.
 
@@ -121,40 +120,6 @@ targets, and view paths. Those values must be visible in executable contracts,
 source maps, Semantic IR, and build evidence, but not as public authored
 workflow inputs.
 
-### 2.1 Reference-Family Closeout Profile
-
-The Design Delta parent-family route is implemented as a parent-callable `.orc`
-family in the current checkout, but this document is a stricter authoring
-target and regression checklist. Closeout or promotion reports that claim this
-target may include or link a conformance profile for the reference family:
-
-| Surface | Current evidence source | Target question |
-| --- | --- | --- |
-| Parent-callable `.orc` route | `workflows/library/lisp_frontend_design_delta/drain.orc`; capability matrix | Does the parent family compile and smoke through WCC as one family? |
-| Public/private boundary | `design_delta_parent_drain.boundary_authority.json`; build boundary report | Are public inputs limited to public-authored values and labeled compatibility bridges? |
-| Provider inputs | `.orc` provider-result call sites; typed prompt-input report | Do nontrivial provider calls use typed prompt-subject records instead of long flat lists? |
-| Provider write targets | provider-result target policy or target-binding evidence | Are output/report targets role-classified separately from prompt facts? |
-| Body renderings | `.orc` `materialize-view` sites; rendering cleanup report | Are remaining body renderings timed publications or compatibility fixtures? |
-| Compatibility files | bridge metadata or boundary authority rows | Are legacy files generated from typed values with owner, schema, consumer, and retirement condition? |
-| Deterministic helpers | `design_delta_parent_drain.commands.json`; adapter census | Are local reshaping helpers retired to typed projection or certified with fixtures? |
-| Durable state changes | `deftransition` / `resource-transition` sites; transition audit evidence | Do state updates use meaningful typed transition contracts or certified transition adapters? |
-
-This profile prevents two mistakes: treating implemented parent-callability as
-proof of the stricter authoring shape, and treating this target as a live status
-report. The profile is closeout evidence, not ordinary implementation work:
-stale profile rows, inventory rows, summaries, or indexes do not by themselves
-justify selecting a design gap unless they expose a real defect in runtime
-authoring behavior or a broken normal consumer interface.
-
-Implementation slices for this target are source-and-behavior first. They must
-clear the local compile/type/runtime failure they claim to address, with focused
-tests for edited contracts and one integration or smoke check when runnable.
-Conformance profiles, parity reports, manifests, inventories, checked
-summaries, status labels, and promotion evidence are closeout artifacts unless
-they are direct runtime inputs or prove current behavior is wrong. Stale
-closeout artifacts should be recorded as follow-up cleanup, not selected as an
-implementation gap.
-
 ## 3. Problem
 
 Migrated drain families can expose too much non-domain bookkeeping at the
@@ -190,7 +155,7 @@ resume, parity evidence, and authoring guidance.
   write roots out of public authored boundaries and ordinary user-facing call
   signatures.
 - Render typed values at consumer seams: provider prompt injection, public
-  workflow publication, observability, or compatibility bridges.
+  workflow publication, or observability.
 - Reserve body-level `materialize-view` for justified timed publications and
   low-level compatibility work.
 - Replace deterministic Python helpers with pure typed projections where the
@@ -482,39 +447,11 @@ Accepted entry-boundary policy shape:
 The authored body should not contain terminal `materialize-view` boilerplate
 for ordinary public reports.
 
-### 7.6 Compatibility Bridges
+### 7.6 Legacy Boundary Files
 
-Legacy files should be driven by bridge metadata:
-
-Illustrative metadata shape:
-
-```lisp
-(:bridge
-  ((legacy-selection-bundle
-     :from selection
-     :renderer canonical-json
-     :schema design-delta-selection-bundle.v1
-     :retire-after design-delta-yaml-primary-retired)))
-```
-
-Deleting or expiring the bridge metadata retires the file. The workflow body
-does not hand-author path construction for the bridge. Until a concrete `.orc`
-bridge declaration surface is accepted, equivalent manifest or boundary metadata
-is acceptable if it records the typed source value, renderer, schema/version,
-consumer, owner, and retirement condition.
-
-Bridge metadata is a boundary mechanism, not ordinary internal composition.
-Completion requires compatibility bridges to be retired from internal `.orc`
-workflow bodies. Any remaining bridge must be isolated at a declared public or
-legacy boundary with owner, consumer, schema/renderer, authority class, and
-retirement condition or explicit permanence rationale. A bridge must not
-compensate for missing typed projection, private context, resource transition,
-provider target binding, or stdlib composition.
-
-Bridge work is not an independent target lane. It is selectable only when it
-removes a bridge, moves a bridge to a declared public/legacy boundary, or
-replaces bridge-dependent internal composition with typed stdlib/family
-composition.
+Legacy files should be deleted when no named public or legacy consumer remains.
+The workflow body must not hand-author path construction for those files or use
+them for internal composition.
 
 For the Design Delta reference family, this specifically requires retiring
 internal `*-compat` adapter procedures for selected-item, plan, implementation,
@@ -526,9 +463,7 @@ between ordinary `.orc` modules.
 Completion also requires removing Design Delta-specific bridge augmentation
 hooks from core compiler modules. Core compilation must not branch on
 `lisp_frontend_design_delta/*` workflow names to inject runtime summary bridges
-or other family-specific compatibility artifacts. Any retained bridge must be
-declared through generic `.orc` boundary/publication syntax or generic
-build/parity metadata outside the core compiler path.
+or other family-specific compatibility artifacts.
 
 ### 7.7 Private Context Parameters In Source
 
@@ -584,11 +519,10 @@ The Workflow Lisp frontend must:
   none;
 - infer consumer-slot rendering where a unique renderer and authority class
   exists;
-- lower publication policy and bridge metadata to materialized-view kernel
-  operations;
+- lower publication policy to materialized-view kernel operations;
 - keep private context bindings out of public authored boundaries;
 - emit source maps and Semantic IR entries for inferred context, projection,
-  rendering, bridge, and transition effects; and
+  rendering, and transition effects; and
 - reject ambiguous renderer selection or unclassified path plumbing with
   actionable diagnostics.
 
@@ -598,7 +532,7 @@ The runtime must:
 
 - preserve provider and command structured-output authority;
 - validate provider and command output bundles, resource transitions, resume
-  records, and published/bridged views against the projected executable
+  records, and published views against the projected executable
   contracts rather than generated names or path conventions;
 - provide private execution context needed for generated paths and resume;
 - render typed prompt inputs at provider prompt composition;
@@ -607,7 +541,7 @@ The runtime must:
   full artifact body;
 - execute or delegate typed resource transitions with version, idempotency,
   conflict, and audit semantics;
-- materialize boundary publications and bridges from typed values; and
+- materialize boundary publications from typed values; and
 - keep materialized views as views unless a contract explicitly makes them a
   public artifact.
 
@@ -629,33 +563,31 @@ retained adapter must declare:
 ### 8.4 Migration Parity
 
 The parity layer must compare typed terminal results, public outputs,
-artifacts, resource-transition evidence, resume/reuse behavior, and accepted
-compatibility bridges. It must not treat successful compile, dry-run, or a
-rendered summary as primary-surface promotion.
+artifacts, resource-transition behavior, and resume/reuse behavior. It must not
+treat successful compile, dry-run, or a rendered summary as primary-surface
+promotion.
 
 Parity is behavioral and contractual, not mechanical. It must not require the
 `.orc` implementation to reproduce the YAML workflow's internal state-machine
 mechanics, queue-file choreography, helper-script boundaries, checkpoint file
 layout, or path-by-path update order. A different implementation shape is valid
 when it preserves the public contract, typed terminal outcomes, declared
-resource-transition semantics, artifact/public-output obligations, resume/reuse
-contract, and accepted compatibility surfaces.
+resource-transition semantics, artifact/public-output obligations, and
+resume/reuse contract.
 
 ## 9. Dependencies And Sequencing
 
 This target consumes the existing WCC route and post-foundation composition
 work. Implementation should proceed in this order:
 
-1. classify path-like and render-like fields in the Design Delta `.orc` family
-   as public authored input, private runtime context, generated internal,
-   materialized view, public publication, or compatibility bridge;
+1. identify path-like and render-like fields in the Design Delta `.orc` family
+   that should be replaced by typed values or private runtime context;
 2. introduce typed prompt-input request records for provider calls;
 3. replace deterministic helper scripts with pure typed projections where the
    closed expression surface is sufficient;
 4. move ordinary terminal summaries and reports to boundary publication policy;
-5. move legacy bundle and pointer files to bridge metadata;
-6. hide runtime context and generated targets behind private bindings;
-7. convert durable state updates to typed transitions or certified transition
+5. hide runtime context and generated targets behind private bindings;
+6. convert durable state updates to typed transitions or certified transition
    adapters;
 8. keep external tools and remaining legacy protocol work behind certified
    adapters; and
@@ -692,7 +624,7 @@ The minimum contract is:
   and authored exhaustion.
 
 Until that shared contract exists, a family may still adopt request-record,
-projection, transition, publication, and bridge cleanup slices, but it must not
+projection, transition, and publication slices, but it must not
 claim imported `backlog-drain` adoption by re-implementing missing parent-loop
 behavior in family-local adapters or handwritten compatibility wrappers.
 
@@ -702,9 +634,8 @@ For families whose promoted route preserves imported `std/drain::backlog-drain`
 as a callable owner boundary, the shared parent/drain owner lane must first
 prove ordinary typed child value return. A simple call to imported
 `backlog-drain` should return `DrainResult<TSummary>` to the parent without
-requiring terminal publication, summary materialization, compatibility bridge
-writing, run-state-file mutation, or drain-outcome recording as part of value
-return.
+requiring terminal publication, summary materialization, run-state-file
+mutation, or drain-outcome recording as part of value return.
 
 The minimum contract is:
 
@@ -716,9 +647,9 @@ The minimum contract is:
   to stale direct `EmitDrain*`-style normalization or caller-owned terminal
   fan-in;
 - optional terminal effects such as `record-drain-outcome`, public
-  publication, YAML compatibility bridge writing, audit projection, or
-  external resource mutation are expressed as explicit boundary/resource forms
-  outside the core `backlog-drain` value-return contract;
+  publication, audit projection, or external resource mutation are expressed as
+  explicit boundary/resource forms outside the core `backlog-drain`
+  value-return contract;
 - shared validation accepts the loop-frame refs, nested-step refs, and
   exhaustion-carried terminal fields required by that route, with authored
   exhaustion staying within the accepted `repeat_until` output constraints
@@ -739,18 +670,17 @@ The minimum owner-lane proof for this contract is:
   same-file promoted-callable `backlog-drain` authoring shapes without
   reopening handwritten terminal normalization.
 
-If a family still needs durable terminal effects, those effects are separate
-evidence:
+If a family still needs durable terminal effects, those effects are separate:
 
-- `:publish` or bridge metadata materializes public/legacy terminal summaries
-  from the returned typed value;
+- `:publish` materializes public terminal summaries from the returned typed
+  value;
 - a named domain transition records external resource state when there is a
   real external resource to mutate; and
-- compatibility helpers such as `record-drain-outcome` remain library or bridge
-  helpers, not prerequisites for returning `DrainResult<TSummary>`.
+- helpers such as `record-drain-outcome` are not prerequisites for returning
+  `DrainResult<TSummary>`.
 
 Until that proof exists, a family may still adopt request-record, projection,
-transition, publication, and bridge cleanup slices, but it must not claim full
+transition, and publication slices, but it must not claim full
 imported `backlog-drain` adoption on the callable owner-boundary route when the
 child terminal value path still depends on compatibility-only normalization,
 run-state-file side effects, or family-local repair wrappers.
@@ -765,17 +695,17 @@ separates four lanes:
 - variant/provenance preservation: refined match binders, `requires_variant`
   provenance, source maps, and variant-scoped contracts survive child calls and
   terminal reprojection;
-- declared terminal effects: publication, bridge generation, resource
-  transition, adapter calls, or external audit events run only when explicitly
-  declared by a boundary/resource contract; and
-- migration evidence: parity compares public behavior, typed terminal results,
-  declared resource effects, artifacts, resume/reuse behavior, and accepted
-  bridges without becoming internal authoring semantics.
+- declared terminal effects: publication, resource transition, adapter calls,
+  or external audit events run only when explicitly declared by a
+  boundary/resource contract; and
+- migration checks compare public behavior, typed terminal results, declared
+  resource effects, artifacts, and resume/reuse behavior without becoming
+  internal authoring semantics.
 
 Pure helpers, effectful procedures, and workflow entrypoints share the same
 typed return-value model. A `defworkflow` is special because it is an
 executable/resumable boundary with declared effects and runtime evidence, not
-because return values are transported through publication, bridge, or
+because return values are transported through publication or
 terminal-finalization machinery.
 
 Any proposed `record-drain-outcome`-style helper must first answer which
@@ -807,8 +737,7 @@ The minimum contract is:
   proof-bearing `match` and construct the family/public terminal union without
   reintroducing a handwritten select/run/gap loop, handwritten terminal fan-in,
   or compatibility-script routing;
-- source maps, proof provenance, transition/publication evidence, and
-  boundary-authority labeling remain attached to both the imported
+- source maps and proof provenance remain attached to both the imported
   `backlog-drain` result and the projected terminal result; and
 - the accepted route does not depend on nesting imported `backlog-drain`
   inside unsupported local-control positions whose only purpose is terminal
@@ -822,11 +751,10 @@ fixture that exercises this exact shape:
   publication policy;
 - no handwritten parent loop or handwritten drain-terminal compatibility path;
   and
-- preserved source-map and boundary-authority evidence for the projected
-  terminal result.
+- preserved source-map provenance for the projected terminal result.
 
 Until that proof exists, a family may still adopt request-record, projection,
-transition, publication, and bridge cleanup slices, but it must not claim full
+transition, and publication slices, but it must not claim full
 imported `backlog-drain` adoption when the only remaining route depends on
 unsupported local-control nesting or a restored handwritten terminal fan-in.
 
@@ -848,8 +776,8 @@ The minimum contract is:
   field name or carry every child-only field as a public output, provided the
   projection uses those fields through ordinary typed/proved bindings while the
   imported variant scope is still active;
-- source maps, `requires_variant` provenance, executable contract lineage, and
-  boundary-authority labeling remain attached from the imported stdlib result
+- source maps, `requires_variant` provenance, and executable contract lineage
+  remain attached from the imported stdlib result
   through that branch-local field consumption and into the projected terminal
   value or boundary publication; and
 - the accepted route does not depend on widening the family/public boundary
@@ -866,8 +794,8 @@ The minimum owner-lane proof for this contract is:
 - one ordinary typed `match` route where the parent consumes that field and
   produces the family/public terminal union or publication policy result
   without adding the child field to the public boundary just for transport; and
-- preserved source-map and boundary-authority evidence for both the imported
-  child result and the projected parent terminal value.
+- preserved source-map provenance for both the imported child result and the
+  projected parent terminal value.
 
 Until that proof exists, a family may not treat a simpler terminal
 reprojection fixture as sufficient when its actual public/parity boundary still
@@ -892,8 +820,8 @@ minimum contract is:
   WCC/schema-2 callable-boundary route using workflow inputs or prior outputs
   from the imported route, rather than requiring family-local rereads or
   compatibility bundles to reconstruct the payload;
-- source maps, route identity, managed child-call ownership, and
-  boundary-authority labeling remain attached from the imported selector/loop
+- source maps, route identity, and managed child-call ownership remain attached
+  from the imported selector/loop
   route to the `gap-drafter` call; and
 - the accepted route does not depend on family-local wrapper or projector
   workflows whose only purpose is to smuggle selector-produced gap fields
@@ -909,11 +837,10 @@ fixture that exercises this exact shape:
 - a `gap-drafter` child workflow call through the fixed stdlib signature;
 - no widened `gap-drafter` arity, public path threading,
   compatibility-bundle reread, or placeholder-carrier fabrication; and
-- preserved source-map and route-identity evidence for selector and
-  `gap-drafter` child calls.
+- preserved source-map provenance for selector and `gap-drafter` child calls.
 
 Until that proof exists, a family may still adopt request-record, transition,
-publication, bridge, and other parent/work-item cleanup slices that do not
+publication, and other parent/work-item cleanup slices that do not
 depend on reachable imported-gap execution, but it must not claim full
 imported `backlog-drain` adoption when the reachable `GAP` lane still depends
 on family-local payload-smuggling wrappers or reopened call boundaries.
@@ -983,8 +910,7 @@ The minimum owner-lane proof for this contract is:
   that recorded progress;
 - one negative or exhaustion proof where absent progress evidence still yields
   `max_iterations_exhausted`; and
-- preserved source-map, transition-audit, and boundary-authority evidence for
-  the recorded progress state.
+- preserved source-map provenance for the recorded progress state.
 
 For the Design Delta reference family, this prerequisite is separate from the
 shared `gap-drafter` callable-boundary proof: fixed `DrainCtx + gap payload`
@@ -1061,7 +987,7 @@ or caller-specific allowlist. The minimum proof for this contract shows that:
   than by a family-specific proof caller name or one-off Design Delta branch.
 
 Until that shared contract exists, a family may still adopt request-record,
-projection, transition, publication, bridge, and shared parent-loop cleanup
+projection, transition, publication, and shared parent-loop cleanup
 slices, but it must not claim the simplified internal-signature plus
 imported-child stdlib route for ordinary work-item composition.
 
@@ -1101,7 +1027,7 @@ fixture that exercises this exact shape:
   terminal projection.
 
 Until that proof exists, a family may still adopt the parent-loop, request-
-record, projection, transition, publication, and bridge slices that do not
+record, projection, transition, and publication slices that do not
 depend on this branching shape, but it must not claim completion of the
 simplified item-context-first child-phase reuse route.
 
@@ -1127,37 +1053,25 @@ The only accepted outcomes are:
 
 - remove the carrier by passing typed values and using runtime-owned
   checkpoint/resource state;
-- move the consumer to a declared public or legacy boundary bridge; or
 - stop the current slice and select the prerequisite that removes the carrier.
 
 A gap must not make progress claims by threading the carrier through more
 domain payloads, widening workflow-ref signatures, adding family-local wrapper
-workflows, or aligning manifests whose only purpose is to keep the carrier
-alive.
+workflows, or other changes whose only purpose is to keep the carrier alive.
 
 #### 9.2.5 Work-Item Summary Ownership Over Imported `finalize-selected-item`
 
 For families whose selected-item route still produces ordinary terminal or
 blocked-recovery summary files inside the work-item body, imported
 `finalize-selected-item` adoption requires one additional family-owned
-prerequisite: summary durability must move to declared boundary publication or
-compatibility-bridge lanes rather than staying a hidden precondition for
-terminal typed return.
+prerequisite: summary files must stop being a hidden precondition for terminal
+typed return.
 
 The minimum contract is:
 
-- imported `finalize-selected-item` may consume typed summary values, accepted
-  exact-path carriers, or deliberate boundary or bridge views, but it must not
-  require body-owned summary materialization in order to return the typed
-  `SelectedItemResult`;
-- if parity or legacy consumers still need an exact-path work-item summary
-  file, that file is emitted by declared boundary publication or
-  compatibility-bridge metadata, not by ad hoc body-level `materialize-view`
-  or helper-owned summary writers in the finalizer branch;
-- source maps and boundary reports classify the summary lane as typed value,
-  `public_artifact`, `materialized_view`, or `compatibility_bridge` as
-  appropriate, rather than letting rendered summary paths become semantic
-  authority; and
+- imported `finalize-selected-item` may consume typed summary values, but it
+  must not require body-owned summary materialization in order to return the
+  typed `SelectedItemResult`;
 - the accepted route does not keep `record-work-item-terminal-outcome`,
   `record-work-item-blocked-recovery-summary`, or equivalent family-local
   summary writers as the mechanism that allows imported
@@ -1168,8 +1082,6 @@ The minimum owner-lane proof for this contract is:
 - one compile/shared-validation or runtime smoke fixture where imported
   `finalize-selected-item` returns the typed work-item terminal result without
   relying on body-owned summary materialization;
-- one boundary or bridge proof for any retained exact-path summary consumer on
-  the same route; and
 - one negative proof that interior field-level publication or
   rendered-summary-as-authority still fails the promoted route.
 
@@ -1211,7 +1123,7 @@ The minimum contract is:
   scope to patch shared stdlib/compiler semantics under a family migration gap.
 
 Until that shared contract exists, a family may still adopt request-record,
-projection, transition, publication, bridge, parent-loop, and phase-boundary
+projection, transition, publication, parent-loop, and phase-boundary
 cleanup slices that do not depend on the broken `std/phase` owner lane, but it
 must not claim completion of the imported child-phase/stdlib route.
 
@@ -1230,8 +1142,6 @@ must not claim completion of the imported child-phase/stdlib route.
   targets are explicitly classified as provider write targets, not semantic
   prompt facts.
 - Ambiguous renderer selection fails before execution.
-- A compatibility bridge without owner, source typed value, renderer, schema,
-  and retirement metadata is invalid for new high-level `.orc`.
 - A deterministic projection implemented by Python remains migration debt
   unless certified and justified.
 - A resource transition must fail closed on version mismatch, undeclared
@@ -1242,7 +1152,7 @@ must not claim completion of the imported child-phase/stdlib route.
   promoted routes unless an explicit compatibility policy allows
   normalization, and diagnostics point back to authored union/record fields.
 - Source maps are part of the contract boundary for promoted routes. Runtime
-  output, resource, publication, bridge, and resume failures must be traceable
+  output, resource, publication, and resume failures must be traceable
   from concrete bundle keys, JSON pointers, paths, or resources back to the
   authored type, variant, field, binder, projection, or transition.
 - Terminal records, summaries, bridges, audit entries, and resource transitions
@@ -1393,8 +1303,6 @@ or exact YAML state-machine mechanics.
 - Provider output remains the declared structured bundle, not prompt evidence.
 - Boundary publication materializes terminal summaries from typed terminal
   results.
-- Compatibility bridge files are generated from bridge metadata and typed
-  values.
 - Resource transitions validate versions, idempotency keys, write sets, and
   audit projections.
 - Resume does not require public authored checkpoint or generated path inputs.
@@ -1435,18 +1343,11 @@ shape exposes domain workflow logic instead of routine runtime bookkeeping.
 Before full reference-family acceptance, implementation must pass a staged proof
 ladder:
 
-This ladder is a closeout/promotion check over implemented behavior, not a
-backlog of implementation slices. Missing or stale proof artifacts should be
-recorded as closeout follow-up unless they demonstrate that the normal `.orc`
-authoring/runtime behavior is wrong.
-
 - typed provider request-record fixture with prompt rendering evidence;
 - provider write-target fixture proving targets are role-classified separately
   from prompt-subject data;
 - boundary `:publish` fixture proving terminal publication lowers to
   materialized-view kernel operations;
-- bridge metadata fixture, or manifest-backed equivalent, proving compatibility
-  files are generated from typed source values;
 - contract-projection fixture proving provider/command result validation,
   source maps, resume/parity metadata, and executable output/resource/artifact
   contracts are derived from the same type/WCC authority model, including
@@ -1507,8 +1408,7 @@ authoring/runtime behavior is wrong.
 - work-item summary-ownership proof, when the selected-item route still
   carries ordinary terminal or blocked-recovery summary files, showing
   imported `finalize-selected-item` returns typed results without body-owned
-  summary materialization and that any retained exact-path summaries stay on
-  declared publication or compatibility-bridge lanes;
+  summary materialization;
 - shared `std/phase` owner-lane self-hosting proof, when the family depends on
   imported `review-revise-loop`, `phase-scope`, or related builtin phase
   helpers, showing the builtin module resolves and exports
@@ -1547,7 +1447,7 @@ The target is complete only when the Design Delta Drain `.orc` family:
 - does not rely on retained internal compatibility carriers such as
   `run_state_path` for ordinary stdlib child-call composition;
 - uses imported `finalize-selected-item` only where ordinary work-item summary
-  durability already sits on boundary publication or declared bridge lanes, so
+  durability is not an interior summary-materialization prerequisite, so
   the selected-item route no longer depends on interior summary
   materialization to reach terminal typed return;
 - depends on imported `std/phase` review/fix helpers only where the shared
@@ -1564,15 +1464,12 @@ The target is complete only when the Design Delta Drain `.orc` family:
   where the closed expression surface is sufficient;
 - represents durable drain/work-item/recovery state changes as named domain
   operations that lower to typed transitions or certified transition adapters;
-- uses boundary publication or bridge metadata for ordinary summaries,
-  reports, selection bundles, and compatibility files;
 - contains no body-level `materialize-view` except justified timed
   publications or low-level compatibility fixtures;
 - keeps remaining Python helpers only as certified adapters with fixtures and
   source-map/effect evidence;
-- retires transitional compatibility bridges that are not required for public
-  parity or legacy consumers, and keeps any retained bridge isolated at a
-  declared boundary with retirement evidence;
+- retires transitional compatibility surfaces from ordinary internal
+  composition;
 - represents phase, item, drain, selection, and recovery behavior through
   library/domain records and imported stdlib/family modules over the generic
   resource/context core, not through family-specific compiler branches;
@@ -1673,11 +1570,10 @@ This target succeeds when:
   ordinary stdlib child-call composition or isolated at a declared public/legacy
   boundary before the route is counted as target-complete;
 - when imported `finalize-selected-item` is used on the selected-item route,
-  ordinary work-item summary files are boundary/publication or
-  compatibility-bridge effects rather than body-owned prerequisites for typed
+  ordinary work-item summary files are not body-owned prerequisites for typed
   terminal return;
 - parent composition consumes child workflow results as ordinary typed values;
-  publication, bridge generation, resource transitions, and adapter calls are
+  publication, resource transitions, and adapter calls are
   declared effects over those values, not prerequisites for returning them;
 - the common drain body uses named domain operations rather than exposing
   routine runtime bookkeeping;
@@ -1697,17 +1593,13 @@ This target succeeds when:
   adapters;
 - remaining Python helpers are certified external/legacy boundaries, not
   hidden semantic glue;
-- transitional compatibility bridges are retired from ordinary internal `.orc`
-  composition; any retained bridge is isolated at a declared public or legacy
-  boundary with owner, consumer, schema/renderer, authority class, and
-  retirement condition or explicit permanence rationale;
+- transitional compatibility surfaces are retired from ordinary internal `.orc`
+  composition;
 - Design Delta selected-item, plan, implementation, and finalization
   `*-compat` adapter procedures are retired from internal work-item routing in
   favor of a family-native typed finalizer or generic stdlib finalizer protocol;
 - Design Delta-specific compile-result augmentation hooks are removed from core
-  compiler modules; retained summary/publication bridge behavior is declared by
-  generic boundary syntax or generic build/parity metadata instead of workflow
-  name checks;
+  compiler modules;
 - phase/drain/item/recovery behavior is implemented as ordinary stdlib or
   family-library Workflow Lisp over generic context/resource mechanics rather
   than as family-specific compiler lowering;
@@ -1741,9 +1633,9 @@ Revise this target if implementation requires:
 - working around missing shared callable-child value-return support by
   restoring direct `EmitDrain*`-style terminal normalization, family-local
   finalizer wrappers, same-file-only terminal special cases, or ad hoc
-  exhaustion overrides, or by making `record-drain-outcome`/publication/bridge
-  side effects prerequisites for simple `DrainResult<TSummary>` return instead
-  of landing the separate prerequisite gap in Section 9.1.0;
+  exhaustion overrides, or by making side effects prerequisites for simple
+  `DrainResult<TSummary>` return instead of landing the separate prerequisite
+  gap in Section 9.1.0;
 - working around missing shared `gap-drafter` callable-boundary support by
   widening the imported `gap-drafter` workflow-ref shape, flattening typed gap
   payloads into public or path-heavy parameters, rereading compatibility
@@ -1773,29 +1665,23 @@ Revise this target if implementation requires:
   landing the shared phase-family prerequisite;
 - working around an internal compatibility carrier by surfacing it as a public
   or ordinary authored parameter, treating it as private runtime context,
-  aligning manifests to keep it alive, or inserting family-local wrapper
-  workflows instead of removing it or moving it to a declared boundary;
+  or inserting family-local wrapper workflows instead of removing it;
 - working around missing work-item summary ownership over imported
   `finalize-selected-item` by keeping body-level summary writers or
   `materialize-view` calls as prerequisites for terminal return, or by
   treating rendered summary paths as semantic authority, instead of landing
-  the separate prerequisite gap in Section 9.2.5 and the existing
-  boundary-publication lane;
-- selecting additional compatibility-bridge work unless the selected work
-  directly deletes a bridge, moves it to a declared boundary, or replaces it
-  with typed composition;
+  the separate prerequisite gap in Section 9.2.5 and deleting the summary lane
+  unless a named public or legacy consumer still requires it;
 - working around missing called-workflow result branching support by splitting
   ordinary work-item routing into family-local wrapper workflows, compatibility
   bundle rereads, or other proof-preserving facsimiles instead of landing the
   shared prerequisite in Section 9.2.3;
-- keeping Design Delta-specific bridge augmentation in core compiler modules
-  instead of moving retained bridge/publication behavior to generic declaration
-  or build/parity metadata;
+- keeping Design Delta-specific bridge augmentation in core compiler modules;
 - patching a missing shared `std/phase` type/export/import-resolution contract
   inside a family migration slice instead of landing a separate owner-lane
   prerequisite gap first;
-- preserving compatibility bridge scaffolding or Design-Delta-specific
-  phase/drain compiler hooks as the final implementation shape;
+- preserving compatibility scaffolding or Design-Delta-specific phase/drain
+  compiler hooks as the final implementation shape;
 - making consumer rendering invisible in Semantic IR or source maps; or
 - depending on a special-case drain compiler branch instead of WCC and ordinary
   stdlib composition.
@@ -1827,10 +1713,8 @@ A later implementation plan should be organized around the reference family:
    publication;
 4. convert deterministic helpers to typed projections;
 5. convert state updates to typed transitions or certified adapters;
-6. move compatibility files to bridge metadata;
-7. simplify the `.orc` source;
-8. run compile, shared validation, and focused dry-run/smoke checks for the
+6. simplify the `.orc` source;
+7. run compile, shared validation, and focused dry-run/smoke checks for the
    changed behavior; and
-9. record closeout or promotion follow-ups for stale conformance, parity,
-   manifest, or migration evidence after the working reference family proves
-   the behavior.
+8. remove obsolete follow-up text after the working reference family proves the
+   behavior.
