@@ -561,6 +561,59 @@ def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
 
 
+def test_architecture_validator_rejects_run_scoped_paths_in_durable_docs(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    architecture_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    plan_target_path = workspace / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text(
+        "# Parser Syntax Architecture\n\n"
+        "- `state/workflow_lisp/calls/20260701T000000Z-run/root/work_item_context.md`\n",
+        encoding="utf-8",
+    )
+    plan_target_path.write_text(
+        "# Parser Syntax Plan\n\n"
+        "- `state/LISP-DRAIN/drain/iterations/1/recovered-gap/work_item_context.md`\n",
+        encoding="utf-8",
+    )
+    context_path.write_text("# Parser Syntax Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -c \"print('gap-check')\""]) + "\n", encoding="utf-8")
+    draft_path = workspace / "state/gap/draft-bundle.json"
+    draft_path.write_text(
+        json.dumps(
+            {
+                "draft_status": "DRAFTED",
+                "design_gap_id": "parser-syntax",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": plan_target_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = workspace / "state/gap/validation.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py"),
+        "--draft-bundle-path",
+        draft_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["architecture_validation_status"] == "INVALID"
+    assert "must not embed generated run-scoped path" in payload["reason"]
+    assert "work_item_bundle_path" not in payload
+
+
 def test_architecture_validator_requires_approved_review_when_provided(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)

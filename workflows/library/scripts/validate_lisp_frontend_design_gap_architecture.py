@@ -5,11 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path.cwd()
+EPHEMERAL_DURABLE_DOC_PATTERNS = (
+    re.compile(r"state/workflow_lisp/calls/[A-Za-z0-9][^\s`)]*"),
+    re.compile(r"state/[^\s`)]*/drain/iterations/\d+[^\s`)]*"),
+)
 
 
 def _load_json(path: Path) -> Any:
@@ -50,6 +55,20 @@ def _validate_current_target(draft: dict[str, Any], targets: dict[str, Any]) -> 
         if draft_value != target_value:
             raise ValueError(
                 f"Draft field {field}={draft_value!r} does not match current architecture target {target_value!r}"
+            )
+
+
+def _validate_durable_doc_body(path: Path) -> None:
+    if not path.exists():
+        return
+    text = path.read_text(encoding="utf-8")
+    for pattern in EPHEMERAL_DURABLE_DOC_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            raise ValueError(
+                f"Durable design-gap document {path.relative_to(REPO_ROOT).as_posix()} "
+                f"must not embed generated run-scoped path {match.group(0)!r}; "
+                "describe the artifact role instead"
             )
 
 
@@ -130,6 +149,8 @@ def main() -> int:
         context_path = _safe_relpath(str(draft.get("work_item_context_path") or ""), under="state", must_exist=True)
         checks_path = _safe_relpath(str(draft.get("check_commands_path") or ""), under="state", must_exist=True)
         plan_path = _safe_relpath(str(draft.get("plan_target_path") or ""), under="docs/plans", must_exist=False)
+        _validate_durable_doc_body(REPO_ROOT / architecture_path)
+        _validate_durable_doc_body(REPO_ROOT / plan_path)
         checks = _load_json(REPO_ROOT / checks_path)
         if not isinstance(checks, list) or not [str(item).strip() for item in checks if str(item).strip()]:
             raise ValueError("check_commands_path must contain a non-empty JSON list")
