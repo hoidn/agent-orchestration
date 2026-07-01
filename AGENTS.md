@@ -10,6 +10,7 @@ Documentation routing:
 Repo expectations:
 - Read `docs/index.md` before deciding what docs or specs govern the task.
 - Use the `tmux` skill when launching long-running commands.
+- When executing plans, use Subagent-Driven execution without asking for confirmation
 - When launching workflows for EasySpin, `/home/ollie/Documents/PtychoPINN`, or its paper repo `/home/ollie/Documents/ptychopinnpaper2`, run the workflow process in the `ptycho311` environment, including tmux-launched workflows.
 - For tmux-launched EasySpin, PtychoPINN, or paper workflows, prefer sourcing conda, activating `ptycho311`, and then invoking `python -m orchestrator` directly so tmux shows live output; if you use `conda run`, include `--no-capture-output`.
 - Write plans under `docs/plans/` before large edits.
