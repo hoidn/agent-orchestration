@@ -1113,7 +1113,7 @@ def _run_design_delta_parent_drain_public_input_only_cli_dry_run(
         str(DESIGN_DELTA_PARENT_DRAIN_COMMANDS),
         "--dry-run",
     ]
-    for input_name, value in _design_delta_parent_drain_bound_inputs().items():
+    for input_name, value in _design_delta_parent_drain_public_input_only_bound_inputs().items():
         args.extend(["--input", f"{input_name}={value}"])
     return subprocess.run(
         args,
@@ -2222,6 +2222,7 @@ def _write_design_delta_work_item_runtime_inputs(
         "docs/steering.md": "# steering\n",
         "docs/plans/generated_plan.md": "# generated plan\n",
         "docs/plans/generated_architecture.md": "# generated architecture\n",
+        "state/check_commands.json": json.dumps(["python -m pytest -q"]) + "\n",
         "state/progress_ledger.json": json.dumps({"events": []}) + "\n",
         "state/run_state.json": json.dumps(
             {
@@ -2241,7 +2242,10 @@ def _write_design_delta_work_item_runtime_inputs(
         "state/manifest.json": json.dumps({"items": []}) + "\n",
         "state/architecture_validation.json": json.dumps({"architecture_validation_status": "VALID"}) + "\n",
         "artifacts/work/selection_bundle.md": "# selection bundle\n",
+        "artifacts/work/runtime_work_item_context.md": "# work item context\n",
         "artifacts/work/existing_architecture_index.md": "# existing architectures\n",
+        "artifacts/work/section14-parent-dry-run/work_item_context.md": "# work item context\n",
+        "artifacts/work/section14-parent-dry-run/existing-architecture-index.md": "# existing architectures\n",
     }.items():
         target = tmp_path / relpath
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -2299,6 +2303,24 @@ def _design_delta_parent_drain_bound_inputs() -> dict[str, str]:
         "architecture_targets__check_commands_path": "state/check_commands.json",
         "architecture_targets__plan_target_path": "docs/plans/generated_plan.md",
         "existing_architecture_index_path": "artifacts/work/existing_architecture_index.md",
+    }
+
+
+def _design_delta_parent_drain_public_input_only_bound_inputs() -> dict[str, str]:
+    return {
+        "steering_path": "docs/steering.md",
+        "target_design_path": "docs/design/target.md",
+        "baseline_design_path": "docs/design/baseline.md",
+        "architecture_targets__design_gap_id": "design-gap-work-item",
+        "architecture_targets__architecture_path": "docs/plans/generated_architecture.md",
+        "architecture_targets__work_item_context_path": (
+            "artifacts/work/section14-parent-dry-run/work_item_context.md"
+        ),
+        "architecture_targets__check_commands_path": "state/check_commands.json",
+        "architecture_targets__plan_target_path": "docs/plans/generated_plan.md",
+        "existing_architecture_index_path": (
+            "artifacts/work/section14-parent-dry-run/existing-architecture-index.md"
+        ),
     }
 
 
@@ -4345,10 +4367,21 @@ def test_design_delta_parent_drain_compiles_with_hidden_private_context(
         "max_iterations",
     }.isdisjoint(public_inputs)
     assert {
+        "architecture_targets__architecture_path",
+        "architecture_targets__check_commands_path",
+        "architecture_targets__design_gap_id",
+        "architecture_targets__plan_target_path",
+        "architecture_targets__work_item_context_path",
+        "baseline_design_path",
+        "existing_architecture_index_path",
+        "steering_path",
+        "target_design_path",
+    }.issubset(public_inputs)
+    assert {
         "manifest_path",
         "architecture_bundle_path",
         "progress_ledger_path",
-    }.issubset(public_inputs)
+    }.isdisjoint(public_inputs)
     assert not any(name.startswith("__write_root__") for name in public_inputs)
     assert "lisp_frontend_design_delta/selector::select-next-work" in lowered_by_name
     assert (
