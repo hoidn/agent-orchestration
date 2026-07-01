@@ -8,7 +8,7 @@ import pytest
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.executable_ir import validate_executable_workflow
-from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+from orchestrator.workflow.loaded_bundle import workflow_boundary_projection, workflow_runtime_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
@@ -55,8 +55,8 @@ INVALID_SIGNATURE_FIXTURE = FIXTURES / "invalid" / "backlog_drain_workflow_ref_s
 INVALID_SELECTOR_BLOCKED_REASON_MISSING_FIXTURE = (
     FIXTURES / "invalid" / "backlog_drain_selector_blocked_reason_missing_invalid.orc"
 )
-INVALID_SELECTOR_BLOCKED_RUN_STATE_MISSING_FIXTURE = (
-    FIXTURES / "invalid" / "backlog_drain_selector_blocked_run_state_missing_invalid.orc"
+INVALID_SELECTOR_BLOCKED_EXTRA_STATE_FIELD_FIXTURE = (
+    FIXTURES / "invalid" / "backlog_drain_selector_blocked_extra_state_field_invalid.orc"
 )
 INVALID_UNION_BOUNDARY_FIXTURE = FIXTURES / "invalid" / "backlog_drain_union_call_boundary_invalid.orc"
 INVALID_GAP_DRAFTER_NON_RECORD_PAYLOAD_FIXTURE = (
@@ -131,6 +131,46 @@ def _command_boundaries(
                 stable_command=("python", "scripts/draft_gap_item.py"),
                 input_contract={"type": "object"},
                 output_type_name=gap_output_type_name,
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("draft_gap_item_ok",),
+                negative_fixture_ids=("draft_gap_item_bad",),
+            ),
+        }
+    )
+
+
+def _custom_union_command_boundaries():
+    return build_command_boundary_environment(
+        {
+            "select_next_item": CertifiedAdapterBinding(
+                name="select_next_item",
+                stable_command=("python", "scripts/select_next_item.py"),
+                input_contract={"type": "object"},
+                output_type_name="CustomSelectionResult",
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("select_next_item_ok",),
+                negative_fixture_ids=("select_next_item_bad",),
+            ),
+            "execute_selected_item": CertifiedAdapterBinding(
+                name="execute_selected_item",
+                stable_command=("python", "scripts/execute_selected_item.py"),
+                input_contract={"type": "object"},
+                output_type_name="CustomSelectedItemResult",
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("execute_selected_item_ok",),
+                negative_fixture_ids=("execute_selected_item_bad",),
+            ),
+            "draft_gap_item": CertifiedAdapterBinding(
+                name="draft_gap_item",
+                stable_command=("python", "scripts/draft_gap_item.py"),
+                input_contract={"type": "object"},
+                output_type_name="CustomGapDraftResult",
                 effects=("structured_result",),
                 path_safety={"kind": "workspace_relpath"},
                 source_map_behavior="step",
@@ -231,13 +271,12 @@ def _record_gap_drafter_fixture(tmp_path: Path) -> Path:
     path.write_text(
         VALID_DRAIN_FIXTURE.read_text(encoding="utf-8").replace(
             "  (defunion GapDraftResult\n"
-            "    (CONTINUE\n"
-            "      (run-state StateExisting))\n"
+            "    (CONTINUE)\n"
             "    (BLOCKED\n"
             "      (progress-report-path WorkReport)\n"
             "      (blocker-class BlockerClass)))",
             "  (defrecord GapDraftResult\n"
-            "    (run-state StateExisting))",
+            "    (gap-id String))",
             1,
         ),
         encoding="utf-8",
@@ -399,12 +438,11 @@ def _write_drain_runtime_scripts(
         default={
             "variant": "CONTINUE",
             "summary-path": "artifacts/work/item-complete.md",
-            "run-state": "state/items/item-1/final.json",
         },
     )
     gap_payloads = _normalize_payloads(
         gap_payload,
-        default={"variant": "CONTINUE", "run-state": "state/gaps/gap-1/continued.json"},
+        default={"variant": "CONTINUE"},
     )
 
     _write_script(
@@ -425,9 +463,12 @@ def _write_drain_runtime_scripts(
 
 
 def _child_backlog_drain_workflow(result):
+    lowered_workflows = getattr(result, "lowered_workflows", None)
+    if lowered_workflows is None:
+        lowered_workflows = result.entry_result.lowered_workflows
     return next(
         workflow
-        for workflow in result.entry_result.lowered_workflows
+        for workflow in lowered_workflows
         if workflow.typed_workflow.definition.name == "std/drain::backlog-drain"
     )
 
@@ -475,15 +516,13 @@ def _compile_imported_selector_bundle(tmp_path: Path):
                 "  (defrecord GapPayload",
                 "    (gap-id String))",
                 "  (defunion SelectionResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 "      (gap GapPayload))",
                 "    (SELECTED",
                 "      (selection SelectionPayload))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 "  (defworkflow selector-run",
                 "    ((ctx DrainCtx))",
                 "    -> SelectionResult",
@@ -559,20 +598,23 @@ def _assert_child_backlog_drain_uses_shared_terminal_lane(child) -> None:
     for case_name in ("EMPTY", "COMPLETED", "BLOCKED", "EXHAUSTED"):
         case_steps = normalize_step["match"]["cases"][case_name]["steps"]
         transition_step = next(step for step in case_steps if "resource_transition" in step)
+        summary_step = next(step for step in case_steps if "materialize_view" in step)
+        result_step = next(step for step in case_steps if "materialize_artifacts" in step)
+        case_step_names = [step["name"] for step in case_steps]
         assert "shared_drain_result" in transition_step["name"]
+        assert result_step["name"] == f"{transition_step['name']}__result"
+        assert summary_step["name"] == f"{transition_step['name']}__summary"
+        assert case_step_names.index(result_step["name"]) < case_step_names.index(transition_step["name"])
+        assert case_step_names.index(result_step["name"]) < case_step_names.index(summary_step["name"])
         request_bindings = transition_step["resource_transition"]["request_bindings"]
+        assert request_bindings["variant"] in ("EMPTY", "COMPLETED", "BLOCKED")
         assert request_bindings["items_processed"] == {
             "ref": (
                 f"root.steps.{child_name}__terminal_carrier.artifacts."
                 "terminal__items-processed"
             )
         }
-        assert request_bindings["run_state"] == {
-            "ref": (
-                f"root.steps.{child_name}__terminal_carrier.artifacts."
-                "terminal__run-state"
-            )
-        }
+        assert "run_state" not in request_bindings
         assert request_bindings["progress_report_path"] == {
             "ref": (
                 f"root.steps.{child_name}__terminal_carrier.artifacts."
@@ -583,6 +625,21 @@ def _assert_child_backlog_drain_uses_shared_terminal_lane(child) -> None:
             "ref": (
                 f"root.steps.{child_name}__terminal_carrier.artifacts."
                 "terminal__blocker-class"
+            )
+        }
+        if case_name in ("BLOCKED", "EXHAUSTED"):
+            assert request_bindings["has_blocker"] is True
+        else:
+            assert request_bindings["has_blocker"] is False
+        progress_field = next(
+            value
+            for value in result_step["materialize_artifacts"]["values"]
+            if value["name"] == "return__progress-report-path"
+        )
+        assert progress_field["source"] == {
+            "ref": (
+                f"root.steps.{child_name}__terminal_carrier.artifacts."
+                "terminal__progress-report-path"
             )
         }
     hidden_inputs = set(child.origin_map.internal_input_spans)
@@ -702,12 +759,12 @@ def test_workflow_ref_resolution_rejects_signature_mismatch() -> None:
     assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
 
 
-def test_workflow_ref_resolution_rejects_selector_field_type_mismatch(tmp_path: Path) -> None:
-    path = tmp_path / "selector_field_type_mismatch.orc"
+def test_workflow_ref_resolution_rejects_selector_empty_extra_fields(tmp_path: Path) -> None:
+    path = tmp_path / "selector_empty_extra_fields.orc"
     path.write_text(
         VALID_DRAIN_FIXTURE.read_text(encoding="utf-8").replace(
-            "    (EMPTY\n      (run-state StateExisting))",
-            "    (EMPTY\n      (run-state WorkReport))",
+            "    (EMPTY)",
+            "    (EMPTY\n      (extra StateExisting))",
             1,
         ),
         encoding="utf-8",
@@ -719,12 +776,382 @@ def test_workflow_ref_resolution_rejects_selector_field_type_mismatch(tmp_path: 
     assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
 
 
+def test_workflow_ref_resolution_accepts_selector_empty_without_fields(tmp_path: Path) -> None:
+    path = tmp_path / "selector_empty_run_state_omission.orc"
+    path.write_text(VALID_DRAIN_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    _typecheck_fixture(path)
+
+
+def test_workflow_ref_resolution_allows_imported_family_owned_selection_result_empty_without_run_state(
+    tmp_path: Path,
+) -> None:
+    package_dir = tmp_path / "pkg"
+    package_dir.mkdir(parents=True)
+    (package_dir / "types.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pkg/types)",
+                "  (import std/resource :only (BlockerClass WorkReport StateExisting))",
+                "  (export StateFile RunCtx DrainCtx ItemCtx SelectionPayload GapPayload",
+                "          SelectionResult SelectedItemResult GapDraftResult DrainResult)",
+                "  (defpath StateFile",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord DrainCtx",
+                "    (run RunCtx)",
+                "    (state-root Path.state-root)",
+                "    (manifest StateExisting)",
+                "    (ledger StateFile))",
+                "  (defrecord ItemCtx",
+                "    (run RunCtx)",
+                "    (item-id String)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root)",
+                "    (ledger StateFile))",
+                "  (defrecord SelectionPayload",
+                "    (item-id String)",
+                "    (item-state-root StateFile))",
+                "  (defrecord GapPayload",
+                "    (gap-id String))",
+                "  (defunion SelectionResult",
+                "    (EMPTY)",
+                "    (GAP",
+                "      (gap GapPayload))",
+                "    (SELECTED",
+                "      (selection SelectionPayload))",
+                "    (BLOCKED",
+                "      (reason String)))",
+                "  (defunion SelectedItemResult",
+                "    (CONTINUE",
+                "      (summary-path WorkReport))",
+                "    (BLOCKED",
+                "      (summary-path WorkReport)",
+                "      (blocker-class BlockerClass)))",
+                "  (defunion GapDraftResult",
+                "    (CONTINUE)",
+                "    (BLOCKED",
+                "      (progress-report-path WorkReport)",
+                "      (blocker-class BlockerClass)))",
+                "  (defunion DrainResult",
+                "    (EMPTY)",
+                "    (BLOCKED",
+                "      (progress-report-path WorkReport)",
+                "      (blocker-class BlockerClass))",
+                "    (COMPLETED",
+                "      (items-processed Int))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (package_dir / "handlers.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pkg/handlers)",
+                "  (import std/resource :only (BlockerClass WorkReport StateExisting))",
+                "  (import pkg/types :only (DrainCtx GapDraftResult GapPayload ItemCtx",
+                "                            SelectedItemResult SelectionPayload SelectionResult))",
+                "  (export selector-run run-selected-item gap-draft)",
+                "  (defworkflow selector-run",
+                "    ((ctx DrainCtx))",
+                "    -> SelectionResult",
+                "    (command-result select_next_item",
+                '      :argv ("python" "scripts/select_next_item.py" ctx.manifest)',
+                "      :returns SelectionResult))",
+                "  (defworkflow run-selected-item",
+                "    ((item-ctx ItemCtx)",
+                "     (selection SelectionPayload))",
+                "    -> SelectedItemResult",
+                "    (command-result execute_selected_item",
+                '      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)',
+                "      :returns SelectedItemResult))",
+                "  (defworkflow gap-draft",
+                "    ((ctx DrainCtx)",
+                "     (gap GapPayload))",
+                "    -> GapDraftResult",
+                "    (command-result draft_gap_item",
+                '      :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)',
+                "      :returns GapDraftResult)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry_path = package_dir / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule pkg/entry)",
+                "  (import std/resource :only (BlockerClass WorkReport StateExisting))",
+                "  (import pkg/types :only (DrainCtx DrainResult))",
+                "  (import pkg/handlers :only (selector-run run-selected-item gap-draft))",
+                "  (export drain)",
+                "  (defworkflow drain",
+                "    ((ctx DrainCtx)",
+                "     (max-iterations Int))",
+                "    -> DrainResult",
+                "    (backlog-drain pkg",
+                "      :ctx ctx",
+                "      :selector selector-run",
+                "      :run-item run-selected-item",
+                "      :gap-drafter gap-draft",
+                "      :max-iterations 4)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_entrypoint(
+        entry_path,
+        source_roots=(tmp_path,),
+        command_boundaries=_command_boundaries().bindings_by_name,
+        validate_shared=False,
+        workspace_root=tmp_path,
+        entry_workflow="drain",
+    )
+
+    assert "pkg/entry" in result.compiled_results_by_name
+
+
+def _write_custom_backlog_drain_union_fixture(
+    tmp_path: Path,
+    *,
+    selection_variants: list[str] | None = None,
+    selected_item_variants: list[str] | None = None,
+    gap_result_variants: list[str] | None = None,
+) -> Path:
+    package_dir = tmp_path / "custom_pkg"
+    package_dir.mkdir(parents=True)
+    (package_dir / "types.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule custom_pkg/types)",
+                "  (import std/resource :only (BlockerClass WorkReport StateExisting))",
+                "  (export StateFile RunCtx DrainCtx ItemCtx SelectionPayload GapPayload",
+                "          CustomSelectionResult CustomSelectedItemResult CustomGapDraftResult DrainResult)",
+                "  (defpath StateFile",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord DrainCtx",
+                "    (run RunCtx)",
+                "    (state-root Path.state-root)",
+                "    (manifest StateExisting)",
+                "    (ledger StateFile))",
+                "  (defrecord ItemCtx",
+                "    (run RunCtx)",
+                "    (item-id String)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root)",
+                "    (ledger StateFile))",
+                "  (defrecord SelectionPayload",
+                "    (item-id String)",
+                "    (item-state-root StateFile))",
+                "  (defrecord GapPayload",
+                "    (gap-id String))",
+                "  (defunion CustomSelectionResult",
+                *(selection_variants or [
+                    "    (EMPTY)",
+                    "    (GAP",
+                    "      (gap GapPayload))",
+                    "    (SELECTED",
+                    "      (selection SelectionPayload))",
+                    "    (BLOCKED",
+                    "      (reason String)))",
+                ]),
+                "  (defunion CustomSelectedItemResult",
+                *(selected_item_variants or [
+                    "    (CONTINUE",
+                    "      (summary-path WorkReport))",
+                    "    (BLOCKED",
+                    "      (summary-path WorkReport)",
+                    "      (blocker-class BlockerClass)))",
+                ]),
+                "  (defunion CustomGapDraftResult",
+                *(gap_result_variants or [
+                    "    (CONTINUE)",
+                    "    (BLOCKED",
+                    "      (progress-report-path WorkReport)",
+                    "      (blocker-class BlockerClass)))",
+                ]),
+                "  (defunion DrainResult",
+                "    (EMPTY)",
+                "    (BLOCKED",
+                "      (progress-report-path WorkReport)",
+                "      (blocker-class BlockerClass))",
+                "    (COMPLETED",
+                "      (items-processed Int))))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (package_dir / "handlers.orc").write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule custom_pkg/handlers)",
+                "  (import std/resource :only (BlockerClass WorkReport StateExisting))",
+                "  (import custom_pkg/types :only (CustomGapDraftResult CustomSelectionResult",
+                "                                   CustomSelectedItemResult DrainCtx GapPayload",
+                "                                   ItemCtx SelectionPayload))",
+                "  (export selector-run run-selected-item gap-draft)",
+                "  (defworkflow selector-run",
+                "    ((ctx DrainCtx))",
+                "    -> CustomSelectionResult",
+                "    (command-result select_next_item",
+                '      :argv ("python" "scripts/select_next_item.py" ctx.manifest)',
+                "      :returns CustomSelectionResult))",
+                "  (defworkflow run-selected-item",
+                "    ((item-ctx ItemCtx)",
+                "     (selection SelectionPayload))",
+                "    -> CustomSelectedItemResult",
+                "    (command-result execute_selected_item",
+                '      :argv ("python" "scripts/execute_selected_item.py" selection.item-id)',
+                "      :returns CustomSelectedItemResult))",
+                "  (defworkflow gap-draft",
+                "    ((ctx DrainCtx)",
+                "     (gap GapPayload))",
+                "    -> CustomGapDraftResult",
+                "    (command-result draft_gap_item",
+                '      :argv ("python" "scripts/draft_gap_item.py" gap.gap-id)',
+                "      :returns CustomGapDraftResult)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    entry_path = package_dir / "entry.orc"
+    entry_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule custom_pkg/entry)",
+                "  (import std/resource :only (BlockerClass WorkReport StateExisting))",
+                "  (import custom_pkg/types :only (DrainCtx DrainResult))",
+                "  (import custom_pkg/handlers :only (selector-run run-selected-item gap-draft))",
+                "  (export drain)",
+                "  (defworkflow drain",
+                "    ((ctx DrainCtx)",
+                "     (max-iterations Int))",
+                "    -> DrainResult",
+                "    (backlog-drain custom_pkg",
+                "      :ctx ctx",
+                "      :selector selector-run",
+                "      :run-item run-selected-item",
+                "      :gap-drafter gap-draft",
+                "      :max-iterations 4)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return entry_path
+
+
+@pytest.mark.parametrize(
+    ("selection_variants", "selected_item_variants", "gap_result_variants"),
+    [
+        (
+            [
+                "    (EMPTY",
+                "      (run-state StateExisting))",
+                "    (GAP",
+                "      (gap GapPayload))",
+                "    (SELECTED",
+                "      (selection SelectionPayload))",
+                "    (BLOCKED",
+                "      (reason String)))",
+            ],
+            None,
+            None,
+        ),
+        (
+            None,
+            [
+                "    (CONTINUE",
+                "      (summary-path WorkReport)",
+                "      (run-state StateExisting))",
+                "    (BLOCKED",
+                "      (summary-path WorkReport)",
+                "      (blocker-class BlockerClass)",
+                "      (run-state StateExisting)))",
+            ],
+            None,
+        ),
+        (
+            None,
+            None,
+            [
+                "    (CONTINUE",
+                "      (run-state StateExisting))",
+                "    (BLOCKED",
+                "      (progress-report-path WorkReport)",
+                "      (blocker-class BlockerClass)))",
+            ],
+        ),
+    ],
+    ids=("selector_empty_run_state", "selected_item_run_state", "gap_continue_run_state"),
+)
+def test_workflow_ref_resolution_rejects_custom_union_run_state_carriers(
+    tmp_path: Path,
+    selection_variants: list[str] | None,
+    selected_item_variants: list[str] | None,
+    gap_result_variants: list[str] | None,
+) -> None:
+    entry_path = _write_custom_backlog_drain_union_fixture(
+        tmp_path,
+        selection_variants=selection_variants,
+        selected_item_variants=selected_item_variants,
+        gap_result_variants=gap_result_variants,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            entry_path,
+            source_roots=(tmp_path,),
+            command_boundaries=_custom_union_command_boundaries().bindings_by_name,
+            validate_shared=False,
+            workspace_root=tmp_path,
+            entry_workflow="drain",
+        )
+
+    assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
+
+
 def test_workflow_ref_resolution_rejects_selector_blocked_reason_type_mismatch(tmp_path: Path) -> None:
     path = tmp_path / "selector_blocked_reason_type_mismatch.orc"
     path.write_text(
         VALID_DRAIN_FIXTURE.read_text(encoding="utf-8").replace(
-            "    (BLOCKED\n      (reason String)\n      (run-state StateExisting)))",
-            "    (BLOCKED\n      (reason Int)\n      (run-state StateExisting)))",
+            "    (BLOCKED\n      (reason String)))",
+            "    (BLOCKED\n      (reason Int)))",
             1,
         ),
         encoding="utf-8",
@@ -743,26 +1170,9 @@ def test_workflow_ref_resolution_rejects_selector_blocked_reason_omission() -> N
     assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
 
 
-def test_workflow_ref_resolution_rejects_selector_blocked_run_state_type_mismatch(tmp_path: Path) -> None:
-    path = tmp_path / "selector_blocked_run_state_type_mismatch.orc"
-    path.write_text(
-        VALID_DRAIN_FIXTURE.read_text(encoding="utf-8").replace(
-            "    (BLOCKED\n      (reason String)\n      (run-state StateExisting)))",
-            "    (BLOCKED\n      (reason String)\n      (run-state WorkReport)))",
-            1,
-        ),
-        encoding="utf-8",
-    )
-
+def test_workflow_ref_resolution_rejects_selector_blocked_extra_state_field() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(path)
-
-    assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
-
-
-def test_workflow_ref_resolution_rejects_selector_blocked_run_state_omission() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(INVALID_SELECTOR_BLOCKED_RUN_STATE_MISSING_FIXTURE)
+        _typecheck_fixture(INVALID_SELECTOR_BLOCKED_EXTRA_STATE_FIELD_FIXTURE)
 
     assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
 
@@ -889,7 +1299,6 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "acc__items-processed",
         "acc__loop-status",
         "acc__progress-report-path",
-        "acc__run-state",
     )
     assert not any("resource_transition" in step for step in body_steps)
     assert not any("materialize_view" in step for step in body_steps)
@@ -939,6 +1348,82 @@ def test_compile_stage3_module_preserves_imported_backlog_drain_as_callable_boun
     assert boundary_step_ids
     assert all(step_id in stdlib_boundary.origin_map.step_spans for step_id in boundary_step_ids)
     assert not boundary_step_ids.intersection(drain.origin_map.step_spans)
+
+
+def test_callable_boundary_bundle_preserves_entry_ctx_hidden_binding_metadata(
+    tmp_path: Path,
+) -> None:
+    _, result = _compile_linked_stdlib_fixture(
+        VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
+        tmp_path=tmp_path,
+        validation_profile="DEDICATED_RUNTIME_PROOF",
+    )
+    bundle = next(
+        bundle
+        for workflow_name, bundle in result.entry_result.validated_bundles.items()
+        if workflow_name.endswith("::drain")
+    )
+    boundary = workflow_boundary_projection(bundle)
+
+    assert len(boundary.private_runtime_context_bindings) == 1
+    binding = boundary.private_runtime_context_bindings[0]
+    assert binding.binding_id == "ctx"
+    assert binding.source_param_name == "ctx"
+    assert binding.context_family == "DrainCtx"
+    assert binding.bridge_class == "imported_adapter_carried_context"
+    assert binding.generated_input_names == (
+        "ctx__run__run-id",
+        "ctx__run__state-root",
+        "ctx__run__artifact-root",
+        "ctx__state-root",
+        "ctx__manifest",
+        "ctx__ledger",
+    )
+    assert binding.projection_hints == {
+        "context_binding_schema_version": 1,
+        "context_input_roles": {
+            "ctx__run__run-id": "run_anchor:run-id",
+            "ctx__run__state-root": "run_anchor:state-root",
+            "ctx__run__artifact-root": "run_anchor:artifact-root",
+        },
+        "carried_input_sources": {
+            "ctx__run__run-id": ("ctx", "run", "run-id"),
+            "ctx__run__state-root": ("ctx", "run", "state-root"),
+            "ctx__run__artifact-root": ("ctx", "run", "artifact-root"),
+            "ctx__state-root": ("ctx", "state-root"),
+            "ctx__manifest": ("ctx", "manifest"),
+            "ctx__ledger": ("ctx", "ledger"),
+        },
+    }
+
+
+def test_same_file_callable_boundary_preserves_generated_backlog_drain_owner_lane(
+    tmp_path: Path,
+) -> None:
+    result = _compile(
+        VALID_DRAIN_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+        lowering_route=LoweringRoute.WCC_M4,
+    )
+
+    parent = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "drain"
+    )
+    child = _child_backlog_drain_workflow(result)
+    call_step = next(
+        step
+        for step in _iter_nested_steps(parent.authored_mapping["steps"])
+        if step.get("call") == "std/drain::backlog-drain"
+    )
+    repeat_step = next(step for step in child.authored_mapping["steps"] if "repeat_until" in step)
+
+    assert not any("repeat_until" in step for step in parent.authored_mapping["steps"])
+    assert call_step["id"] in parent.origin_map.step_spans
+    assert repeat_step["repeat_until"]["max_iterations"] == 4
+    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
 
 
 def test_callable_boundary_fixture_uses_direct_helper_head() -> None:
@@ -1045,7 +1530,6 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
             {
                 "return__variant": "DONE",
                 "return__items-processed": 0,
-                "return__run-state": "state/drain-run-state.json",
             },
         ),
         (
@@ -1060,7 +1544,6 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-complete.md",
-                    "run-state": "state/items/item-1/final.json",
                 }
             ],
             None,
@@ -1068,11 +1551,10 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
             {
                 "return__variant": "DONE",
                 "return__items-processed": 1,
-                "return__run-state": "state/items/item-1/final.json",
             },
         ),
         (
-            {"variant": "BLOCKED", "reason": "selector_blocked", "run-state": "state/selector-blocked.json"},
+            {"variant": "BLOCKED", "reason": "selector_blocked"},
             None,
             None,
             4,
@@ -1105,22 +1587,18 @@ def test_parent_terminal_reprojection_preserves_imported_call_and_projection_pro
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-1-progress.md",
-                    "run-state": "state/items/item-1/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-2-progress.md",
-                    "run-state": "state/items/item-2/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-3-progress.md",
-                    "run-state": "state/items/item-3/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-4-progress.md",
-                    "run-state": "state/items/item-4/final.json",
                 },
             ],
             None,
@@ -1167,6 +1645,8 @@ def test_parent_terminal_reprojection_executes_projected_parent_outputs(
     summary_path = tmp_path / "artifacts" / "work" / "drain-progress-report.md"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text("seed\n", encoding="utf-8")
+    placeholder_path = tmp_path / "artifacts" / "work" / "placeholder.txt"
+    placeholder_path.write_text("seed\n", encoding="utf-8")
     ledger_path = tmp_path / "state" / "runtime" / "ledger.json"
     ledger_path.write_text("[]\n", encoding="utf-8")
 
@@ -1323,11 +1803,10 @@ def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_pr
             {
                 "return__variant": "DONE",
                 "return__items-processed": 0,
-                "return__run-state": "state/drain-run-state.json",
             },
         ),
         (
-            {"variant": "BLOCKED", "reason": "selector_blocked", "run-state": "state/selector-blocked.json"},
+            {"variant": "BLOCKED", "reason": "selector_blocked"},
             None,
             None,
             {
@@ -1359,22 +1838,18 @@ def test_branch_local_terminal_contract_alignment_preserves_imported_call_and_pr
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-1-progress.md",
-                    "run-state": "state/items/item-1/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-2-progress.md",
-                    "run-state": "state/items/item-2/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-3-progress.md",
-                    "run-state": "state/items/item-3/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-4-progress.md",
-                    "run-state": "state/items/item-4/final.json",
                 },
             ],
             None,
@@ -1419,6 +1894,8 @@ def test_branch_local_terminal_contract_alignment_executes_parent_outputs_withou
     summary_path = tmp_path / "artifacts" / "work" / "drain-progress-report.md"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text("seed\n", encoding="utf-8")
+    placeholder_path = tmp_path / "artifacts" / "work" / "placeholder.txt"
+    placeholder_path.write_text("seed\n", encoding="utf-8")
     ledger_path = tmp_path / "state" / "runtime" / "ledger.json"
     ledger_path.write_text("[]\n", encoding="utf-8")
 
@@ -1751,26 +2228,21 @@ def test_callable_backlog_drain_keeps_gap_drafter_boundary_narrow(tmp_path: Path
                 "    (gap-id String)",
                 "    (gap-kind String))",
                 "  (defunion SelectionResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 "      (gap GapPayload))",
                 "    (SELECTED",
                 "      (selection SelectionPayload))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
-                "      (summary-path WorkReport)",
-                "      (run-state StateExisting))",
+                "      (summary-path WorkReport))",
                 "    (BLOCKED",
                 "      (summary-path WorkReport)",
-                "      (blocker-class BlockerClass)",
-                "      (run-state StateExisting)))",
+                "      (blocker-class BlockerClass)))",
                 "  (defunion GapDraftResult",
-                "    (CONTINUE",
-                "      (run-state StateExisting))",
+                "    (CONTINUE)",
                 "    (BLOCKED",
                 "      (progress-report-path WorkReport)",
                 "      (blocker-class BlockerClass)))",
@@ -1987,34 +2459,47 @@ def test_backlog_drain_target_contract_exposes_selector_blocked_variant() -> Non
         "(defunion GapResult", 1
     )[0]
 
-    assert "(EMPTY" in selection_union
+    assert "(EMPTY)" in selection_union
     assert "(GAP" in selection_union
     assert "(SELECTED" in selection_union
     assert """(BLOCKED
-      (reason String)
-      (run-state StateExisting))""" in selection_union
+      (reason String))""" in selection_union
+    assert "(run-state StateExisting)" not in selection_union
 
 
-def test_backlog_drain_target_contract_reenters_after_selected_item_continue() -> None:
+def test_backlog_drain_target_contract_separates_terminal_value_from_effect_consumers() -> None:
     source = (
         REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules" / "std" / "drain.orc"
     ).read_text(encoding="utf-8")
-    selected_branch = source.split("((SELECTED selected)", 1)[1].split(
-        "((BLOCKED blocked)", 1
+    finalize_section = source.split("(defproc finalize-drain-terminal", 1)[1].split(
+        "(defproc consume-drain-terminal-effects", 1
     )[0]
-    empty_branch = source.split("((EMPTY empty)", 1)[1].split("((GAP gap_case)", 1)[0]
 
-    assert """((CONTINUE continued)
-                           (continue""" in selected_branch
-    assert "(+ state.items-processed 1)" in selected_branch
-    assert "continued.run-state" in selected_branch
-    assert "continued.summary-path" in selected_branch
-    assert """((BLOCKED blocked)
-                           (done
-                             (variant std/drain/DrainLoopTerminal BLOCKED""" in source
-    assert "state.items-processed" in empty_branch
-    assert "DrainLoopTerminal EMPTY" in empty_branch
-    assert "DrainLoopTerminal COMPLETED" in empty_branch
+    assert "(defproc consume-drain-terminal-effects" in source
+    assert "resource-transition" not in finalize_section
+    assert "materialize-view" not in finalize_section
+
+
+def test_backlog_drain_target_contract_routes_default_imported_surface_through_callable_child(
+    tmp_path: Path,
+) -> None:
+    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
+    parent = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "drain"
+    )
+    child = _child_backlog_drain_workflow(result)
+    call_step = next(
+        step
+        for step in _iter_nested_steps(parent.authored_mapping["steps"])
+        if step.get("call") == "std/drain::backlog-drain"
+    )
+
+    assert len(parent.authored_mapping["steps"]) == 1
+    assert call_step["id"] in parent.origin_map.step_spans
+    assert any("repeat_until" in step for step in child.authored_mapping["steps"])
+    _assert_child_backlog_drain_uses_shared_terminal_lane(child)
 
 
 def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_class(
@@ -2056,7 +2541,6 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
         "gap_payload",
         "max_iterations",
         "expected_outputs",
-        "expected_terminal_run_state",
     ),
     (
         (
@@ -2066,10 +2550,8 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
             4,
             {
                 "return__variant": "EMPTY",
-                "return__run-state": "state/drain-run-state.json",
                 "summary_path": "artifacts/work/drain-progress-report.md",
             },
-            "state/drain-run-state.json",
         ),
         (
             {
@@ -2080,7 +2562,6 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "variant": "BLOCKED",
                 "summary-path": "artifacts/work/item-blocked.md",
                 "blocker-class": "roadmap_conflict",
-                "run-state": "state/items/item-1/final.json",
             },
             None,
             4,
@@ -2090,7 +2571,6 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__blocker-class": "roadmap_conflict",
                 "summary_path": "artifacts/work/item-blocked.md",
             },
-            "state/items/item-1/final.json",
         ),
         (
             [
@@ -2104,7 +2584,6 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-complete.md",
-                    "run-state": "state/items/item-1/final.json",
                 }
             ],
             None,
@@ -2112,10 +2591,8 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
             {
                 "return__variant": "COMPLETED",
                 "return__items-processed": 1,
-                "return__run-state": "state/items/item-1/final.json",
                 "summary_path": "artifacts/work/item-complete.md",
             },
-            "state/items/item-1/final.json",
         ),
         (
             [
@@ -2133,12 +2610,10 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-1-complete.md",
-                    "run-state": "state/items/item-1/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-2-complete.md",
-                    "run-state": "state/items/item-2/final.json",
                 },
             ],
             None,
@@ -2146,16 +2621,13 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
             {
                 "return__variant": "COMPLETED",
                 "return__items-processed": 2,
-                "return__run-state": "state/items/item-2/final.json",
                 "summary_path": "artifacts/work/item-2-complete.md",
             },
-            "state/items/item-2/final.json",
         ),
         (
             {
                 "variant": "BLOCKED",
                 "reason": "selector_blocked",
-                "run-state": "state/selector-blocked.json",
             },
             None,
             None,
@@ -2165,7 +2637,6 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__blocker-class": "user_decision_required",
                 "summary_path": "artifacts/work/drain-progress-report.md",
             },
-            "state/drain-run-state.json",
         ),
         (
             [
@@ -2180,18 +2651,15 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-after-gap.md",
-                    "run-state": "state/items/item-1/final.json",
                 }
             ],
-            [{"variant": "CONTINUE", "run-state": "state/gaps/gap-1/continued.json"}],
+            [{"variant": "CONTINUE"}],
             4,
             {
                 "return__variant": "COMPLETED",
                 "return__items-processed": 1,
-                "return__run-state": "state/items/item-1/final.json",
                 "summary_path": "artifacts/work/item-after-gap.md",
             },
-            "state/items/item-1/final.json",
         ),
         (
             [
@@ -2216,22 +2684,18 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-1-progress.md",
-                    "run-state": "state/items/item-1/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-2-progress.md",
-                    "run-state": "state/items/item-2/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-3-progress.md",
-                    "run-state": "state/items/item-3/final.json",
                 },
                 {
                     "variant": "CONTINUE",
                     "summary-path": "artifacts/work/item-4-progress.md",
-                    "run-state": "state/items/item-4/final.json",
                 },
             ],
             None,
@@ -2241,7 +2705,6 @@ def test_lowering_backlog_drain_pins_selector_blocked_compatibility_blocker_clas
                 "return__blocker-class": "unrecoverable_after_fix_attempt",
                 "summary_path": "artifacts/work/item-4-progress.md",
             },
-            "state/items/item-4/final.json",
         ),
     ),
 )
@@ -2252,7 +2715,6 @@ def test_stdlib_backlog_drain_executes_promoted_route_with_terminal_side_effects
     gap_payload: dict[str, object] | list[dict[str, object]] | None,
     max_iterations: int,
     expected_outputs: dict[str, object],
-    expected_terminal_run_state: str,
 ) -> None:
     workflow_path, result = _compile_linked_stdlib_fixture(
         VALID_STDLIB_CALLABLE_BOUNDARY_FIXTURE,
@@ -2310,8 +2772,8 @@ def test_stdlib_backlog_drain_executes_promoted_route_with_terminal_side_effects
     audit_rows = _drain_transition_audit_rows(tmp_path)
     assert audit_rows
     committed_row = next(row for row in reversed(audit_rows) if row["outcome_code"] == "committed")
-    assert committed_row["result"]["run_state"] == expected_terminal_run_state
-    assert committed_row["projection"]["run_state"] == expected_terminal_run_state
+    assert "run_state" not in committed_row["result"]
+    assert "run_state" not in committed_row["projection"]
 
 
 def test_stdlib_backlog_drain_rejects_non_symbol_callee_on_imported_route(tmp_path: Path) -> None:
@@ -2392,15 +2854,13 @@ def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Pa
                 "  (defrecord DrainProviders",
                 "    (selector SelectorProviderBindings))",
                 "  (defunion SelectionResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 "      (gap GapPayload))",
                 "    (SELECTED",
                 "      (selection SelectionPayload))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
                 "      (summary-path WorkReport)",
@@ -2532,15 +2992,13 @@ def test_compile_stage3_module_rebinds_imported_selector_provider_metadata(tmp_p
                 "  (defrecord DrainProviders",
                 "    (selector SelectorProviderBindings))",
                 "  (defunion SelectionResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 "      (gap GapPayload))",
                 "    (SELECTED",
                 "      (selection SelectionPayload))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
                 "      (summary-path WorkReport)",
@@ -2677,30 +3135,26 @@ def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_type
                 f"  (defrecord GapPayload{first_label}",
                 "    (gap-id String))",
                 f"  (defunion SelectionResult{first_label}",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 f"      (gap GapPayload{first_label}))",
                 "    (SELECTED",
                 f"      (selection SelectionPayload{first_label}))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 f"  (defrecord SelectionPayload{second_label}",
                 "    (item-id String)",
                 "    (item-state-root StateFile))",
                 f"  (defrecord GapPayload{second_label}",
                 "    (gap-id String))",
                 f"  (defunion SelectionResult{second_label}",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 f"      (gap GapPayload{second_label}))",
                 "    (SELECTED",
                 f"      (selection SelectionPayload{second_label}))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
                 "      (summary-path WorkReport)",
@@ -2824,15 +3278,13 @@ def test_compile_stage3_module_rebinds_same_file_selector_provider_metadata(tmp_
                 "  (defrecord DrainProviders",
                 "    (selector SelectorProviderBindings))",
                 "  (defunion SelectionResult",
-                "    (EMPTY",
-                "      (run-state StateExisting))",
+                "    (EMPTY)",
                 "    (GAP",
                 "      (gap GapPayload))",
                 "    (SELECTED",
                 "      (selection SelectionPayload))",
                 "    (BLOCKED",
-                "      (reason String)",
-                "      (run-state StateExisting)))",
+                "      (reason String)))",
                 "  (defunion SelectedItemResult",
                 "    (CONTINUE",
                 "      (summary-path WorkReport)",

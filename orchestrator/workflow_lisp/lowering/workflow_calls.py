@@ -87,12 +87,6 @@ _COMPATIBILITY_BRIDGE_INPUT_CONTRACTS: dict[str, dict[str, Any]] = {
         "under": "state",
         "must_exist_target": True,
     },
-    "run_state_path": {
-        "kind": "relpath",
-        "type": "relpath",
-        "under": "state",
-        "must_exist_target": True,
-    },
 }
 
 
@@ -117,19 +111,18 @@ def _compatibility_bridge_omission_allowed(
         return False
     if callee_signature is None:
         return False
+    if param_name == "run_state_path":
+        return False
     if param_name not in getattr(callee_signature, "private_compatibility_bridge_types", {}):
+        return False
+    if not getattr(context_signature, "allow_private_compatibility_bridge_omission", False):
         return False
     allowed_callees = getattr(
         context_signature,
         "allowed_private_compatibility_bridge_callees",
         frozenset(),
     )
-    if callee_signature.name in allowed_callees:
-        return True
-    return bool(
-        getattr(context_signature, "allow_private_compatibility_bridge_omission", False)
-        and not allowed_callees
-    )
+    return callee_signature.name in allowed_callees
 
 
 def _compatibility_bridge_bindings_for_lowered_callee(
@@ -1057,7 +1050,8 @@ def _lower_workflow_call(
             if (
                 isinstance(param_type, RecordTypeRef)
                 and requirement is not None
-                and requirement.binding_kind == "derived_private_child_context"
+                and requirement.context_kind == PHASE_CONTEXT_NAME
+                and requirement.phase_name is not None
             ):
                 ambiguities = getattr(callee_signature, "hidden_context_ambiguities", {})
                 if requirement.phase_name is None or param_name in ambiguities:
@@ -1072,14 +1066,11 @@ def _lower_workflow_call(
                     param_name=param_name,
                 )
                 if not eligibility.allowed:
-                    if requirement.allows_entry_bootstrap and (
-                        canonical_name in getattr(
-                            context.signature,
-                            "allowed_hidden_context_callees",
-                            frozenset(),
-                        )
-                        or not eligible_private_context_source_param_names(context.signature)
-                    ):
+                    if canonical_name in getattr(
+                        context.signature,
+                        "allowed_hidden_context_callees",
+                        frozenset(),
+                    ) or not eligible_private_context_source_param_names(context.signature):
                         with_bindings.update(
                             _declare_runtime_context_hidden_inputs(
                                 context=context,

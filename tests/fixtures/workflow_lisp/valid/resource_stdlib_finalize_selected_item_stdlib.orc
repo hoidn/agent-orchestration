@@ -5,7 +5,7 @@
   ; Stdlib-route fixture paired with
   ; tests/fixtures/workflow_lisp/valid/resource_stdlib_finalize_selected_item.orc.
   (import std/context :only (ItemCtx))
-  (import std/resource :only (BlockerClass SelectedItemResult WorkReport StateExisting selected-item-outcome record-selected-item-outcome finalize-selected-item))
+  (import std/resource :only (BlockerClass SelectedItemResult WorkReport selected-item-outcome record-selected-item-outcome finalize-selected-item))
   (export run-selected-item)
   (defenum Queue
     active
@@ -27,8 +27,7 @@
   (defrecord SelectedItem
     (item-id String)
     (item-path BacklogActivePath)
-    (is-active Bool)
-    (final-plan-gate-state StateExisting))
+    (is-active Bool))
   (defrecord ResourceTransitionResult
     (resource-id String)
     (from Queue)

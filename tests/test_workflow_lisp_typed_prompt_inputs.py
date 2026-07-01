@@ -132,7 +132,16 @@ def test_normalize_typed_prompt_input_entry_preserves_request_field_authority() 
                 "renderer_version": 1,
                 "accepted_shape": "any_pure_value",
             },
-            "value_source": {"kind": "typed_binding_ref", "binding": {"subject": {"run_state": {"ref": "inputs.ctx__run_state_path"}}}},
+            "value_source": {
+                "kind": "typed_binding_ref",
+                "binding": {
+                    "subject": {
+                        "progress_ledger": {
+                            "ref": "inputs.ctx__progress_ledger_path"
+                        }
+                    }
+                },
+            },
             "value_type_name": "SelectorRequest",
             "source_map_origin_key": "lisp_frontend_design_delta/selector::select-next-work",
             "u0_row_id": "selector.prompt.select_next_work",
@@ -143,20 +152,20 @@ def test_normalize_typed_prompt_input_entry_preserves_request_field_authority() 
                 "has_subject": True,
                 "has_targets": False,
                 "field_authority": {
-                    "subject.run_state": {
+                    "subject.progress_ledger": {
                         "authority_class": "compatibility_bridge",
-                        "source_binding": "ctx.run_state_path",
-                        "bridge_field_name": "run_state_path",
+                        "source_binding": "ctx.progress_ledger_path",
+                        "bridge_field_name": "progress_ledger_path",
                     }
                 },
             },
         }
     )
 
-    assert normalized["request_fields"]["field_authority"]["subject.run_state"] == {
+    assert normalized["request_fields"]["field_authority"]["subject.progress_ledger"] == {
         "authority_class": "compatibility_bridge",
-        "source_binding": "ctx.run_state_path",
-        "bridge_field_name": "run_state_path",
+        "source_binding": "ctx.progress_ledger_path",
+        "bridge_field_name": "progress_ledger_path",
     }
 
 
@@ -215,7 +224,11 @@ def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> Non
                     "value_source": {
                         "kind": "typed_binding_ref",
                         "binding": {
-                            "subject": {"run_state": {"ref": "inputs.ctx__run_state_path"}}
+                            "subject": {
+                                "progress_ledger": {
+                                    "ref": "inputs.ctx__progress_ledger_path"
+                                }
+                            }
                         },
                     },
                     "value_type_name": "SelectorRequest",
@@ -228,10 +241,10 @@ def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> Non
                         "has_subject": True,
                         "has_targets": False,
                         "field_authority": {
-                            "subject.run_state": {
+                            "subject.progress_ledger": {
                                 "authority_class": "compatibility_bridge",
-                                "source_binding": "ctx.run_state_path",
-                                "bridge_field_name": "run_state_path",
+                                "source_binding": "ctx.progress_ledger_path",
+                                "bridge_field_name": "progress_ledger_path",
                             }
                         },
                     },
@@ -239,22 +252,22 @@ def test_render_typed_prompt_inputs_records_hidden_bridge_leaf_evidence() -> Non
             )
         ],
         resolved_typed_values={
-            "request": {"subject": {"run_state": "state/run_state.json"}}
+            "request": {"subject": {"progress_ledger": "state/progress_ledger.json"}}
         },
         workflow_name="lisp_frontend_design_delta/selector::select-next-work",
         step_id="root.select-next-work__decision",
     )
 
-    assert '"run_state":"state/run_state.json"' in prompt_block
+    assert '"progress_ledger":"state/progress_ledger.json"' in prompt_block
     assert evidence[0]["request_field_evidence"] == [
         {
-            "field_path": "subject.run_state",
+            "field_path": "subject.progress_ledger",
             "authority_class": "compatibility_bridge",
-            "source_binding": "ctx.run_state_path",
-            "bridge_field_name": "run_state_path",
+            "source_binding": "ctx.progress_ledger_path",
+            "bridge_field_name": "progress_ledger_path",
             "rendered_leaf_shape": "scalar_path",
             "rendered_leaf_digest": module.typed_prompt_input_value_digest(
-                "state/run_state.json"
+                "state/progress_ledger.json"
             ),
         }
     ]
@@ -467,8 +480,8 @@ def test_build_typed_prompt_input_report_records_hidden_bridge_field_expectation
                                 "kind": "typed_binding_ref",
                                 "binding": {
                                     "subject": {
-                                        "run_state": {
-                                            "ref": "inputs.ctx__run_state_path"
+                                        "progress_ledger": {
+                                            "ref": "inputs.ctx__progress_ledger_path"
                                         }
                                     }
                                 },
@@ -483,10 +496,10 @@ def test_build_typed_prompt_input_report_records_hidden_bridge_field_expectation
                                 "has_subject": True,
                                 "has_targets": False,
                                 "field_authority": {
-                                    "subject.run_state": {
+                                    "subject.progress_ledger": {
                                         "authority_class": "compatibility_bridge",
-                                        "source_binding": "ctx.run_state_path",
-                                        "bridge_field_name": "run_state_path",
+                                        "source_binding": "ctx.progress_ledger_path",
+                                        "bridge_field_name": "progress_ledger_path",
                                     }
                                 },
                             },
@@ -515,10 +528,10 @@ def test_build_typed_prompt_input_report_records_hidden_bridge_field_expectation
                     },
                     "request_field_expectations": [
                         {
-                            "field_path": "subject.run_state",
+                            "field_path": "subject.progress_ledger",
                             "authority_class": "compatibility_bridge",
-                            "source_binding": "ctx.run_state_path",
-                            "bridge_field_name": "run_state_path",
+                            "source_binding": "ctx.progress_ledger_path",
+                            "bridge_field_name": "progress_ledger_path",
                         }
                     ],
                 }
@@ -530,10 +543,10 @@ def test_build_typed_prompt_input_report_records_hidden_bridge_field_expectation
     )
 
     selector_row = report["selected_rows"][0]
-    assert selector_row["request_fields"]["field_authority"]["subject.run_state"] == {
+    assert selector_row["request_fields"]["field_authority"]["subject.progress_ledger"] == {
         "authority_class": "compatibility_bridge",
-        "source_binding": "ctx.run_state_path",
-        "bridge_field_name": "run_state_path",
+        "source_binding": "ctx.progress_ledger_path",
+        "bridge_field_name": "progress_ledger_path",
     }
 
 
@@ -542,28 +555,28 @@ def test_build_typed_prompt_input_report_records_hidden_bridge_field_expectation
     [
         (
             {
-                "subject.run_state": {
+                "subject.progress_ledger": {
                     "authority_class": "compatibility_bridge",
-                    "bridge_field_name": "run_state_path",
+                    "bridge_field_name": "progress_ledger_path",
                 }
             },
             "typed_prompt_input_hidden_bridge_source_unmapped",
         ),
         (
             {
-                "subject.run_state": {
+                "subject.progress_ledger": {
                     "authority_class": "runtime_derived",
-                    "source_binding": "ctx.run_state_path",
-                    "bridge_field_name": "run_state_path",
+                    "source_binding": "ctx.progress_ledger_path",
+                    "bridge_field_name": "progress_ledger_path",
                 }
             },
             "typed_prompt_input_hidden_bridge_authority_mismatch",
         ),
         (
             {
-                "subject.run_state": {
+                "subject.progress_ledger": {
                     "authority_class": "compatibility_bridge",
-                    "source_binding": "ctx.run_state_path",
+                    "source_binding": "ctx.progress_ledger_path",
                     "bridge_field_name": "wrong_field_name",
                 }
             },
@@ -596,8 +609,8 @@ def test_build_typed_prompt_input_report_fails_closed_on_hidden_bridge_field_dri
                                 "kind": "typed_binding_ref",
                                 "binding": {
                                     "subject": {
-                                        "run_state": {
-                                            "ref": "inputs.ctx__run_state_path"
+                                        "progress_ledger": {
+                                            "ref": "inputs.ctx__progress_ledger_path"
                                         }
                                     }
                                 },
@@ -638,10 +651,10 @@ def test_build_typed_prompt_input_report_fails_closed_on_hidden_bridge_field_dri
                     },
                     "request_field_expectations": [
                         {
-                            "field_path": "subject.run_state",
+                            "field_path": "subject.progress_ledger",
                             "authority_class": "compatibility_bridge",
-                            "source_binding": "ctx.run_state_path",
-                            "bridge_field_name": "run_state_path",
+                            "source_binding": "ctx.progress_ledger_path",
+                            "bridge_field_name": "progress_ledger_path",
                         }
                     ],
                 }

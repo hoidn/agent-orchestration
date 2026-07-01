@@ -319,7 +319,6 @@
     (target_design_path TargetDesignDoc)
     (baseline_design_path BaselineDesignDoc)
     (progress_ledger_path ProgressLedger)
-    (run_state_path StateExisting)
     (existing_architecture_index_path WorkReport))
 
   (defrecord DesignDeltaSelectedItemPayload
@@ -329,8 +328,7 @@
     (steering_path SteeringDoc)
     (target_design_path TargetDesignDoc)
     (baseline_design_path BaselineDesignDoc)
-    (progress_ledger_path ProgressLedger)
-    (run_state_path StateExisting))
+    (progress_ledger_path ProgressLedger))
 
   (defrecord DesignDeltaGapPayload
     (work_item_id String)
@@ -338,15 +336,13 @@
     (architecture_path PlanDocTarget))
 
   (defunion DesignDeltaSelectionResult
-    (EMPTY
-      (run-state StateExisting))
+    (EMPTY)
     (GAP
       (gap DesignDeltaGapPayload))
     (SELECTED
       (selection DesignDeltaSelectedItemPayload))
     (BLOCKED
-      (reason String)
-      (run-state StateExisting)))
+      (reason String)))
 
   (defrecord SelectionPayload
     (work-item-id String)
@@ -361,8 +357,7 @@
       (selection SelectionPayload))
     (DRAFT_DESIGN_GAP
       (gap GapPayload))
-    (DONE
-      (run-state StateExisting))
+    (DONE)
     (BLOCKED
       (reason String)))
 

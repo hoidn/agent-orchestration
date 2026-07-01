@@ -990,14 +990,14 @@ def test_workflow_ref_bridge_omission_helpers_track_specialized_hidden_bridge_ta
     span = _inline_span()
     output_type = _workflow_output_type()
     string_type = PrimitiveTypeRef("String")
-    bridge_type = PrimitiveTypeRef("StateExisting")
+    bridge_type = PrimitiveTypeRef("ProgressLedger")
     callee_signature = WorkflowSignature(
         name="project-selected-compat",
-        params=(("item-id", string_type), ("run_state_path", bridge_type)),
+        params=(("item-id", string_type), ("progress_ledger_path", bridge_type)),
         return_type_ref=output_type,
         span=span,
         form_path=FORM_PATH,
-        private_compatibility_bridge_types={"run_state_path": bridge_type},
+        private_compatibility_bridge_types={"progress_ledger_path": bridge_type},
     )
     wrapper_signature = WorkflowSignature(
         name="invoke-runner",
@@ -1005,7 +1005,7 @@ def test_workflow_ref_bridge_omission_helpers_track_specialized_hidden_bridge_ta
             (
                 "runner",
                 WorkflowRefTypeRef(
-                    name="WorkflowRef[(String StateExisting) -> WorkflowOutput]",
+                    name="WorkflowRef[(String ProgressLedger) -> WorkflowOutput]",
                     param_type_refs=(string_type, bridge_type),
                     return_type_ref=output_type,
                 ),
@@ -1055,14 +1055,14 @@ def test_private_bridge_type_helper_merges_omitted_local_callee_bridge_inputs() 
     span = _inline_span()
     output_type = _workflow_output_type()
     string_type = PrimitiveTypeRef("String")
-    bridge_type = PrimitiveTypeRef("StateExisting")
+    bridge_type = PrimitiveTypeRef("ProgressLedger")
     callee_signature = WorkflowSignature(
         name="project-selected-compat",
-        params=(("item-id", string_type), ("run_state_path", bridge_type)),
+        params=(("item-id", string_type), ("progress_ledger_path", bridge_type)),
         return_type_ref=output_type,
         span=span,
         form_path=FORM_PATH,
-        private_compatibility_bridge_types={"run_state_path": bridge_type},
+        private_compatibility_bridge_types={"progress_ledger_path": bridge_type},
     )
     wrapper_signature = WorkflowSignature(
         name="invoke-selected-compat",
@@ -1095,7 +1095,7 @@ def test_private_bridge_type_helper_merges_omitted_local_callee_bridge_inputs() 
             "invoke-selected-compat": wrapper_signature,
         },
     ) == {
-        "invoke-selected-compat": {"run_state_path": bridge_type}
+        "invoke-selected-compat": {"progress_ledger_path": bridge_type}
     }
 
 

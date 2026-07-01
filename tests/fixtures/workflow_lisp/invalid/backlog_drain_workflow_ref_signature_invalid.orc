@@ -50,8 +50,7 @@
     (SELECTED
       (selection SelectionPayload))
     (BLOCKED
-      (reason String)
-      (run-state StateExisting)))
+      (reason String)))
   (defunion SelectedItemResult
     (CONTINUE
       (summary-path WorkReport)

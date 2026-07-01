@@ -1468,17 +1468,17 @@ def _compatibility_bridge_request_field_authority(expr: Any) -> dict[str, str] |
     if isinstance(expr.base, NameExpr):
         base_name = expr.base.name
     fields = tuple(str(field) for field in expr.fields)
-    if base_name == "ctx" and fields == ("run_state_path",):
+    if base_name == "ctx" and fields == ("progress_ledger_path",):
         return {
             "authority_class": "compatibility_bridge",
-            "source_binding": "ctx.run_state_path",
-            "bridge_field_name": "run_state_path",
+            "source_binding": "ctx.progress_ledger_path",
+            "bridge_field_name": "progress_ledger_path",
         }
-    if base_name == "inputs" and fields == ("ctx", "run_state_path"):
+    if base_name == "inputs" and fields == ("ctx", "progress_ledger_path"):
         return {
             "authority_class": "compatibility_bridge",
-            "source_binding": "ctx.run_state_path",
-            "bridge_field_name": "run_state_path",
+            "source_binding": "ctx.progress_ledger_path",
+            "bridge_field_name": "progress_ledger_path",
         }
     return None
 
@@ -1486,11 +1486,11 @@ def _compatibility_bridge_request_field_authority(expr: Any) -> dict[str, str] |
 def _compatibility_bridge_request_field_authority_from_ref(
     ref: str,
 ) -> dict[str, str] | None:
-    if ref == "inputs.ctx__run_state_path":
+    if ref == "inputs.ctx__progress_ledger_path":
         return {
             "authority_class": "compatibility_bridge",
-            "source_binding": "ctx.run_state_path",
-            "bridge_field_name": "run_state_path",
+            "source_binding": "ctx.progress_ledger_path",
+            "bridge_field_name": "progress_ledger_path",
         }
     return None
 

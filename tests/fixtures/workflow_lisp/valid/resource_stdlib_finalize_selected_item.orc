@@ -21,10 +21,6 @@
     :kind relpath
     :under "state"
     :must-exist false)
-  (defpath StateExisting
-    :kind relpath
-    :under "state"
-    :must-exist true)
   (defpath BacklogActivePath
     :kind relpath
     :under "docs/backlog/active"
@@ -46,8 +42,7 @@
   (defrecord SelectedItem
     (item-id String)
     (item-path BacklogActivePath)
-    (is-active Bool)
-    (final-plan-gate-state StateExisting))
+    (is-active Bool))
   (defrecord ResourceTransitionResult
     (resource-id String)
     (from Queue)
@@ -70,12 +65,10 @@
       (blocker-class BlockerClass)))
   (defunion SelectedItemResult
     (CONTINUE
-      (summary-path WorkReport)
-      (run-state StateExisting))
+      (summary-path WorkReport))
     (BLOCKED
       (summary-path WorkReport)
-      (blocker-class BlockerClass)
-      (run-state StateExisting)))
+      (blocker-class BlockerClass)))
   (defworkflow roadmap-sync
     ((item-id String))
     -> RoadmapSyncResult

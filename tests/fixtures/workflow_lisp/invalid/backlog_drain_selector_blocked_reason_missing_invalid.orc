@@ -47,8 +47,7 @@
       (gap GapPayload))
     (SELECTED
       (selection SelectionPayload))
-    (BLOCKED
-      (run-state StateExisting)))
+    (BLOCKED))
   (defunion SelectedItemResult
     (CONTINUE
       (summary-path WorkReport)

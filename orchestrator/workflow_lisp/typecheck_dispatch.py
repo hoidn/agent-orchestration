@@ -3124,11 +3124,10 @@ def _validate_selector_workflow_ref(
             span=span,
             form_path=form_path,
         )
-    _require_union_variant_path_field(
+    _require_union_variant_exact_field_names(
         signature.return_type_ref,
         "EMPTY",
-        "run-state",
-        expected_under="state",
+        expected_fields=(),
         span=span,
         form_path=form_path,
     )
@@ -3154,15 +3153,32 @@ def _validate_selector_workflow_ref(
         span=span,
         form_path=form_path,
     )
-    _require_union_variant_path_field(
+    _require_union_variant_exact_field_names(
         signature.return_type_ref,
         "BLOCKED",
-        "run-state",
-        expected_under="state",
+        expected_fields=("reason",),
         span=span,
         form_path=form_path,
     )
     return selected_payload_type, gap_payload_type
+
+
+def _backlog_drain_blocker_class_type(
+    type_env: FrontendTypeEnvironment,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    blocker_type_name = (
+        "BlockerClass"
+        if "BlockerClass" in getattr(type_env, "_type_refs", {})
+        else "std/resource::BlockerClass"
+    )
+    return type_env.resolve_type(
+        blocker_type_name,
+        span=span,
+        form_path=form_path,
+    )
 
 
 def _validate_run_item_workflow_ref(
@@ -3195,8 +3211,8 @@ def _validate_run_item_workflow_ref(
             span=span,
             form_path=form_path,
         )
-    blocker_class = type_env.resolve_type(
-        "BlockerClass",
+    blocker_class = _backlog_drain_blocker_class_type(
+        type_env,
         span=span,
         form_path=form_path,
     )
@@ -3208,11 +3224,10 @@ def _validate_run_item_workflow_ref(
         span=span,
         form_path=form_path,
     )
-    _require_union_variant_path_field(
+    _require_union_variant_exact_field_names(
         signature.return_type_ref,
         "CONTINUE",
-        "run-state",
-        expected_under="state",
+        expected_fields=("summary-path",),
         span=span,
         form_path=form_path,
     )
@@ -3232,11 +3247,10 @@ def _validate_run_item_workflow_ref(
         span=span,
         form_path=form_path,
     )
-    _require_union_variant_path_field(
+    _require_union_variant_exact_field_names(
         signature.return_type_ref,
         "BLOCKED",
-        "run-state",
-        expected_under="state",
+        expected_fields=("summary-path", "blocker-class"),
         span=span,
         form_path=form_path,
     )
@@ -3274,16 +3288,15 @@ def _validate_gap_drafter_workflow_ref(
             span=span,
             form_path=form_path,
         )
-    blocker_class = type_env.resolve_type(
-        "BlockerClass",
+    blocker_class = _backlog_drain_blocker_class_type(
+        type_env,
         span=span,
         form_path=form_path,
     )
-    _require_union_variant_path_field(
+    _require_union_variant_exact_field_names(
         signature.return_type_ref,
         "CONTINUE",
-        "run-state",
-        expected_under="state",
+        expected_fields=(),
         span=span,
         form_path=form_path,
     )
@@ -3300,6 +3313,13 @@ def _validate_gap_drafter_workflow_ref(
         "BLOCKED",
         "blocker-class",
         expected_type=blocker_class,
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_exact_field_names(
+        signature.return_type_ref,
+        "BLOCKED",
+        expected_fields=("progress-report-path", "blocker-class"),
         span=span,
         form_path=form_path,
     )
@@ -3380,6 +3400,28 @@ def _require_union_variant_exact_type(
             form_path=form_path,
         )
     return field_type
+
+
+def _require_union_variant_exact_field_names(
+    union_type: UnionTypeRef,
+    variant_name: str,
+    *,
+    expected_fields: tuple[str, ...],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    variant_fields = union_type.variant_field_types.get(variant_name)
+    actual_fields = tuple(sorted(variant_fields)) if variant_fields is not None else ()
+    if actual_fields != tuple(sorted(expected_fields)):
+        _raise_required_lint(
+            (
+                f"workflow ref return union `{union_type.name}` must expose `{variant_name}` "
+                f"with exactly {expected_fields}"
+            ),
+            code="workflow_call_signature_erased",
+            span=span,
+            form_path=form_path,
+        )
 
 
 def _require_union_variant_record_field(

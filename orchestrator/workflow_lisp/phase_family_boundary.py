@@ -61,7 +61,6 @@ COMPATIBILITY_BRIDGE_PARAM_NAMES = frozenset(
         "manifest_path",
         "architecture_bundle_path",
         "progress_ledger_path",
-        "run_state_path",
     }
 )
 
@@ -216,12 +215,14 @@ def record_direct_entry_phase_context_binding(
         source_param_name,
         requirement,
     ) in typed_workflow.signature.hidden_context_requirements.items():
-        if not private_exec_context_bootstrap_supported(requirement.context_kind):
-            continue
         type_ref = params_by_name.get(source_param_name)
+        structural_classification = classify_structural_private_exec_context(type_ref)
+        if not private_exec_context_bootstrap_supported(
+            requirement.context_kind
+        ) and structural_classification is None:
+            continue
         if not isinstance(type_ref, RecordTypeRef):
             continue
-        structural_classification = classify_structural_private_exec_context(type_ref)
         flattened_fields = tuple(
             field
             for field in derive_workflow_boundary_fields(

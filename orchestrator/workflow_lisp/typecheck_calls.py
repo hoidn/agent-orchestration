@@ -154,9 +154,11 @@ def compatibility_bridge_omission_allowed(
     active_signature = session_state.workflow_signature
     if active_signature is None or callee_signature is None:
         return False
-    if param_name != "run_state_path":
+    if param_name == "run_state_path":
         return False
     if param_name not in getattr(callee_signature, "private_compatibility_bridge_types", {}):
+        return False
+    if not getattr(active_signature, "allow_private_compatibility_bridge_omission", False):
         return False
     return callee_signature.name in getattr(
         active_signature,
@@ -382,6 +384,30 @@ def require_union_variant_exact_type(
     return field_type
 
 
+def require_union_variant_exact_field_names(
+    union_type: UnionTypeRef,
+    variant_name: str,
+    *,
+    expected_fields: tuple[str, ...],
+    span,
+    form_path: tuple[str, ...],
+) -> None:
+    from . import typecheck as compat
+
+    variant_fields = union_type.variant_field_types.get(variant_name)
+    actual_fields = tuple(sorted(variant_fields)) if variant_fields is not None else ()
+    if actual_fields != tuple(sorted(expected_fields)):
+        compat._raise_required_lint(
+            (
+                f"workflow ref return union `{union_type.name}` must expose `{variant_name}` "
+                f"with exactly {expected_fields}"
+            ),
+            code="workflow_call_signature_erased",
+            span=span,
+            form_path=form_path,
+        )
+
+
 def require_union_variant_record_field(
     union_type: UnionTypeRef,
     variant_name: str,
@@ -434,11 +460,10 @@ def validate_selector_workflow_ref(
             span=span,
             form_path=form_path,
         )
-    require_union_variant_path_field(
+    require_union_variant_exact_field_names(
         signature.return_type_ref,
         "EMPTY",
-        "run-state",
-        expected_under="state",
+        expected_fields=(),
         span=span,
         form_path=form_path,
     )
@@ -464,15 +489,28 @@ def validate_selector_workflow_ref(
         span=span,
         form_path=form_path,
     )
-    require_union_variant_path_field(
+    require_union_variant_exact_field_names(
         signature.return_type_ref,
         "BLOCKED",
-        "run-state",
-        expected_under="state",
+        expected_fields=("reason",),
         span=span,
         form_path=form_path,
     )
     return selected_payload_type, gap_payload_type
+
+
+def _backlog_drain_blocker_class_type(
+    type_env: FrontendTypeEnvironment,
+    *,
+    span,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    blocker_type_name = (
+        "BlockerClass"
+        if "BlockerClass" in getattr(type_env, "_type_refs", {})
+        else "std/resource::BlockerClass"
+    )
+    return type_env.resolve_type(blocker_type_name, span=span, form_path=form_path)
 
 
 def validate_run_item_workflow_ref(
@@ -508,7 +546,11 @@ def validate_run_item_workflow_ref(
             span=span,
             form_path=form_path,
         )
-    blocker_class = type_env.resolve_type("BlockerClass", span=span, form_path=form_path)
+    blocker_class = _backlog_drain_blocker_class_type(
+        type_env,
+        span=span,
+        form_path=form_path,
+    )
     require_union_variant_path_field(
         signature.return_type_ref,
         "CONTINUE",
@@ -517,11 +559,10 @@ def validate_run_item_workflow_ref(
         span=span,
         form_path=form_path,
     )
-    require_union_variant_path_field(
+    require_union_variant_exact_field_names(
         signature.return_type_ref,
         "CONTINUE",
-        "run-state",
-        expected_under="state",
+        expected_fields=("summary-path",),
         span=span,
         form_path=form_path,
     )
@@ -541,11 +582,10 @@ def validate_run_item_workflow_ref(
         span=span,
         form_path=form_path,
     )
-    require_union_variant_path_field(
+    require_union_variant_exact_field_names(
         signature.return_type_ref,
         "BLOCKED",
-        "run-state",
-        expected_under="state",
+        expected_fields=("summary-path", "blocker-class"),
         span=span,
         form_path=form_path,
     )
@@ -586,12 +626,15 @@ def validate_gap_drafter_workflow_ref(
             span=span,
             form_path=form_path,
         )
-    blocker_class = type_env.resolve_type("BlockerClass", span=span, form_path=form_path)
-    require_union_variant_path_field(
+    blocker_class = _backlog_drain_blocker_class_type(
+        type_env,
+        span=span,
+        form_path=form_path,
+    )
+    require_union_variant_exact_field_names(
         signature.return_type_ref,
         "CONTINUE",
-        "run-state",
-        expected_under="state",
+        expected_fields=(),
         span=span,
         form_path=form_path,
     )
@@ -608,6 +651,13 @@ def validate_gap_drafter_workflow_ref(
         "BLOCKED",
         "blocker-class",
         expected_type=blocker_class,
+        span=span,
+        form_path=form_path,
+    )
+    require_union_variant_exact_field_names(
+        signature.return_type_ref,
+        "BLOCKED",
+        expected_fields=("progress-report-path", "blocker-class"),
         span=span,
         form_path=form_path,
     )

@@ -29,8 +29,7 @@
     (SELECTED
       (selection SelectionPayload))
     (BLOCKED
-      (reason String)
-      (run-state StateExisting)))
+      (reason String)))
   (defunion GapResult
     (CONTINUE
       (run-state StateExisting))

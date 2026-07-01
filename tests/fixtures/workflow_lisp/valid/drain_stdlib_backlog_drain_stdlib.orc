@@ -5,17 +5,10 @@
   ; Stdlib-route fixture paired with
   ; tests/fixtures/workflow_lisp/valid/drain_stdlib_backlog_drain.orc.
   (import std/context :only (DrainCtx ItemCtx))
-  (import std/resource :only (SelectedItemResult))
+  (import std/resource :only (BlockerClass SelectedItemResult))
   (import std/drain :only
     (GapPayload GapResult DrainResult SelectionPayload SelectionResult backlog-drain))
   (export drain)
-  (defenum BlockerClass
-    missing_resource
-    unavailable_hardware
-    roadmap_conflict
-    external_dependency_outside_authority
-    user_decision_required
-    unrecoverable_after_fix_attempt)
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
