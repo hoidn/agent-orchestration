@@ -1,12 +1,13 @@
-Read the steering, target design, baseline design, command-adapter contract,
-typed design-gap subject record, and architecture targets before acting.
+Read the steering, target design, command-adapter contract, typed design-gap
+subject record, and architecture targets before acting. The baseline design path
+is available as the accepted baseline design contract.
 
 Draft a single implementation-architecture document for exactly the selected
-target-design gap. The baseline design is a background constraint, not the
-active work queue. This is an implementation architecture, not a replacement
-product design/spec. Keep the scope bounded to the selected gap. Do not draft
-multiple alternative architectures, do not cover multiple design gaps, and do
-not broaden the scope beyond the selected gap.
+target-design gap. The baseline design is the accepted baseline design contract
+and not the active work queue. This is an implementation architecture, not a
+replacement product design/spec. Keep the scope bounded to the selected gap. Do
+not draft multiple alternative architectures, do not cover multiple design gaps,
+and do not broaden the scope beyond the selected gap.
 
 If the selected gap changes a file that is used outside the selected gap's
 files, describe the rule those outside uses should follow too.

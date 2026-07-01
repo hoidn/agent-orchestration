@@ -1,7 +1,8 @@
-Read the steering, target design, baseline design, command-adapter contract,
-typed design-gap subject record, architecture targets, current implementation
-architecture, generated work-item context, generated check commands, and
-architecture review report before acting.
+Read the steering, target design, command-adapter contract, typed design-gap
+subject record, architecture targets, current implementation architecture,
+generated work-item context, generated check commands, and architecture review
+report before acting. The baseline design path is available as the accepted
+baseline design contract.
 
 Revise the implementation architecture for exactly the selected target-design
 gap to address the review findings.

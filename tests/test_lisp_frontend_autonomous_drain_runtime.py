@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 from dataclasses import is_dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -6748,6 +6749,40 @@ def _classify_blocked_recovery_target_design_required(workspace: Path) -> bytes:
         "TARGET_DESIGN_REVISION_REQUIRED",
         "target_design_contract_gap",
     )
+
+
+def test_blocked_recovery_materializer_accepts_fenced_json(tmp_path):
+    source_path = tmp_path / "blocked-recovery.stdout.json"
+    output_path = tmp_path / "blocked-recovery.json"
+    source_path.write_text(
+        "```json\n"
+        "{\n"
+        '  "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED",\n'
+        '  "reason": "implementation_architecture_under_scoped",\n'
+        '  "summary": "The implementation slice needs a gap design revision."\n'
+        "}\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_blocked_recovery_bundle.py"),
+            "--source-json-path",
+            str(source_path),
+        ],
+        cwd=ROOT,
+        env={"ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(output_path)},
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["blocked_recovery_route"] == "GAP_DESIGN_REVISION_REQUIRED"
+    assert payload["reason"] == "implementation_architecture_under_scoped"
 
 
 def _classify_blocked_recovery_terminal(workspace: Path) -> bytes:

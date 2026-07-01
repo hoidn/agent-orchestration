@@ -85,6 +85,36 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE", "BLOCKED"]
+  steering:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/steering_path.txt
+    under: docs
+    must_exist_target: true
+  target_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/target_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  baseline_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/baseline_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  command_adapter_contract:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/command_adapter_contract_path.txt
+    under: docs/design
+    must_exist_target: true
+  selection_bundle:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/selection_bundle_path.txt
+    under: state
+    must_exist_target: true
 
 steps:
   - name: PrepareArchitectureTargets
@@ -165,6 +195,30 @@ steps:
         - name: existing_architecture_count
           json_pointer: /existing_architecture_count
           type: integer
+
+  - name: MaterializeDesignGapInputs
+    id: materialize_design_gap_inputs
+    materialize_artifacts:
+      input_values:
+        - names:
+            - steering_path
+            - target_design_path
+            - baseline_design_path
+            - command_adapter_contract_path
+            - selection_bundle_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+    publishes:
+      - artifact: steering
+        from: steering_path
+      - artifact: target_design
+        from: target_design_path
+      - artifact: baseline_design
+        from: baseline_design_path
+      - artifact: command_adapter_contract
+        from: command_adapter_contract_path
+      - artifact: selection_bundle
+        from: selection_bundle_path
 
   - name: ValidateDesignGapDraftProviderRouting
     id: validate_design_gap_draft_provider_routing
@@ -276,16 +330,32 @@ steps:
     timeout_sec: 1800
     depends_on:
       required:
-        - ${inputs.steering_path}
-        - ${inputs.target_design_path}
-        - ${inputs.baseline_design_path}
-        - ${inputs.command_adapter_contract_path}
-        - ${inputs.selection_bundle_path}
         - ${inputs.state_root}/architecture-targets.json
       inject:
         mode: content
         position: prepend
-        instruction: "Use these files as authoritative context. Treat the first design file as the target design and the second design file as baseline context."
+        instruction: "Use these generated architecture target paths as authoritative output locations."
+    consumes:
+      - artifact: steering
+        policy: latest_successful
+        freshness: any
+      - artifact: target_design
+        policy: latest_successful
+        freshness: any
+      - artifact: baseline_design
+        policy: latest_successful
+        freshness: any
+        prompt:
+          mode: reference
+          label: Baseline design
+          description: Accepted baseline design contract.
+      - artifact: command_adapter_contract
+        policy: latest_successful
+        freshness: any
+      - artifact: selection_bundle
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["steering", "target_design", "baseline_design", "command_adapter_contract", "selection_bundle"]
     output_bundle:
       path: ${inputs.state_root}/draft-bundle.json
       fields:
@@ -332,17 +402,33 @@ steps:
           timeout_sec: 1800
           depends_on:
             required:
-              - ${inputs.steering_path}
-              - ${inputs.target_design_path}
-              - ${inputs.baseline_design_path}
-              - ${inputs.command_adapter_contract_path}
-              - ${inputs.selection_bundle_path}
               - ${inputs.state_root}/architecture-targets.json
               - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
             inject:
               mode: content
               position: prepend
-              instruction: "Use these files as authoritative context. Treat the first design file as the target design and the second design file as baseline context."
+              instruction: "Use these generated architecture target paths and the drafted implementation architecture as authoritative context."
+          consumes:
+            - artifact: steering
+              policy: latest_successful
+              freshness: any
+            - artifact: target_design
+              policy: latest_successful
+              freshness: any
+            - artifact: baseline_design
+              policy: latest_successful
+              freshness: any
+              prompt:
+                mode: reference
+                label: Baseline design
+                description: Accepted baseline design contract.
+            - artifact: command_adapter_contract
+              policy: latest_successful
+              freshness: any
+            - artifact: selection_bundle
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["steering", "target_design", "baseline_design", "command_adapter_contract", "selection_bundle"]
           output_bundle:
             path: ${inputs.state_root}/architecture-review.json
             fields:
@@ -395,11 +481,6 @@ steps:
                     timeout_sec: 1800
                     depends_on:
                       required:
-                        - ${inputs.steering_path}
-                        - ${inputs.target_design_path}
-                        - ${inputs.baseline_design_path}
-                        - ${inputs.command_adapter_contract_path}
-                        - ${inputs.selection_bundle_path}
                         - ${inputs.state_root}/architecture-targets.json
                         - ${parent.steps.PrepareArchitectureTargets.artifacts.architecture_path}
                         - ${parent.steps.PrepareArchitectureTargets.artifacts.work_item_context_path}
@@ -409,6 +490,27 @@ steps:
                         mode: content
                         position: prepend
                         instruction: "Use these files as authoritative context. Revise only the current implementation architecture and its generated handoff files."
+                    consumes:
+                      - artifact: steering
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: target_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: baseline_design
+                        policy: latest_successful
+                        freshness: any
+                        prompt:
+                          mode: reference
+                          label: Baseline design
+                          description: Accepted baseline design contract.
+                      - artifact: command_adapter_contract
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: selection_bundle
+                        policy: latest_successful
+                        freshness: any
+                    prompt_consumes: ["steering", "target_design", "baseline_design", "command_adapter_contract", "selection_bundle"]
                     output_bundle:
                       path: ${inputs.state_root}/draft-bundle.json
                       fields:
