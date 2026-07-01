@@ -4810,6 +4810,7 @@ def test_resolve_drain_iteration_status_maps_recovery_routes(tmp_path):
 
     cases = [
         ("SELECT_NORMAL_WORK", "ignored", "ignored", "ignored", "DONE", "DONE"),
+        ("SELECT_DONE_REVIEW", "ignored", "ignored", "ignored", "DONE", "DONE"),
         ("SELECT_PREREQUISITE_WORK", "ignored", "ignored", "CONTINUE", "CONTINUE", "CONTINUE"),
         ("SELECT_PREREQUISITE_WORK", "ignored", "ignored", "BLOCKED", "CONTINUE", "BLOCKED"),
         ("RECOVER_BLOCKED_DESIGN_GAP", "RUN_RECOVERED_GAP", "CONTINUE", "IGNORED", "IGNORED", "CONTINUE"),

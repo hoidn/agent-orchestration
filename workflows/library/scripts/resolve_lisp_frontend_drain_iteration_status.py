@@ -69,7 +69,7 @@ def main() -> int:
     args = parser.parse_args()
 
     route = json.loads(Path(args.pre_selection_bundle_path).read_text(encoding="utf-8")).get("pre_selection_route")
-    if route == "SELECT_NORMAL_WORK":
+    if route in {"SELECT_NORMAL_WORK", "SELECT_DONE_REVIEW"}:
         status = _read_status(args.normal_status_path, valid=VALID_STATUS, label="normal")
     elif route == "SELECT_PREREQUISITE_WORK":
         status = _read_status(args.prerequisite_recovery_status_path, valid=VALID_STATUS, label="prerequisite recovery")
