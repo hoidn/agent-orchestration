@@ -7,4 +7,7 @@ approved plan without rediscovering scope.
 If the plan changes shared behavior, keep the fix generic rather than
 selected-case-specific.
 
+When planning a fix for observed broken behavior, identify the causal failure
+before choosing implementation steps.
+
 Write the plan to the relpath recorded in `plan_path.txt`.
