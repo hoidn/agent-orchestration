@@ -4814,7 +4814,7 @@ def test_resolve_drain_iteration_status_maps_recovery_routes(tmp_path):
         ("SELECT_PREREQUISITE_WORK", "ignored", "ignored", "BLOCKED", "CONTINUE", "BLOCKED"),
         ("RECOVER_BLOCKED_DESIGN_GAP", "RUN_RECOVERED_GAP", "CONTINUE", "IGNORED", "IGNORED", "CONTINUE"),
         ("RECOVER_BLOCKED_DESIGN_GAP", "RUN_RECOVERED_GAP", "BLOCKED", "IGNORED", "IGNORED", "BLOCKED"),
-        ("RECOVER_BLOCKED_DESIGN_GAP", "RUN_RECOVERED_GAP", "IGNORED", "IGNORED", "IGNORED", "BLOCKED"),
+        ("RECOVER_BLOCKED_DESIGN_GAP", "RUN_RECOVERED_GAP", "IGNORED", "IGNORED", "IGNORED", "CONTINUE"),
         ("RECOVER_BLOCKED_DESIGN_GAP", "CONTINUE", "IGNORED", "IGNORED", "IGNORED", "CONTINUE"),
         ("RECOVER_BLOCKED_DESIGN_GAP", "BLOCKED", "IGNORED", "IGNORED", "IGNORED", "BLOCKED"),
         ("BLOCKED", "IGNORED", "IGNORED", "IGNORED", "IGNORED", "BLOCKED"),
@@ -4857,6 +4857,40 @@ def test_resolve_drain_iteration_status_maps_recovery_routes(tmp_path):
         )
 
         assert output.read_text(encoding="utf-8").strip() == expected
+
+
+def test_resolve_drain_iteration_status_uses_recovered_child_output_value(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    script = str(ROOT / "workflows/library/scripts/resolve_lisp_frontend_drain_iteration_status.py")
+    root = workspace / "case"
+    root.mkdir()
+    bundle = root / "pre-selection.json"
+    recovery_path = root / "recovery.txt"
+    output = root / "output.txt"
+    bundle.write_text(json.dumps({"pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP"}) + "\n", encoding="utf-8")
+    recovery_path.write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        script,
+        "--pre-selection-bundle-path",
+        bundle.relative_to(workspace).as_posix(),
+        "--normal-status-path",
+        "state/missing-normal.txt",
+        "--recovery-record-status-path",
+        recovery_path.relative_to(workspace).as_posix(),
+        "--recovered-work-item-status-path",
+        "state/private-child-status-not-published.txt",
+        "--recovered-work-item-status-value",
+        "CONTINUE",
+        "--prerequisite-recovery-status-path",
+        "state/missing-prerequisite.txt",
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    assert output.read_text(encoding="utf-8").strip() == "CONTINUE"
 
 
 def test_resolve_drain_iteration_status_rejects_unrecorded_blocked_terminal(tmp_path):
@@ -5146,6 +5180,64 @@ def test_record_recovered_retry_unavailable_keeps_blocked_reason_visible(tmp_pat
     assert blocked["retry_block_reason"] == "recovered_retry_status_missing"
     assert state["history"][-1]["event"] == "recovered_retry_unavailable"
     assert state["history"][-1]["reason"] == "recovered_retry_status_missing"
+
+
+def test_record_recovered_retry_unavailable_uses_recovered_child_output_value(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/drain/run_state.json"
+    bundle = workspace / "state/drain/pre-selection.json"
+    recovery_status = workspace / "state/drain/recovery-status.txt"
+    output = workspace / "state/drain/retry-availability.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema": "lisp_frontend_autonomous_drain_run_state/v1",
+                "completed_items": [],
+                "completed_design_gaps": [],
+                "blocked_items": {},
+                "blocked_design_gaps": {
+                    "parser-syntax": {
+                        "reason": "implementation_blocked",
+                        "recovery_route": "GAP_DESIGN_REVISION_REQUIRED",
+                        "recovery_reason": "implementation_architecture_under_scoped",
+                    }
+                },
+                "history": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bundle.write_text(
+        json.dumps({"pre_selection_route": "RECOVER_BLOCKED_DESIGN_GAP", "design_gap_id": "parser-syntax"}) + "\n",
+        encoding="utf-8",
+    )
+    recovery_status.write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/record_lisp_frontend_recovered_retry_unavailable.py"),
+        "--pre-selection-bundle-path",
+        bundle.relative_to(workspace).as_posix(),
+        "--recovery-record-status-path",
+        recovery_status.relative_to(workspace).as_posix(),
+        "--recovered-work-item-status-path",
+        "state/drain/private-child-status-not-published.txt",
+        "--recovered-work-item-status-value",
+        "CONTINUE",
+        "--run-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--output",
+        output.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["record_status"] == "RETRY_STATUS_AVAILABLE"
+    assert "retry_block_reason" not in state["blocked_design_gaps"]["parser-syntax"]
+    assert state["history"] == []
 
 
 def test_detect_prior_blocked_design_gap_recovers_roadmap_conflict(tmp_path):

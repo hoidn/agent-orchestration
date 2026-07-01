@@ -25,8 +25,17 @@ def _read_status(path: str, *, valid: set[str], label: str) -> str:
 def _read_optional_recovered_status(path: str) -> str:
     path_obj = Path(path)
     if not path_obj.exists():
-        return "BLOCKED"
+        return "CONTINUE"
     return _read_status(path, valid=VALID_STATUS, label="recovered work-item")
+
+
+def _read_optional_recovered_status_value_or_path(value: str, path: str) -> str:
+    value = value.strip()
+    if value:
+        if value not in VALID_STATUS:
+            raise SystemExit(f"Unexpected recovered work-item status value: {value}")
+        return value
+    return _read_optional_recovered_status(path)
 
 
 def _read_optional_step_back_status(path: str) -> str:
@@ -53,6 +62,7 @@ def main() -> int:
     parser.add_argument("--prerequisite-recovery-status-path", required=True)
     parser.add_argument("--recovery-record-status-path", required=True)
     parser.add_argument("--recovered-work-item-status-path", required=True)
+    parser.add_argument("--recovered-work-item-status-value", default="")
     parser.add_argument("--step-back-status-path", default="")
     parser.add_argument("--run-state-path", default="")
     parser.add_argument("--output", required=True)
@@ -70,7 +80,10 @@ def main() -> int:
             label="recovery record",
         )
         if recovery_status == "RUN_RECOVERED_GAP":
-            status = _read_optional_recovered_status(args.recovered_work_item_status_path)
+            status = _read_optional_recovered_status_value_or_path(
+                args.recovered_work_item_status_value,
+                args.recovered_work_item_status_path,
+            )
         elif recovery_status == "BLOCKED":
             status = "BLOCKED"
         else:

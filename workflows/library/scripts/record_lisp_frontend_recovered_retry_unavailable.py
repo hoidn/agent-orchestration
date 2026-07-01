@@ -56,6 +56,7 @@ def main() -> int:
     parser.add_argument("--pre-selection-bundle-path", required=True)
     parser.add_argument("--recovery-record-status-path", required=True)
     parser.add_argument("--recovered-work-item-status-path", required=True)
+    parser.add_argument("--recovered-work-item-status-value", default="")
     parser.add_argument("--run-state-path", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -64,7 +65,8 @@ def main() -> int:
     route = str(pre_selection.get("pre_selection_route") or "").strip()
     design_gap_id = str(pre_selection.get("design_gap_id") or "").strip()
     recovery_status = _read_value_or_path(args.recovery_record_status_path)
-    recovered_status_exists = Path(args.recovered_work_item_status_path).exists()
+    recovered_status = args.recovered_work_item_status_value.strip()
+    recovered_status_exists = bool(recovered_status) or Path(args.recovered_work_item_status_path).exists()
     reason = ""
     record_status = "NOT_APPLICABLE"
 
