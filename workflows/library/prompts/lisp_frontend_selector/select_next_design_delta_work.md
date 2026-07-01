@@ -1,5 +1,6 @@
-Read the consumed steering, target design, active backlog items, and design-gap
-work graph before acting.
+Read the consumed steering, target design, and selector manifest before acting.
+Existing selectable work is limited to manifest rows; use target-design
+reasoning only to propose genuinely new bounded gaps.
 
 Select exactly one next implementation unit for the target design.
 
