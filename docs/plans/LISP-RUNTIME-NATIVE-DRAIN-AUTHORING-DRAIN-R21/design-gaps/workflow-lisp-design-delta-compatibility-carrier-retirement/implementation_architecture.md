@@ -8,204 +8,271 @@ Command/effect authority: `docs/design/workflow_command_adapter_contract.md`
 
 ## Scope
 
-This slice retires the live `run_state_path` compatibility carrier from
-ordinary Design Delta drain, work-item, and stdlib child-call composition.
+This architecture closes exactly the selected Design Delta compatibility-carrier
+gap: imported Design Delta drain composition must no longer depend on
+`run_state_path` / `run-state` as ordinary internal workflow data.
 
-The selected gap is bounded to these current compatibility rows and the source
-surfaces that produce them:
+The bounded retirement surface is:
 
-- `drain.loop.run_state_path`
-- `work_item.loop.run_state_path`
-- `transitions.resource.drain_run_state`
+- shared stdlib result and workflow-ref contracts that still force or tolerate
+  a run-state carrier;
+- Design Delta family types or adapters that still expose a `run-state` payload
+  for selection or terminal routing;
+- frontend private compatibility-bridge admission and lowering classification
+  that still treats `run_state_path` as an omittable internal caller/callee
+  value; and
+- certified adapter rows whose only remaining role is retired or quarantined
+  lineage.
 
-The slice does not redesign `backlog-drain`, `finalize-selected-item`,
-provider request records, gap re-entry convergence, public boundary bootstrap,
-or YAML-primary promotion. Those remain governed by their existing design gaps
-and parity gates.
+The architecture does not redesign provider request records, gap re-entry
+convergence, public publication, consumer-side rendering, YAML-primary
+promotion, report/census generation, migration evidence, or the whole
+`std/drain` API. It may touch shared code only where that shared code is the
+owner of carrier admission, validation, lowering, or certified-adapter policy.
 
-## Problem Statement
+## Current Checkout Baseline
 
-The current Design Delta route still uses `run_state_path` as an internal
-transport value. It appears in drain context construction, selector prompt
-subjects, selection payloads, selected-item stdlib adapters, work-item recovery
-routes, and transition helpers. The retirement manifest still records
-`KEPT_COMPATIBILITY` for the parent drain loop carrier, the work-item loop
-carrier, and the `drain-run-state` bridge backing.
+The current checkout is already partly carrier-free:
 
-That shape conflicts with the target design's "No Internal
-Compatibility-Carrier Lane" rule: a relpath such as `run_state_path` must not
-cross stdlib child-call boundaries or ordinary family composition merely to keep
-YAML-era state files alive.
+- `std/drain::SelectionResult` has `EMPTY` and reason-only `BLOCKED`.
+- `std/drain::GapResult.CONTINUE` carries no payload.
+- `std/resource::SelectedItemResult` carries summary and blocker values, not
+  run-state.
+- `DesignDeltaDrainCtx`, `DesignDeltaSelectionResult`,
+  `DesignDeltaGapResult.CONTINUE`, `drain.orc`, `selector.orc`, and
+  `stdlib_adapters.orc` no longer thread `run_state_path` through the primary
+  parent-drain route.
+- `drain-run-state` resource state in `std/drain.orc` and Design Delta
+  `transitions.orc` is runtime-native `state-layout` backed.
+- `materialize_lisp_frontend_work_item_inputs` is checked into the command
+  boundary manifest with `retirement_status: retired`.
+
+The remaining pressure is narrower and must be retired or quarantined:
+
+- `lisp_frontend_design_delta/types.orc` still contains an older
+  `SelectionResult.DONE (run-state StateExisting)` shape.
+- `orchestrator/workflow_lisp/typecheck_calls.py` still has explicit
+  compatibility-bridge omission for `run_state_path`.
+- `orchestrator/workflow_lisp/phase_family_boundary.py`,
+  `orchestrator/workflow_lisp/lowering/workflow_calls.py`, and
+  `orchestrator/workflow_lisp/lowering/phase_scope.py` still classify
+  `run_state_path` as a known compatibility bridge input or source binding.
+- Tests still contain a mix of negative fixtures, historical compatibility
+  behavior, and live-route assertions around `run_state_path` / `run-state`.
+- Historical run-state files used by build/reference-family evidence still
+  exist as run evidence; those files are not automatically forbidden, but they
+  must not become typed composition transport.
 
 ## Ownership
 
-The Design Delta workflow family owns the domain records and projections in
-`workflows/library/lisp_frontend_design_delta/`. It owns whether selector,
-work-item, gap, blocked-recovery, and terminal records carry domain facts or
-compatibility carriers.
+The Design Delta workflow family owns domain records and projections under
+`workflows/library/lisp_frontend_design_delta/`. It must keep selector, gap,
+selected-item, work-item, and terminal composition typed and carrier-free. If an
+older family type remains for historical compatibility, it must be quarantined
+outside the promoted parent route and excluded from ordinary stdlib
+composition.
 
-The imported `std/drain` route owns the fixed parent loop call shape. The
-family must satisfy that shape with typed `DesignDeltaSelectionResult`,
-`DesignDeltaSelectedItemPayload`, `DesignDeltaGapPayload`, and terminal values,
-not by widening workflow refs or smuggling `run_state_path` through payloads.
+The imported `std/drain` owner lane owns the fixed `backlog-drain` call shape:
+`selector`, `run-item`, and `gap-drafter` are typed workflow refs with fixed
+arity. That owner lane must not require `run-state` fields for `EMPTY`,
+`BLOCKED`, `GAP.CONTINUE`, `run-item CONTINUE`, or `run-item BLOCKED` typed
+value return.
 
-The Workflow Lisp frontend and WCC lowering own private executable context,
-hidden compatibility bridge projection, boundary authority reporting, source
-maps, and Semantic IR visibility. They may expose a legacy bridge at a boundary,
-but they must not make that bridge look like an ordinary typed value in
-internal composition.
+The `std/resource` owner lane owns selected-item finalization and
+runtime-native selected-item outcome transitions. It must return typed
+`SelectedItemResult` values without using summary files or run-state paths as
+hidden value-return prerequisites.
 
-The runtime, `StateLayout`, and resource-transition substrate own private
-checkpoint/resume state, runtime-derived resource identity, transition audit,
-and idempotent transition replay. Repeated drain/work-item state mutation
-targets the runtime-native declared transition lane.
+The Workflow Lisp frontend, WCC lowering, shared validation, Semantic IR,
+source-map, and build-artifact layers own private context binding,
+compatibility bridge classification, generated path authority, and diagnostics.
+Any shared repair for this gap must be a generic rule, not a Design
+Delta-specific compiler, lowerer, validator, or report exception.
+
+The runtime, `StateLayout`, and transition executor own runtime-native
+`RESOURCE_STATE` and `TRANSITION_AUDIT` paths. A runtime-native resource state
+path is not a Workflow Lisp `run_state_path` compatibility carrier.
 
 `docs/design/workflow_command_adapter_contract.md` owns any retained script,
-command step, certified adapter, or legacy adapter boundary. This slice must
-not add inline Python or shell, report parsing, pointer-as-state behavior, or
-uncertified scripts to replace the carrier.
+command step, command-boundary manifest row, certified adapter, legacy adapter,
+or runtime-native promotion decision touched by this slice.
 
 ## Source Surfaces
 
-Expected source surfaces for this gap are limited to:
+Primary source surfaces are:
 
-- `workflows/library/lisp_frontend_design_delta/drain.orc`
-- `workflows/library/lisp_frontend_design_delta/selector.orc`
-- `workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc`
-- `workflows/library/lisp_frontend_design_delta/stdlib_adapters.orc`
-- `workflows/library/lisp_frontend_design_delta/work_item.orc`
-- `workflows/library/lisp_frontend_design_delta/work_item_bridge_support.orc`
-- `workflows/library/lisp_frontend_design_delta/transitions.orc`
-- `workflows/library/lisp_frontend_design_delta/types.orc`
-- focused tests for build artifacts, Design Delta compile feasibility,
-  resource transitions, migration parity, and negative retirement diagnostics
+- `orchestrator/workflow_lisp/typecheck_calls.py`
+- `orchestrator/workflow_lisp/phase_family_boundary.py`
+- `orchestrator/workflow_lisp/lowering/workflow_calls.py`
+- `orchestrator/workflow_lisp/lowering/phase_scope.py`
+- `orchestrator/workflow_lisp/stdlib_modules/std/drain.orc`
+- `orchestrator/workflow_lisp/stdlib_modules/std/resource.orc`
+- `workflows/library/lisp_frontend_design_delta/*.orc`
+- focused tests for Design Delta feasibility, stdlib drain/resource behavior,
+  workflow-call/lowering behavior, bridge compatibility, typed prompt inputs,
+  and build artifacts.
 
-Shared compiler or runtime code is in scope only when the carrier cannot be
-removed without a generic private-context, resource-transition, source-map, or
-boundary-authority fix. Any such shared change must be expressed as a generic
-Workflow Lisp rule, not a Design Delta name check.
+Report, census, parity, and checked-manifest files are conditional consumers,
+not primary source surfaces for this slice. Update them only when a changed
+executable contract produces a concrete diff that a current public/runtime
+consumer reads.
 
-If files outside these surfaces still consume `run_state_path`, they must obey
-the same rule: it is either a declared legacy/public compatibility bridge with
-owner, consumer, authority class, and retirement condition, or it is removed
-from ordinary internal composition. It must not be reclassified as
-`runtime_derived`, repackaged under another field name, or threaded through
+Conditional source surfaces are in scope only when carrier retirement exposes a
+generic WCC/schema-2 prerequisite failure:
+
+- match/proof lowering;
+- child-workflow value return;
+- imported stdlib terminal reprojection;
+- source-map or Semantic IR projection for private context and resource
+  transitions.
+
+If any file outside these surfaces still uses `run_state_path` or `run-state`
+for ordinary Workflow Lisp composition, it follows the same rule: remove the
+carrier or isolate it as an explicit public/legacy bridge with owner, consumer,
+schema, authority class, and retirement condition. It must not be reclassified
+as `runtime_derived`, renamed as another relpath carrier, or threaded through
 workflow refs as domain data.
 
 ## Contract
 
-Typed values are the internal semantic channel. The promoted Design Delta
-parent route must pass domain records, union variants, resource handles, and
-transition results through drain and work-item composition.
+Typed values are the semantic channel for the promoted Design Delta parent
+route. Drain and work-item composition passes records, unions, resource handles,
+transition results, and materialized views only at declared consumer seams.
 
-`run_state_path` is allowed only in these forms:
+`run_state_path` / `run-state` is allowed only as:
 
-- an explicitly declared public or legacy compatibility bridge for a named
-  external/YAML-era consumer;
-- a checked compatibility fixture that is not used as evidence for the
-  promoted route;
-- historical-run compatibility metadata; or
-- a certified adapter boundary that still consumes the path and declares typed
-  inputs, outputs, effects, fixtures, path-safety rules, error taxonomy,
-  source-map behavior, owner, and retirement condition.
+- historical-run evidence outside typed composition;
+- a negative fixture proving the carrier is rejected;
+- a compatibility fixture that is not promoted-route evidence;
+- an explicitly declared public or legacy bridge with named consumer, owner,
+  authority class, schema, and retirement condition; or
+- a certified adapter input where the adapter remains live for a real external
+  or legacy protocol and satisfies the command-adapter contract.
 
-`run_state_path` is not allowed as:
+It is forbidden as:
 
-- a field of high-level drain, selection, selected-item, gap, or terminal
-  records used for ordinary stdlib composition;
-- a loop-state field used to resume or route the parent drain or work-item
-  loop;
-- a hidden value injected into selected-item or gap payloads to satisfy child
-  calls;
-- a required argument to domain finalizers, blocked-recovery projection, or
-  terminal classification helpers;
-- the semantic backing identity for `drain-run-state` on the promoted
-  runtime-native transition route; or
+- a field on high-level drain, selector, selected-item, gap, work-item, or
+  terminal records used for imported stdlib composition;
+- a parent loop-state or child loop-state field;
+- an invisible value injected to satisfy `selector`, `run-item`, `gap-drafter`,
+  finalizer, or transition-wrapper workflow-ref validation;
 - a provider prompt fact unless the provider is explicitly judging a declared
-  compatibility bridge.
+  compatibility bridge;
+- a materialized view consumed as typed state;
+- a resource identity for runtime-native `drain-run-state`; or
+- a hidden prerequisite for returning `DrainResult`, `SelectedItemResult`, or a
+  family terminal union.
 
-The `drain-run-state` resource must be identified by runtime-owned resource
-identity or another typed transition subject on the promoted route. If a
-bridge-backed resource alias remains for legacy behavior, it must be isolated
-from `std/drain` and work-item composition and labeled as compatibility, not as
-the target state model.
+Shared stdlib contracts must preserve carrier-free value return:
+
+- selector `EMPTY` is a typed terminal condition with no run-state payload;
+- selector `BLOCKED` carries typed reason data only;
+- `gap-drafter` `CONTINUE` is control flow with no payload carrier;
+- `run-item` / `SelectedItemResult` returns summary and blocker values, not
+  run-state transport;
+- terminal effects such as `record-drain-outcome`, publication, summary
+  rendering, compatibility bridges, or adapter calls are explicit consumers
+  after typed value return; and
+- validator checks preserve fixed arity and typed payload requirements without
+  requiring path-carrier fields only because historical stdlib shapes had them.
+
+## Command Adapter And Runtime-Native Policy
+
+No new inline Python, shell, heredocs, stdout JSON semantics, report parsing,
+pointer-as-state behavior, ad hoc JSON rewrites, or uncertified scripts are
+allowed in this slice.
+
+`materialize_lisp_frontend_work_item_inputs` may remain in the command-boundary
+manifest only as a certified row with retired or quarantined compatibility
+status. It must not be invoked by the promoted Design Delta parent route, used
+to reconstruct typed work-item state, or counted as evidence that an internal
+carrier remains acceptable.
+
+Runtime-native `resource-transition` remains the target for `drain-run-state`
+and selected-item outcome mutation. Transition evidence must expose request and
+result types, write set, idempotency fields, audit projection, source-map
+provenance, backend kind, and fail-closed conflict behavior. If a legacy command
+adapter remains for state mutation, it is a compatibility backend with the same
+typed transition contract and explicit retirement metadata.
 
 ## Allowed Shapes
 
 Allowed implementation shapes include:
 
-- removing `run_state_path` from `DesignDeltaDrainCtx`,
-  `DesignDeltaSelectedItemPayload`, `DesignDeltaSelectionResult`,
-  `DesignDeltaGapResult`, and selected-item terminal results where those types
-  are used for internal composition;
-- replacing run-state path transport with typed terminal values, resource
-  transition results, private checkpoint state, or runtime-derived resource
-  handles;
-- changing drain/work-item transition helpers so callers pass typed transition
-  requests or domain values instead of a run-state relpath;
-- keeping legacy bridge metadata only at named public or YAML compatibility
-  boundaries;
-- preserving runtime-native transition behavior while changing the resource
-  backing away from `:backing (bridge run_state_path)`.
+- removing or quarantining stale Design Delta family `run-state` variants that
+  are no longer part of promoted imported stdlib composition;
+- removing shared `run_state_path` compatibility bridge omission and lowering
+  classification when no declared public or legacy consumer owns that bridge;
+- keeping runtime-native `drain-run-state` state-layout and audit evidence as
+  resource-transition evidence rather than carrier evidence;
+- preserving Design Delta source records that are already carrier-free;
+- preserving historical run-state files as run evidence when they are not read
+  as typed Workflow Lisp authority;
+- keeping `materialize_lisp_frontend_work_item_inputs` as retired manifest
+  lineage when it is unreferenced by the promoted route;
+- leaving report/census/parity rows untouched when they are historical,
+  diagnostic, or unchanged by the executable carrier retirement;
+- maintaining negative coverage that rejects carrier reintroduction as public
+  input, loop state, workflow-call binding, runtime-derived reclassification,
+  pointer authority, materialized-view authority, report parsing, or adapter
+  semantics; and
+- repairing exposed generic WCC/schema-2 hidden-context, workflow-call,
+  source-map, or terminal reprojection defects with non-Design-Delta fixture
+  evidence.
 
 ## Forbidden Shapes
 
 This slice must not:
 
 - rename `run_state_path` to another internal relpath field and keep the same
-  transport behavior;
-- widen imported `backlog-drain`, `run-item`, or `gap-drafter` workflow-ref
-  signatures;
-- add wrapper workflows whose only purpose is to carry the path through a fixed
-  stdlib boundary;
-- make rendered reports, pointer files, debug YAML, provider prose, command
-  stdout, or compatibility bundles semantic routing authority;
-- use a materialized view as the internal typed value;
-- keep `record-drain-terminal-outcome-stdlib`,
-  `record-design-gap-progress`, `record-work-item-blocked-recovery-summary`, or
-  equivalent helpers path-shaped if they are part of the promoted route;
-- add inline Python/shell, ad hoc JSON rewrites, or uncertified scripts; or
-- claim YAML-primary replacement from compile, validation, or smoke success
-  alone.
-
-## Command Adapter And Runtime-Native Policy
-
-Any retained command boundary touched by this slice follows the command-adapter
-contract. Existing certified external tools may remain when they do real
-external validation or legacy protocol work, but they cannot become a loophole
-for hidden run-state mutation.
-
-For transition behavior, the preferred target is runtime-native
-`resource-transition` with declared request/result types, write set,
-idempotency fields, audit projection, source-map provenance, and fail-closed
-conflict behavior. A certified adapter may remain only as an explicit
-compatibility backend with the same typed transition contract and retirement
-metadata.
+  behavior;
+- replace `run-state` with a one-field surrogate carrier;
+- widen `backlog-drain`, `selector`, `run-item`, `gap-drafter`, or finalizer
+  workflow-ref signatures;
+- add wrapper workflows whose only purpose is preserving the carrier;
+- rely on compatibility bundle rereads, pointer files, rendered reports,
+  provider prose, debug YAML, or command stdout as semantic authority;
+- make terminal effect execution a prerequisite for typed child-call value
+  return;
+- add Design Delta-specific compiler, lowerer, validator, source-map, or report
+  exceptions;
+- weaken variant proof, workflow-ref typechecking, structured-output
+  validation, resource-transition validation, or path-safety checks; or
+- claim YAML-primary replacement from compile, validation, smoke, or retirement
+  evidence alone.
 
 ## Acceptance Conditions
 
-The slice is accepted when the promoted Design Delta parent route shows all of
-the following:
+The slice is accepted when all of the following hold:
 
-- `lisp_frontend_design_delta/drain::drain` compiles through WCC/schema 2 and
-  passes shared validation with the imported `std/drain::backlog-drain` route.
-- Parent drain, selector, stdlib payload/adapters, and work-item composition no
-  longer carry `run_state_path` in ordinary record fields, loop state, workflow
-  call inputs, provider prompt subjects, terminal variants, or selected-item
-  payloads.
-- `carry-drain-run-state-bridge`, `project-selected-compat`, and any equivalent
-  helper are either unreferenced on the promoted route or quarantined as
-  legacy fixtures.
-- `drain-run-state` no longer uses `:backing (bridge run_state_path)` on the
-  promoted runtime-native transition route. Any legacy bridge-backed alias is
-  explicitly compatibility-only.
-- Runtime-native transitions, source maps, and Semantic IR still expose
-  transition effects and generated private state without inferring semantics
-  from path names.
-- Negative fixtures fail if the carrier is reintroduced as public input,
-  loop-state field, call-signature input, runtime-derived reclassification, or
-  checkpoint-as-authority evidence.
+- Design Delta drain, selector, stdlib adapter, work-item, type, and transition
+  source stays free of `run_state_path` / `run-state` as internal composition
+  data on the promoted parent route.
+- Imported `std/drain::backlog-drain` compiles and validates through selector
+  `EMPTY`, selector `BLOCKED`, `GAP.CONTINUE`, selected-item `CONTINUE`, and
+  selected-item `BLOCKED` routes without run-state fields.
+- Shared workflow-ref validation no longer forces `run-state` fields for
+  carrier-free selector, run-item, gap-drafter, drain terminal, selected-item
+  finalizer, or transition-wrapper routes.
+- Any remaining `run_state_path` bridge classification is tied to a named
+  public or legacy consumer with owner and retirement metadata; otherwise the
+  bridge is removed.
+- `materialize_lisp_frontend_work_item_inputs` is unreferenced by the promoted
+  route and recorded only as retired or compatibility evidence that satisfies
+  the command-adapter contract.
+- Runtime-native `drain-run-state` remains resource-transition state, not a
+  live `run_state_path` compatibility carrier.
+- Source maps, Semantic IR, executable IR, and runtime validation preserve the
+  private/public/compatibility distinction for any changed carrier boundary.
+- Negative tests fail if the carrier is reintroduced as public input, loop
+  state, workflow-call binding, runtime-derived reclassification, pointer
+  authority, report parsing, materialized-view authority, or command-adapter
+  semantics.
+- At least one non-Design-Delta fixture or focused shared test proves any
+  generic hidden-context, stdlib, validation, or lowering repair used by this
+  slice.
 
-This architecture closes only the selected compatibility-carrier gap. It does
-not certify full runtime-native drain completion, imported finalizer adoption,
-provider request-record migration, or YAML-primary promotion.
+This architecture closes only the selected compatibility-carrier retirement
+gap. It does not certify full runtime-native drain completion, provider
+request-record migration, gap convergence, consumer-side rendering completion,
+or YAML-primary promotion.

@@ -1,10 +1,15 @@
 # Std Drain Selector-Blocked Carrier Retirement Implementation Architecture
 
-Status: draft implementation architecture
+Status: retired/superseded implementation architecture
 Design gap id: `std-drain-backlog-drain-selector-blocked-run-state-carrier-retirement`
 Target design: `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
 Baseline context: `docs/design/workflow_lisp_frontend_specification.md`
 Command/effect authority: `docs/design/workflow_command_adapter_contract.md`
+
+Retirement note: superseded by the current carrier-free `std/drain` contract and
+commit `e4d9aae25669839e37be485271a14285adbd6b22`. The narrow selector-blocked
+owner-lane checks pass on the current checkout, so this guard slice is not
+selectable implementation work.
 
 ## Scope
 
