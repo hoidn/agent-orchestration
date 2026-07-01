@@ -1547,6 +1547,44 @@ steps:
             implementation_review_provider:
               ref: inputs.implementation_review_provider
 
+        - name: MaterializeRecoveredWorkItemStatus
+          id: materialize_recovered_work_item_status
+          when:
+            all_of:
+              - compare:
+                  left:
+                    ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.pre_selection_route
+                  op: eq
+                  right: RECOVER_BLOCKED_DESIGN_GAP
+              - any_of:
+                  - compare:
+                      left:
+                        ref: self.steps.DetectBlockedDesignGapRecovery.artifacts.recovery_status
+                      op: eq
+                      right: RETRY_READY
+                  - compare:
+                      left:
+                        ref: self.steps.RecordBlockedRecoveryOutcome.artifacts.recovery_drain_status
+                      op: eq
+                      right: RUN_RECOVERED_GAP
+              - compare:
+                  left:
+                    ref: self.steps.ValidateRecoveredBlockedGapArchitecture.artifacts.architecture_validation_status
+                  op: eq
+                  right: VALID
+          command:
+            - python
+            - workflows/library/scripts/write_lisp_frontend_drain_status.py
+            - --status
+            - ${self.steps.RunRecoveredBlockedGapWorkItem.artifacts.drain_status}
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
+          expected_outputs:
+            - name: drain_status
+              path: ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+
         - name: RecordRecoveredRetryUnavailable
           id: record_recovered_retry_unavailable
           when:
@@ -1576,8 +1614,6 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
             - --recovered-work-item-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
-            - --recovered-work-item-status-value
-            - ${self.steps.RunRecoveredBlockedGapWorkItem.artifacts.drain_status}
             - --run-state-path
             - ${inputs.run_state_target_path}
             - --output
@@ -1608,8 +1644,6 @@ steps:
             - ${inputs.drain_state_root}/iterations/${loop.index}/blocked-recovery-drain-status.txt
             - --recovered-work-item-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/recovered-gap/work-item/drain_status.txt
-            - --recovered-work-item-status-value
-            - ${self.steps.RunRecoveredBlockedGapWorkItem.artifacts.drain_status}
             - --step-back-status-path
             - ${inputs.drain_state_root}/iterations/${loop.index}/step-back-drain-status.txt
             - --run-state-path
