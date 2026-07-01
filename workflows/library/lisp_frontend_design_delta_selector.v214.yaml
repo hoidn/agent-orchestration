@@ -25,6 +25,19 @@ inputs:
     type: relpath
     under: state
     must_exist_target: true
+  selector_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude"]
+    default: "claude"
+  selector_model:
+    kind: scalar
+    type: string
+    default: "fable"
+  selector_effort:
+    kind: scalar
+    type: string
+    default: "high"
 
 outputs:
   selection_status:
@@ -47,6 +60,12 @@ providers:
     defaults:
       model: "${context.workflow_model}"
       effort: "${context.workflow_effort}"
+  claude:
+    command: ["claude", "-p", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "stdin"
+    defaults:
+      model: "fable"
+      effort: "high"
 
 artifacts:
   steering:
@@ -96,9 +115,112 @@ steps:
       - artifact: manifest
         from: manifest_path
 
+  - name: ValidateSelectorProviderRouting
+    id: validate_selector_provider_routing
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+        import subprocess
+        import sys
+
+        provider = sys.argv[1]
+        model = sys.argv[2]
+        effort = sys.argv[3]
+        output_path = pathlib.Path(sys.argv[4])
+
+        errors = []
+        requested_provider = provider
+        requested_model = model
+        requested_effort = effort
+        fallback_reason = ""
+        if provider == "claude" and model not in {"opus", "fable", "claude-fable-5"}:
+            errors.append(f"selector via Claude must use a supported Claude model alias, got {model!r}")
+        if provider == "codex" and not (
+            model.startswith("gpt-")
+            or "codex" in model
+        ):
+            errors.append(f"provider=codex requires a Codex/OpenAI model, got {model!r}")
+        codex_efforts = {"low", "medium", "high", "xhigh"}
+        claude_efforts = {"low", "medium", "high", "xhigh", "max"}
+        allowed_efforts = claude_efforts if provider == "claude" else codex_efforts
+        if effort not in allowed_efforts:
+            errors.append(
+                f"unsupported effort {effort!r} for provider={provider}; "
+                f"allowed={sorted(allowed_efforts)}"
+            )
+        if provider == "claude" and not errors:
+            probe = subprocess.run(
+                [
+                    "claude",
+                    "-p",
+                    "--model",
+                    model,
+                    "--effort",
+                    effort,
+                    "--permission-mode",
+                    "bypassPermissions",
+                ],
+                input="Say OK only.\n",
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=45,
+                check=False,
+            )
+            if probe.returncode != 0:
+                provider = "codex"
+                model = "gpt-5.5"
+                effort = "high"
+                fallback_reason = (
+                    "Claude selector model unavailable; falling back to Codex gpt-5.5. "
+                    + (probe.stdout or "").strip()
+                )
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "provider": provider,
+            "model": model,
+            "effort": effort,
+            "requested_provider": requested_provider,
+            "requested_model": requested_model,
+            "requested_effort": requested_effort,
+            "fallback_reason": fallback_reason,
+            "routing_status": "INVALID" if errors else "VALID",
+            "errors": errors,
+        }
+        output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        if errors:
+            raise SystemExit("; ".join(errors))
+      - ${inputs.selector_provider}
+      - ${inputs.selector_model}
+      - ${inputs.selector_effort}
+      - ${inputs.state_root}/selector-provider-routing.json
+    output_bundle:
+      path: ${inputs.state_root}/selector-provider-routing.json
+      fields:
+        - name: routing_status
+          json_pointer: /routing_status
+          type: enum
+          allowed: ["VALID", "INVALID"]
+        - name: provider
+          json_pointer: /provider
+          type: string
+        - name: model
+          json_pointer: /model
+          type: string
+        - name: effort
+          json_pointer: /effort
+          type: string
+
   - name: SelectNextWork
     id: select_next_work
-    provider: codex
+    provider: ${steps.ValidateSelectorProviderRouting.artifacts.provider}
+    provider_params:
+      model: ${steps.ValidateSelectorProviderRouting.artifacts.model}
+      effort: ${steps.ValidateSelectorProviderRouting.artifacts.effort}
     asset_file: prompts/lisp_frontend_selector/select_next_design_delta_work.md
     timeout_sec: 1800
     consumes:

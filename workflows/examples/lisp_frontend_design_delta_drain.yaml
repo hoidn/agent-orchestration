@@ -75,12 +75,25 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "codex"
+    default: "claude"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "gpt-5.5"
+    default: "fable"
   design_gap_draft_effort:
+    kind: scalar
+    type: string
+    default: "high"
+  selector_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude"]
+    default: "claude"
+  selector_model:
+    kind: scalar
+    type: string
+    default: "fable"
+  selector_effort:
     kind: scalar
     type: string
     default: "high"
@@ -531,6 +544,12 @@ steps:
                         ref: inputs.baseline_design_path
                       manifest_path:
                         ref: parent.steps.ProjectSelectorManifest.artifacts.manifest_path
+                      selector_provider:
+                        ref: inputs.selector_provider
+                      selector_model:
+                        ref: inputs.selector_model
+                      selector_effort:
+                        ref: inputs.selector_effort
               SELECT_DONE_REVIEW:
                 id: deterministic_done_review_path
                 outputs:

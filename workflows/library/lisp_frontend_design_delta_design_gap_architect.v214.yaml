@@ -42,11 +42,11 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude"]
-    default: "codex"
+    default: "claude"
   design_gap_draft_model:
     kind: scalar
     type: string
-    default: "gpt-5.5"
+    default: "fable"
   design_gap_draft_effort:
     kind: scalar
     type: string
@@ -324,10 +324,10 @@ steps:
       steps:
         - name: ReviewDesignGapArchitecture
           id: review_design_gap_architecture
-          provider: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
+          provider: codex
           provider_params:
-            model: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
-            effort: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
+            model: gpt-5.5
+            effort: high
           asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/review_implementation_architecture.md
           timeout_sec: 1800
           depends_on:
@@ -387,10 +387,10 @@ steps:
                 steps:
                   - name: ReviseDesignGapArchitecture
                     id: revise_design_gap_architecture
-                    provider: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.provider}
+                    provider: codex
                     provider_params:
-                      model: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.model}
-                      effort: ${parent.steps.ValidateDesignGapDraftProviderRouting.artifacts.effort}
+                      model: gpt-5.5
+                      effort: high
                     asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/revise_implementation_architecture.md
                     timeout_sec: 1800
                     depends_on:
